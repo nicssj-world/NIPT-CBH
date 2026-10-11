@@ -27,3 +27,8 @@ GRANT SELECT,INSERT,UPDATE ON integration_job_receipt TO worker_rw;
 GRANT SELECT ON integration_job_receipt TO app_rw;
 GRANT SELECT,INSERT ON phi_access_log TO app_rw;
 GRANT INSERT ON job_outbox TO worker_rw;
+GRANT SELECT,INSERT,UPDATE ON p2_workspace,p2_signing_session TO app_rw;
+GRANT SELECT,INSERT ON p2_case_identity,p2_doctor_version,p2_doctor_event,p2_document_revision,p2_collection_fact,p2_paper_review,p2_consent_ack,p2_consent_signature,p2_final_consent,p2_revocation,p2_disposition,p2_document_access TO app_rw;
+GRANT SELECT,INSERT ON p2_request_ack TO app_rw;
+-- The deferred S1 receipt guard reads existing HIS orders even for an Expected synthetic round.
+GRANT SELECT ON his_order TO app_rw;
