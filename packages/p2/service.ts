@@ -131,7 +131,11 @@ export async function startSigning(db:Queryable,user:Staff,id:string,input:unkno
 }
 async function patientSession(db:Queryable,raw:string,staffSessionId?:string){
  if(!/^[\w-]{43}$/.test(raw))throw new P2Error('SIGNING_SESSION_INVALID',401);
- const s=(await db.query<{id:string;case_id:string;round_id:string;document_id:string;csrf_hash:string;staff_session_id:string;preparer_id:string;expires_at:Date;state:string}>("SELECT * FROM p2_signing_session WHERE token_hash=$1 FOR UPDATE",[digest(raw)])).rows[0];
+ // Capability binding is immutable; discover it before taking locks, then use the same
+ // case-before-signing order as staff return, expiry retry and case mutations.
+ const binding=(await db.query<{id:string;case_id:string}>('SELECT id,case_id FROM p2_signing_session WHERE token_hash=$1',[digest(raw)])).rows[0];if(!binding)throw new P2Error('SIGNING_SESSION_EXPIRED_OR_INVALID',401);
+ await db.query('SELECT id FROM nipt_case WHERE id=$1 FOR UPDATE',[binding.case_id]);
+ const s=(await db.query<{id:string;case_id:string;round_id:string;document_id:string;csrf_hash:string;staff_session_id:string;preparer_id:string;expires_at:Date;state:string}>("SELECT * FROM p2_signing_session WHERE token_hash=$1 AND id=$2 AND case_id=$3 FOR UPDATE",[digest(raw),binding.id,binding.case_id])).rows[0];
  if(!s||s.state!=='Active'||new Date(s.expires_at)<=new Date()||staffSessionId&&s.staff_session_id!==staffSessionId)throw new P2Error('SIGNING_SESSION_EXPIRED_OR_INVALID',401);
  const valid=(await db.query("SELECT d.id FROM p2_document_revision d JOIN nipt_case c ON c.id=d.case_id JOIN p2_workspace w ON w.round_id=d.round_id JOIN app_session a ON a.id=$4 JOIN app_user u ON u.id=a.user_id WHERE d.id=$1 AND c.current_round_id=$2 AND w.consent_mode='Electronic' AND a.signing_suspended AND a.revoked_at IS NULL AND a.absolute_expires_at>now() AND u.enabled AND NOT EXISTS(SELECT 1 FROM p2_revocation WHERE case_id=$3) AND d.version=(SELECT max(version) FROM p2_document_revision WHERE round_id=$2 AND kind='CONSENT')",[s.document_id,s.round_id,s.case_id,s.staff_session_id])).rows[0];if(!valid)throw new P2Error('SIGNING_BINDING_INVALID',409);return s;
 }
