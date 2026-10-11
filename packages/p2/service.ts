@@ -149,7 +149,11 @@ export async function patientAction(db:Queryable,raw:string,input:unknown,csrf:{
 /** Called only by the narrow same-origin, CSRF-protected staff-return route. */
 export async function reauthenticate(db:Queryable,user:Staff,input:unknown){
  const d=z.strictObject({password:z.string().min(1).max(1024),attestation:z.literal(true)}).parse(input);await assertStaff(db,user,true);if(!user.sessionId)throw new P2Error('UNAUTHENTICATED',401);
- const session=(await db.query<{id:string;state:string;expires_at:Date;case_id:string;reauthenticated_at:Date|null}>('SELECT * FROM p2_signing_session WHERE staff_session_id=$1 AND preparer_id=$2 ORDER BY (reauthenticated_at IS NULL) DESC,created_at DESC,id DESC LIMIT 1 FOR UPDATE',[user.sessionId,user.id])).rows[0];if(!session)throw new P2Error('SIGNING_SESSION_INVALID');
+ // Discover the immutable same-preparer binding without taking a signing-row lock.
+ // Retry/mutation paths lock case before signing; every return state must use that order too.
+ const binding=(await db.query<{id:string;case_id:string}>('SELECT id,case_id FROM p2_signing_session WHERE staff_session_id=$1 AND preparer_id=$2 ORDER BY (reauthenticated_at IS NULL) DESC,created_at DESC,id DESC LIMIT 1',[user.sessionId,user.id])).rows[0];if(!binding)throw new P2Error('SIGNING_SESSION_INVALID');
+ await db.query('SELECT id FROM nipt_case WHERE id=$1 FOR UPDATE',[binding.case_id]);
+ const session=(await db.query<{id:string;state:string;expires_at:Date;case_id:string;reauthenticated_at:Date|null}>('SELECT * FROM p2_signing_session WHERE id=$1 AND staff_session_id=$2 AND preparer_id=$3 AND case_id=$4 FOR UPDATE',[binding.id,user.sessionId,user.id,binding.case_id])).rows[0];if(!session)throw new P2Error('SIGNING_SESSION_INVALID');
  if(session.reauthenticated_at){const final=(await db.query('SELECT id FROM p2_final_consent WHERE session_id=$1',[session.id])).rows[0];return session.state==='Completed'&&!final?{ok:true,consentFinalized:false,reasonCode:'CONSENT_INVALIDATED_BEFORE_ATTESTATION'}:{ok:true};}
  if(session.state==='Active'&&new Date(session.expires_at)>new Date())throw new P2Error('CANCEL_OR_COMPLETE_SIGNING_FIRST',409);
  const u=(await db.query<{password_hash:string;failed_count:number;locked_until:Date|null}>('SELECT * FROM app_user WHERE id=$1 AND enabled FOR UPDATE',[user.id])).rows[0];
@@ -159,7 +163,6 @@ export async function reauthenticate(db:Queryable,user:Staff,input:unknown){
  await db.query('UPDATE p2_signing_session SET reauthenticated_at=now() WHERE id=$1',[session.id]);
  let invalidatedBeforeAttestation=false;
  if(session.state==='Completed'){
- await db.query('SELECT id FROM nipt_case WHERE id=$1 FOR UPDATE',[session.case_id]);
  const valid=(await db.query("SELECT d.id FROM p2_signing_session s JOIN p2_document_revision d ON d.id=s.document_id JOIN nipt_case c ON c.id=d.case_id JOIN p2_workspace w ON w.round_id=d.round_id WHERE s.id=$1 AND c.current_round_id=d.round_id AND w.consent_mode='Electronic' AND w.version::text=d.payload->>'workspaceVersion' AND NOT EXISTS(SELECT 1 FROM p2_revocation WHERE case_id=c.id) AND d.version=(SELECT max(version) FROM p2_document_revision WHERE round_id=d.round_id AND kind='CONSENT')",[session.id])).rows[0];
  invalidatedBeforeAttestation=!valid;
  if(valid){
