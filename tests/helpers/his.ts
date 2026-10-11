@@ -1,0 +1,1 @@
+export const resInput=(ln='990000000001')=>({ln,hn:'SYNTHETIC-HN-1',surname:'SYNTHETIC',prefix:'นาง',firstname:'SYNTHETIC',dob:'20000101',sex:'F',specimenAt:'20261011120000',generatedAt:'20261011123456',approvedAt:'20261011123456',result:{t21:'Low',t18:'Low',t13:'Low',sex_xo:'Not Detected',sex_xxx:'Not Detected',sex_xxy:'Not Detected',sex_xyy:'Not Detected'}});

@@ -1,0 +1,61 @@
+{
+  "name": "nipt-cbh",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1",
+    "build": "next build",
+    "start": "next start --hostname 0.0.0.0",
+    "typecheck": "next typegen && tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:permissions": "vitest run tests/permissions",
+    "test:db": "vitest run tests/db",
+    "test:contracts": "vitest run tests/contracts",
+    "test:e2e": "playwright test",
+    "db:migrate": "tsx tools/migrate.ts",
+    "db:seed": "tsx tools/seed.ts",
+    "worker": "tsx apps/worker/main.ts",
+    "renderer": "tsx apps/renderer/main.ts",
+    "simulator": "tsx tools/his-simulator/main.ts",
+    "guard": "tsx tools/source-guard.ts"
+  },
+  "dependencies": {
+    "@fontsource/noto-sans": "5.3.0",
+    "@fontsource/noto-sans-thai": "5.3.0",
+    "@tailwindcss/postcss": "4.3.3",
+    "argon2": "0.45.1",
+    "decimal.js": "10.6.0",
+    "iconv-lite": "0.7.3",
+    "kysely": "0.29.6",
+    "next": "16.4.0",
+    "pdfjs-dist": "6.4.299",
+    "pg": "8.23.1",
+    "pg-boss": "12.37.1",
+    "playwright": "1.64.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tailwindcss": "4.3.3",
+    "tsx": "4.23.15",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@electric-sql/pglite": "0.5.8",
+    "@playwright/test": "1.64.0",
+    "@types/node": "26.6.5",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.4.0",
+    "fast-check": "4.10.2",
+    "typescript": "6.0.3",
+    "vitest": "5.0.3"
+  }
+}

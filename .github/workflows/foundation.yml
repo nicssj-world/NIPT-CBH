@@ -1,0 +1,62 @@
+name: Synthetic foundation
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: nipt_ci
+          POSTGRES_PASSWORD: synthetic-ci-only
+          POSTGRES_DB: nipt_synthetic_ci
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-retries 20
+    env:
+      NIPT_MODE: synthetic
+      DATABASE_URL: postgresql://nipt_ci:synthetic-ci-only@127.0.0.1:5432/nipt_synthetic_ci
+      NIPT_TEST_DATABASE_URL: postgresql://nipt_ci:synthetic-ci-only@127.0.0.1:5432/nipt_synthetic_test_ci
+      APP_ORIGIN: http://127.0.0.1:3000
+      FILE_STORE_ROOT: ./data/files
+      SIMULATOR_ROOT: ./data/simulator
+      RENDERER_URL: http://127.0.0.1:3001
+      RENDERER_TOKEN_FILE: ./data/keys/renderer-token
+      IDENTITY_LOOKUP_KEY_FILE: ./data/keys/lookup.key
+      SYNTHETIC_SEED_PASSWORD_FILE: ./data/secrets/seed-password
+      E2E_SKIP_VISUAL: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '24', cache: npm}
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx tsx tools/init-dev.ts
+      - name: Separate native concurrency fixtures from visual/browser fixtures
+        run: |
+          node --input-type=module -e 'import {Pool} from "pg"; const p=new Pool({connectionString:process.env.DATABASE_URL}); await p.query("CREATE DATABASE nipt_synthetic_test_ci"); await p.end();'
+          DATABASE_URL="$NIPT_TEST_DATABASE_URL" npx tsx tools/prepare-db.ts
+          DATABASE_URL="$NIPT_TEST_DATABASE_URL" npx tsx tools/seed.ts
+      - run: npx tsx tools/prepare-db.ts
+      - run: npx tsx tools/seed.ts
+      - run: npm run simulator
+      - run: npm run guard
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run build
+      - name: Browser accessibility, permissions and responsive checks
+        run: |
+          node --import tsx apps/renderer/main.ts > "$RUNNER_TEMP/nipt-renderer.log" 2>&1 &
+          npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: synthetic-browser-evidence
+          path: playwright-report
+          retention-days: 7
+# Visual regression is additionally run on the recorded Windows/Chromium baseline.
+# Linux CI does not label newly generated screenshots as approved visual baselines.

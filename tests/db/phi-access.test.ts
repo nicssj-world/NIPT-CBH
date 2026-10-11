@@ -1,0 +1,7 @@
+import {it,expect} from 'vitest';
+import {testDatabase,addUser} from '../helpers/database';
+import {registerCase} from '../../packages/db/registration';
+import {recordPhiAccess} from '../../packages/db/phi-access';
+import {verifyAuditChain} from '../../packages/db/audit';
+import {readFile} from 'node:fs/promises';
+it('authorized-read journal is deduplicated, PHI-free, immutable with hash-chained aggregate access event',async()=>{const db=await testDatabase();try{const user=await addUser(db);await db.query('BEGIN');const c=await registerCase(db,{ln:'990000009992',identityKey:'a'.repeat(64),origin:'ANC',idempotencyKey:'phi_access_fixture'});await db.query('COMMIT');await db.exec(await readFile('packages/db/roles.sql','utf8'));await db.query('SET ROLE app_rw');await db.query('BEGIN');await recordPhiAccess(db,user.id,[c.caseId!,c.caseId!],'REGISTRY_VIEW');await db.query('COMMIT');expect((await db.query('SELECT * FROM phi_access_log')).rows).toHaveLength(1);expect((await db.query('SELECT * FROM phi_access_log')).rows[0]).not.toHaveProperty('ln');await expect(db.query("UPDATE phi_access_log SET purpose='CASE_DETAIL_VIEW'")).rejects.toThrow();await expect(db.query('DELETE FROM phi_access_log')).rejects.toThrow();expect(verifyAuditChain((await db.query<{previous_hash:string;hash:string;payload:string}>('SELECT * FROM audit_chain ORDER BY sequence')).rows)).toBe(true);}finally{await db.close();}});

@@ -1,0 +1,134 @@
+name: nipt-cbh-synthetic
+x-common: &common
+  environment: &environment
+    NIPT_MODE: synthetic
+    APP_ORIGIN: https://localhost:8443
+    FILE_STORE_ROOT: /files
+    SIMULATOR_ROOT: /simulator
+    RENDERER_URL: http://renderer:3001
+    RENDERER_TOKEN_FILE: /run/secrets/renderer_token
+    IDENTITY_LOOKUP_KEY_FILE: /run/secrets/identity_lookup
+  networks: [data]
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  restart: unless-stopped
+services:
+  storage-init:
+    <<: *common
+    image: nipt-cbh-operations:0.1.0
+    user: "0:0"
+    cap_add: [CHOWN,FOWNER]
+    command: [node,tools/prepare-volumes.mjs]
+    volumes: [files:/files,simulator:/simulator,outbound:/outbound]
+    restart: "no"
+  db:
+    image: postgres:17-bookworm@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
+    group_add: ["1000"]
+    environment:
+      POSTGRES_USER: nipt_migrator
+      POSTGRES_DB: nipt_synthetic_compose
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets: [db_password]
+    volumes: [database:/var/lib/postgresql/data]
+    networks: [data]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U nipt_migrator -d nipt_synthetic_compose]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+  migrate:
+    <<: *common
+    image: nipt-cbh-operations:0.1.0
+    build: {context: ., target: operations}
+    environment:
+      <<: *environment
+      DATABASE_URL_FILE: /run/secrets/migration_url
+      MIGRATION_DATABASE_URL_FILE: /run/secrets/migration_url
+      WEB_DB_PASSWORD_FILE: /run/secrets/web_password
+      WORKER_DB_PASSWORD_FILE: /run/secrets/worker_password
+      SYNTHETIC_SEED_PASSWORD_FILE: /run/secrets/seed_password
+    secrets: [migration_url,web_password,worker_password,seed_password,identity_lookup]
+    command: [sh,-c,"node --import ./tools/runtime-env.mjs --import tsx tools/prepare-db.ts && node --import ./tools/runtime-env.mjs --import tsx tools/seed.ts"]
+    depends_on: {db: {condition: service_healthy}}
+    restart: "no"
+  simulator:
+    <<: *common
+    image: nipt-cbh-operations:0.1.0
+    build: {context: ., target: operations}
+    command: [node,--import,tsx,tools/his-simulator/main.ts]
+    volumes: [simulator:/simulator]
+    depends_on: {storage-init: {condition: service_completed_successfully}}
+    restart: "no"
+  renderer:
+    <<: *common
+    image: nipt-cbh-renderer:0.1.0
+    build: {context: ., target: renderer}
+    environment:
+      <<: *environment
+      RENDERER_HOST: 0.0.0.0
+      CHROMIUM_NO_SANDBOX: "true"
+    secrets: [renderer_token]
+    networks: [render]
+    tmpfs: ["/tmp:rw,nosuid,size=512m"]
+    read_only: true
+    mem_limit: 1g
+    cpus: 2
+    pids_limit: 256
+  worker:
+    <<: *common
+    image: nipt-cbh-operations:0.1.0
+    build: {context: ., target: operations}
+    environment:
+      <<: *environment
+      DATABASE_URL_FILE: /run/secrets/worker_url
+    secrets: [worker_url,renderer_token,identity_lookup]
+    volumes: [files:/files,simulator:/simulator:ro,outbound:/simulator/outbound]
+    networks: [data,render]
+    depends_on: {migrate: {condition: service_completed_successfully},simulator: {condition: service_completed_successfully},renderer: {condition: service_started}}
+    tmpfs: ["/tmp:rw,nosuid,size=64m"]
+    read_only: true
+  web:
+    <<: *common
+    image: nipt-cbh-web:0.1.0
+    build: {context: ., target: web}
+    environment:
+      <<: *environment
+      DATABASE_URL_FILE: /run/secrets/web_url
+      INTEGRATION_PUBLIC_KEY_FILE: /run/secrets/integration_public
+    secrets: [web_url,renderer_token,integration_public]
+    volumes: [files:/files]
+    networks: [data,render,proxy]
+    depends_on: {migrate: {condition: service_completed_successfully},renderer: {condition: service_started}}
+    tmpfs: ["/tmp:rw,nosuid,size=64m"]
+    read_only: true
+  proxy:
+    image: caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
+    ports: [127.0.0.1:8443:443]
+    volumes: [./deploy/Caddyfile:/etc/caddy/Caddyfile:ro,caddy:/data]
+    networks: [proxy,ingress]
+    depends_on: [web]
+    restart: unless-stopped
+networks:
+  data: {internal: true}
+  render: {internal: true}
+  proxy: {internal: true}
+  ingress:
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+volumes:
+  database:
+  files:
+  simulator:
+  outbound:
+  caddy:
+secrets:
+  db_password: {file: ./data/secrets/db-password}
+  migration_url: {file: ./data/secrets/migration-url}
+  web_url: {file: ./data/secrets/web-url}
+  worker_url: {file: ./data/secrets/worker-url}
+  web_password: {file: ./data/secrets/web-password}
+  worker_password: {file: ./data/secrets/worker-password}
+  seed_password: {file: ./data/secrets/seed-password}
+  renderer_token: {file: ./data/keys/renderer-token}
+  identity_lookup: {file: ./data/keys/lookup.key}
+  integration_public: {file: ./data/keys/integration-public.pem}
