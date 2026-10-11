@@ -10,7 +10,10 @@ async function log(db:Queryable,user:Staff,p:Cached,intent:string){await db.quer
 export async function createDocumentPreview(db:Queryable,user:Staff,caseId:string,documentId:string,render:(s:P2PdfInput)=>Promise<Buffer>=requestP2Pdf){
  const c=await scopedCase(db,user,caseId,'document.request.read','read');if(!user.sessionId)throw new P2Error('STAFF_SESSION_REQUIRED',401);
  const doc=(await db.query<{id:string;kind:'REQUEST'|'CONSENT';template_version:P2PdfInput['templateVersion'];content_hash:string;payload:Record<string,unknown>;round_id:string}>('SELECT * FROM p2_document_revision WHERE id=$1 AND case_id=$2',[documentId,caseId])).rows[0];if(!doc)throw new P2Error('DOCUMENT_NOT_FOUND',404);
- const final=(await db.query<{payload:Record<string,unknown>;content_hash:string}>('SELECT payload,content_hash FROM p2_final_consent WHERE document_id=$1',[documentId])).rows[0];
+ const finals=(await db.query<{payload:Record<string,unknown>;content_hash:string}>('SELECT payload,content_hash FROM p2_final_consent WHERE document_id=$1',[documentId])).rows;
+ const signatures=await db.query('SELECT id FROM p2_consent_signature WHERE document_id=$1',[documentId]);
+ if(finals.length>1||signatures.rows.length>1)throw new P2Error('AMBIGUOUS_CONSENT_EVIDENCE_REQUIRES_GOVERNANCE',409);
+ const final=finals[0];
  const bytes=await render({id:doc.id,kind:doc.kind,templateVersion:doc.template_version,hash:final?.content_hash??doc.content_hash,payload:doc.payload,finalConsent:final?.payload??null,generatedAt:new Date().toISOString()});if(!bytes.subarray(0,5).equals(Buffer.from('%PDF-'))||bytes.length>5*1024*1024)throw new P2Error('INVALID_PDF');
  // Recheck session/scope after the renderer roundtrip as signing may have frozen staff meanwhile.
  await scopedCase(db,user,c.id,'document.request.read','read');purge();const ttl=Number(process.env.P2_PREVIEW_TTL_SECONDS??900);if(!Number.isFinite(ttl)||ttl<30||ttl>900)throw new P2Error('PREVIEW_TTL_INVALID');
