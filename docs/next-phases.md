@@ -4,7 +4,7 @@
 | --- | --- |
 | P2 / full clinical AL-2 | Restricted synthetic implementation is documented in p2-delivery.md; remaining evidence is approved clinical policy/consent, DPO/DCC controlled templates/signatures/retention, full manual ACR and actual ANC/Lab usability. See p2-governance.md. |
 | P3 / AL-3 | Actual read-only CIFS/service identity/ACL, signed PET differential parity, reconnect/mount behavior, real inbound shadow with authorized test data |
-| P4 / AL-4 | Lab worklists, labels/LN Halos at actual receipt, batch/task sheets, finalize/execution/reconciliation, QC1, repeat/redraw workflow and S2 receipt UI |
+| P4 / AL-4 | Synthetic build delivered on `feat/p4-lab-workflow-synthetic` (see p4-synthetic-delivery.md). Remaining: Owner decisions OD-01/03/08/16/31/33/34/36, signed F2/F3 field inventory and controlled form codes, physical label printer Q-I7, downtime recovery §12.25, post-Completed correction, Lab usability/UAT and AL-4 clinical/lab acceptance |
 | P4b / AL-4b | Validated formula engine/goldens, pooling/DNB/sequencing, six controlled forms, exact 47-row HALOS export and witnessed physical↔barcode mapping/vendor import |
 | P5 / AL-5 | Attempt-aware PDF import/link/review, QC acceptance, certification/release, revisions/void, ANC current result view |
 | P5H / AL-8 | Historical evidence/cutoff eligibility/promotion and independent review; never send historical results to HIS |

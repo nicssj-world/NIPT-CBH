@@ -20,6 +20,11 @@ P2 ใช้ขอบเขตจำลองตาม AL-2 Restricted Owner Loc
 - P2: ลงนามผู้รับบริการจำลอง 12 ข้อ, แยก Capability จากเจ้าหน้าที่, คืน Session ด้วยรหัสผ่าน/คำรับรอง, ทะเบียนแพทย์จำลองแบบ Version/Maker-checker
 - P2: PDF Request/Consent ภาษาไทย A4 จาก Snapshot, Cache ชั่วคราวและ Audit ทุกการอ่าน, ถอน Consent แบบเก็บหลักฐาน/ปิด Gate
 
+P4 Synthetic (Lab Workflow + Repeat/Redraw) อยู่บน Branch `feat/p4-lab-workflow-synthetic` รอ Owner ตรวจรับ — ดู [P4 Synthetic Delivery](docs/p4-synthetic-delivery.md)
+
+- P4: คิวงาน Lab (S1 จาก HIS ไม่มีการรับซ้ำ, รับเจาะซ้ำ S2+ ใน NIPT), LN Halos `YYBYYMMDDNNN` ออกเมื่อรับสิ่งส่งตรวจจริงเท่านั้น, ฉลากหลอด 4 ดวง/8 ช่องแบบเดียวกับ Genomic-CBH (ไม่มีบาร์โค้ด), เรียงตามวันที่/เวลารับ
+- P4: Batch/Task List 1–3 (48 ตำแหน่ง, PC 1/NC 25/Blank 40), Assignment/Finalize Gate, Placement Snapshot, ใบงาน F2/F3 Pre-work/Completed PDF, บันทึกจากกระดาษพร้อมทวนสอบคนที่สอง, QC1 ที่ไม่ตัดสินด้วยเกณฑ์ที่ยังไม่รับรอง, Repeat/Redraw พร้อม Lineage
+
 Clinical Assessment ของ P2 ยังไม่สามารถให้ผลผ่านเกณฑ์จริงได้ เอกสารและลายเซ็นใช้ Synthetic เท่านั้น Clinical/DPO/DCC, UAT และหลักฐาน Accessibility ของผู้ใช้จริงยังต้องรับรองตาม [รายการค้าง](docs/p2-governance.md)
 
 ## เริ่มในเครื่องพัฒนา
@@ -44,6 +49,7 @@ docker compose up -d --build
 - [Source authority และ ADR](docs/architecture.md)
 - [ติดตั้ง Offline, Backup, Restore](docs/operations.md)
 - [Design system](DESIGN.md), [UX/ACR evidence](docs/accessibility.md)
+- [P4 Lab workflow synthetic delivery](docs/p4-synthetic-delivery.md)
 - [งานต่อและ Integration gates](docs/next-phases.md)
 
 ไม่รวม ZIP, patient data, internal credentials, original hospital documents หรือ legacy runtime ใน Repository

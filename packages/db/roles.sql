@@ -48,3 +48,10 @@ GRANT SELECT,INSERT ON his_intake_issue_event TO app_rw;
 GRANT SELECT ON his_inbound_source,his_inbound_waiting,his_inbound_scan_run TO app_rw;
 GRANT SELECT ON his_inbound_file,his_intake_issue,his_inbound_scan_run TO report_ro;
 GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO app_rw,worker_rw;
+-- P4 synthetic Lab workflow (migration 010). LN Halos and attempt #1 are issued only by the SECURITY DEFINER receipt trigger;
+-- neither the web nor the worker role can insert or alter a lab number directly.
+GRANT SELECT ON specimen_lab_number,ln_halos_daily_sequence,lab_qc_criteria_version TO app_rw;
+GRANT EXECUTE ON FUNCTION p4_ensure_ln_halos(uuid,text) TO app_rw;
+GRANT SELECT,INSERT ON attempt_event,lab_batch_slot,lab_batch_event,lab_placement_snapshot,lab_observation_review,attempt_stage_qc,label_print_job,label_print_item TO app_rw;
+GRANT SELECT,INSERT,UPDATE ON lab_batch_sequence,lab_batch,lab_task_sheet,lab_slot_assignment,lab_document,lab_document_copy,lab_observation,lab_slot_disposition TO app_rw;
+GRANT SELECT ON specimen_lab_number,lab_batch,lab_task_sheet,lab_slot_assignment,lab_document,attempt_stage_qc,label_print_job TO report_ro;
