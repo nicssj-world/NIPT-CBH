@@ -95,7 +95,7 @@ services:
       <<: *environment
       DATABASE_URL_FILE: /run/secrets/web_url
       INTEGRATION_PUBLIC_KEY_FILE: /run/secrets/integration_public
-    secrets: [web_url,renderer_token,integration_public]
+    secrets: [web_url,renderer_token,integration_public,identity_lookup]
     volumes: [files:/files]
     networks: [data,render,proxy]
     depends_on: {migrate: {condition: service_completed_successfully},renderer: {condition: service_started}}

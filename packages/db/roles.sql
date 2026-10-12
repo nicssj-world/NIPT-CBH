@@ -32,3 +32,19 @@ GRANT SELECT,INSERT ON p2_case_identity,p2_doctor_version,p2_doctor_event,p2_doc
 GRANT SELECT,INSERT ON p2_request_ack TO app_rw;
 -- The deferred S1 receipt guard reads existing HIS orders even for an Expected synthetic round.
 GRANT SELECT ON his_order TO app_rw;
+-- P3 synthetic HIS inbound (migration 008) and P2-P3 integration grants.
+GRANT SELECT,INSERT,UPDATE ON his_intake_issue,his_inbound_waiting TO worker_rw;
+GRANT SELECT,INSERT ON his_intake_issue_event,his_inbound_source,his_inbound_scan_run TO worker_rw;
+GRANT SELECT ON nipt_case,case_ln,specimen_round,his_order,app_user TO worker_rw;
+GRANT SELECT,INSERT ON case_event TO worker_rw;
+-- Worker matching compares the registrant's immutable P2 HN; it never writes P2 evidence. Column-scoped reads only.
+GRANT SELECT(case_id,hn) ON p2_case_identity TO worker_rw;
+GRANT SELECT(case_id,round_id,source,collection_date,sequence) ON p2_collection_fact TO worker_rw;
+-- Registration-time intake linking (D-49) runs inside the web registration transaction.
+GRANT SELECT,UPDATE ON his_inbound_file TO app_rw;
+GRANT SELECT,INSERT ON his_order TO app_rw;
+GRANT SELECT,INSERT,UPDATE ON his_intake_issue TO app_rw;
+GRANT SELECT,INSERT ON his_intake_issue_event TO app_rw;
+GRANT SELECT ON his_inbound_source,his_inbound_waiting,his_inbound_scan_run TO app_rw;
+GRANT SELECT ON his_inbound_file,his_intake_issue,his_inbound_scan_run TO report_ro;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO app_rw,worker_rw;
