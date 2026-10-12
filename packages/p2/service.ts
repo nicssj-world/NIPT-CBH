@@ -60,9 +60,10 @@ export async function getCase(db:Queryable,user:Staff,id:string){
  await db.query('SELECT s.id,s.document_id,s.decision,s.signature_hash,s.signed_at FROM p2_consent_signature s JOIN p2_document_revision d ON d.id=s.document_id WHERE d.case_id=$1 ORDER BY signed_at DESC',[id]),await db.query('SELECT f.id,f.document_id,f.content_hash,f.hash_algorithm,f.payload,f.created_at FROM p2_final_consent f JOIN p2_document_revision d ON d.id=f.document_id WHERE d.case_id=$1 ORDER BY f.created_at DESC',[id])];
  const roundReceipt=(await db.query(`SELECT id AS "roundId",received_source AS "receivedSource",${preciseUtc('received_at')} AS "receivedAt",collection_date::text AS "collectionDate" FROM specimen_round WHERE id=$1`,[c.current_round_id])).rows[0];
  const currentCollectionFacts=(await db.query('SELECT DISTINCT ON(source) source,collection_date::text AS collection_date,collection_time,actor_id,reason,sequence FROM p2_collection_fact WHERE round_id=$1 ORDER BY source,sequence DESC',[c.current_round_id])).rows;
+ const history={rounds:(await db.query('SELECT id,round_number,state,received_source FROM specimen_round WHERE case_id=$1 ORDER BY round_number,id',[id])).rows,events:(await db.query('SELECT event_type,created_at FROM case_event WHERE case_id=$1 ORDER BY created_at DESC,id DESC',[id])).rows};
  const actions=['request.edit','request.correct','consent.prepare','paper.verify','consent.withdraw.receive'].filter(a=>authorize(user,a,{unitId:c.unit_id,origin:c.registration_origin},'write'));
  await recordPhiAccess(db,user.id,[id],'CASE_DETAIL_VIEW');
- return {case:c,workspace:w,roundReceipt,currentCollectionFacts,revisions:revisions.rows,paper:paper.rows,clinical:clinical.rows,collection:collection.rows,revocations:revocations.rows,signatures:signatures.rows,finalConsents:finalConsents.rows,allowedActions:actions,gate:{passed:false,state:revocations.rows.length?'RevokedHold':'PendingClinicalReview',reason:'CLINICAL_DPO_DCC_APPROVAL_PENDING'}};
+ return {case:c,workspace:w,history,roundReceipt,currentCollectionFacts,revisions:revisions.rows,paper:paper.rows,clinical:clinical.rows,collection:collection.rows,revocations:revocations.rows,signatures:signatures.rows,finalConsents:finalConsents.rows,allowedActions:actions,gate:{passed:false,state:revocations.rows.length?'RevokedHold':'PendingClinicalReview',reason:'CLINICAL_DPO_DCC_APPROVAL_PENDING'}};
 }
 async function collectionConflict(db:Queryable,c:CaseScope,dateValue?:string|null){const r=await db.query<{collection_date:string|Date}>('SELECT DISTINCT ON(source) collection_date::text AS collection_date FROM p2_collection_fact WHERE round_id=$1 ORDER BY source,sequence DESC',[c.current_round_id]);const his=await db.query<{collection_date:string|Date}>('SELECT collection_date::text AS collection_date FROM specimen_round WHERE id=$1 AND received_source=\'HIS_PET_RECEIPT\' AND collection_date IS NOT NULL',[c.current_round_id]);const dates=new Set([...r.rows,...his.rows].map(x=>new Date(x.collection_date).toISOString().slice(0,10)));if(dateValue)dates.add(dateValue);return dates.size>1;}
 async function collect(db:Queryable,c:CaseScope,user:Staff,d:RequestDraft,reason='SYNTHETIC_CAPTURE'){if(d.pregnancy.collectionDate&&d.pregnancy.collectionSource){
@@ -150,16 +151,31 @@ export async function patientAction(db:Queryable,raw:string,input:unknown,csrf:{
  const signature=deriveSignature(d.vector);await db.query('INSERT INTO p2_consent_signature(session_id,document_id,decision,vector,png,signature_hash) VALUES($1,$2,$3,$4,$5,$6)',[s.id,s.document_id,d.decision,signature.vector,signature.png,signature.hash]);
  await db.query("UPDATE p2_signing_session SET state='Completed',closed_at=now() WHERE id=$1",[s.id]);await event(db,{id:s.preparer_id,roles:[],unitIds:[],permissions:[]},s.case_id,'P2_CONSENT_'+d.decision.toUpperCase());return {state:d.decision,reauthenticationRequired:true};
 }
-/** Called only by the narrow same-origin, CSRF-protected staff-return route. */
-export async function reauthenticate(db:Queryable,user:Staff,input:unknown){
- const d=z.strictObject({password:z.string().min(1).max(1024),attestation:z.literal(true)}).parse(input);await assertStaff(db,user,true);if(!user.sessionId)throw new P2Error('UNAUTHENTICATED',401);
- // Discover the immutable same-preparer binding without taking a signing-row lock.
- // Retry/mutation paths lock case before signing; every return state must use that order too.
+export type SigningOutcome='Active'|'Granted'|'Declined'|'Cancelled'|'Expired'|'Invalidated';
+async function returnBinding(db:Queryable,user:Staff){
+ await assertStaff(db,user,true);if(!user.sessionId)throw new P2Error('UNAUTHENTICATED',401);
+ // Discover first, then lock case before signing in every return/read state.
  const binding=(await db.query<{id:string;case_id:string}>('SELECT id,case_id FROM p2_signing_session WHERE staff_session_id=$1 AND preparer_id=$2 ORDER BY (reauthenticated_at IS NULL) DESC,created_at DESC,id DESC LIMIT 1',[user.sessionId,user.id])).rows[0];if(!binding)throw new P2Error('SIGNING_SESSION_INVALID');
  await db.query('SELECT id FROM nipt_case WHERE id=$1 FOR UPDATE',[binding.case_id]);
  const session=(await db.query<{id:string;state:string;expires_at:Date;case_id:string;reauthenticated_at:Date|null}>('SELECT * FROM p2_signing_session WHERE id=$1 AND staff_session_id=$2 AND preparer_id=$3 AND case_id=$4 FOR UPDATE',[binding.id,user.sessionId,user.id,binding.case_id])).rows[0];if(!session)throw new P2Error('SIGNING_SESSION_INVALID');
- if(session.reauthenticated_at){const final=(await db.query('SELECT id FROM p2_final_consent WHERE session_id=$1',[session.id])).rows[0];return session.state==='Completed'&&!final?{ok:true,consentFinalized:false,reasonCode:'CONSENT_INVALIDATED_BEFORE_ATTESTATION'}:{ok:true};}
- if(session.state==='Active'&&new Date(session.expires_at)>new Date())throw new P2Error('CANCEL_OR_COMPLETE_SIGNING_FIRST',409);
+ let outcome:SigningOutcome=session.state as SigningOutcome;
+ if(session.state==='Active'&&new Date(session.expires_at)<=new Date())outcome='Expired';
+ if(session.state==='Completed'){
+ const signatures=(await db.query<{decision:'Granted'|'Declined'}>('SELECT decision FROM p2_consent_signature WHERE session_id=$1',[session.id])).rows;
+ if(signatures.length!==1)throw new P2Error('AMBIGUOUS_CONSENT_EVIDENCE_REQUIRES_GOVERNANCE',409);
+ outcome=signatures[0].decision;
+ }
+ return {session,outcome};
+}
+/** Narrow original-preparer recovery: no capability, document, signature or password data. */
+export async function signingReturnStatus(db:Queryable,user:Staff){const {session,outcome}=await returnBinding(db,user);return {sessionId:session.id,outcome};}
+/** Called only by the narrow same-origin, CSRF-protected staff-return route. */
+export async function reauthenticate(db:Queryable,user:Staff,input:unknown){
+ const d=z.strictObject({password:z.string().min(1).max(1024),attestation:z.literal(true),sessionId:uuid,outcome:z.enum(['Active','Granted','Declined','Cancelled','Expired','Invalidated'])}).parse(input);
+ const {session,outcome}=await returnBinding(db,user);
+ if(d.sessionId!==session.id||d.outcome!==outcome)throw new P2Error('SIGNING_RETURN_STATE_CHANGED',409);
+ if(session.reauthenticated_at){const final=(await db.query('SELECT id FROM p2_final_consent WHERE session_id=$1',[session.id])).rows[0];return {ok:true,consentFinalized:!!final,...(session.state==='Completed'&&!final?{reasonCode:'CONSENT_INVALIDATED_BEFORE_ATTESTATION'}:{})};}
+ if(outcome==='Active')throw new P2Error('CANCEL_OR_COMPLETE_SIGNING_FIRST',409);
  const u=(await db.query<{password_hash:string;failed_count:number;locked_until:Date|null}>('SELECT * FROM app_user WHERE id=$1 AND enabled FOR UPDATE',[user.id])).rows[0];
  if(!u||u.locked_until&&new Date(u.locked_until)>new Date()||!await verifyPassword(u.password_hash,d.password)){
  if(u)await db.query("UPDATE app_user SET failed_count=failed_count+1,locked_until=CASE WHEN failed_count>=4 THEN now()+interval '15 minutes' ELSE locked_until END WHERE id=$1",[user.id]);return {ok:false};}
@@ -178,7 +194,7 @@ export async function reauthenticate(db:Queryable,user:Staff,input:unknown){
  await db.query(`INSERT INTO p2_final_consent(session_id,document_id,payload,content_hash,hash_algorithm) VALUES($1,$2,$3,encode(sha256(convert_to(p2_canonical_jsonb($3::jsonb),'UTF8')),'hex'),'PG_JSONB_CANONICAL_V1') ON CONFLICT(session_id) DO NOTHING`,[session.id,full.document_id,payload]);
  }
  }
- await db.query('UPDATE app_session SET signing_suspended=false,idle_expires_at=LEAST(now()+interval \'30 minutes\',absolute_expires_at),last_seen_at=now() WHERE id=$1',[user.sessionId]);await db.query('UPDATE app_user SET failed_count=0,locked_until=NULL WHERE id=$1',[user.id]);await event(db,user,session.case_id,'P2_PREPARER_REAUTHENTICATED',{attestation:true,consentInvalidated:invalidatedBeforeAttestation});return invalidatedBeforeAttestation?{ok:true,consentFinalized:false,reasonCode:'CONSENT_INVALIDATED_BEFORE_ATTESTATION'}:{ok:true};
+ await db.query('UPDATE app_session SET signing_suspended=false,idle_expires_at=LEAST(now()+interval \'30 minutes\',absolute_expires_at),last_seen_at=now() WHERE id=$1',[user.sessionId]);await db.query('UPDATE app_user SET failed_count=0,locked_until=NULL WHERE id=$1',[user.id]);await event(db,user,session.case_id,'P2_PREPARER_REAUTHENTICATED',{attestation:true,returnOutcome:outcome,consentInvalidated:invalidatedBeforeAttestation});return {ok:true,consentFinalized:session.state==='Completed'&&!invalidatedBeforeAttestation,...(invalidatedBeforeAttestation?{reasonCode:'CONSENT_INVALIDATED_BEFORE_ATTESTATION'}:{})};
 }
 export async function withdraw(db:Queryable,user:Staff,id:string,input:unknown){const d=z.strictObject({reason:syntheticText.refine(v=>v.length>0)}).parse(input),c=await activeCase(db,user,id,'consent.withdraw.receive');if(c.analysis_started)throw new P2Error('LATER_WITHDRAWAL_REQUIRES_GOVERNANCE',409);const stage=c.state==='Expected'?'W0':'W1';const r=(await db.query<{id:string}>('INSERT INTO p2_revocation(case_id,round_id,stage,reason,actor_id) VALUES($1,$2,$3,$4,$5) RETURNING id',[id,c.current_round_id,stage,d.reason,user.id])).rows[0];await db.query("INSERT INTO p2_disposition(revocation_id,state,reason,actor_id) VALUES($1,'PendingGovernance',$2,$3)",[r.id,d.reason,user.id]);await invalidate(db,id);await event(db,user,id,'P2_CONSENT_REVOKED',{stage,reason:d.reason});return {id:r.id,stage,state:'RevokedHold',disposition:'PendingGovernance'};}
 export async function listDoctors(db:Queryable,user:Staff){await assertStaff(db,user);if(!user.roles.some(r=>['ANC_NURSE','ANC_SUPERVISOR','LAB_STAFF','LAB_CERTIFIER','APP_ADMIN','CLINICAL_APPROVER'].includes(r)))throw new P2Error('FORBIDDEN',403);const r=await db.query<{unit_id:string;doctor_key:string;version:number;status:string|null;effective_from:Date;ever_approved:boolean}>('SELECT v.id,v.doctor_key,v.version,v.name,v.unit_id,v.effective_from,v.created_by,v.authorization_evidence AS authorization,EXISTS(SELECT 1 FROM p2_doctor_event a WHERE a.doctor_version_id=v.id AND a.event_type=\'Approved\') ever_approved,(SELECT e.event_type FROM p2_doctor_event e WHERE e.doctor_version_id=v.id ORDER BY e.created_at DESC,e.id DESC LIMIT 1) status FROM p2_doctor_version v ORDER BY doctor_key,version DESC');return r.rows.filter(x=>!user.roles.every(r=>r==='ANC_NURSE'||r==='ANC_SUPERVISOR')||user.unitIds.includes(x.unit_id)).map(x=>({...x,active:x.status==='Approved'&&new Date(x.effective_from)<=new Date()&&!r.rows.some(n=>n.doctor_key===x.doctor_key&&n.version>x.version&&n.ever_approved&&new Date(n.effective_from)<=new Date())}));}
