@@ -1,0 +1,71 @@
+import {SETTINGS,type SettingKey} from "./catalog";
+
+// Field-level form metadata for every catalog key, so staff edit labelled inputs instead of JSON (Plan §13.1–§13.2).
+// The catalog schema remains the only validator; this file only describes how each value is shown. A unit test asserts that
+// every schema field has exactly one entry here and that locked fields are literals in the schema.
+export type FieldKind="text"|"path"|"number"|"boolean"|"select"|"locked"|"date"|"hash"|"uuid-or-empty";
+export type FieldSpec={name:string;label:string;help:string;kind:FieldKind;options?:readonly {value:string;label:string}[];unit?:string;min?:number;max?:number;lockedBy?:string};
+export type SettingForm={key:SettingKey;title:string;summary:string;phase:string;fields:FieldSpec[]};
+
+export const SETTING_FORMS:Record<SettingKey,SettingForm>={
+ general:{key:"general",title:"ทั่วไป",summary:"ชื่อระบบและเขตเวลา (เขตเวลาล็อกเป็น Asia/Bangkok)",phase:"P1",fields:[
+  {name:"systemName",label:"ชื่อระบบ",help:"แสดงบนหน้าจอและเอกสาร ความยาวไม่เกิน 80 ตัวอักษร",kind:"text",max:80},
+  {name:"timezone",label:"เขตเวลา",help:"ล็อกไว้ตาม Baseline — วันที่และเวลาทั้งหมดใช้เวลาไทย",kind:"locked",lockedBy:"LOCKED Baseline"}]},
+ request_consent:{key:"request_consent",title:"ANC / ใบขอส่งตรวจและความยินยอม",summary:"รุ่นแบบฟอร์มและช่องทางที่เปิดใช้",phase:"P2",fields:[
+  {name:"templateVersion",label:"รุ่นแบบฟอร์ม FM-01/FM-02",help:"รุ่นจำลองจนกว่า DCC อนุมัติแบบฟอร์มจริง",kind:"text"},
+  {name:"mode",label:"ช่องทางที่เปิดใช้",help:"การผสมช่องทางเป็นการตัดสินใจ OD-06",kind:"select",options:[{value:"ELECTRONIC",label:"อิเล็กทรอนิกส์"},{value:"PAPER",label:"กระดาษ"},{value:"MIXED",label:"ผสม (รอ OD-06)"}]}]},
+ doctor_registry:{key:"doctor_registry",title:"ทะเบียนแพทย์ ANC",summary:"รุ่นทะเบียนแพทย์ (Maker-Checker ในหน้าทะเบียนแพทย์)",phase:"P2",fields:[
+  {name:"version",label:"รุ่นทะเบียน",help:"ข้อมูลแพทย์ ใบอนุญาต และลายเซ็นจัดการในหน้า ทะเบียนแพทย์จำลอง",kind:"text"}]},
+ security:{key:"security",title:"ผู้ใช้ / บทบาท / สิทธิ์",summary:"นโยบาย Session และการล็อกบัญชี (ค่าตาม Baseline)",phase:"P1",fields:[
+  {name:"idleMinutes",label:"หมดเวลาเมื่อไม่ใช้งาน",help:"ล็อกตาม Baseline §13",kind:"locked",unit:"นาที",lockedBy:"LOCKED Baseline"},
+  {name:"absoluteHours",label:"อายุ Session สูงสุด",help:"ล็อกตาม Baseline §13",kind:"locked",unit:"ชั่วโมง",lockedBy:"LOCKED Baseline"},
+  {name:"lockoutAttempts",label:"ใส่รหัสผิดได้",help:"ล็อกตาม Baseline §13",kind:"locked",unit:"ครั้ง",lockedBy:"LOCKED Baseline"},
+  {name:"lockoutMinutes",label:"ระยะล็อกบัญชี",help:"ล็อกตาม Baseline §13",kind:"locked",unit:"นาที",lockedBy:"LOCKED Baseline"}]},
+ his_inbound:{key:"his_inbound",title:"HIS ขาเข้า (.pet)",summary:"โฟลเดอร์ใบสั่งจาก HIS แบบอ่านอย่างเดียว — ตัวจำลองเท่านั้นจนกว่า AL-3",phase:"P3",fields:[
+  {name:"enabled",label:"เปิดการสแกนอัตโนมัติ",help:"ปิดไว้เป็นค่าเริ่มต้น",kind:"boolean"},
+  {name:"basePath",label:"โฟลเดอร์ขาเข้า",help:"ข้อมูลจำลองต้องเป็น simulator/inbound — Path จริงของโรงพยาบาลรอ AL-3",kind:"path"},
+  {name:"section",label:"Section",help:"ล็อกตาม LOCKED §7.1",kind:"locked",lockedBy:"LOCKED §7.1"},
+  {name:"testCode",label:"รหัสการตรวจ NIPT",help:"ล็อกตาม LOCKED §7.1",kind:"locked",lockedBy:"LOCKED §7.1"},
+  {name:"intervalSeconds",label:"รอบการสแกน",help:"5–3,600 วินาที",kind:"number",unit:"วินาที",min:5,max:3600},
+  {name:"lookbackDays",label:"สแกนย้อนหลัง",help:"1–90 วัน",kind:"number",unit:"วัน",min:1,max:90},
+  {name:"secretRef",label:"อ้างอิง Secret ของ Share",help:"เว้นว่างสำหรับตัวจำลอง ค่าจริงเก็บในหน้า Secret แยก",kind:"uuid-or-empty"}]},
+ laboratory:{key:"laboratory",title:"ห้องปฏิบัติการ",summary:"รุ่น Template/สูตร และนโยบายระหว่างรอการตัดสินใจ",phase:"P4/P4b",fields:[
+  {name:"templateVersion",label:"รุ่น Batch Template",help:"OD-34",kind:"text"},
+  {name:"formulaVersion",label:"รุ่น Formula Spec",help:"ยังไม่ผ่าน Validation (OD-28/29)",kind:"text"},
+  {name:"partialBatchAllowed",label:"อนุญาต Batch ไม่ครบ 3 Sheet",help:"LOCKED LD-13",kind:"locked",lockedBy:"LOCKED LD-13"},
+  {name:"halosDataRows",label:"จำนวนแถวข้อมูล HALOS",help:"Owner Lock OD-35",kind:"locked",lockedBy:"Owner Lock OD-35"},
+  {name:"pendingGovernanceGate",label:"นโยบายเมื่อ Gate รอการตัดสินใจ",help:"HOLD = หยุด; PROCEED_SYNTHETIC_LABELLED = ข้อมูลจำลองเดินต่อพร้อมป้ายกำกับ",kind:"select",options:[{value:"HOLD",label:"HOLD — หยุดรอการตัดสินใจ"},{value:"PROCEED_SYNTHETIC_LABELLED",label:"ข้อมูลจำลองเดินต่อพร้อมป้ายกำกับ"}]}]},
+ result_management:{key:"result_management",title:"การจัดการผลตรวจ",summary:"โฟลเดอร์ผล PDF แบบ NIPTY + การจับคู่แบบมีผู้ตรวจ — การปล่อยผลจริงยัง HOLD",phase:"P5",fields:[
+  {name:"pdfSourcePath",label:"โฟลเดอร์ผล PDF (PDF Source Folder)",help:"Worker อ่านอย่างเดียว ข้อมูลจำลองต้องอยู่ใต้ simulator/results — ห้ามใช้ Path จริงของโรงพยาบาล",kind:"path"},
+  {name:"scanSubfolders",label:"สแกนรวมโฟลเดอร์ย่อย",help:"เหมือน NIPTY: ค้นหา .pdf และ .zip ทุกโฟลเดอร์ย่อย",kind:"boolean"},
+  {name:"acceptZip",label:"รับไฟล์ ZIP",help:"ZIP-as-PDF และ ZIP ที่รวม PDF หลายไฟล์",kind:"boolean"},
+  {name:"maxFilesPerScan",label:"จำนวนไฟล์สูงสุดต่อการสแกน",help:"1–2,000 ไฟล์",kind:"number",unit:"ไฟล์",min:1,max:2000},
+  {name:"maxUploadMb",label:"ขนาดไฟล์สูงสุด",help:"ใช้ทั้งไฟล์จากโฟลเดอร์และไฟล์ที่เลือกจากเครื่อง (1–25 MB)",kind:"number",unit:"MB",min:1,max:25},
+  {name:"gaToleranceDays",label:"ความคลาดเคลื่อนอายุครรภ์ที่ยอมรับ",help:"เทียบอายุครรภ์ใน PDF กับที่คำนวณจาก EDD ของรอบ (0–14 วัน)",kind:"number",unit:"วัน",min:0,max:14},
+  {name:"picVersion",label:"รุ่น PDF Identifier Contract (PIC)",help:"ยังไม่ผ่าน OD-07 — ระบบใช้การจับคู่แบบมีผู้ตรวจเท่านั้น",kind:"text"},
+  {name:"linkageMode",label:"วิธีจับคู่ผลกับ Attempt",help:"AUTO_PIC เปิดไม่ได้จนกว่า PIC จะ Active (OD-07); HN หรือ HIS LN อย่างเดียวไม่เคยจับคู่อัตโนมัติ",kind:"locked",lockedBy:"OD-07 HOLD"},
+  {name:"certificationMethod",label:"วิธียืนยันการรับรอง",help:"รอ OD-05",kind:"locked",lockedBy:"OD-05 HOLD"},
+  {name:"sexDisclosureRule",label:"กฎการเปิดเผยเพศ",help:"ข้อเสนอ: ครรภ์เดี่ยวที่ไม่ประสงค์ทราบเพศแต่ PDF แสดงเพศ → บล็อก (รอ OD-09)",kind:"locked",lockedBy:"OD-09 HOLD"},
+  {name:"postReleaseRecollection",label:"การเก็บตัวอย่างใหม่หลังออกผล",help:"ระหว่างรอ OD-17: ต้อง Void ผลเดิมก่อน",kind:"locked",lockedBy:"OD-17 HOLD"},
+  {name:"noticeChannel",label:"ช่องทางหนังสือแจ้งเจาะซ้ำ",help:"ระหว่างรอ OD-07: แสดงใน NIPT เท่านั้น",kind:"locked",lockedBy:"OD-07 HOLD"},
+  {name:"releaseAuthority",label:"สิทธิ์ปล่อยผลจริง",help:"HOLD จนกว่า AL-5 (OD-04 Clinical Governance, OD-05, OD-07) ผ่าน",kind:"locked",lockedBy:"AL-5 HOLD"}]},
+ his_outbound:{key:"his_outbound",title:"HIS ขาออก / CFS",summary:"ส่งผลเข้า HIS — ตัวจำลองเท่านั้น งานจริงเป็นของ P6",phase:"P6 (Deferred)",fields:[
+  {name:"enabled",label:"เปิดการส่งไปตัวจำลอง",help:"Sandbox เท่านั้น",kind:"boolean"},
+  {name:"target",label:"ปลายทาง",help:"ตัวจำลองเท่านั้นจนถึง P6/AL-6",kind:"locked",lockedBy:"P6 Deferred"},
+  {name:"productionAuthorized",label:"อนุญาตส่งจริง",help:"ปิดถาวรใน Phase นี้",kind:"locked",lockedBy:"AL-6 HOLD"},
+  {name:"resultStyle",label:"รูปแบบข้อความผลใน .res",help:"เทียบ NIPTY nipt_result_style",kind:"select",options:[{value:"full",label:"full — ระบุครบ"},{value:"short",label:"short — สั้น"},{value:"fixed",label:"fixed — ข้อความคงที่"}]},
+  {name:"retryLimit",label:"จำนวนครั้งลองใหม่",help:"1–10",kind:"number",unit:"ครั้ง",min:1,max:10},
+  {name:"round2SpecimenDatePolicy",label:"วันที่เก็บตัวอย่างใน .res ของรอบ ≥ 2",help:"ไม่มีค่าเริ่มต้นจนกว่า Q-I5",kind:"locked",lockedBy:"Q-I5 HOLD"}]},
+ storage_backup:{key:"storage_backup",title:"ที่เก็บไฟล์ / NAS / Backup",summary:"ระยะเก็บ Backup ของตัวจำลอง",phase:"P1/P7",fields:[
+  {name:"retentionDays",label:"เก็บ Backup",help:"1–3,650 วัน",kind:"number",unit:"วัน",min:1,max:3650},
+  {name:"target",label:"ปลายทาง Backup",help:"ตัวจำลองเท่านั้น",kind:"locked",lockedBy:"Q-I6 HOLD"}]},
+ notifications:{key:"notifications",title:"การแจ้งเตือน / ระบบ / Audit",summary:"เกณฑ์เตือนสถานะ Worker และคิวค้าง",phase:"P1",fields:[
+  {name:"staleSeconds",label:"ถือว่า Worker ขาดการติดต่อเมื่อเกิน",help:"60–3,600 วินาที",kind:"number",unit:"วินาที",min:60,max:3600},
+  {name:"backlogWarning",label:"เตือนเมื่อคิวค้างเกิน",help:"1–10,000 รายการ",kind:"number",unit:"รายการ",min:1,max:10000}]},
+ go_live_cutoff:{key:"go_live_cutoff",title:"วันเริ่มใช้ระบบ (go_live_cutoff)",summary:"Versioned + Maker-Checker + รายงานผลกระทบ — ใช้กับเคสย้อนหลัง (P5H)",phase:"P5H (Deferred)",fields:[
+  {name:"cutoff",label:"วันที่ตัด",help:"เปลี่ยนไม่ได้เมื่อมีเคส HISTORICAL แล้วระหว่างรอ OD-27",kind:"date"},
+  {name:"impactReportHash",label:"SHA-256 ของรายงานผลกระทบ",help:"ต้องแนบรายงานผลกระทบทุกเวอร์ชัน (D-50)",kind:"hash"}]}
+};
+
+/** Schema keys of a catalog entry, used by the coverage test and the form renderer. */
+export function schemaFields(key:SettingKey):string[]{return Object.keys((SETTINGS[key].schema as unknown as {shape:Record<string,unknown>}).shape);}

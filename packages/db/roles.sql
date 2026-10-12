@@ -55,3 +55,11 @@ GRANT EXECUTE ON FUNCTION p4_ensure_ln_halos(uuid,text) TO app_rw;
 GRANT SELECT,INSERT ON attempt_event,lab_batch_slot,lab_batch_event,lab_placement_snapshot,lab_observation_review,attempt_stage_qc,label_print_job,label_print_item TO app_rw;
 GRANT SELECT,INSERT,UPDATE ON lab_batch_sequence,lab_batch,lab_task_sheet,lab_slot_assignment,lab_document,lab_document_copy,lab_observation,lab_slot_disposition TO app_rw;
 GRANT SELECT ON specimen_lab_number,lab_batch,lab_task_sheet,lab_slot_assignment,lab_document,attempt_stage_qc,label_print_job TO report_ro;
+-- P5 synthetic Result Management (migration 050). The worker reads the configured synthetic folder and records quarantined intake;
+-- it never creates report versions, links or releases. Releases stay SELECT-only and are additionally blocked by RELEASE_HOLD_AL5.
+GRANT SELECT,INSERT,UPDATE ON result_intake_file TO worker_rw;
+GRANT SELECT(id,sha256,state) ON result_report_version TO worker_rw;
+GRANT SELECT,INSERT,UPDATE ON result_intake_file,result_report_version TO app_rw;
+GRANT SELECT,INSERT ON result_version_event,result_link_event,result_gate_evaluation,result_review,result_access_log TO app_rw;
+GRANT SELECT ON result_release TO app_rw;
+GRANT SELECT ON result_report_version,result_release TO report_ro;
