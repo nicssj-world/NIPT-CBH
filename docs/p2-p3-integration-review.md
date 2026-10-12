@@ -12,7 +12,7 @@
 | P3 ก่อน Integration | `4b980e221dc17694c1578c62863c31810e7a794c` (Draft PR [#1](https://github.com/nicssj-world/NIPT-CBH/pull/1)) |
 | Merge | `git merge --no-ff origin/main` → `6d3b839` ไม่มี Conflict เชิงข้อความ (ทั้งสองฝั่งไม่ได้แก้ไฟล์เดียวกัน) ไม่ Rebase ไม่ Force Push และไม่ Rewrite History |
 | Workspace | ทำงานเฉพาะ `D:\Claude workspace\NIPT-CBH-P3` ไม่แตะ Workspace ของ P2 (Codex) ก่อนเริ่มตรวจแล้วว่า Working tree สะอาด, Local = Remote และไม่มี Process อื่นแก้ Branch นี้ |
-| Commit Integration และ CI | SHA และผล CI ของ Commit นี้บันทึกไว้ใน Draft PR #1 (เอกสารฝัง Hash ของ Commit ตัวเองไม่ได้) |
+| Commit Integration และ CI | `67b25d9fa7a18e86b43c1d29a573f3cfc7623003` (Push ตามปกติ ไม่ Force, Local = Remote) — GitHub Actions [38253541422](https://github.com/nicssj-world/NIPT-CBH/actions/runs/38253541422) (push) และ [38253547518](https://github.com/nicssj-world/NIPT-CBH/actions/runs/38253547518) (pull_request) **SUCCESS ทั้งสองรัน** ทุก Step จาก 23 Step สำเร็จ ได้แก่ Migration/Seed, Simulator, Guard, Typecheck, Lint, Native tests, Audit, Build และ Browser checks ยังไม่ได้อ่าน Log ที่ Decode แล้ว (ต้องมีสิทธิ์) จึงยังไม่ได้ยืนยันจำนวน Test ใน CI แยกจากผล Local ใน §3 Commit เอกสารนี้ถูกสร้างหลังจากนั้นและมี CI ของตัวเอง |
 
 แหล่งอ้างอิงที่อ่าน: `docs/p2-delivery.md`, `docs/p2-p3-handoff.md`, `docs/p2-governance.md`, `docs/architecture.md`, `docs/migrations.md` บน `main`, `docs/p3-synthetic-delivery.md` บน P3, Plan v6.2.1 (§4.7 L1–L7, §6.6(h), §10.2 ข้อ 5–9, D-40, D-49, OD-14, OD-15, AT-LDR-02/08, AT-ID-REG-01) และ AL-2 Owner Decision & Lock `NIPT-CBH-AL2-20261012-001` ใน NIPT-Audit (อ่านอย่างเดียว) ไม่ได้เลือก Clinical Rule ใดเอง
 
@@ -82,7 +82,7 @@ P2 (Autosave/Signing): Session → Case (FOR UPDATE) → Workspace/Signing row �
 | `npm audit --omit=dev --audit-level=high` | 0 vulnerabilities |
 | Migration ledger | 001–009 Apply ตามลำดับบน DB ใหม่ 2 ชุด Checksum ตรงกับ Source ทุกไฟล์ |
 
-ฐานเดิมเพื่อเทียบ: P2 `main` มี 24 ไฟล์ / 910 Native และ 36 Browser ส่วน P3 ก่อน Integration มี 888 Native และ 12 Browser หลัง Merge ก่อนแก้ ชุด PGlite ล้ม 18 Test เพราะ Helper ของ P3 ลงทะเบียนแบบ P1 ซึ่งไม่มี `p2_case_identity` จึงถูกปฏิเสธแบบ Fail-closed ตามที่ควรเป็น ปัญหานี้แก้ด้วยการเปลี่ยนไปใช้เส้นทางที่ Integrate แล้ว ไม่ได้ผ่อนการตรวจ ผล CI บน GitHub ของ Commit นี้บันทึกไว้ใน Draft PR #1
+ฐานเดิมเพื่อเทียบ: P2 `main` มี 24 ไฟล์ / 910 Native และ 36 Browser ส่วน P3 ก่อน Integration มี 888 Native และ 12 Browser หลัง Merge ก่อนแก้ ชุด PGlite ล้ม 18 Test เพราะ Helper ของ P3 ลงทะเบียนแบบ P1 ซึ่งไม่มี `p2_case_identity` จึงถูกปฏิเสธแบบ Fail-closed ตามที่ควรเป็น ปัญหานี้แก้ด้วยการเปลี่ยนไปใช้เส้นทางที่ Integrate แล้ว ไม่ได้ผ่อนการตรวจ ผล CI บน GitHub อยู่ใน §1
 
 ## 4. Technical Review — Findings และ Disposition
 
