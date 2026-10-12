@@ -22,13 +22,15 @@ Execution date: 2026-10-12 (Asia/Bangkok). Worktree: `D:\Claude workspace\NIPT-C
 
 Final regression includes the independent Python-derived SHA-256 golden fixture test, exact numeric-looking ID preservation, leading zeros and whitespace/suffix preservation. The fixture was serialized independently using Python `json.dumps(sort_keys=True,separators=(',',':'),ensure_ascii=False)` and `hashlib.sha256`; snapshot, ordered-member and cell-plan digests matched the TS output.
 
-Skipped local tests are the repository's existing opt-in native PostgreSQL/worker/P2 paths without `NIPT_TEST_DATABASE_URL`; the full Vitest pass does not prove those paths. This worktree has no local DB configuration. No local Playwright/browser tests were run: no UI changes were made. Existing GitHub CI provisions synthetic PostgreSQL and runs browser checks; its result for the final SHA must be checked separately. No shared or real database was migrated/seeded in this session.
+The seven local skips comprise six existing native PostgreSQL/concurrency/worker/P2/P3 tests without `NIPT_TEST_DATABASE_URL`, plus one legacy Python differential test without `NIPT_LEGACY_PET_PARSER_DIR`. The local Vitest pass does not prove those paths. This worktree has no local DB configuration. No local Playwright/browser tests were run: no UI changes were made. Existing GitHub CI provisions synthetic PostgreSQL and runs browser checks; its result for the final SHA must be checked separately. No shared or real database was migrated/seeded from this worktree.
 
 `npm ci --ignore-scripts` installed the locked dependencies in this worktree. Its all-dependency audit reported five high-severity findings; the separately executed production-only audit above returned zero. No dependencies or lockfile were changed to address unrelated dev-tool findings.
 
 ## Latest commit / CI evidence
 
 The final SHA, Draft PR URL and GitHub Actions result are reported in the delivery response and PR. They must be read together; local checks do not establish remote CI success. This document records checks on the delivered content; it cannot embed its own content-derived commit SHA. No workflow files were changed or checks disabled.
+
+Implementation commit `762f0116212b17912c1426c276975ffe8163d23f` passed both [push CI](https://github.com/nicssj-world/NIPT-CBH/actions/runs/38264767839) and [PR CI](https://github.com/nicssj-world/NIPT-CBH/actions/runs/38264816352). PR job logs confirm 999 Vitest tests passed, 1 skipped, 44 P4b tests passed, 41 browser tests passed, and zero production dependency vulnerabilities. The remaining skip is `tests/contracts/p3-legacy-differential.test.ts`; no extracted legacy parser was configured in CI. All six native opt-in tests ran successfully in isolated CI PostgreSQL. `E2E_SKIP_VISUAL=1`: browser checks are not approval of Windows visual baselines. This subsequent evidence-only revision corrects the local skip classification; no library, fixture or test code changed.
 
 ## Limits and pending decisions
 
