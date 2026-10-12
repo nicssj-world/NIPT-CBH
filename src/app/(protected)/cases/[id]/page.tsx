@@ -1,5 +1,4 @@
-import Link from "next/link";
-import {notFound} from "next/navigation";
+import {redirect} from "next/navigation";
 import {currentUser} from "../../../../server/http";
-import {caseTimeline} from "../../../../server/cases";
-export default async function CaseDetail({params}:{params:Promise<{id:string}>}){const {id}=await params;const data=await caseTimeline((await currentUser())!,id);if(!data)notFound();return <><header className="page-header"><div><h1>เคสจำลอง LN {data.item.ln}</h1><p className="muted">รอบปัจจุบัน S{data.item.round_number} · {data.item.status}</p></div><Link href="/cases">กลับทะเบียนกลาง</Link></header><section className="panel"><h2>ประวัติรอบตัวอย่าง</h2><ol className="timeline">{data.rounds.map(r=><li key={r.id}><strong>S{r.round_number}{r.id===data.item.current_round_id?" · รอบปัจจุบัน":""}</strong><p>{r.state==="Expected"?"รอรับสิ่งส่งตรวจ":r.state==="ReceivedInHIS"?"รับจาก HIS (จำลอง)":r.state==="ReceivedInNIPT"?"รับรอบใหม่ภายใน NIPT":r.state}</p></li>)}</ol></section><section className="panel"><h2>ประวัติการทำรายการ</h2>{data.events.length?<ul className="timeline">{data.events.map((e,i)=><li key={i}>{e.event_type} · {e.created_at.toLocaleString("th-TH",{timeZone:"Asia/Bangkok"})}</li>)}</ul>:<p>ยังไม่มีเหตุการณ์เพิ่มเติมสำหรับเคสจำลองนี้</p>}</section></>;}
+import {CaseWorkspace} from "../../../../components/p2/case-workspace";
+export default async function CaseDetail({params}:{params:Promise<{id:string}>}){const {id}=await params;const user=await currentUser();if(!user)redirect("/login");return <CaseWorkspace canReadDocuments={user.roles.some(r=>["ANC_NURSE","ANC_SUPERVISOR","LAB_STAFF","LAB_CERTIFIER"].includes(r))} caseId={id}/>;}

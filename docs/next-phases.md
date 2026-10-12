@@ -2,7 +2,7 @@
 
 | Phase | Remaining work / external evidence |
 | --- | --- |
-| P2 / AL-2 | ANC + new Lab registration UI, five-category request, clinical rules, consent/paper paths, signing sessions, doctor/templates, approved PDF and ANC/Lab usability |
+| P2 / full clinical AL-2 | Restricted synthetic implementation is documented in p2-delivery.md; remaining evidence is approved clinical policy/consent, DPO/DCC controlled templates/signatures/retention, full manual ACR and actual ANC/Lab usability. See p2-governance.md. |
 | P3 / AL-3 | Actual read-only CIFS/service identity/ACL, signed PET differential parity, reconnect/mount behavior, real inbound shadow with authorized test data |
 | P4 / AL-4 | Lab worklists, labels/LN Halos at actual receipt, batch/task sheets, finalize/execution/reconciliation, QC1, repeat/redraw workflow and S2 receipt UI |
 | P4b / AL-4b | Validated formula engine/goldens, pooling/DNB/sequencing, six controlled forms, exact 47-row HALOS export and witnessed physical↔barcode mapping/vendor import |

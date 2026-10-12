@@ -1,0 +1,5 @@
+import {redirect} from "next/navigation";
+import {currentUser} from "../../../server/http";
+import {authorize} from "../../../../packages/security/policy";
+import {DoctorRegistry} from "../../../components/p2/doctors";
+export default async function DoctorsPage(){const user=await currentUser();if(!user)redirect("/login");return <DoctorRegistry canPropose={authorize(user,"doctor.manage",{},"propose")} canApprove={authorize(user,"doctor.manage",{},"approve")} userId={user.id}/>;}

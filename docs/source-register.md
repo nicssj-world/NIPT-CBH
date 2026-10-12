@@ -18,3 +18,15 @@ Verified read-only original bytes on 2026-10-11. No original content is redistri
 | NIPT_CBH_P0_OD24_UX_UI_Acceptance_Owner_Decision_2026-10-11.md | 4680 | `d48ab2612ad83caf8daba29b85e18171ce736a3fbf717b86045eff343a3a20e2` |
 | NIPTY_handover.zip | 5483650 | `332ef048b256ae81256238ce8d72abd4ebaf714e92e62797f45e4595cd2c4d9c` |
 | NIPTY.zip | 275673797 | `ec54193058f43540180fe1b006d286a6a8bfa17b9d99580329fa9b164fae99e8` |
+
+## P2 restricted synthetic authority
+
+Additional originals verified read-only on 2026-10-12, in the Owner-specified order. The restricted Owner Decision/Lock and Start Order supersede historical Pending Approval wording in the proposal. They authorize synthetic P2 implementation, not clinical eligibility, live consent, actual HIS integration or Production deployment. The Plan and Baseline Supersession Index above were rechecked with unchanged hashes.
+
+| Original filename | Bytes | SHA-256 |
+| --- | ---: | --- |
+| NIPT_CBH_P2_AL2_Restricted_Synthetic_Owner_Decision_and_Lock_2026-10-12.md | 8072 | `09b93b1abe18075d73cc381b01f62e92e693e42442ce261f6fef93a61d824cd9` |
+| NIPT_CBH_P2_Synthetic_Start_Order_2026-10-12.md | 3905 | `da9db2c8574ef55c831fb6c9f7ff5868776022126e28df5420def97375160256` |
+| NIPT_CBH_P2_AL2_Synthetic_Scope_Owner_Approval_Packet_2026-10-12.md | 8515 | `cfe55c69d25dc06f899860d9077f11f33c397a44c79d474b78d2b0759ccafad1` |
+| NIPT_CBH_P0_Clinical_Consent_Discrepancy_Brief_2026-10-11.md | 8243 | `1413c319ca346d0eea8cefe79e6c84ee1faa3d1cef9d60495db0f22869069f98` |
+| NIPT_CBH_P1_Technical_Review_Closure_2026-10-11.md | 3511 | `3f81505287bbcf27b32bebfc2e83fb1416ef1c125ccfe7092f39e6e1f25f3b00` |

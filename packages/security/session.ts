@@ -42,10 +42,10 @@ export async function throttleLogin(db: Queryable, clientKey: string, now = new 
   return result.rows[0].attempts <= 20;
 }
 
-export async function readSession(db: Queryable, raw: string, now = new Date()): Promise<(Principal & { sessionId: string; csrfHash: string }) | null> {
+export async function readSession(db: Queryable, raw: string, now = new Date(), allowSigningSuspended = false): Promise<(Principal & { sessionId: string; csrfHash: string; signingSuspended:boolean }) | null> {
   if (!/^[\w-]{43}$/.test(raw)) return null;
-  const row = await db.query<{ id: string; user_id: string; csrf_hash: string }>(`UPDATE app_session s SET last_seen_at=$2,idle_expires_at=LEAST($2::timestamptz+interval '30 minutes',absolute_expires_at)
-    FROM app_user u WHERE s.token_hash=$1 AND s.user_id=u.id AND u.enabled=true AND s.revoked_at IS NULL AND s.idle_expires_at>$2 AND s.absolute_expires_at>$2 RETURNING s.id,s.user_id,s.csrf_hash`, [digest(raw), now]);
+  const row = await db.query<{ id: string; user_id: string; csrf_hash: string; signing_suspended:boolean }>(`UPDATE app_session s SET last_seen_at=$2,idle_expires_at=LEAST($2::timestamptz+interval '30 minutes',absolute_expires_at)
+    FROM app_user u WHERE s.token_hash=$1 AND s.user_id=u.id AND u.enabled=true AND s.revoked_at IS NULL AND s.idle_expires_at>$2 AND s.absolute_expires_at>$2 AND (NOT s.signing_suspended OR $3) RETURNING s.id,s.user_id,s.csrf_hash,s.signing_suspended`, [digest(raw), now,allowSigningSuspended]);
   if (!row.rows[0]) return null;
   const s = row.rows[0];
   const [roles, units, permissions] = await Promise.all([
@@ -53,11 +53,12 @@ export async function readSession(db: Queryable, raw: string, now = new Date()):
     db.query<{ unit_id: string }>("SELECT unit_id FROM user_unit_scope WHERE user_id=$1", [s.user_id]),
     db.query<{ permission: string }>("SELECT permission FROM user_permission WHERE user_id=$1", [s.user_id])
   ]);
-  return { id: s.user_id, sessionId: s.id, csrfHash: s.csrf_hash, roles: roles.rows.map(x => x.role), unitIds: units.rows.map(x => x.unit_id), permissions: permissions.rows.map(x => x.permission) };
+  return { id: s.user_id, sessionId: s.id, csrfHash: s.csrf_hash, signingSuspended:s.signing_suspended,roles: roles.rows.map(x => x.role), unitIds: units.rows.map(x => x.unit_id), permissions: permissions.rows.map(x => x.permission) };
 }
 
 export async function revokeSession(db: Queryable, raw: string): Promise<void> {
-  await db.query("UPDATE app_session SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL", [digest(raw)]);
+  const revoked=await db.query<{id:string}>("UPDATE app_session SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL RETURNING id", [digest(raw)]);
+  if(revoked.rows.length){const {clearDocumentSession}=await import('../p2/documents');for(const s of revoked.rows)clearDocumentSession(s.id);}
 }
 
 export function validateCsrf(origin: string | null, expectedOrigin: string, csrf: string, expectedHash: string): void {

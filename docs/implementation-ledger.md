@@ -16,3 +16,9 @@ Ruling: no Hermes files are copied verbatim. Inspection found a mismatch between
 Ruling: source authority takes precedence over stale P0 'not authorised' text; the later explicit P1 start order and this session authorise implementation and push to main.
 
 Ruling: Foundation implements restricted contracts, not downstream clinical workflows. No setting or runtime flag may enable real PHI, real HIS, clinical certification or release in this P1 build.
+
+## P2 extension — 2026-10-12
+
+The P1 record above is historical. Owner lock `NIPT-CBH-AL2-20261012-001` and the later P2 Synthetic Start Order authorize the restricted P2 extension. Full clinical AL-2 acceptance and AL-3–AL-8 remain separate gates.
+
+P2 implementation and final verification are recorded in [p2-delivery.md](p2-delivery.md), with source authority in [source-register.md](source-register.md), forward migration checksums in [migrations.md](migrations.md) and outstanding decisions in [p2-governance.md](p2-governance.md). No P1 wire contract or Production release authority is changed by this extension.
