@@ -1,11 +1,9 @@
 import {describe,it,expect,beforeEach,afterEach} from 'vitest';
 import {utimes,rename,readdir} from 'node:fs/promises';
 import path from 'node:path';
-import {randomUUID} from 'node:crypto';
 import iconv from 'iconv-lite';
-import {inboundFixture,writePet,writeOk,register,cycle,caseState,openIssues,fileStates,rows,type InboundFixture} from '../helpers/inbound';
+import {inboundFixture,writePet,writeOk,register,registerP2Case,registerWithoutHook,registrar,cycle,caseState,openIssues,fileStates,rows,type InboundFixture} from '../helpers/inbound';
 import {addUser} from '../helpers/database';
-import {registerCase} from '../../packages/db/registration';
 import {lnHnKey,type RegistrantIdentitySource} from '../../packages/inbound/identity';
 import {discoverInbound} from '../../packages/inbound/discovery';
 import {processPending} from '../../packages/inbound/process';
@@ -45,7 +43,7 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
  });
 
  it('AT-HISIN-03 a .pet without .ok is never read; when .ok arrives later the S1 receipt applies at P[21]',async()=>{
-  const caseId=await register(f.db,f.lookupKey,{ln:LN,hn:HN});
+  const caseId=await register(f,{ln:LN,hn:HN});
   const pet=await writePet(f.root,DAY,{ln:LN,hn:HN,receivedAt:'20261012101500'},{ok:false});
   const first=await cycle(f,{now:NOW});
   expect(first.counts).toMatchObject({waitingOk:1,stored:0});expect(await rows(f.db,'SELECT 1 FROM his_inbound_file')).toHaveLength(0);
@@ -58,7 +56,7 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
  });
 
  it('AT-HISIN-04 idempotent replay, path versions, semantic duplicates, identity change → Conflict, other change → S1IntegrityEvent without state change',async()=>{
-  const caseId=await register(f.db,f.lookupKey,{ln:LN,hn:HN});
+  const caseId=await register(f,{ln:LN,hn:HN});
   const base={ln:LN,hn:HN,receivedAt:'20261012101500',specimenAt:'20261012070000',orderAt:'20261011160000'};
   const original=await writePet(f.root,DAY,base);await cycle(f,{now:NOW});
   const applied=await caseState(f.db,caseId);
@@ -86,13 +84,13 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
   const lns=['990001000011','990001000012','990001000013'];
   for(const ln of lns)await writePet(f.root,DAY,{ln,hn:HN,receivedAt:'20261012090000'});
   expect((await cycle(f,{now:NOW})).counts.outcome_UNLINKED).toBe(3);
-  // (a) registration hook in the same transaction
-  await f.db.query('BEGIN');const a=await registerCase(f.db,{ln:lns[0],identityKey:lnHnKey(lns[0],HN,f.lookupKey),origin:'ANC',idempotencyKey:'p3_hook_match_000001'});
-  expect(await linkIntakeAtRegistration(f.db,{caseId:a.caseId,ln:lns[0],hn:HN,identifierSource:'REQUEST_FORM'},f.deps)).toEqual({outcome:'APPLIED_S1'});await f.db.query('COMMIT');
-  // (b) registered without the hook (e.g. before P2 wiring): the worker rematch applies on the next cycle
-  const b=await register(f.db,f.lookupKey,{ln:lns[1],hn:HN});
-  // (c) registrant HN differs
-  const c=await register(f.db,f.lookupKey,{ln:lns[2],hn:'9900009999'});
+  // (a) P2 registration runs the hook in the same transaction
+  const a=await registerP2Case(f,{ln:lns[0],hn:HN,identifierSource:'REQUEST_FORM'});
+  expect(a).toMatchObject({outcome:'CREATED',intake:{outcome:'APPLIED_S1',fields:[]}});
+  // (b) a P2 case registered before the hook existed (pre-integration data): the worker rematch applies on the next cycle
+  const b=await registerWithoutHook(f,{ln:lns[1],hn:HN});
+  // (c) same, but the registrant HN differs
+  const c=await registerWithoutHook(f,{ln:lns[2],hn:'9900009999'});
   const rematch=await cycle(f,{now:later(1)});expect(rematch.counts).toMatchObject({outcome_APPLIED_S1:1,outcome_IDENTITY_MISMATCH:1});
   expect((await caseState(f.db,a.caseId!)).rounds[0].state).toBe('ReceivedInHIS');
   expect((await caseState(f.db,b)).rounds[0].state).toBe('ReceivedInHIS');
@@ -102,7 +100,7 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
  });
 
  it('AT-HISIN-06 identity mismatch never advances status; queue + two-person link (proposer cannot approve)',async()=>{
-  const caseId=await register(f.db,f.lookupKey,{ln:LN,hn:'9900009999'});
+  const caseId=await register(f,{ln:LN,hn:'9900009999'});
   await writePet(f.root,DAY,{ln:LN,hn:HN,receivedAt:'20261012090000'});await cycle(f,{now:NOW});
   expect((await caseState(f.db,caseId)).rounds[0].state).toBe('Expected');
   const issue=(await rows<{id:string}>(f.db,"SELECT id FROM his_intake_issue WHERE kind='IDENTITY_MISMATCH'"))[0].id;
@@ -122,7 +120,7 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
  });
 
  it('AT-HISIN-07 broken CP874, section-60 11-digit LN and non-70096 orders: nothing applied, non-NIPT never stored',async()=>{
-  const caseId=await register(f.db,f.lookupKey,{ln:LN,hn:HN});
+  const caseId=await register(f,{ln:LN,hn:HN});
   const good=await writePet(f.root,DAY,{ln:LN,hn:HN,receivedAt:'20261012090000'},{ok:false});
   const broken=Buffer.concat([good.bytes.subarray(0,60),Buffer.from([0xdb]),good.bytes.subarray(61)]);
   const {writeFile}=await import('node:fs/promises');await writeFile(good.path,broken);await writeOk(f.root,DAY,good.filename);
@@ -137,7 +135,7 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
  });
 
  it('AT-HISIN-09 share unavailable or worker silent → Enabled but not Alive + alert, backoff, and no intake lost',async()=>{
-  const caseId=await register(f.db,f.lookupKey,{ln:LN,hn:HN});
+  const caseId=await register(f,{ln:LN,hn:HN});
   const settings={enabled:true,intervalSeconds:30};
   expect((await inboundHealth(f.db,settings,NOW))).toMatchObject({Enabled:true,Alive:false,healthy:false,alerts:['INBOUND_NOT_ALIVE']});
   await rename(path.join(f.root,'.nipt-synthetic-root'),path.join(f.root,'.marker-offline'));
@@ -156,7 +154,7 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
  });
 
  it('AT-HISIN-09 worker restart and mid-transaction failure: Ready intakes survive and are retried; error codes are recorded then cleared',async()=>{
-  const caseId=await register(f.db,f.lookupKey,{ln:LN,hn:HN});
+  const caseId=await register(f,{ln:LN,hn:HN});
   await writePet(f.root,DAY,{ln:LN,hn:HN,receivedAt:'20261012090000'});
   await discoverInbound(f.db,f.store,{root:f.root,lookbackDays:1,now:NOW,lookupKey:f.lookupKey}); // "crash" after discovery commits
   expect(await fileStates(f.db,LN)).toEqual([{state:'Ready',error_code:null}]);
@@ -170,7 +168,7 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
 
  it('AT-HISIN-10 Asia/Bangkok day folders across midnight; lookback covers the previous folder; P[21] kept as +07:00',async()=>{
   const midnight=new Date('2026-10-12T17:30:00Z'); // 00:30 on 2026-10-13 in Bangkok
-  const a='990001000021',b='990001000022';const ca=await register(f.db,f.lookupKey,{ln:a,hn:HN}),cb=await register(f.db,f.lookupKey,{ln:b,hn:HN});
+  const a='990001000021',b='990001000022';const ca=await register(f,{ln:a,hn:HN}),cb=await register(f,{ln:b,hn:HN});
   await writePet(f.root,'20261012',{ln:a,hn:HN,receivedAt:'20261012235930'});await writePet(f.root,'20261013',{ln:b,hn:HN,receivedAt:'20261013000500'});
   expect((await cycle(f,{now:midnight,lookbackDays:1})).counts).toMatchObject({dayFolders:1,stored:1});
   expect((await caseState(f.db,ca)).rounds[0].state).toBe('Expected');
@@ -181,18 +179,18 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
  });
 
  it('AT-ID-REG-01 an LN typed wrongly onto another patient\'s order is caught by HN, or queued IDENTITY_UNVERIFIED without an HN',async()=>{
-  const typo='990001000031';const wrong=await register(f.db,f.lookupKey,{ln:typo,hn:'9900002002'});
+  const typo='990001000031';const wrong=await register(f,{ln:typo,hn:'9900002002'});
   await writePet(f.root,DAY,{ln:typo,hn:'9900003003',receivedAt:'20261012090000'});await cycle(f,{now:NOW});
   expect((await caseState(f.db,wrong)).rounds[0].state).toBe('Expected');expect((await openIssues(f.db,typo))[0]).toMatchObject({kind:'IDENTITY_MISMATCH',details:{fields:['hn']}});
   const none:RegistrantIdentitySource={forCase:async()=>({scheme:'NONE'})};
-  const unverified='990001000032';const c=await register(f.db,f.lookupKey,{ln:unverified,hn:HN});
+  const unverified='990001000032';const c=await register(f,{ln:unverified,hn:HN});
   await writePet(f.root,DAY,{ln:unverified,hn:HN,receivedAt:'20261012090000'});
   await discoverInbound(f.db,f.store,{root:f.root,lookbackDays:1,now:later(1),lookupKey:f.lookupKey});await processPending(f.db,{...f.deps,identity:none});
   expect((await caseState(f.db,c)).rounds[0].state).toBe('Expected');expect((await openIssues(f.db,unverified))[0]).toMatchObject({kind:'IDENTITY_UNVERIFIED'});
  });
 
  it('AT-LIN-03 LN reused for a different patient after S1: no link, no state change, no new round; two-person keep_existing; LN generation needs P2',async()=>{
-  const caseId=await register(f.db,f.lookupKey,{ln:LN,hn:HN});
+  const caseId=await register(f,{ln:LN,hn:HN});
   await writePet(f.root,DAY,{ln:LN,hn:HN,receivedAt:'20261012090000'});await cycle(f,{now:NOW});
   const before=await caseState(f.db,caseId);
   await writePet(f.root,DAY,{ln:LN,hn:'9900007777',name:'SYNTHETIC^^นาง ผู้ป่วยอื่น',receivedAt:'20261012150000'},{mtime:later(1)});
@@ -209,7 +207,7 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
  });
 
  for(const s2Received of [false,true])it(`AT-LIN-08 resent/changed/late S1 PET while S2 is ${s2Received?'received in NIPT':'Expected'}: S2 untouched, S1 HIS time immutable`,async()=>{
-  const caseId=await register(f.db,f.lookupKey,{ln:LN,hn:HN});
+  const caseId=await register(f,{ln:LN,hn:HN});
   const base={ln:LN,hn:HN,receivedAt:'20261012090000'};const first=await writePet(f.root,DAY,base);await cycle(f,{now:NOW});
   const s1=(await caseState(f.db,caseId)).rounds[0];await redrawToRound2(caseId,s2Received);const s2=await round2(caseId);
   await utimes(first.path,later(5),later(5));
@@ -226,15 +224,18 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
   const match='990001000041',miss='990001000042';
   await writePet(f.root,DAY,{ln:match,hn:HN,dob:'19950505',receivedAt:'20261012081500'});await writePet(f.root,DAY,{ln:miss,hn:HN,receivedAt:'20261012081500'});await cycle(f,{now:NOW});
   const presence=await intakePresence(f.db,match);expect(presence).toEqual({unlinkedIntake:true});expect(await intakePresence(f.db,'990009999999')).toEqual({unlinkedIntake:false});
-  const lab=await addUser(f.db,'LAB_STAFF','synthetic.p3.lab');
-  const registerLab=async(ln:string,hn:string,dob:string|null)=>{await f.db.query('BEGIN');const r=await registerCase(f.db,{ln,identityKey:lnHnKey(ln,hn,f.lookupKey),origin:'LAB_DIRECT',actorId:lab.id,idempotencyKey:'p3_lab_'+randomUUID().replaceAll('-','')});const link=await linkIntakeAtRegistration(f.db,{caseId:r.caseId,ln,hn,dob,identifierSource:'TUBE_LABEL',actorId:lab.id},f.deps);await f.db.query('COMMIT');return {caseId:r.caseId!,link};};
-  const ok=await registerLab(match,HN,'1995-05-05');expect(ok.link).toEqual({outcome:'APPLIED_S1'});
+  const {lab}=await registrar(f.db);
+  const registerLab=async(ln:string,hn:string,identifierSource:'TUBE_LABEL'|'REQUEST_FORM')=>{const r=await registerP2Case(f,{ln,hn,origin:'LAB_DIRECT',identifierSource});return {caseId:r.caseId!,link:'intake' in r?r.intake:null};};
+  const ok=await registerLab(match,HN,'TUBE_LABEL');expect(ok.link).toEqual({outcome:'APPLIED_S1',fields:[]});
   const s=await caseState(f.db,ok.caseId);expect(s.rounds[0].state).toBe('ReceivedInHIS');expect(new Date(s.rounds[0].received_at!).toISOString()).toBe('2026-10-12T01:15:00.000Z');
-  const bad=await registerLab(miss,'9900005555',null);expect(bad.link).toEqual({outcome:'IDENTITY_MISMATCH'});
+  const bad=await registerLab(miss,'9900005555','REQUEST_FORM');expect(bad.link).toEqual({outcome:'IDENTITY_MISMATCH',fields:['hn']});
   expect((await caseState(f.db,bad.caseId)).rounds[0].state).toBe('Expected');expect(await fileStates(f.db,miss)).toEqual([{state:'Unlinked',error_code:null}]);
+  // Once a case exists the presence probe answers false and never reveals the case.
+  expect(await intakePresence(f.db,miss)).toEqual({unlinkedIntake:false});
   const events=await rows<{details:Record<string,unknown>}>(f.db,"SELECT details FROM case_event WHERE event_type='INTAKE_LINK_AT_REGISTRATION' ORDER BY created_at");
-  expect(events.map(e=>[e.details.outcome,e.details.identifierSource,e.details.blindEntry])).toEqual([['APPLIED_S1','TUBE_LABEL',true],['IDENTITY_MISMATCH','TUBE_LABEL',true]]);
-  await expect(linkIntakeAtRegistration(f.db,{caseId:ok.caseId,ln:miss,hn:HN,identifierSource:'TUBE_LABEL'},f.deps)).rejects.toThrow('CASE_LN_MISMATCH');
+  expect(events.map(e=>[e.details.outcome,e.details.identifierSource,e.details.blindEntry,e.details.actorId])).toEqual([['APPLIED_S1','TUBE_LABEL',true,lab.id],['IDENTITY_MISMATCH','REQUEST_FORM',true,lab.id]]);
+  expect(await rows(f.db,"SELECT origin,outcome,identifier_source FROM registration_attempt WHERE case_id IN ($1,$2) ORDER BY identifier_source DESC",[ok.caseId,bad.caseId])).toEqual([{origin:'LAB_DIRECT',outcome:'CREATED',identifier_source:'TUBE_LABEL'},{origin:'LAB_DIRECT',outcome:'CREATED',identifier_source:'REQUEST_FORM'}]);
+  await expect(linkIntakeAtRegistration(f.db,lab,{caseId:ok.caseId,ln:miss,hn:HN,identifierSource:'TUBE_LABEL'},f.deps)).rejects.toThrow('CASE_LN_MISMATCH');
  });
 
  it('AT-HISIN-11 / LD-04 / P3 build: HISTORICAL LN intake is queued separately, never applied and never promoted',async()=>{
@@ -251,7 +252,7 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
  });
 
  it('operational queue and health are PHI-free; Admin sees a masked LN; Test Connection is read-only and passes on the simulator',async()=>{
-  await register(f.db,f.lookupKey,{ln:LN,hn:'9900009999'});
+  await register(f,{ln:LN,hn:'9900009999'});
   await writePet(f.root,DAY,{ln:LN,hn:HN,name:'SYNTHETIC^^นาง ห้ามแสดง',dob:'19911111',receivedAt:'20261012090000',identity:'SYNTHETIC-ID-SECRET'});await cycle(f,{now:NOW});
   const lab=await addUser(f.db,'LAB_STAFF','synthetic.p3.q1'),admin=await addUser(f.db,'APP_ADMIN','synthetic.p3.q2');
   const forLab=await inboundQueue(f.db,lab),forAdmin=await inboundQueue(f.db,admin);
@@ -263,7 +264,7 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
  });
 
  it('UTF-8 or truncated content is a ParseError with a stable code, and never blocks the rest of the batch',async()=>{
-  const c=await register(f.db,f.lookupKey,{ln:LN,hn:HN});
+  const c=await register(f,{ln:LN,hn:HN});
   const pet=await writePet(f.root,DAY,{ln:'990001000051',hn:HN,receivedAt:'20261012090000'},{ok:false});
   const {writeFile}=await import('node:fs/promises');
   await writeFile(pet.path,iconv.encode(iconv.decode(pet.bytes,'windows-874').split('\r\n').slice(0,2).join('\r\n'),'windows-874'));await writeOk(f.root,DAY,pet.filename);

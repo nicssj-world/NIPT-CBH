@@ -1,5 +1,5 @@
 -- P3 synthetic HIS inbound build (Plan v6.2.1 §5.5, §6.2 D, §10.1-§10.2). Additive only.
--- Numbered 090 to stay clear of P2 (006/007 at authoring); renumber to the next sequential slot at P2 integration.
+-- Authored as 090 during parallel P2 work; renumbered to 008 (next free slot after P2 006/007) at P2-P3 integration. Body unchanged.
 ALTER TABLE his_inbound_file DROP CONSTRAINT his_inbound_file_state_check;
 ALTER TABLE his_inbound_file ADD CONSTRAINT his_inbound_file_state_check CHECK(state IN ('Ready','Applied(S1)','Conflict','ParseError','DuplicateSameContent','Unlinked','S1IntegrityEvent','HistoricalIntake'));
 ALTER TABLE his_inbound_file

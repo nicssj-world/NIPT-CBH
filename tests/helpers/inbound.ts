@@ -3,7 +3,9 @@ import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import type {PGlite} from '@electric-sql/pglite';
-import {testDatabase} from './database';
+import {testDatabase,addUser} from './database';
+import {registerP2,type Staff} from '../../packages/p2/service';
+import {identityLookup} from '../../packages/security/envelope';
 import {FileStore} from '../../packages/storage';
 import {registerCase} from '../../packages/db/registration';
 import {buildSyntheticPet,type SyntheticPetSpec} from '../../packages/inbound/wire';
@@ -29,10 +31,29 @@ export async function writePet(root:string,day:string,spec:SyntheticPetSpec,opti
 }
 export const writeOk=(root:string,day:string,filename:string)=>writeFile(path.join(root,'inbound',day,filename.replace(/\.pet$/,'.ok')),Buffer.alloc(0));
 
-export async function register(db:PGlite,lookupKey:Buffer,input:{ln:string;hn:string;origin?:'ANC'|'LAB_DIRECT'}){
- await db.query('BEGIN');
- try{const r=await registerCase(db,{ln:input.ln,identityKey:lnHnKey(input.ln,input.hn,lookupKey),origin:input.origin??'ANC',idempotencyKey:'p3_'+randomUUID().replaceAll('-','')});await db.query('COMMIT');return r.caseId!;}
- catch(e){await db.query('ROLLBACK');throw e;}
+async function tx<T>(db:PGlite,fn:()=>Promise<T>){await db.query('BEGIN');try{const r=await fn();await db.query('COMMIT');return r;}catch(e){await db.query('ROLLBACK');throw e;}}
+const registrars=new WeakMap<PGlite,Promise<{unit:string;anc:Staff;lab:Staff}>>();
+/** One synthetic unit with an ANC nurse scoped to it and a Lab registrar per fixture database. */
+export function registrar(db:PGlite){
+ let r=registrars.get(db);
+ if(!r){r=(async()=>{const unit=(await db.query<{id:string}>("INSERT INTO unit(code,name) VALUES('SYNTHETIC_P3_UNIT','หน่วยจำลอง P3') RETURNING id")).rows[0].id;const anc=await addUser(db,'ANC_NURSE','synthetic.p3.registrar.anc'),lab=await addUser(db,'LAB_STAFF','synthetic.p3.registrar.lab');return {unit,anc:{...anc,unitIds:[unit]},lab};})();registrars.set(db,r);}
+ return r;
+}
+export type RegisterSpec={ln:string;hn:string;origin?:'ANC'|'LAB_DIRECT';identifierSource?:'TUBE_LABEL'|'REQUEST_FORM'|'PATIENT_DOCUMENT';idempotencyKey?:string};
+/** The integrated path: P2 registerP2 (scope, immutable HN, LN lock) with the D-49 intake hook in one transaction. */
+export async function registerP2Case(f:Pick<InboundFixture,'db'|'lookupKey'|'store'>,input:RegisterSpec){
+ const {unit,anc,lab}=await registrar(f.db),origin=input.origin??'ANC';
+ return tx(f.db,()=>registerP2(f.db,origin==='ANC'?anc:lab,{ln:input.ln,hn:input.hn,unitId:unit,origin,idempotencyKey:input.idempotencyKey??'p3_'+randomUUID().replaceAll('-',''),...(origin==='LAB_DIRECT'||input.identifierSource?{identifierSource:input.identifierSource??'TUBE_LABEL'}:{})},f.lookupKey,{store:f.store}));
+}
+export async function register(f:Pick<InboundFixture,'db'|'lookupKey'|'store'>,input:RegisterSpec){const r=await registerP2Case(f,input);if(!r.caseId)throw Error('REGISTRATION_NOT_CREATED');return r.caseId;}
+/** A P2-identified case created before the registration hook existed (pre-integration data): only the worker rematch links it. */
+export async function registerWithoutHook(f:Pick<InboundFixture,'db'|'lookupKey'>,input:{ln:string;hn:string;origin?:'ANC'|'LAB_DIRECT'}){
+ const {unit}=await registrar(f.db);
+ return tx(f.db,async()=>{const r=await registerCase(f.db,{ln:input.ln,identityKey:lnHnKey(input.ln,input.hn,f.lookupKey),origin:input.origin??'ANC',idempotencyKey:'p3_'+randomUUID().replaceAll('-','')});await f.db.query('INSERT INTO case_unit_scope(case_id,unit_id) VALUES($1,$2)',[r.caseId,unit]);await f.db.query('INSERT INTO p2_case_identity(case_id,hn) VALUES($1,$2)',[r.caseId,input.hn]);return r.caseId!;});
+}
+/** P1 synthetic legacy registration: digest of SYNTHETIC-ID-…, no P2 identity. Never upgraded by LN equality. */
+export async function registerP1Legacy(f:Pick<InboundFixture,'db'|'lookupKey'>,input:{ln:string;legacyId:string}){
+ return tx(f.db,async()=>(await registerCase(f.db,{ln:input.ln,identityKey:identityLookup(input.legacyId,f.lookupKey),origin:'ANC',idempotencyKey:'p1_'+randomUUID().replaceAll('-','')})).caseId!);
 }
 
 export const cycle=(f:InboundFixture,options:{trigger?:ScanTrigger;lookbackDays?:number;now?:Date;intervalSeconds?:number}={})=>

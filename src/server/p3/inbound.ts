@@ -14,7 +14,8 @@ import {apiError} from "../http";
 
 export const noStore={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"};
 export async function inboundSettings(){const s=await readActiveSettings(pool());return SETTINGS.his_inbound.schema.parse(s.his_inbound??SETTINGS.his_inbound.default);}
-export async function inboundDeps(){return {store:new FileStore(path.resolve(/* turbopackIgnore: true */ process.env.FILE_STORE_ROOT||"data/files")),lookupKey:await readFile(/* turbopackIgnore: true */ process.env.IDENTITY_LOOKUP_KEY_FILE??"")};}
+export const inboundStore=()=>new FileStore(path.resolve(/* turbopackIgnore: true */ process.env.FILE_STORE_ROOT||"data/files"));
+export async function inboundDeps(){return {store:inboundStore(),lookupKey:await readFile(/* turbopackIgnore: true */ process.env.IDENTITY_LOOKUP_KEY_FILE??"")};}
 
 export async function inboundPageData(user:Principal){
  const settings=await inboundSettings();

@@ -3,11 +3,11 @@ import fc from 'fast-check';
 import {readFile,readdir,utimes} from 'node:fs/promises';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {inboundFixture,writePet,register,cycle,caseState,rows,treeChecksum,openIssues,type InboundFixture} from '../helpers/inbound';
+import {inboundFixture,writePet,register,registrar,cycle,caseState,rows,treeChecksum,openIssues,type InboundFixture} from '../helpers/inbound';
 import {addUser} from '../helpers/database';
 import {registerCase} from '../../packages/db/registration';
 import {lnHnKey} from '../../packages/inbound/identity';
-import {linkIntakeAtRegistration} from '../../packages/inbound/registration-link';
+import {registerP2} from '../../packages/p2/service';
 import {proposeResolution,decideResolution} from '../../packages/inbound/resolution';
 import {testInboundConnection} from '../../packages/inbound/connection-test';
 import type {SyntheticPetSpec} from '../../packages/inbound/wire';
@@ -22,7 +22,7 @@ describe('AT-HISIN-11 property: any S1 PET sequence never changes rounds >= 2 (L
  const op=fc.record({kind:fc.constantFrom('resend','order','identity','touch'),day:fc.integer({min:0,max:2}),field:fc.integer({min:0,max:3}),s2Received:fc.boolean()}) as fc.Arbitrary<Op>;
  it('random resend/changed/late/cross-folder PET sequences with S2 Expected or received',async()=>{
   await fc.assert(fc.asyncProperty(fc.array(op,{minLength:1,maxLength:6}),fc.boolean(),async(ops,s2Received)=>{
-   const ln=`99000${String(++serial).padStart(7,'0')}`,caseId=await register(f.db,f.lookupKey,{ln,hn:HN});
+   const ln=`99000${String(++serial).padStart(7,'0')}`,caseId=await register(f,{ln,hn:HN});
    const base:SyntheticPetSpec={ln,hn:HN,receivedAt:'20261012090000',specimenAt:'20261012070000',orderAt:'20261011160000'};
    const first=await writePet(f.root,DAYS[0],base,{mtime:at(DAYS[0],0)});await cycle(f,{now:at(DAYS[0],1),lookbackDays:3});
    const s1=(await rows<{id:string;case_ln_id:string;received_at:Date}>(f.db,'SELECT id,case_ln_id,received_at FROM specimen_round WHERE case_id=$1',[caseId]))[0];
@@ -56,7 +56,11 @@ describe('AT-LDR-08 order independence (sequential interleavings, incl. replay a
    const f=await inboundFixture();
    try{
     const ln='990001000201',registrantHn=matching?HN:'9900006666',key='p3_ldr08_'+randomUUID().replaceAll('-','');
-    const reg=async(hook:boolean,abort=false)=>{await f.db.query('BEGIN');try{const r=await registerCase(f.db,{ln,identityKey:lnHnKey(ln,registrantHn,f.lookupKey),origin:'LAB_DIRECT',idempotencyKey:key});if(hook)await linkIntakeAtRegistration(f.db,{caseId:r.caseId,ln,hn:registrantHn,identifierSource:'TUBE_LABEL'},f.deps);if(abort)throw Error('SIMULATED_ABORT');await f.db.query('COMMIT');}catch(e){await f.db.query('ROLLBACK');if(!abort)throw e;}};
+    // registerHook: the integrated P2 service (hook in-transaction). registerPlain: P2-identified data created before the hook.
+    const reg=async(hook:boolean,abort=false)=>{const {unit,lab}=await registrar(f.db);await f.db.query('BEGIN');try{
+     if(hook)await registerP2(f.db,lab,{ln,hn:registrantHn,unitId:unit,origin:'LAB_DIRECT',idempotencyKey:key,identifierSource:'TUBE_LABEL'},f.lookupKey,{store:f.store});
+     else{const r=await registerCase(f.db,{ln,identityKey:lnHnKey(ln,registrantHn,f.lookupKey),origin:'LAB_DIRECT',idempotencyKey:key,identifierSource:'TUBE_LABEL'});await f.db.query('INSERT INTO case_unit_scope(case_id,unit_id) VALUES($1,$2) ON CONFLICT DO NOTHING',[r.caseId,unit]);await f.db.query('INSERT INTO p2_case_identity(case_id,hn) VALUES($1,$2) ON CONFLICT DO NOTHING',[r.caseId,registrantHn]);}
+     if(abort)throw Error('SIMULATED_ABORT');await f.db.query('COMMIT');}catch(e){await f.db.query('ROLLBACK');if(!abort)throw e;}};
     let minute=0;
     for(const step of order){
      minute+=5;
@@ -86,7 +90,7 @@ describe('AT-HISIN-08 read-only proof across the whole lifecycle',()=>{
    await writePet(f.root,'20261012',{ln:'99000123456',hn:HN,receivedAt:'20261012090000',section:'60'});
    await writePet(f.root,'20261013',{ln,hn:'9900007777',receivedAt:'20261013090000'});
    const before=await treeChecksum(f.root);
-   const caseId=await register(f.db,f.lookupKey,{ln,hn:HN});
+   const caseId=await register(f,{ln,hn:HN});
    await testInboundConnection(f.root,{now:new Date('2026-10-13T05:00:00Z')});
    await cycle(f,{now:new Date('2026-10-12T05:00:00Z')});
    const s1=(await rows<{id:string;case_ln_id:string}>(f.db,'SELECT id,case_ln_id FROM specimen_round WHERE case_id=$1',[caseId]))[0];

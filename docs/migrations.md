@@ -11,7 +11,11 @@ SHA-256 of canonical committed LF source. Applied only to disposable synthetic/t
 | 005_phi_access.sql | `61df4b863c9016b2808276240a6e4c36af71c65ced38b35641199ba82c9c9274` |
 | 006_p2_synthetic.sql | `fc48d19774f0f9517db7f271d1d93bcd96493c82a1510a238e8550c4245c5107` |
 | 007_p2_consent_document_uniqueness.sql | `51cda447ae029673c920a96234fcbdae430b3b115e84dcdbceb14d00dd5fa1d1` |
+| 008_p3_his_inbound.sql | `666c7ebed7839479ba52b40d76080502a03fb34c2bdb5ddc088f15124b4a25cf` |
+| 009_p2_p3_registration_identifier_source.sql | `aa98a4723624a2902bd9e28cc223e72dcbc9dac9a2dc5c553ccde0eaaea5a79a` |
 
 Migration006 adds restricted synthetic P2 identity/draft/revision/paper/signing/doctor/PDF-access/withdrawal evidence and guards. Applied only to disposable local synthetic databases using the ordinary checksum-enforcing migrator; no Production apply. Migration001–005 source bytes remain unchanged. Subsequent fixes use a new forward migration.
 
 Migration007 enforces one active signing attempt, signature and final Consent per immutable document revision, and validates exact source evidence plus the declared canonical hash algorithm. It refuses existing ambiguous evidence rather than deleting or selecting a winner. Existing migration006 payloads/hashes remain unchanged; new final rows use `PG_JSONB_CANONICAL_V1`. Only isolated synthetic/test databases are migration targets.
+
+Migration008 is the P3 synthetic HIS inbound schema, authored on the parallel P3 branch as `090_p3_his_inbound.sql` (SHA-256 `acd225953a7cce8e4a084ee6db06eb99a211ff7c770dde3392b040e243bbbadf`) and renumbered at P2–P3 integration to the next free slot after 007. Only its second header comment line changed; the SQL body is byte-identical. No database ledger was edited: earlier disposable P3 databases that applied 090 are discarded, never relabelled. Migration009 adds the nullable, value-checked `registration_attempt.identifier_source` for blind entry. The P3 runtime grants formerly in `roles-p3.sql` are merged into `packages/db/roles.sql`, with column-scoped worker reads of `p2_case_identity(case_id,hn)` and `p2_collection_fact`. Ordered 001–009 application and ledger checksums were verified on fresh disposable databases; see [p2-p3-integration-review.md](p2-p3-integration-review.md).

@@ -9,36 +9,43 @@ import {identityLookup} from '../security/envelope';
 export type RegistrantIdentity=
  |{scheme:'HN_PLAIN';hn:string;dob?:string|null}
  |{scheme:'LN_HN_HMAC';key:string}
+ |{scheme:'P2_LN_HN';ln:string;hn:string;key:string}
  |{scheme:'NONE'};
 export type IdentityComparison={outcome:'MATCH'}|{outcome:'MISMATCH';fields:string[]}|{outcome:'UNVERIFIED'};
 
 export interface RegistrantIdentitySource{forCase(db:Queryable,caseId:string):Promise<RegistrantIdentity>;}
 
-/** Same derivation as the P2 registration service: HMAC over [LN, HN] with the identity lookup key. */
+/** P2 identity contract (docs/p2-p3-handoff.md): identityLookup(JSON.stringify([normalizedLn, hn]), key). Text, leading zeros kept. */
 export const lnHnKey=(ln:string,hn:string,lookupKey:Buffer)=>identityLookup(JSON.stringify([ln,hn.trim()]),lookupKey);
 
 export function compareRegistrant(registrant:RegistrantIdentity,pet:Pet,lookupKey:Buffer):IdentityComparison{
  if(registrant.scheme==='NONE')return {outcome:'UNVERIFIED'};
  if(registrant.scheme==='LN_HN_HMAC'){if(!/^[a-f0-9]{64}$/.test(registrant.key))return {outcome:'UNVERIFIED'};return lnHnKey(pet.ln,pet.hn,lookupKey)===registrant.key?{outcome:'MATCH'}:{outcome:'MISMATCH',fields:['hn']};}
+ if(registrant.scheme==='P2_LN_HN'){
+  // The stored case digest must itself be the P2 pair for this LN/HN; otherwise the registrant evidence is not P2-verified
+  // (e.g. a P1 SYNTHETIC-ID digest) and nothing is inferred from LN or HN equality alone.
+  if(!/^[a-f0-9]{64}$/.test(registrant.key)||lnHnKey(registrant.ln,registrant.hn,lookupKey)!==registrant.key)return {outcome:'UNVERIFIED'};
+  const fields=[...(registrant.ln!==pet.ln?['ln']:[]),...(registrant.hn!==pet.hn.trim()?['hn']:[])];
+  return fields.length?{outcome:'MISMATCH',fields}:{outcome:'MATCH'};
+ }
  const hn=registrant.hn.trim();if(!hn)return {outcome:'UNVERIFIED'};
  const fields:string[]=[];if(hn!==pet.hn.trim())fields.push('hn');
  if(registrant.dob&&registrant.dob!==pet.dob.slice(0,10))fields.push('dob');
  return fields.length?{outcome:'MISMATCH',fields}:{outcome:'MATCH'};
 }
 
-/** P1/P2 shared column: nipt_case.identity_key. P2 derives it as lnHnKey (verified at local P2 commit 456e65d). */
+/** Shared column nipt_case.identity_key only. Retained for explicit P1-only comparisons; not the integrated default. */
 export const caseKeyIdentitySource:RegistrantIdentitySource={async forCase(db,caseId){
  const r=(await db.query<{identity_key:string}>('SELECT identity_key FROM nipt_case WHERE id=$1',[caseId])).rows[0];
  return r?{scheme:'LN_HN_HMAC',key:r.identity_key}:{scheme:'NONE'};
 }};
 
 /**
- * Integration seam for P2: prefers the registrant HN in p2_case_identity when that table exists.
- * Falls back to the shared case key on a P1-only schema. A P2 case without an HN row is UNVERIFIED.
+ * Integrated default (P2-P3): the registrant's immutable p2_case_identity HN, the case's current LN and its digest.
+ * A case without P2 identity (P1 synthetic legacy digest) is NONE, so matching fails closed as IDENTITY_UNVERIFIED.
  */
-export const defaultIdentitySource:RegistrantIdentitySource={async forCase(db,caseId){
- const table=(await db.query<{name:string|null}>("SELECT to_regclass('public.p2_case_identity')::text AS name")).rows[0]?.name;
- if(!table)return caseKeyIdentitySource.forCase(db,caseId);
- const r=(await db.query<{hn:string}>('SELECT hn FROM p2_case_identity WHERE case_id=$1',[caseId])).rows[0];
- return r?{scheme:'HN_PLAIN',hn:r.hn}:{scheme:'NONE'};
+export const p2IdentitySource:RegistrantIdentitySource={async forCase(db,caseId){
+ const r=(await db.query<{ln:string;hn:string;identity_key:string}>("SELECT l.ln,i.hn,c.identity_key FROM nipt_case c JOIN p2_case_identity i ON i.case_id=c.id JOIN case_ln l ON l.case_id=c.id AND l.verification<>'RETIRED' WHERE c.id=$1 ORDER BY l.version DESC LIMIT 1",[caseId])).rows[0];
+ return r?{scheme:'P2_LN_HN',ln:r.ln,hn:r.hn,key:r.identity_key}:{scheme:'NONE'};
 }};
+export const defaultIdentitySource=p2IdentitySource;

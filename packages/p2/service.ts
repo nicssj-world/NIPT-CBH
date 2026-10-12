@@ -9,6 +9,8 @@ import {recordPhiAccess} from '../db/phi-access';
 import {digest,token,validateCsrf} from '../security/session';
 import {verifyPassword} from '../security/password';
 import {deriveSignature,vectorSchema} from './signature';
+import type {FileStore} from '../storage';
+import {IDENTIFIER_SOURCES,intakePresence,linkIntakeAtRegistration} from '../inbound/registration-link';
 import {requestSchema,emptyRequest,requestIssues,evaluateClinical,paperSchema,paperStatus,syntheticText,date,CONSENT_TEMPLATE,REQUEST_TEMPLATE,consentClauses,type RequestDraft} from './schema';
 
 export type Staff=Principal&{sessionId?:string};
@@ -35,19 +37,35 @@ async function workspace(db:Queryable,c:CaseScope,user:Staff){
  return (await db.query<{round_id:string;case_id:string;version:number;draft:RequestDraft;request_mode:'Electronic'|'Paper';consent_mode:'Electronic'|'Paper'}>('SELECT * FROM p2_workspace WHERE round_id=$1 FOR UPDATE',[c.current_round_id])).rows[0];
 }
 async function invalidate(db:Queryable,caseId:string){await db.query("UPDATE p2_signing_session SET state='Invalidated',closed_at=now() WHERE case_id=$1 AND state='Active'",[caseId]);}
-export async function registerP2(db:Queryable,user:Staff,input:unknown,key:Buffer){
+const p2Ln=z.string().trim().regex(/^[0-9-]{6,24}$/).refine(v=>/^0*990[0-9]{3,17}$/.test(v.replaceAll('-','')));
+/** Lab blind entry L2 (Plan §4.7, D-40): presence of a waiting HIS intake only, before any identifier is entered. */
+export async function registrationIntakePresence(db:Queryable,user:Staff,input:unknown){
+ await assertStaff(db,user);const d=z.strictObject({ln:p2Ln}).parse(input);requirePermission(user,'case.register.lab',{origin:'LAB_DIRECT'});
+ const r=await intakePresence(db,d.ln.replaceAll('-',''));
+ await appendAudit(db,{actorId:user.id,action:'INTAKE_PRESENCE_CHECKED',resourceType:'his_inbound_file',details:{outcome:r.unlinkedIntake?'PRESENT':'ABSENT',synthetic:true}});
+ return r;
+}
+/** `intake.store` gives the D-49 hook read access to stored HIS intake bytes; without it a waiting intake fails registration closed. */
+export async function registerP2(db:Queryable,user:Staff,input:unknown,key:Buffer,intake:{store?:FileStore}={}){
+ // The 32-byte lookup key must be the one the worker matches with; a missing/short key never mints identity digests.
+ if(key.length!==32)throw new P2Error('IDENTITY_LOOKUP_KEY_INVALID',500);
  await assertStaff(db,user);
- const d=z.strictObject({ln:z.string().trim().regex(/^[0-9-]{6,24}$/).refine(v=>/^0*990[0-9]{3,17}$/.test(v.replaceAll('-',''))),hn:z.string().trim().regex(/^0*990[0-9]{3,17}$/),unitId:uuid,origin:z.enum(['ANC','LAB_DIRECT']),idempotencyKey:z.string()}).parse(input);
+ // LAB_DIRECT blind entry records where the identifiers were read (Plan §4.7 L3, D-40); ANC may record it too.
+ const d=z.strictObject({ln:p2Ln,hn:z.string().trim().regex(/^0*990[0-9]{3,17}$/),unitId:uuid,origin:z.enum(['ANC','LAB_DIRECT']),idempotencyKey:z.string(),identifierSource:z.enum(IDENTIFIER_SOURCES).optional()}).refine(v=>v.origin!=='LAB_DIRECT'||v.identifierSource!==undefined,{path:['identifierSource'],message:'IDENTIFIER_SOURCE_REQUIRED'}).parse(input);
  const ln=d.ln.replaceAll('-','');requirePermission(user,d.origin==='ANC'?'case.register.anc':'case.register.lab',{unitId:d.unitId,origin:d.origin});
  if(!(await db.query('SELECT id FROM unit WHERE id=$1',[d.unitId])).rows[0])throw new P2Error('UNIT_REQUIRED');
  // Match BOTH identifiers under a keyed HMAC; generic P1 normalization remains unchanged.
  await lockLn(db,ln);
  const prior=(await db.query<{id:string;unit_id:string;registration_origin:'ANC'|'LAB_DIRECT'}>('SELECT c.id,s.unit_id,c.registration_origin FROM case_ln l JOIN nipt_case c ON c.id=l.case_id LEFT JOIN case_unit_scope s ON s.case_id=c.id WHERE l.ln=$1',[ln])).rows;
- if(prior.length&&!prior.some(x=>authorize(user,'case.read',{unitId:x.unit_id,origin:x.registration_origin},'read')))return {outcome:'IDENTITY_UNVERIFIED',caseId:null};
- const result=await registerCase(db,{ln,identityKey:identityLookup(JSON.stringify([ln,d.hn]),key),origin:d.origin,actorId:user.id,idempotencyKey:d.idempotencyKey});
+ if(prior.length&&!prior.some(x=>authorize(user,'case.read',{unitId:x.unit_id,origin:x.registration_origin},'read'))){await appendAudit(db,{actorId:user.id,action:'CASE_REGISTRATION',resourceType:'nipt_case',details:{outcome:'REJECTED',reasonCode:'IDENTITY_UNVERIFIED',origin:d.origin,synthetic:true}});return {outcome:'IDENTITY_UNVERIFIED',caseId:null};}
+ const result=await registerCase(db,{ln,identityKey:identityLookup(JSON.stringify([ln,d.hn]),key),origin:d.origin,actorId:user.id,idempotencyKey:d.idempotencyKey,identifierSource:d.identifierSource??null});
  if(!result.caseId)return {outcome:'IDENTITY_UNVERIFIED',caseId:null};
- if(result.outcome==='CREATED'){await db.query('INSERT INTO case_unit_scope(case_id,unit_id) VALUES($1,$2)',[result.caseId,d.unitId]);await db.query('INSERT INTO p2_case_identity(case_id,hn) VALUES($1,$2)',[result.caseId,d.hn]);}
- const c=await scopedCase(db,user,result.caseId);await workspace(db,c,user);return result;
+ // A same-key replay returns the stored CREATED outcome: scope/HN already exist and must not be re-inserted or re-pointed.
+ if(result.outcome==='CREATED'){const scope=(await db.query<{unit_id:string}>('SELECT unit_id FROM case_unit_scope WHERE case_id=$1',[result.caseId])).rows;if(!scope.length){await db.query('INSERT INTO case_unit_scope(case_id,unit_id) VALUES($1,$2)',[result.caseId,d.unitId]);await db.query('INSERT INTO p2_case_identity(case_id,hn) VALUES($1,$2)',[result.caseId,d.hn]);}else if(!scope.some(x=>x.unit_id===d.unitId))throw new P2Error('IDEMPOTENCY_CONFLICT',409);}
+ const c=await scopedCase(db,user,result.caseId);await workspace(db,c,user);
+ // D-49: link any waiting HIS intake in this same transaction under the LN lock already held; rolls back with registration.
+ const linked=await linkIntakeAtRegistration(db,user,{caseId:result.caseId,ln,hn:d.hn,identifierSource:d.identifierSource??null},{lookupKey:key,store:intake.store});
+ return {...result,intake:linked};
 }
 export async function getCase(db:Queryable,user:Staff,id:string){
  const c=await scopedCase(db,user,id),w=await workspace(db,c,user);
@@ -212,7 +230,7 @@ export async function listP2Cases(db:Queryable,user:Staff,search='',offset=0){
  const allUnits=(await db.query<{id:string;code:string;name:string}>('SELECT id,code,name FROM unit ORDER BY code')).rows;
  const readableUnitIds=allUnits.filter(u=>authorize(user,'case.read',{unitId:u.id,origin:'ANC'},'read')).map(u=>u.id);
  // Scope and deduplicate in SQL BEFORE applying the page limit. Multiple scope rows cannot consume the page.
- const rows=(await db.query<CaseScope&{draft:RequestDraft|null;version:number|null;request_mode:string|null;consent_mode:string|null}>("SELECT c.id,l.ln,i.hn,c.registration_origin,c.current_round_id,s.unit_id,r.state,r.analysis_started,r.round_number,w.draft,w.version,w.request_mode,w.consent_mode FROM nipt_case c JOIN case_ln l ON l.id=(SELECT cl.id FROM case_ln cl WHERE cl.case_id=c.id ORDER BY cl.id LIMIT 1) LEFT JOIN p2_case_identity i ON i.case_id=c.id JOIN LATERAL(SELECT us.unit_id FROM case_unit_scope us WHERE us.case_id=c.id AND us.unit_id=ANY($2::uuid[]) ORDER BY us.unit_id LIMIT 1) s ON true JOIN specimen_round r ON r.id=c.current_round_id LEFT JOIN p2_workspace w ON w.round_id=r.id WHERE c.registration_origin IN ('ANC','LAB_DIRECT') AND (l.ln LIKE $1 OR i.hn LIKE $1 OR w.draft->'patient'->>'syntheticName' ILIKE $1) ORDER BY c.created_at DESC,c.id LIMIT 201 OFFSET $3",['%'+search+'%',readableUnitIds,offset])).rows;
+ const rows=(await db.query<CaseScope&{draft:RequestDraft|null;version:number|null;request_mode:string|null;consent_mode:string|null}>("SELECT c.id,l.ln,i.hn,c.registration_origin,c.current_round_id,s.unit_id,r.state,r.analysis_started,r.round_number,w.draft,w.version,w.request_mode,w.consent_mode FROM nipt_case c JOIN case_ln l ON l.id=(SELECT cl.id FROM case_ln cl WHERE cl.case_id=c.id ORDER BY cl.id LIMIT 1) LEFT JOIN p2_case_identity i ON i.case_id=c.id JOIN LATERAL(SELECT us.unit_id FROM case_unit_scope us WHERE us.case_id=c.id AND us.unit_id=ANY($2::uuid[]) ORDER BY us.unit_id LIMIT 1) s ON true JOIN specimen_round r ON r.id=c.current_round_id LEFT JOIN p2_workspace w ON w.round_id=r.id WHERE c.registration_origin IN ('ANC','LAB_DIRECT') AND (l.ln LIKE $1 OR i.hn LIKE $1 OR w.draft->'patient'->>'syntheticName' ILIKE $1) ORDER BY c.created_at DESC,l.ln,c.id LIMIT 201 OFFSET $3",['%'+search+'%',readableUnitIds,offset])).rows;
  const seen=new Set<string>();const cases=rows.slice(0,200).filter(c=>{if(seen.has(c.id)||!authorize(user,'case.read',{unitId:c.unit_id,origin:c.registration_origin},'read'))return false;seen.add(c.id);return true;}).map(({draft,...c})=>({...c,identityVerified:c.hn!==null,progress:draft?{missing:requestIssues(draft),savedVersion:c.version}:null}));
  const units=allUnits.filter(u=>authorize(user,'case.register.anc',{unitId:u.id,origin:'ANC'})||authorize(user,'case.register.lab',{unitId:u.id,origin:'LAB_DIRECT'}));
  if(cases.length)await recordPhiAccess(db,user.id,cases.map(c=>c.id),'REGISTRY_VIEW');return {cases,units,hasMore:rows.length>200,nextOffset:rows.length>200?offset+200:null};

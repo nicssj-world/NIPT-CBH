@@ -7,6 +7,8 @@
 
 > **สิ่งที่ไม่ได้อ้าง:** AL-3 ยังไม่ผ่าน · ยังไม่ทดสอบ LAN Shadow (AT-HISIN-LAN-01) · ยังไม่ทดสอบ Matching End-to-End กับ Case จริงจาก P2 · ยังไม่พิสูจน์ความเข้ากันได้กับ HIS จริง ความเข้ากันได้ที่พิสูจน์คือกับ **ไฟล์สมมติรูปแบบ Legacy** และ **Parser Python ของ NIPTY เดิม** เท่านั้น
 
+> **อัปเดตหลัง P2–P3 Integration (2026-10-12):** เอกสารนี้คือบันทึก P3 Build ก่อน Integration และคงไว้เป็นประวัติ ตอนนี้ Branch นี้ได้ Merge `origin/main` ของ P2 (`9bada1e`) เข้ามาแล้ว และทำรายการใน §7 ข้อ 1–6 เสร็จ ได้แก่ เรียก Hook ใน `registerP2`, ทำ Lab Blind Entry/แหล่งของตัวระบุ, ใช้ Identity ของ P2 ใน Matching, Mount Secret ให้ Web, เปลี่ยนเลข Migration `090` เป็น `008` และย้าย `roles-p3.sql` ไปรวมใน `roles.sql`, และเพิ่มเมนู `/inbound` ข้อ 7–9 ยังเป็นงานภายหลังตามเดิม ผลและ Findings ทั้งหมดอยู่ที่ [p2-p3-integration-review.md](p2-p3-integration-review.md) ตารางด้านล่างที่อ้าง `090_p3_his_inbound.sql` หรือ `roles-p3.sql` เป็นสถานะก่อน Integration
+
 ## 1. Workspace และการแยกจาก P2
 
 | รายการ | ค่า |

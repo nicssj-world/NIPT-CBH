@@ -1,5 +1,5 @@
 // P3 native smoke (synthetic only, disposable test DB): true concurrency for AT-LDR-08 under real least-privilege
-// logins (web=app_rw registration+link, worker=worker_rw matching), then the real pg-boss worker end to end.
+// logins (web=app_rw P2 registerP2 with the D-49 hook, worker=worker_rw matching), then the real pg-boss worker end to end.
 import {readFile,mkdtemp,mkdir,writeFile,rm,rename} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,14 +7,12 @@ import {randomInt,randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
 import {assertSyntheticDatabase} from '../../packages/db/connection';
 import {FileStore} from '../../packages/storage';
-import {registerCase} from '../../packages/db/registration';
 import {proposeSetting,validateSetting,approveSetting,activateSetting} from '../../packages/settings/service';
 import {SETTINGS} from '../../packages/settings/catalog';
 import {buildSyntheticPet} from '../../packages/inbound/wire';
-import {lnHnKey} from '../../packages/inbound/identity';
 import {discoverInbound} from '../../packages/inbound/discovery';
 import {processInboundFile,processPending} from '../../packages/inbound/process';
-import {linkIntakeAtRegistration} from '../../packages/inbound/registration-link';
+import {registerP2,type Staff} from '../../packages/p2/service';
 import {transactional} from '../../packages/inbound/tx';
 import type {Principal} from '../../packages/security/policy';
 
@@ -29,6 +27,8 @@ const result:Record<string,unknown>={code:'NATIVE_P3_INBOUND_SMOKE_PASSED'};
 let stopWorker:(()=>Promise<void>)|undefined;
 try{
  await mkdir(path.join(root,'inbound'),{recursive:true});await writeFile(path.join(root,'.nipt-synthetic-root'),'NIPT_SYNTHETIC_ONLY_V1');
+ const seeded=(await admin.query<{id:string;username:string}>("SELECT id,username FROM app_user WHERE username IN ('synthetic.lab','synthetic.anc')")).rows,unit=(await admin.query<{id:string}>("SELECT id FROM unit WHERE code='SYNTHETIC_ANC'")).rows[0].id;
+ const lab:Staff={id:seeded.find(u=>u.username==='synthetic.lab')!.id,roles:['LAB_STAFF'],unitIds:[],permissions:[]},anc:Staff={id:seeded.find(u=>u.username==='synthetic.anc')!.id,roles:['ANC_NURSE'],unitIds:[unit],permissions:[]};
  // Phase 1 — AT-LDR-08: registration (web) and worker apply race on the same LN, plus a replay and an aborted attempt.
  const N=12,lns=Array.from({length:N},(_,i)=>`99000${run}${String(i).padStart(2,'0')}`);
  for(const [i,ln] of lns.entries())if(i%3!==2)await writePet(ln,HN); // i%3==2: registration first, PET later
@@ -36,7 +36,7 @@ try{
  const fileId=async(ln:string)=>(await admin.query<{id:string}>('SELECT id FROM his_inbound_file WHERE ln=$1',[ln])).rows[0]?.id;
  await Promise.all(lns.map(async(ln,i)=>{
   const hn=i%2===0?HN:'9900006666',idem=`p3_native_${run}_${i}`,tx=transactional(web);
-  const register=(abort:boolean)=>tx(async c=>{await sleep(randomInt(0,15));const r=await registerCase(c,{ln,identityKey:lnHnKey(ln,hn,key),origin:'LAB_DIRECT',idempotencyKey:idem});await linkIntakeAtRegistration(c,{caseId:r.caseId,ln,hn,identifierSource:'TUBE_LABEL'},deps);if(abort)throw Error('SIMULATED_ABORT');}).catch(e=>{if(!(abort&&e.message==='SIMULATED_ABORT'))throw e;});
+  const register=(abort:boolean)=>tx(async c=>{await sleep(randomInt(0,15));await registerP2(c,lab,{ln,hn,unitId:unit,origin:'LAB_DIRECT',idempotencyKey:idem,identifierSource:'TUBE_LABEL'},key,{store});if(abort)throw Error('SIMULATED_ABORT');}).catch(e=>{if(!(abort&&e.message==='SIMULATED_ABORT'))throw e;});
   const id=await fileId(ln);
   await Promise.all([register(true),register(false),register(false),...(id?[transactional(worker)(async c=>{await sleep(randomInt(0,15));return processInboundFile(c,id,deps);})]:[])]);
  }));
@@ -59,7 +59,7 @@ try{
  process.env.SIMULATOR_ROOT=root;process.env.FILE_STORE_ROOT=path.join(tmp,'files');process.env.DATABASE_URL=workerUrl;
  const {startWorker}=await import('../../packages/jobs/worker');
  const w=await startWorker();stopWorker=w.stop;
- const ln=`99000${run}99`;await transactional(web)(c=>registerCase(c,{ln,identityKey:lnHnKey(ln,HN,key),origin:'ANC',idempotencyKey:`p3_native_${run}_worker`}));await writePet(ln,HN);
+ const ln=`99000${run}99`;await transactional(web)(c=>registerP2(c,anc,{ln,hn:HN,unitId:unit,origin:'ANC',idempotencyKey:`p3_native_${run}_worker`},key,{store}));await writePet(ln,HN);
  const job=async(kind:string,payload:unknown)=>{const id=(await admin.query<{id:string}>('INSERT INTO job_outbox(kind,payload,idempotency_key) VALUES($1,$2,$3) RETURNING id',[kind,JSON.stringify(payload),`p3-native-${randomUUID()}`])).rows[0].id;await w.cycle();for(let i=0;i<150;i++){const r=(await admin.query<{result:Record<string,unknown>}>('SELECT result FROM integration_job_receipt WHERE outbox_id=$1',[id])).rows[0];if(r)return r.result;await sleep(200);}throw Error('JOB_RECEIPT_MISSING_'+kind);};
  const scan=await job('synthetic_scan',{trigger:'MANUAL'});
  if(scan.outcome!=='SUCCESS'||(await admin.query("SELECT r.state FROM specimen_round r JOIN case_ln l ON l.id=r.case_ln_id WHERE l.ln=$1",[ln])).rows[0].state!=='ReceivedInHIS')throw Error('WORKER_SCAN_NOT_APPLIED');

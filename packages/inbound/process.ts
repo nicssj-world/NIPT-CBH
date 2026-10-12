@@ -4,15 +4,18 @@ import {parsePet,type Pet} from '../integrations/pet';
 import {lockLn} from '../db/registration';
 import {appendAudit} from '../db/audit';
 import {petDifferences} from './wire';
-import {compareRegistrant,defaultIdentitySource,type RegistrantIdentity,type RegistrantIdentitySource} from './identity';
+import {compareRegistrant,defaultIdentitySource,type RegistrantIdentitySource} from './identity';
 import {transactional,errorCode} from './tx';
 
 export const ISSUE_KINDS=['IDENTITY_MISMATCH','LN_REUSED_OR_CHANGED','LN_REUSED_DIFFERENT_PATIENT','UNLINKED','IDENTITY_UNVERIFIED','S1_INTEGRITY_EVENT','HISTORICAL_LN_INTAKE'] as const;
 export type IssueKind=typeof ISSUE_KINDS[number];
 export type ProcessOutcome='APPLIED_S1'|'DUPLICATE'|'SKIPPED'|IssueKind;
 export interface InboundDeps{store:FileStore;lookupKey:Buffer;identity?:RegistrantIdentitySource;}
-/** Registrant identifiers entered at registration (blind entry) replace the stored source for that one evaluation. */
-export interface RegistrantOverride{identity:RegistrantIdentity;actorId?:string;}
+/**
+ * Registration-time evaluation (D-49). Identity is never supplied by the caller: the same stored P2 registrant identity
+ * the worker uses is read inside the registration transaction, so the outcome cannot depend on who evaluates first.
+ */
+export interface RegistrationContext{via:'REGISTRATION';actorId:string;}
 type FileRow={id:string;sha256:string;state:string;ln:string;filename:string};
 type Target={case_ln_id:string;case_id:string;origin:'ANC'|'LAB_DIRECT'|'HISTORICAL'};
 const json=(v:unknown)=>JSON.stringify(v);
@@ -42,7 +45,21 @@ export async function applyS1(db:Queryable,file:{id:string},pet:Pet,target:Targe
  if(r.rows.length!==1)throw Error('S1_NOT_EXPECTED');
  await autoClose(db,file.id,'UNLINKED','LINKED');
  await caseEvent(db,target.case_id,'HIS_S1_RECEIVED',{via,inboundFileId:file.id});
+ await collectionProvenance(db,target.case_id,r.rows[0].id,pet,actorId);
  await appendAudit(db,{actorId,action:'INBOUND_PET_APPLIED',resourceType:'his_inbound_file',resourceId:file.id,details:{outcome:'APPLIED_S1',reasonCode:via,synthetic:true}});
+}
+
+/**
+ * OD-14 / CG-06: the HIS specimen collection date (P[23]) is stored on the round beside, never over, the P2 collection facts.
+ * When a declared source disagrees, record a provenance conflict (source names only) for clinical review; nothing passes.
+ */
+async function collectionProvenance(db:Queryable,caseId:string,roundId:string,pet:Pet,actorId?:string){
+ const his=pet.specimenAt.slice(0,10);
+ const declared=(await db.query<{source:string;collection_date:string}>('SELECT DISTINCT ON(source) source,collection_date::text AS collection_date FROM p2_collection_fact WHERE case_id=$1 AND round_id=$2 ORDER BY source,sequence DESC',[caseId,roundId])).rows;
+ const sources=declared.filter(d=>d.collection_date!==his).map(d=>d.source).sort();
+ if(!sources.length)return;
+ await caseEvent(db,caseId,'COLLECTION_PROVENANCE_CONFLICT',{roundNumber:1,hisField:'specimenAt',sources});
+ await appendAudit(db,{actorId,action:'COLLECTION_PROVENANCE_CONFLICT',resourceType:'nipt_case',resourceId:caseId,details:{reasonCode:'HIS_COLLECTION_DIFFERS',count:sources.length,synthetic:true}});
 }
 
 export async function lockedTarget(db:Queryable,ln:string){
@@ -57,7 +74,7 @@ export async function readPet(store:FileStore,file:{sha256:string;filename:strin
  * registration and historical promotion (D-49). Only Ready intakes, or Unlinked intakes whose sole open issue is
  * UNLINKED, are evaluated automatically. No statement here addresses a specimen round other than round 1.
  */
-export async function processInboundFile(db:Queryable,fileId:string,deps:InboundDeps,override?:RegistrantOverride):Promise<ProcessOutcome>{
+export async function processInboundFile(db:Queryable,fileId:string,deps:InboundDeps,context?:RegistrationContext):Promise<ProcessOutcome>{
  const head=(await db.query<{ln:string|null}>('SELECT ln FROM his_inbound_file WHERE id=$1',[fileId])).rows[0];
  if(!head?.ln)return 'SKIPPED';
  await lockLn(db,head.ln);
@@ -80,12 +97,12 @@ export async function processInboundFile(db:Queryable,fileId:string,deps:Inbound
   if(diff.order.length){await setState(db,file.id,'S1IntegrityEvent',target.case_id);await openIssue(db,file,'S1_INTEGRITY_EVENT',target.case_id,diff.order);await caseEvent(db,target.case_id,'S1_INTEGRITY_EVENT',{fields:diff.order,inboundFileId:file.id});return 'S1_INTEGRITY_EVENT';}
   await setState(db,file.id,'DuplicateSameContent',target.case_id);return 'DUPLICATE';
  }
- const registrant=override?.identity??await (deps.identity??defaultIdentitySource).forCase(db,target.case_id);
+ const registrant=await (deps.identity??defaultIdentitySource).forCase(db,target.case_id);
  const cmp=compareRegistrant(registrant,pet,deps.lookupKey);
- if(cmp.outcome==='MATCH'){await applyS1(db,file,pet,target,override?'REGISTRATION':'AUTOMATIC',override?.actorId);return 'APPLIED_S1';}
+ if(cmp.outcome==='MATCH'){await applyS1(db,file,pet,target,context?.via??'AUTOMATIC',context?.actorId);return 'APPLIED_S1';}
  // Same terminal state whichever came first (AT-LDR-08): case keeps S1 Expected, intake stays Unlinked + issue.
  const kind=cmp.outcome==='MISMATCH'?'IDENTITY_MISMATCH':'IDENTITY_UNVERIFIED';
- await setState(db,file.id,'Unlinked',target.case_id);await openIssue(db,file,kind,target.case_id,cmp.outcome==='MISMATCH'?cmp.fields:[],override?.actorId);await autoClose(db,file.id,'UNLINKED',kind);
+ await setState(db,file.id,'Unlinked',target.case_id);await openIssue(db,file,kind,target.case_id,cmp.outcome==='MISMATCH'?cmp.fields:[],context?.actorId);await autoClose(db,file.id,'UNLINKED',kind);
  return kind;
 }
 
