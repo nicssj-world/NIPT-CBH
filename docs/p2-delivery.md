@@ -114,3 +114,9 @@ Clinical/DPO/DCC approval, controlled legal templates, representative electronic
 ## P2–P3 integration handoff
 
 [p2-p3-handoff.md](p2-p3-handoff.md) records the actual `registerP2` interface, LN/HN pair HMAC and leading-zero semantics, immutable `p2_case_identity`, shared LN lock and registration transaction, blind-entry boundaries, secret-file ownership and migration/grant requirements. Existing P1 synthetic PET identity digests differ from the P2 pair digest; LN-only matching cannot silently reconcile them. `linkIntakeAtRegistration` and migration090 remain subsequent integration work, not a P2 export or applied migration. Draft PR #1 is not merged or approved by this delivery.
+
+## Final technical review disposition
+
+Whole-branch review found three Important issues; the single correction wave at `7abf6059fb298e268b51e13d315244a429526e2a` addressed completed-signing recovery/attestation, complete authorized older-case history and every-page PDF identity/restricted-use marking. The scoped re-review concluded **Spec PASS / Quality APPROVED WITH NON-BLOCKING MINOR**, with **0 Critical / 0 Important / 1 Minor** and no new breakage identified. The local final-source checks above support restricted synthetic delivery; exact-SHA remote CI remains a separate gate until its actual completed result is recorded.
+
+Residual M1: further compacting an unsigned Consent's grouped stored-doctor block is deferred. It may occupy a continuation page, now bearing full identity, template/snapshot references, page numbering and synthetic marking. No footer-only overflow remains. This is a non-blocking print-layout refinement, not a claim of hospital printer, legal-template or Owner visual acceptance. Cost of this decision if operator review disagrees: a later scoped layout adjustment and renewed PDF checks; immutable evidence must remain intact.
