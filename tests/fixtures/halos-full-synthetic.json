@@ -1,0 +1,500 @@
+{
+  "contract": "p4b-halos-synthetic-v1",
+  "mode": "synthetic",
+  "mappingStatus": "synthetic-fixture-unverified",
+  "batch": {
+    "id": "SYN-BATCH",
+    "revision": 1
+  },
+  "placement": {
+    "id": "SYN-PLACEMENT",
+    "revision": 2
+  },
+  "pool": {
+    "id": "SYN-POOL",
+    "revision": 3
+  },
+  "handoffRevision": 1,
+  "templateSha256": "1e4ffc979235f3221ca637f37476713c3a02bc7a5c541c8d32688f4af9c0caec",
+  "dnb": {
+    "id": "DNB20261012",
+    "workDate": "2026-10-12",
+    "dateBasis": "intended"
+  },
+  "excludedBlank": {
+    "physicalPosition": 40,
+    "role": "BLANK"
+  },
+  "members": [
+    {
+      "memberKey": "SYN-MEMBER-48",
+      "physicalPosition": 48,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-48-1",
+      "printedSampleId": "SYN-PRINTED-48-1",
+      "lnHalos": "00SYN-LN-48",
+      "barcodeIndex": 1,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-47",
+      "physicalPosition": 47,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-47-1",
+      "printedSampleId": "SYN-PRINTED-47-1",
+      "lnHalos": "00SYN-LN-47",
+      "barcodeIndex": 2,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-46",
+      "physicalPosition": 46,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-46-1",
+      "printedSampleId": "SYN-PRINTED-46-1",
+      "lnHalos": "00SYN-LN-46",
+      "barcodeIndex": 3,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-45",
+      "physicalPosition": 45,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-45-1",
+      "printedSampleId": "SYN-PRINTED-45-1",
+      "lnHalos": "00SYN-LN-45",
+      "barcodeIndex": 4,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-44",
+      "physicalPosition": 44,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-44-1",
+      "printedSampleId": "SYN-PRINTED-44-1",
+      "lnHalos": "00SYN-LN-44",
+      "barcodeIndex": 5,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-43",
+      "physicalPosition": 43,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-43-1",
+      "printedSampleId": "SYN-PRINTED-43-1",
+      "lnHalos": "00SYN-LN-43",
+      "barcodeIndex": 6,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-42",
+      "physicalPosition": 42,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-42-1",
+      "printedSampleId": "SYN-PRINTED-42-1",
+      "lnHalos": "00SYN-LN-42",
+      "barcodeIndex": 7,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-41",
+      "physicalPosition": 41,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-41-1",
+      "printedSampleId": "SYN-PRINTED-41-1",
+      "lnHalos": "00SYN-LN-41",
+      "barcodeIndex": 8,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-39",
+      "physicalPosition": 39,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-39-1",
+      "printedSampleId": "SYN-PRINTED-39-1",
+      "lnHalos": "00SYN-LN-39",
+      "barcodeIndex": 9,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-38",
+      "physicalPosition": 38,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-38-1",
+      "printedSampleId": "SYN-PRINTED-38-1",
+      "lnHalos": "00SYN-LN-38",
+      "barcodeIndex": 10,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-37",
+      "physicalPosition": 37,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-37-1",
+      "printedSampleId": "SYN-PRINTED-37-1",
+      "lnHalos": "00SYN-LN-37",
+      "barcodeIndex": 11,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-36",
+      "physicalPosition": 36,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-36-1",
+      "printedSampleId": "SYN-PRINTED-36-1",
+      "lnHalos": "00SYN-LN-36",
+      "barcodeIndex": 12,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-35",
+      "physicalPosition": 35,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-35-1",
+      "printedSampleId": "SYN-PRINTED-35-1",
+      "lnHalos": "00SYN-LN-35",
+      "barcodeIndex": 14,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-34",
+      "physicalPosition": 34,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-34-1",
+      "printedSampleId": "SYN-PRINTED-34-1",
+      "lnHalos": "00SYN-LN-34",
+      "barcodeIndex": 15,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-33",
+      "physicalPosition": 33,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-33-1",
+      "printedSampleId": "SYN-PRINTED-33-1",
+      "lnHalos": "00SYN-LN-33",
+      "barcodeIndex": 16,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-32",
+      "physicalPosition": 32,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-32-1",
+      "printedSampleId": "SYN-PRINTED-32-1",
+      "lnHalos": "00SYN-LN-32",
+      "barcodeIndex": 17,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-31",
+      "physicalPosition": 31,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-31-1",
+      "printedSampleId": "SYN-PRINTED-31-1",
+      "lnHalos": "00SYN-LN-31",
+      "barcodeIndex": 18,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-30",
+      "physicalPosition": 30,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-30-1",
+      "printedSampleId": "SYN-PRINTED-30-1",
+      "lnHalos": "00SYN-LN-30",
+      "barcodeIndex": 19,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-29",
+      "physicalPosition": 29,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-29-1",
+      "printedSampleId": "SYN-PRINTED-29-1",
+      "lnHalos": "00SYN-LN-29",
+      "barcodeIndex": 20,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-28",
+      "physicalPosition": 28,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-28-1",
+      "printedSampleId": "SYN-PRINTED-28-1",
+      "lnHalos": "00SYN-LN-28",
+      "barcodeIndex": 21,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-27",
+      "physicalPosition": 27,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-27-1",
+      "printedSampleId": "SYN-PRINTED-27-1",
+      "lnHalos": "00SYN-LN-27",
+      "barcodeIndex": 22,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-26",
+      "physicalPosition": 26,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-26-1",
+      "printedSampleId": "SYN-PRINTED-26-1",
+      "lnHalos": "00SYN-LN-26",
+      "barcodeIndex": 23,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-25",
+      "physicalPosition": 25,
+      "role": "NC",
+      "exportSampleId": "00SYN-25-1",
+      "printedSampleId": "SYN-PRINTED-25-1",
+      "lnHalos": "00SYN-LN-25",
+      "barcodeIndex": 24,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-24",
+      "physicalPosition": 24,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-24-1",
+      "printedSampleId": "SYN-PRINTED-24-1",
+      "lnHalos": "00SYN-LN-24",
+      "barcodeIndex": 25,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-23",
+      "physicalPosition": 23,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-23-1",
+      "printedSampleId": "SYN-PRINTED-23-1",
+      "lnHalos": "00SYN-LN-23",
+      "barcodeIndex": 26,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-22",
+      "physicalPosition": 22,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-22-1",
+      "printedSampleId": "SYN-PRINTED-22-1",
+      "lnHalos": "00SYN-LN-22",
+      "barcodeIndex": 27,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-21",
+      "physicalPosition": 21,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-21-1",
+      "printedSampleId": "SYN-PRINTED-21-1",
+      "lnHalos": "00SYN-LN-21",
+      "barcodeIndex": 28,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-20",
+      "physicalPosition": 20,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-20-1",
+      "printedSampleId": "SYN-PRINTED-20-1",
+      "lnHalos": "00SYN-LN-20",
+      "barcodeIndex": 29,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-19",
+      "physicalPosition": 19,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-19-1",
+      "printedSampleId": "SYN-PRINTED-19-1",
+      "lnHalos": "00SYN-LN-19",
+      "barcodeIndex": 30,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-18",
+      "physicalPosition": 18,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-18-1",
+      "printedSampleId": "SYN-PRINTED-18-1",
+      "lnHalos": "00SYN-LN-18",
+      "barcodeIndex": 31,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-17",
+      "physicalPosition": 17,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-17-1",
+      "printedSampleId": "SYN-PRINTED-17-1",
+      "lnHalos": "00SYN-LN-17",
+      "barcodeIndex": 32,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-16",
+      "physicalPosition": 16,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-16-1",
+      "printedSampleId": "SYN-PRINTED-16-1",
+      "lnHalos": "00SYN-LN-16",
+      "barcodeIndex": 33,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-15",
+      "physicalPosition": 15,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-15-1",
+      "printedSampleId": "SYN-PRINTED-15-1",
+      "lnHalos": "00SYN-LN-15",
+      "barcodeIndex": 34,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-14",
+      "physicalPosition": 14,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-14-1",
+      "printedSampleId": "SYN-PRINTED-14-1",
+      "lnHalos": "00SYN-LN-14",
+      "barcodeIndex": 35,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-13",
+      "physicalPosition": 13,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-13-1",
+      "printedSampleId": "SYN-PRINTED-13-1",
+      "lnHalos": "00SYN-LN-13",
+      "barcodeIndex": 36,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-12",
+      "physicalPosition": 12,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-12-1",
+      "printedSampleId": "SYN-PRINTED-12-1",
+      "lnHalos": "00SYN-LN-12",
+      "barcodeIndex": 37,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-11",
+      "physicalPosition": 11,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-11-1",
+      "printedSampleId": "SYN-PRINTED-11-1",
+      "lnHalos": "00SYN-LN-11",
+      "barcodeIndex": 38,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-10",
+      "physicalPosition": 10,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-10-1",
+      "printedSampleId": "SYN-PRINTED-10-1",
+      "lnHalos": "00SYN-LN-10",
+      "barcodeIndex": 39,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-9",
+      "physicalPosition": 9,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-9-1",
+      "printedSampleId": "SYN-PRINTED-9-1",
+      "lnHalos": "00SYN-LN-9",
+      "barcodeIndex": 40,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-8",
+      "physicalPosition": 8,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-8-1",
+      "printedSampleId": "SYN-PRINTED-8-1",
+      "lnHalos": "00SYN-LN-8",
+      "barcodeIndex": 41,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-7",
+      "physicalPosition": 7,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-7-1",
+      "printedSampleId": "SYN-PRINTED-7-1",
+      "lnHalos": "00SYN-LN-7",
+      "barcodeIndex": 42,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-6",
+      "physicalPosition": 6,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-6-1",
+      "printedSampleId": "SYN-PRINTED-6-1",
+      "lnHalos": "00SYN-LN-6",
+      "barcodeIndex": 43,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-5",
+      "physicalPosition": 5,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-5-1",
+      "printedSampleId": "SYN-PRINTED-5-1",
+      "lnHalos": "00SYN-LN-5",
+      "barcodeIndex": 44,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-4",
+      "physicalPosition": 4,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-4-1",
+      "printedSampleId": "SYN-PRINTED-4-1",
+      "lnHalos": "00SYN-LN-4",
+      "barcodeIndex": 45,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-3",
+      "physicalPosition": 3,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-3-1",
+      "printedSampleId": "SYN-PRINTED-3-1",
+      "lnHalos": "00SYN-LN-3",
+      "barcodeIndex": 46,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-2",
+      "physicalPosition": 2,
+      "role": "PATIENT",
+      "exportSampleId": "00SYN-2-1",
+      "printedSampleId": "SYN-PRINTED-2-1",
+      "lnHalos": "00SYN-LN-2",
+      "barcodeIndex": 47,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    },
+    {
+      "memberKey": "SYN-MEMBER-1",
+      "physicalPosition": 1,
+      "role": "PC",
+      "exportSampleId": "00SYN-1-1",
+      "printedSampleId": "SYN-PRINTED-1-1",
+      "lnHalos": "00SYN-LN-1",
+      "barcodeIndex": 48,
+      "barcodeType": "SYN-UNVERIFIED-TYPE"
+    }
+  ]
+}
