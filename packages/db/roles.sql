@@ -55,3 +55,7 @@ GRANT EXECUTE ON FUNCTION p4_ensure_ln_halos(uuid,text) TO app_rw;
 GRANT SELECT,INSERT ON attempt_event,lab_batch_slot,lab_batch_event,lab_placement_snapshot,lab_observation_review,attempt_stage_qc,label_print_job,label_print_item TO app_rw;
 GRANT SELECT,INSERT,UPDATE ON lab_batch_sequence,lab_batch,lab_task_sheet,lab_slot_assignment,lab_document,lab_document_copy,lab_observation,lab_slot_disposition TO app_rw;
 GRANT SELECT ON specimen_lab_number,lab_batch,lab_task_sheet,lab_slot_assignment,lab_document,attempt_stage_qc,label_print_job TO report_ro;
+-- P4b evidence is insert-only; app_rw cannot replace snapshots, observations or PDFs.
+GRANT SELECT,INSERT ON p4b_pool_attempt,p4b_pool_event,p4b_pool_observation,p4b_pool_review,p4b_qc2_decision,p4b_pool_snapshot,p4b_document,p4b_document_copy TO app_rw;
+GRANT SELECT ON p4b_pool_attempt,p4b_pool_event,p4b_pool_snapshot,p4b_document TO report_ro;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO app_rw;

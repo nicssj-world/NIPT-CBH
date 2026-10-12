@@ -1,5 +1,7 @@
 # P4b HALOS export contract — synthetic only
 
+Continuation (2026-10-13): [Pooling/QC2/F4 synthetic delivery](p4b-pooling-delivery.md) adds separate workflow modules. This pure contract and its 44 tests remain unchanged; no accepted-Pool adapter/export is enabled.
+
 Status: independent proposal for P4 integration; no Database/API/UI integration, no HALOS connection, no vendor-compatible file, no AL-4b acceptance. Base: `10a646f80b1d65837985e18a916eb95bcff0b456`. Branch: `feat/p4b-halos-export-contract`.
 
 ## Binding evidence and supersession

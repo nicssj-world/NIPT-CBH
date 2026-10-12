@@ -22,3 +22,7 @@ Ruling: Foundation implements restricted contracts, not downstream clinical work
 The P1 record above is historical. Owner lock `NIPT-CBH-AL2-20261012-001` and the later P2 Synthetic Start Order authorize the restricted P2 extension. Full clinical AL-2 acceptance and AL-3–AL-8 remain separate gates.
 
 P2 implementation and final verification are recorded in [p2-delivery.md](p2-delivery.md), with source authority in [source-register.md](source-register.md), forward migration checksums in [migrations.md](migrations.md) and outstanding decisions in [p2-governance.md](p2-governance.md). No P1 wire contract or Production release authority is changed by this extension.
+
+## P4b continuation — 2026-10-13
+
+Executed the session-authorized Pooling → QC2 → F4 → immutable Pool snapshot milestone in the existing P4b worktree, after safely merging P4 main. Separate calculation/service/document modules reuse P4 evidence and transaction/security contracts. Additive migrations 011–013 and Unit/DB/native/contract/browser tests are described in [p4b-pooling-delivery.md](p4b-pooling-delivery.md). Owner-dependent operations remain HOLD; simulation artifacts never establish AL-4b acceptance. HALOS contract is preserved; PR #2 stays draft and unmerged.

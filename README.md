@@ -1,5 +1,7 @@
 # NIPT CBH — P1 Foundation / P2 Synthetic
 
+P4b continuation: [Pooling / QC2 / F4 synthetic delivery](docs/p4b-pooling-delivery.md) — immutable HOLD snapshots, no clinical acceptance or HALOS export.
+
 ระบบเดียวสำหรับโรงพยาบาล: Next.js Web, PostgreSQL, Node Worker และ PDF Renderer ภายในชุด Docker เดียวกัน ตาม Implementation Plan v6.2.1 และ AL-1 ที่ Owner อนุมัติ
 
 P2 ใช้ขอบเขตจำลองตาม AL-2 Restricted Owner Lock และ Start Order วันที่ 12 ตุลาคม 2026 ครอบคลุม ANC/Lab Direct Registration, Request, Paper/Mixed Consent, Signing Session และ PDF จำลอง การตรวจส่งมอบทางเทคนิคติดตามใน [P2 Delivery](docs/p2-delivery.md)
