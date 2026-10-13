@@ -1,8 +1,10 @@
 # Synthetic operations runbook
 
+P8 current procedure: [signed deployment tooling](p8/deployment-notes.md), [installation/operations/recovery](p8/installation-operations.md), [staff UAT](p8/staff-uat.md), [delivery and remaining gates](p8/delivery.md). P8 requires an explicit isolated Compose project, clean committed image provenance and backup evidence bound to the runtime; the older P1 examples below are historical baseline, not sufficient new-release commands.
+
 ## Development and release preparation (internet permitted here)
 
-`npm ci`; `npx tsx tools/init-dev.ts`; `docker compose build`; `docker compose up -d`. All mounts/keys/data stay in ignored local directories. PostgreSQL is private; only loopback HTTPS 8443 is exposed. Internal data/render/proxy networks isolate application services; the ingress bridge disables IP masquerading. There are no runtime CDN/font/npm dependencies.
+`npm ci`; `npx tsx tools/init-dev.ts`; then follow the P8 provenance build and signed installation procedure linked above. All mounts/keys/data stay in ignored local directories. PostgreSQL is private; only loopback HTTPS ingress is exposed (default8443, explicit P8 rehearsal port18443). Internal data/render/proxy networks isolate application services; the ingress bridge disables IP masquerading. There are no runtime CDN/font/npm dependencies.
 
 Build the distributable after all tests pass:
 
