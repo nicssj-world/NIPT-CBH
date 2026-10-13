@@ -30,14 +30,19 @@ function CrossTable({cross,caption}:{cross:Cross;caption:string}){
   <tbody>{CROSS_KEYS.map(k=><tr key={k}><td>{CROSS_TEXT[k]}{k==="labNumber"&&<span className="muted"> (ข้อมูลประกอบ — PIC ยังไม่ Active)</span>}</td><td><Status tone={CMP_TONE[cross[k]]}>{CMP_TEXT[cross[k]]??"—"}</Status></td></tr>)}</tbody></table>;
 }
 
-export function ResultReview({id}:{id:string}){
+export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:boolean}){
+ const [noticeTone,setNoticeTone]=useState<"success"|"warning-notice">("success");
  const [d,setD]=useState<Detail|null>(null),[error,setError]=useState(""),[notice,setNotice]=useState(""),[busy,setBusy]=useState<string|null>(null);
  const [choice,setChoice]=useState(""),[reason,setReason]=useState(""),[revise,setRevise]=useState(false),[nameReview,setNameReview]=useState<""|"NEW_REPORT"|"REVISION">(""),[rev,setRev]=useState({receivedDate:"",requestedBy:"",reason:""});
  const [decision,setDecision]=useState(""),[valuesOk,setValuesOk]=useState(false),[ack,setAck]=useState(false),[note,setNote]=useState("");
  const [certKey,setCertKey]=useState(key),[certAck,setCertAck]=useState(false),[outcome,setOutcome]=useState<{outcome:string;failed?:string[];pending?:string[];waitsForP4b?:boolean}|null>(null),[voidReason,setVoidReason]=useState("");
+ const [reparseReason,setReparseReason]=useState(""),[reparseKey,setReparseKey]=useState(()=>crypto.randomUUID()),[diagnostics,setDiagnostics]=useState<{id:string;parserVersion:string;outcome:string;rejectCode:string|null;createdAt:string;reason:string}[]>([]),[maintenanceError,setMaintenanceError]=useState("");
+ const loadDiagnostics=useCallback(async()=>{if(!canMaintain)return;try{const r=await labApi<{evidence:typeof diagnostics}>(`/api/p5/results/${id}/reparse`);setDiagnostics(r.evidence);setMaintenanceError("");}catch(e){setMaintenanceError(failureText(e));}},[id,canMaintain]);
+ useEffect(()=>{void Promise.resolve().then(loadDiagnostics);},[loadDiagnostics]);
+ const doReparse=async()=>{setBusy("reparse");setMaintenanceError("");setNotice("");try{const r=await labApi<{outcome:string;rejectCode:string|null}>(`/api/p5/results/${id}/reparse`,{reason:reparseReason,idempotencyKey:reparseKey});setNoticeTone(r.outcome==="PARSED_DIAGNOSTIC"?"success":"warning-notice");setNotice(r.outcome==="PARSED_DIAGNOSTIC"?"สร้างหลักฐานอ่านซ้ำแล้ว — รายงานเดิมและการตรวจทานไม่เปลี่ยน":`บันทึกหลักฐานแล้ว แต่อ่านต้นฉบับซ้ำไม่ได้ (${r.rejectCode??"Unknown"}) — ตรวจต้นฉบับก่อนลองใหม่`);setReparseReason("");setReparseKey(crypto.randomUUID());await loadDiagnostics();}catch(e){setMaintenanceError(failureText(e));}finally{setBusy(null);}};
  const load=useCallback(async()=>{try{setD(await labApi<Detail>(`/api/p5/results/${id}`));setError("");}catch(e){setError(failureText(e));}},[id]);
  useEffect(()=>{void Promise.resolve().then(load);},[load]);
- const act=async(name:string,body:Record<string,unknown>,done:string)=>{if(!d)return null;setBusy(name);setError("");setNotice("");
+ const act=async(name:string,body:Record<string,unknown>,done:string)=>{if(!d)return null;setBusy(name);setError("");setNotice("");setNoticeTone("success");
   try{const r=await labApi<Record<string,unknown>>(`/api/p5/results/${id}`,{action:name,expectedRowVersion:d.version.rowVersion,...body});setNotice(done);await load();return r;}
   catch(e){if(e instanceof LabFailure&&e.code==="REVISION_DETAILS_REQUIRED")setRevise(true);setError(failureText(e));if(e instanceof LabFailure&&e.code==="VERSION_CONFLICT")await load();return null;}finally{setBusy(null);}};
  if(!d)return <><p><Link href="/results">← คิวตรวจทานผล</Link></p>{error?<p className="notice" role="alert">{error}</p>:<div className="skeleton" aria-busy="true" aria-label="กำลังโหลด"/>}</>;
@@ -51,7 +56,7 @@ export function ResultReview({id}:{id:string}){
   <p><Link href="/results">← คิวตรวจทานผล</Link></p>
   <header className="page-header"><div><h1>ตรวจทานผล</h1><p className="muted p5-file">{d.intake.member_name??d.intake.relative_path??d.intake.original_name}</p></div>
    <div className="p5-head-status"><Status tone={STATE_TONE[v.state]}>{STATE_TEXT[v.state]??v.state}</Status><span className="badge">{KIND_TEXT[v.templateKind]}</span>{p.abnormal&&<span className="badge danger">ผิดปกติ</span>}{v.supersedesId&&<span className="badge warning">ฉบับแก้ไข</span>}</div></header>
-  <div aria-live="polite">{notice&&<p className="notice success" role="status">{notice}</p>}{error&&<p className="notice" role="alert">{error}</p>}</div>
+  <div aria-live="polite">{notice&&<p className={`notice ${noticeTone}`} role="status">{notice}</p>}{error&&<p className="notice" role="alert">{error}</p>}</div>
   <div className="p5-review">
    <section className="panel p5-original" aria-labelledby="orig-h">
     <h2 id="orig-h">ไฟล์ต้นฉบับ</h2>
@@ -65,6 +70,15 @@ export function ResultReview({id}:{id:string}){
    </section>
 
    <div className="p5-side">
+    {canMaintain&&<section className="panel" aria-labelledby="reparse-h">
+     <h2 id="reparse-h">อ่านต้นฉบับซ้ำเพื่อวินิจฉัย Parser</h2>
+     <p className="help">สร้างหลักฐานจากไฟล์เดิมเท่านั้น ไม่แทนค่ารายงาน ไม่เปลี่ยนการเชื่อมโยง การตรวจทาน หรือการปล่อยผล หากต้องแก้ผลให้ใช้กระบวนการฉบับแก้ไขเดิม</p>
+     {maintenanceError&&<p className="notice" role="alert">{maintenanceError} <button type="button" className="button small secondary" disabled={!!busy} onClick={()=>void loadDiagnostics()}>โหลดหลักฐานอีกครั้ง</button></p>}
+     <form className="stack" onSubmit={e=>{e.preventDefault();void doReparse();}}><div className="field"><label htmlFor="reparse-reason">เหตุผลการอ่านซ้ำ (อย่างน้อย 8 ตัวอักษร)</label><input id="reparse-reason" value={reparseReason} minLength={8} maxLength={500} required onChange={e=>{setReparseReason(e.target.value);setReparseKey(crypto.randomUUID());}}/></div>
+      <div className="action-bar"><button className="button secondary" disabled={!!busy}>{busy==="reparse"?"กำลังสร้างหลักฐาน…":"สร้างหลักฐานอ่านซ้ำ"}</button></div></form>
+     <details><summary>หลักฐานอ่านซ้ำล่าสุด (สูงสุด 50 รายการ)</summary>{diagnostics.length?<ul>{diagnostics.map(e=><li key={e.id}>{bkk(e.createdAt)} · <span className="mono">{e.parserVersion}</span> · {e.outcome==="PARSED_DIAGNOSTIC"?"อ่านได้ (หลักฐานวินิจฉัยเท่านั้น)":`อ่านไม่ได้ (${e.rejectCode})`}<br/>{e.reason}<br/><span className="mono p5-hash">{e.id}</span></li>)}</ul>:<p className="help">ยังไม่มีหลักฐานอ่านซ้ำ</p>}</details>
+    </section>}
+
     <section className="panel" aria-labelledby="values-h">
      <h2 id="values-h">ค่าที่อ่านได้จาก PDF</h2>
      {p.needsManualReview&&<p className="notice warning-notice">มีค่าที่อ่านแบบสำรองหรืออ่านไม่ได้ — ตรวจกับ PDF ต้นฉบับทุกค่า ค่าที่อ่านไม่ได้ถือเป็น Unknown ไม่ใช่ปกติ</p>}

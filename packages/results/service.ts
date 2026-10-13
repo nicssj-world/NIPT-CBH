@@ -339,17 +339,11 @@ export async function voidVersion(db:Queryable,user:Staff,input:unknown){
 
 // ---------- Reads ----------
 export const OPEN_BUCKETS={unlinked:['Unlinked'],conflict:['LinkConflict'],blocked:['ValidationBlocked'],pending:['PendingCertification'],closed:['RejectedImport','Superseded','Voided','CertifiedReleased']} as const;
-export async function resultQueue(db:Queryable,user:Staff){
- need(user,'result.review','read');
- const rows=(await db.query<{id:string;kind:string;template_kind:string;state:string;imported_at:Date;state_changed_at:Date;original_name:string;relative_path:string|null;member_name:string|null;hn:string|null;lab:string|null;collection:string|null;round_number:number|null;ln:string|null;proposal:boolean;abnormal:boolean;row_version:number;name_conflict:boolean}>(
-  `SELECT v.id,v.kind,v.template_kind,v.state,v.imported_at,v.state_changed_at,i.original_name,i.relative_path,i.member_name,v.parsed->'identifiers'->'hn'->>'value' hn,v.parsed->'identifiers'->'labNumber'->>'value' lab,
-    v.parsed->'identifiers'->'collectionDate'->>'value' collection,r.round_number,l.ln,(v.parsed->>'abnormal')::boolean abnormal,v.row_version,
-    EXISTS(SELECT 1 FROM result_report_version o JOIN result_intake_file oi ON oi.id=o.intake_file_id WHERE o.id<>v.id AND o.sha256<>v.sha256 AND lower(coalesce(oi.member_name,oi.original_name))=lower(coalesce(i.member_name,i.original_name))) name_conflict,
-    EXISTS(SELECT 1 FROM result_link_event e WHERE e.version_id=v.id AND e.event='PROPOSED' AND NOT EXISTS(SELECT 1 FROM result_link_event y WHERE y.version_id=v.id AND y.event IN ('APPROVED','REJECTED','UNLINKED') AND y.sequence>e.sequence)) proposal
-   FROM result_report_version v JOIN result_intake_file i ON i.id=v.intake_file_id LEFT JOIN specimen_round r ON r.id=v.round_id LEFT JOIN case_ln l ON l.id=r.case_ln_id
-   ORDER BY v.state_changed_at DESC LIMIT 300`)).rows;
+export async function resultQueue(db:Queryable,user:Staff,input:unknown={}){
+ const {queryResults}=await import('./query');
+ const result=await queryResults(db,user,input);
  const latest=(await db.query<{folder:string;at:Date}>("SELECT regexp_replace(relative_path,'/?[^/]+$','') folder,max(i.decided_at) at FROM result_intake_file i WHERE i.source='FOLDER' AND i.state='Imported' AND i.relative_path IS NOT NULL GROUP BY 1 ORDER BY 1 DESC LIMIT 1")).rows[0]??null;
- return {rows,latestFolder:latest,releaseHold:true};
+ return {...result,latestFolder:latest,releaseHold:true};
 }
 export async function versionDetail(db:Queryable,user:Staff,id:string){
  need(user,'result.review','read');const v=await versionOf(db,id);

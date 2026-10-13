@@ -1,4 +1,5 @@
 -- Execute separately as the synthetic database owner, never as an application connection.
+-- P7 evidence grants are repeated below for fresh installs where roles are created after migrations.
 DO $$ BEGIN
  IF NOT EXISTS(SELECT FROM pg_roles WHERE rolname='app_rw') THEN CREATE ROLE app_rw NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE; END IF;
  IF NOT EXISTS(SELECT FROM pg_roles WHERE rolname='worker_rw') THEN CREATE ROLE worker_rw NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE; END IF;
@@ -80,3 +81,7 @@ GRANT UPDATE(state,reject_code,parsed) ON historical_batch_file TO worker_rw;
 GRANT UPDATE(state,issues,ln_key,evaluation_id,updated_at) ON historical_draft TO worker_rw;
 GRANT SELECT,INSERT ON historical_draft_revision,historical_eligibility_evaluation TO worker_rw;
 GRANT SELECT ON historical_record,historical_verification TO worker_rw;
+-- P7 A19/A21: append-only access/diagnostic evidence, never report mutation permission.
+GRANT SELECT,INSERT ON result_query_export_evidence,result_reparse_evidence TO app_rw;
+REVOKE UPDATE,DELETE,TRUNCATE ON result_query_export_evidence,result_reparse_evidence FROM app_rw;
+GRANT SELECT ON result_query_export_evidence,result_reparse_evidence TO report_ro;
