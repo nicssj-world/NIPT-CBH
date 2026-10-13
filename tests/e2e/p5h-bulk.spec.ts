@@ -19,7 +19,7 @@ async function login(page:Page,username:string){
  await page.goto("/login");await page.getByLabel("ชื่อผู้ใช้",{exact:true}).fill(username);await page.getByLabel("รหัสผ่าน",{exact:true}).fill(password());await page.getByRole("button",{name:"เข้าสู่ระบบ"}).click();
  await page.waitForURL(u=>!u.pathname.startsWith("/login"));
 }
-async function as(browser:Browser,username:string){const c=await browser.newContext({baseURL:process.env.E2E_BASE_URL??"http://127.0.0.1:3600",extraHTTPHeaders:{"x-real-ip":"synthetic-e2e-"+randomUUID()}});const page=await c.newPage();await login(page,username);return {page,close:()=>c.close()};}
+async function as(browser:Browser,username:string){const c=await browser.newContext({baseURL:process.env.E2E_BASE_URL??"http://127.0.0.1:3000",ignoreHTTPSErrors:process.env.E2E_IGNORE_LOCAL_TLS==="1",extraHTTPHeaders:{"x-real-ip":"synthetic-e2e-"+randomUUID()}});const page=await c.newPage();await login(page,username);return {page,close:()=>c.close()};}
 const AA_TAGS=["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"];
 const axe=async(page:Page)=>expect((await new AxeBuilder({page}).withTags(AA_TAGS).analyze()).violations).toEqual([]);
 
