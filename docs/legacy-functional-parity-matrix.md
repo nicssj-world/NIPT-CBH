@@ -1,5 +1,7 @@
 # Legacy functional parity matrix — read-only archive audit
 
+> **Integration note (P4b + P5 audit):** rows marked DEFERRED to P5 predate the P5 branch. After integration, [p5-legacy-parity-matrix.md](p5-legacy-parity-matrix.md) is authoritative for P5-scope capabilities (including Owner decisions A14/A23). No row was removed; row-level reconciliation is pending. See [p4b-p5-integration-audit.md](p4b-p5-integration-audit.md).
+
 Owner steering recorded 2026-10-13: audit **both** ZIP archives; preserve one NIPT-CBH system; never run a second NIPTY runtime; do not implement P5 during this P4b continuation. Legacy behavior is evidence, not permission to bypass clinical/security gates. Settings across all ten groups and independent go-live cutoff are inventoried for deferred P5 acceptance. Existing P1 foundations are identified separately.
 
 ## Evidence scope
