@@ -8,6 +8,8 @@ const admin=new Pool({connectionString:url});const client=await admin.connect();
 try{await migrate(client);}finally{client.release();}
 const boss=new PgBoss(url);await boss.start();await boss.stop();
 const roles=await readFile("packages/db/roles.sql","utf8");await admin.query(roles);
+// P6 adds only sandbox journal/fixture roles; no clinical release grants or authority changes.
+await admin.query(await readFile("packages/p6/grants.sql","utf8"));
 for(const [login,role,file] of [["nipt_web","app_rw",process.env.WEB_DB_PASSWORD_FILE??"data/secrets/web-password"],["nipt_worker","worker_rw",process.env.WORKER_DB_PASSWORD_FILE??"data/secrets/worker-password"]]){
  const password=(await readFile(file,"utf8")).trim();if(password.length<24)throw Error("DATABASE_PASSWORD_TOO_SHORT");
  const exists=await admin.query("SELECT 1 FROM pg_roles WHERE rolname=$1",[login]);

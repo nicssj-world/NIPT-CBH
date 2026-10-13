@@ -103,7 +103,9 @@ export type Operation = "read" | "write" | "propose" | "approve";
 export function authorize(user: Principal, action: string, resource: ResourceScope = {}, operation: Operation = "write"): boolean {
   if (!(action in rows) || !user.roles.length) return false;
   // P1 runtime never enables actual outputs, signing on someone's behalf, historical processing, or certification.
-  if (["consent.sign.patient", "his.production.enable", "history.send", "history.promote", "result.certify", "notice.release", "redraw.after.release"].includes(action)) return false;
+  if (["consent.sign.patient", "his.production.enable", "history.send", "result.certify", "notice.release", "redraw.after.release"].includes(action)) return false;
+  // P5H: history.promote is no longer hard-denied; only the matrix 'A' (approve) cell of HISTORICAL_VERIFIER grants it, and the service additionally
+  // requires an active, approved historical_backfill + go_live_cutoff setting, so it stays inert (fail closed) until the Owner decides OD-18/OD-27.
   if (resource.origin === "HISTORICAL" && !["history.read", "audit.read"].includes(action)) return false;
   if (["observation.verify", "handoff.verify", "settings.approve", "downtime.approve", "result.link.manual", "his.conflict.resolve"].includes(action) && resource.actorId === user.id) return false;
   const rule = rows[action as Action];
