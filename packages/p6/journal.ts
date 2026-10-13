@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto';
 import {z} from 'zod';
 import type {Queryable} from '../db/connection';
 import {appendAudit} from '../db/audit';
+import {assertOutboundOrigin} from '../historical/barrier';
 import {freezeSyntheticTransfer,initialTransfer,reserveSyntheticTransfer,advanceTransfer,type SyntheticDraft,type SyntheticTransfer,type TransferModel,type SyntheticGate,type TransferEvent} from './transfer';
 
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
@@ -19,6 +20,7 @@ export async function transaction<T>(db:Queryable,run:()=>Promise<T>):Promise<T>
 /** Enrollment is used ONLY by tools/p6 fixture tooling/tests under p6_fixture_writer. The web and
  * worker DB roles cannot call this successfully. Never maps a P5 report/release into a fixture. */
 export async function registerFixture(db:Queryable,draft:SyntheticDraft,sandboxId:string){
+  assertOutboundOrigin(draft.origin);   // P5H barrier: a historical case can never be queued
   identifier.parse(sandboxId);freezeSyntheticTransfer(draft,1);
   const {pdf,...rest}=draft,stored:StoredDraft={...rest,pdfHex:pdf.toString('hex')};
   const payload=JSON.stringify(stored),digest=hash(payload);
@@ -44,6 +46,7 @@ export async function reserveFixture(db:Queryable,fixtureId:string,now=Date.now(
   return transaction(db,async()=>{
     const stored=(await db.query<{draft:StoredDraft;sandbox_id:string}>('SELECT draft,sandbox_id FROM p6_fixture WHERE id=$1',[fixtureId])).rows[0];
     if(!stored)throw Error('REGISTERED_FIXTURE_REQUIRED');
+    assertOutboundOrigin(stored.draft.origin);
     const {pdfHex,...rest}=stored.draft,draft:SyntheticDraft={...rest,pdf:Buffer.from(pdfHex,'hex')};
     const scope=JSON.stringify([stored.sandbox_id,draft.input.order.ln,draft.lnGeneration]);
     // Reservation lock is deliberately broader than report version; revisions/redraws share N.

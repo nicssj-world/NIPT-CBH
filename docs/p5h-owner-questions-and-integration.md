@@ -2,7 +2,11 @@
 
 2026-10-13 · status **Ready for Synthetic Integration** · AL-8 stays NOT READY · every item below is Fail Closed until the Owner decides.
 
-## 1. Questions for the Owner (actual behaviour today, options, short recommendation)
+## 0. Owner design baseline for the synthetic integration (2026-10-13)
+
+Q-P5H-01(a), 02(b), 03(a), 04(a), 05(a), 06(a). Only 02 changed the code: a Submitted row whose re-evaluation fails now moves to `NotEligible` with the new evaluation, reasons and an audit event (`HIST_SUBMIT_NOT_ELIGIBLE`); migration 070's draft guard allows `Submitted → NotEligible`. This is a synthetic design baseline, not Clinical Approval; OD-18, the cutoff value and AL-8 remain HOLD.
+
+## 1. Questions for the Owner (historical text, answered above) (actual behaviour today, options, short recommendation)
 
 | # | What the code does now (real text) | Options | Recommendation |
 | --- | --- | --- | --- |

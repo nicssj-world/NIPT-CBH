@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto';
 import type {Pool} from 'pg';
 import type {Queryable} from '../db/connection';
 import {applyWorkerEvent,loadTransfer,loadFixtureDraft,type TransferRow} from './journal';
+import {assertOutboundOrigin} from '../historical/barrier';
 import {freezeSyntheticTransfer,type TransferEvent} from './transfer';
 import {openSandbox,assertSandboxEnabled,type Artifact,type FileHook} from './sandbox';
 
@@ -32,6 +33,7 @@ export async function runTransfer(db:Queryable,id:string,hooks:WorkerTestHooks={
   if(!lock?.acquired)return 'BUSY';
   try{
     let row=await loadTransfer(db,id);if(terminal.has(row.model.state))return row.model.state;
+    assertOutboundOrigin(row.plan.origin);   // P5H barrier: re-checked immediately before any file is published
     const dispatch=async(event:TransferEvent)=>{
       row=await applyWorkerEvent(db,id,event);return row;
     };

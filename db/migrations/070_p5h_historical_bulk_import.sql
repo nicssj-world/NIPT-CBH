@@ -143,7 +143,7 @@ BEGIN
  IF NEW.state<>OLD.state AND NOT (
    (OLD.state='Draft' AND NEW.state IN ('NotEligible','Submitted','Abandoned')) OR
    (OLD.state='NotEligible' AND NEW.state IN ('Draft','Abandoned')) OR
-   (OLD.state='Submitted' AND NEW.state IN ('Discrepancy','Conflict','Promoted')) OR
+   (OLD.state='Submitted' AND NEW.state IN ('Discrepancy','Conflict','NotEligible','Promoted')) OR
    (OLD.state='Discrepancy' AND NEW.state='Draft')) THEN RAISE EXCEPTION 'HISTORICAL_ILLEGAL_TRANSITION'; END IF;
  IF NEW.state='Submitted' AND OLD.state<>'Submitted' THEN
   IF NEW.ln_key IS NULL THEN RAISE EXCEPTION 'HISTORICAL_SUBMIT_REQUIRES_UNIQUE_LN'; END IF;

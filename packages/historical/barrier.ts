@@ -16,6 +16,15 @@ export function outboundBarrier(s:OutboundSubject):{allowed:true}|{allowed:false
 }
 export function assertOutboundAllowed(s:OutboundSubject):void{const r=outboundBarrier(s);if(!r.allowed)throw new Error(r.code);}
 
+/**
+ * Origin-only form for boundaries that hold a synthetic fixture rather than a case (P6 sandbox queue and publication).
+ * The fixture carries no LN verification, so only the origin can be judged; anything but ANC / LAB_DIRECT is refused.
+ */
+export function assertOutboundOrigin(origin:unknown):void{
+ if(origin==='HISTORICAL')throw new Error(HISTORICAL_OUTBOUND_PROHIBITED);
+ if(origin!=='ANC'&&origin!=='LAB_DIRECT')throw new Error('UNKNOWN_ORIGIN');
+}
+
 /** Entity/effect names a historical flow must never produce. A planned effect list containing any of them is rejected. */
 export function assertNoForbiddenHistoricalEffects(effects:readonly string[]):void{
  const bad=effects.filter(e=>(PROMOTION_NEVER_CREATES as readonly string[]).includes(e));

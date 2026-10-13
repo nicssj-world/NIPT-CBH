@@ -223,6 +223,29 @@ describe('P5H independent review, discrepancy, conflict and database guards',()=
 
 function batchRowId(out:{outcomes:{draftId:string}[]}){return out.outcomes[0].draftId;}
 
+describe('Q-P5H-02(b): a failed re-evaluation returns Submitted rows to NotEligible',()=>{
+ it('records the new evaluation and audit, creates no case, and the row can be corrected and resubmitted',async()=>{
+  const f=await histFixture();
+  try{
+   await f.configure('2026-01-01');
+   const rows=[goodRow(91)];
+   const batch=await importBatch(f,rows,rows.map(r=>({name:r.pdf_file!,bytes:pdfFor(r)})));
+   expect((await view(f,batch)).rows[0].state).toBe('Submitted');
+   await f.activate('go_live_cutoff',{cutoff:'2025-12-01',impactReportHash:'b'.repeat(64)});   // allowed: no HISTORICAL case exists yet (OD-27 interim)
+   const out=await confirmAll(f,batch);
+   expect(out.outcomes[0]).toMatchObject({outcome:'NOT_ELIGIBLE'});
+   expect(out.outcomes[0].reasons?.map(r=>r.code)).toContain('ANCHOR_NOT_BEFORE_CUTOFF');
+   const v=(await view(f,batch)).rows[0];
+   expect(v.state).toBe('NotEligible');expect(v.evaluation?.reasons.map(r=>r.code)).toContain('ANCHOR_NOT_BEFORE_CUTOFF');expect(v.evaluation?.cutoff_version).toBe(2);
+   expect(await count(f,"SELECT count(*) n FROM nipt_case WHERE registration_origin='HISTORICAL'")).toBe(0);
+   expect(await count(f,"SELECT count(*) n FROM audit_chain WHERE action='HIST_SUBMIT_NOT_ELIGIBLE'")).toBeGreaterThan(0);
+   // Correct the dates (and the PDF it points to is unchanged, so the sheet date must match the PDF): the row cannot pass under the earlier cutoff, so it stays NotEligible with a fresh evaluation.
+   await f.run(t=>recheckBatch(t,f.maker,batch));
+   expect((await view(f,batch)).rows[0].state).toBe('NotEligible');
+  }finally{await f.close();}
+ },120000);
+});
+
 describe('P5H least-privilege database roles',()=>{
  it('the web role uploads and confirms, the worker role stages without reading P2 payloads, and a same-HN patient with a different name blocks only at confirmation',async()=>{
   const f=await histFixture();

@@ -7,7 +7,7 @@ export type DraftState=typeof DRAFT_STATES[number];
 const DRAFT_NEXT:Record<DraftState,readonly DraftState[]>={
  Draft:['NotEligible','Submitted','Abandoned'],
  NotEligible:['Draft','Abandoned'],
- Submitted:['Discrepancy','Conflict','Promoted'],
+ Submitted:['Discrepancy','Conflict','NotEligible','Promoted'],   // Owner baseline Q-P5H-02(b): a failed re-evaluation returns the row to NotEligible
  Discrepancy:['Draft'],
  Conflict:[],   // no exit in the plan diagram: resolution path is an open question (Q-P5H-05)
  Promoted:[],
@@ -61,6 +61,7 @@ export type PromotionDecision=
  |{kind:'ALREADY_PROMOTED'}
  |{kind:'DISCREPANCY';fields:string[]}
  |{kind:'CONFLICT';reasons:Reason[]}
+ |{kind:'NOT_ELIGIBLE';evaluation:EligibilityResult;reasons:Reason[]}
  |{kind:'REJECT';code:string;reasons?:Reason[]};
 
 const CONFLICT_CODES=new Set(['LN_ALREADY_REGISTERED','NIPT_ACTIVITY_PET_APPLIED','NIPT_ACTIVITY_RECEIVED','NIPT_ACTIVITY_BATCH','NIPT_ACTIVITY_RELEASED','UNLINKED_INTAKE_AFTER_CUTOFF']);
@@ -87,8 +88,8 @@ export function decidePromotion(i:PromotionInput):PromotionDecision{
  const evaluation=evaluateEligibility(i.reevaluation);
  const conflict=evaluation.reasons.filter(r=>CONFLICT_CODES.has(r.code));
  if(conflict.length)return {kind:'CONFLICT',reasons:conflict};
- // Date/Anchor/cutoff failure at re-evaluation has no exit in the plan diagram (Submitted→NotEligible is absent): refuse, create nothing.
- if(evaluation.outcome!=='Submitted')return {kind:'REJECT',code:'REEVALUATION_NOT_ELIGIBLE',reasons:evaluation.reasons};
+ // Date/Anchor/cutoff failure at re-evaluation (Q-P5H-02(b)): the row goes back to NotEligible with the reasons; nothing is created.
+ if(evaluation.outcome!=='Submitted')return {kind:'NOT_ELIGIBLE',evaluation,reasons:evaluation.reasons};
  return {kind:'PROMOTE',evaluation,creates:PROMOTION_CREATES,neverCreates:PROMOTION_NEVER_CREATES,idempotencyKey:i.idempotencyKey};
 }
 

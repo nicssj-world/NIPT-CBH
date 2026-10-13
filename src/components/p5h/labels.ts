@@ -19,7 +19,7 @@ export const REASON_TEXT:Record<string,string>={
  ANCHOR_DATE_NOT_DAY_PRECISION:"วันที่ของรายงานผลต้องระบุเต็มวัน",ANCHOR_NOT_BEFORE_CUTOFF:"วันที่รายงานผลไม่ได้อยู่ก่อนวันตัดระบบ",EVENT_NOT_BEFORE_CUTOFF:"มีเหตุการณ์ที่วันที่ไม่ได้อยู่ก่อนวันตัดระบบ",EVENT_DATE_UNKNOWN:"มีเหตุการณ์ที่ไม่ทราบวันที่",
  LN_ALREADY_REGISTERED:"LN นี้ลงทะเบียนเป็นเคสแล้ว",NIPT_ACTIVITY_PET_APPLIED:"LN นี้มีใบสั่ง .pet ที่ใช้แล้ว",NIPT_ACTIVITY_RECEIVED:"LN นี้มีการรับตัวอย่างใน NIPT",NIPT_ACTIVITY_BATCH:"LN นี้อยู่ใน Batch",NIPT_ACTIVITY_RELEASED:"LN นี้มีการปล่อยผลแล้ว",UNLINKED_INTAKE_AFTER_CUTOFF:"มีใบสั่งจาก HIS หลังวันตัดระบบ — เป็นเคสปัจจุบัน",
 };
-export const OUTCOME_TEXT:Record<string,string>={PROMOTED:"นำเข้าแล้ว",ALREADY_PROMOTED:"นำเข้าไว้แล้ว",DISCREPANCY:"ไม่ตรงต้นฉบับ — กลับไปแก้",CONFLICT:"ขัดแย้ง — ไม่สร้างเคส",REJECTED:"ไม่ผ่าน"};
+export const OUTCOME_TEXT:Record<string,string>={PROMOTED:"นำเข้าแล้ว",ALREADY_PROMOTED:"นำเข้าไว้แล้ว",DISCREPANCY:"ไม่ตรงต้นฉบับ — กลับไปแก้",CONFLICT:"ขัดแย้ง — ไม่สร้างเคส",NOT_ELIGIBLE:"ตรวจสิทธิ์ซ้ำแล้วไม่ผ่าน — กลับไปแก้",REJECTED:"ไม่ผ่าน"};
 export const REJECT_TEXT:Record<string,string>={
  STALE_VERSION:"แถวถูกแก้ไขหลังที่คุณเปิดดู — โหลดหน้าใหม่",SELF_VERIFICATION_PROHIBITED:"คุณเป็นผู้นำเข้า/แก้ไขแถวนี้ ผู้ตรวจต้องเป็นคนอื่น",FORBIDDEN:"ไม่มีสิทธิ์ผู้ตรวจ",ATTESTATION_INCOMPLETE:"ยังตรวจไม่ครบทุกข้อ",
  IDENTITY_NEEDS_TWO_INDEPENDENT_IDENTIFIERS:"ต้องตรวจตัวตนกับต้นฉบับอย่างน้อย 2 ตัวระบุ",REEVALUATION_NOT_ELIGIBLE:"ตรวจสิทธิ์ซ้ำแล้วไม่ผ่าน",DRAFT_NOT_SUBMITTED:"แถวนี้ไม่อยู่ในสถานะพร้อมรับรอง",ALREADY_PROMOTED:"นำเข้าแล้วด้วยคำขอก่อนหน้า",NOT_FOUND:"ไม่พบแถว",DATABASE_GUARD_REFUSED:"ฐานข้อมูลปฏิเสธ (Guard)",

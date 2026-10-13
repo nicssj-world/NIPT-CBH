@@ -320,7 +320,7 @@ export const confirmSchema=z.strictObject({
  idempotencyKey:z.string().regex(/^[A-Za-z0-9_-]{16,128}$/),
  rows:z.array(z.strictObject({draftId:z.uuid(),version:z.number().int().positive(),attestation:attestationSchema})).min(1).max(200),
 });
-export type RowOutcome={draftId:string;rowNo:number;outcome:'PROMOTED'|'ALREADY_PROMOTED'|'DISCREPANCY'|'CONFLICT'|'REJECTED';code?:string;reasons?:Reason[]};
+export type RowOutcome={draftId:string;rowNo:number;outcome:'PROMOTED'|'ALREADY_PROMOTED'|'DISCREPANCY'|'CONFLICT'|'NOT_ELIGIBLE'|'REJECTED';code?:string;reasons?:Reason[]};
 
 /**
  * Confirms the rows the second person ticked, each in its own savepoint under its own LN lock, so one bad row never blocks or half-creates another.
@@ -380,6 +380,12 @@ async function confirmRow(db:Queryable,user:Staff,ctx:HistoricalContext,batchId:
    await db.query("INSERT INTO historical_verification(draft_id,draft_version,verifier_id,result,attestation,batch_key) VALUES($1,$2,$3,'DISCREPANCY',$4,$5)",[d.id,d.version,user.id,JSON.stringify(item.attestation),key]);
    await db.query("UPDATE historical_draft SET state='Discrepancy',issues=$2 WHERE id=$1",[d.id,JSON.stringify([...d.issues.filter(i=>!i.code.startsWith('REVIEW_')),...decision.fields.map(f=>({code:`REVIEW_MISMATCH_${f.toUpperCase()}`,severity:'ERROR' as const}))])]);
    await record('HIST_PROMOTE_DISCREPANCY','DISCREPANCY');return {...base,outcome:'DISCREPANCY',code:decision.fields.join(',')};
+  case 'NOT_ELIGIBLE':{
+   const ev=decision.evaluation;
+   const evId=(await db.query<{id:string}>('INSERT INTO historical_eligibility_evaluation(draft_id,draft_version,cutoff_version,cutoff,outcome,reasons,snapshot,hash,evaluated_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id',
+    [d.id,d.version,ctx.cutoff!.version,ctx.cutoff!.cutoff,ev.outcome,JSON.stringify(ev.reasons),JSON.stringify(ev.snapshot),ev.hash,user.id])).rows[0].id;
+   await db.query("UPDATE historical_draft SET state='NotEligible',evaluation_id=$2 WHERE id=$1",[d.id,evId]);
+   await record('HIST_SUBMIT_NOT_ELIGIBLE','NOT_ELIGIBLE',decision.reasons[0]?.code);return {...base,outcome:'NOT_ELIGIBLE',reasons:decision.reasons};}
   case 'CONFLICT':
    await db.query("UPDATE historical_draft SET state='Conflict',ln_key=NULL,issues=$2 WHERE id=$1",[d.id,JSON.stringify([...d.issues,...decision.reasons.map(r=>({code:r.code,severity:'ERROR' as const,ref:r.ref}))])]);
    await record('HIST_PROMOTE_CONFLICT','CONFLICT',decision.reasons[0]?.code);return {...base,outcome:'CONFLICT',reasons:decision.reasons};

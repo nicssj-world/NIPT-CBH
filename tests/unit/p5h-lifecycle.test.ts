@@ -20,7 +20,7 @@ const promo=(over:Partial<PromotionInput>={}):PromotionInput=>({
  idempotencyKey:KEY,reevaluation:elig(),registryFindings:[],...over});
 
 describe('P5H draft and record state machines (Plan §5.11)',()=>{
- const legalDraft=new Set(['Draft>NotEligible','Draft>Submitted','Draft>Abandoned','NotEligible>Draft','NotEligible>Abandoned','Submitted>Discrepancy','Submitted>Conflict','Submitted>Promoted','Discrepancy>Draft']);
+ const legalDraft=new Set(['Draft>NotEligible','Draft>Submitted','Draft>Abandoned','NotEligible>Draft','NotEligible>Abandoned','Submitted>Discrepancy','Submitted>Conflict','Submitted>NotEligible','Submitted>Promoted','Discrepancy>Draft']);
  it('allows exactly the transitions of the plan diagram and nothing else',()=>{
   for(const a of DRAFT_STATES)for(const b of DRAFT_STATES)expect(canDraftTransition(a,b),`${a}>${b}`).toBe(legalDraft.has(`${a}>${b}`));
   expect(()=>assertDraftTransition('Draft','Promoted')).toThrow('ILLEGAL_DRAFT_TRANSITION');
@@ -78,9 +78,9 @@ describe('P5H promotion decision (D-46, AT-HIST-06/09/11/16)',()=>{
   expect(decidePromotion(promo({registryFindings:[{code:'IDENTITY_CONFLICT_SAME_HN',ref:'c'}]}))).toEqual({kind:'CONFLICT',reasons:[{code:'IDENTITY_CONFLICT_SAME_HN',ref:'c'}]});
   expect(decidePromotion(promo({reevaluation:elig({activity:{...NO_ACTIVITY,unlinkedIntakeHisReceivedAt:['2026-01-02T03:00:00Z']}})})).kind).toBe('CONFLICT');
  });
- it('a date/Anchor failure at re-evaluation refuses promotion and creates no case',()=>{
-  expect(decidePromotion(promo({reevaluation:elig({evidence:[]})}))).toMatchObject({kind:'REJECT',code:'REEVALUATION_NOT_ELIGIBLE',reasons:[{code:'NO_ANCHOR'}]});
-  expect(decidePromotion(promo({reevaluation:elig({cutoff:null})}))).toMatchObject({kind:'REJECT',code:'REEVALUATION_NOT_ELIGIBLE'});
+ it('a date/Anchor failure at re-evaluation returns the row to NotEligible with its reasons and creates no case',()=>{
+  expect(decidePromotion(promo({reevaluation:elig({evidence:[]})}))).toMatchObject({kind:'NOT_ELIGIBLE',reasons:[{code:'NO_ANCHOR'}],evaluation:{outcome:'NotEligible'}});   // Q-P5H-02(b)
+  expect(decidePromotion(promo({reevaluation:elig({cutoff:null})}))).toMatchObject({kind:'NOT_ELIGIBLE'});
  });
  it('AT-HIST-16 (pure part): whichever side wins the LN, there is never a second Case',()=>{
   // Registration first: promotion sees the registered LN. Promotion first: the later registration precheck sees a HISTORICAL case_ln.

@@ -24,7 +24,8 @@ SHA-256 of canonical committed LF source. Applied only to disposable synthetic/t
 | 018_p4c_current_preview.sql | `6b3c2cce5d0cc074e717284053bf890a074bb5e7fe6aee5371592baac1f1fcb8` |
 | 050_p5_result_management_synthetic.sql | `a90b9cbf8270c7d7c6a08019a4a7ebd5cb4dc227f44dcce5df2aecd1e6f4d092` |
 | 051_p5_name_conflict_review.sql | `4f39cd4accca0c04fcb9071c6e709acf663f3cc194c39505617a4719dd4b9570` |
-| 070_p5h_historical_bulk_import.sql | `2f739044cdce484cdb8d3bff997a814721737547aa7b965eb695b34632c385fe` |
+| 060_p6_outbound_synthetic.sql | `27c64eba1ce5bcf55b83d8e1815095bf6558529f89237fdb8f6a558a9ab9cebe` |
+| 070_p5h_historical_bulk_import.sql | `f1ac90d7f74431b9d3860c3d9556c8592c38291ad291391338823116a207c71a` |
 
 Migration006 adds restricted synthetic P2 identity/draft/revision/paper/signing/doctor/PDF-access/withdrawal evidence and guards. Applied only to disposable local synthetic databases using the ordinary checksum-enforcing migrator; no Production apply. Migration001–005 source bytes remain unchanged. Subsequent fixes use a new forward migration.
 
