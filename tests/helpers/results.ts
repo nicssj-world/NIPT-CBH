@@ -1,5 +1,5 @@
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import type {PGlite} from '@electric-sql/pglite';
@@ -37,7 +37,8 @@ export async function receivedCase(f:ResultFixture,o:{hn?:string;dob?:string;pre
 }
 export const pdfDate=(iso:string)=>{const d=new Date(iso+'T00:00:00Z');return `${String(d.getUTCDate()).padStart(2,'0')}-${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()]}-${d.getUTCFullYear()}`;};
 /** Preview + confirm through the same intake and service code the browser path uses. Returns the new report version id. */
-export async function importReport(f:ResultFixture,spec:ReportSpec|Buffer,user:Principal=f.u.staff,name='synthetic.pdf'){
+// Distinct reports carry distinct file names (as real BGI files do); name conflicts (A14) are exercised with explicit names.
+export async function importReport(f:ResultFixture,spec:ReportSpec|Buffer,user:Principal=f.u.staff,name=`synthetic-${randomUUID().slice(0,8)}.pdf`){
  const bytes=Buffer.isBuffer(spec)?spec:syntheticReportPdf(spec);
  const id=await f.run(t=>registerIntake(t,f.store,{source:'UPLOAD',relativePath:null,originalName:name,actorId:user.id,jobId:null},bytes));
  await f.run(t=>parseIntake(t,f.store,id,{maxBytes:10*1024*1024,acceptZip:true}));

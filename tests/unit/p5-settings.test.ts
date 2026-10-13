@@ -30,5 +30,11 @@ describe('Settings forms and coverage (Plan §13.2, P5 delivery)',()=>{
   const old=SETTINGS.result_management.schema.parse({picVersion:'unvalidated',maxUploadMb:10});expect(old.releaseAuthority).toBe('HOLD_AL5');expect(old.pdfSourcePath).toBe('simulator/results');
   expect(()=>SETTINGS.result_management.schema.parse({...SETTINGS.result_management.default,linkageMode:'AUTO_PIC'})).toThrow();
  });
+ it('A23 scheduled scan: 0 = off by default, otherwise 5–1440 minutes, maker-checker (CLINICAL) category',()=>{
+  expect(SETTINGS.result_management.default.scheduledScanMinutes).toBe(0);expect(SETTINGS.result_management.risk).toBe('CLINICAL');
+  expect(SETTINGS.result_management.schema.parse({picVersion:'unvalidated',maxUploadMb:10}).scheduledScanMinutes).toBe(0);
+  for(const ok of [0,5,60,1440])expect(SETTINGS.result_management.schema.parse({...SETTINGS.result_management.default,scheduledScanMinutes:ok}).scheduledScanMinutes).toBe(ok);
+  for(const bad of [1,4,1441,2.5,-5])expect(()=>SETTINGS.result_management.schema.parse({...SETTINGS.result_management.default,scheduledScanMinutes:bad})).toThrow();
+ });
  it('docs/p5-settings-coverage.md is generated from the matrix',async()=>{expect((await readFile('docs/p5-settings-coverage.md','utf8')).replace(/\r\n/g,'\n')).toBe(renderCoverageMarkdown());});
 });

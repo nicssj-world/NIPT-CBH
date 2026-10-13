@@ -11,9 +11,9 @@ type TestResult={passed:boolean;checks:Check[];files:number;folders:number;error
 type ScanFile={path:string;folder:string;name:string;size:number;modifiedAt:string;sha256:string|null;status:string};
 type ScanResult={folder:string;files:ScanFile[];folders:number;truncated:boolean;errorCode:string|null};
 type Summary={labNumber:string|null;hn:string|null;collectionDate:string|null;t21:string|null;t18:string|null;t13:string|null;sca:string[]|null;yChromosome:string|null;fetalFraction:number|null;qc:string|null;needsManualReview:boolean;abnormal:boolean;unreadable:string[]};
-type Intake={id:string;file:string;member:string|null;parentId:string|null;container:string|null;state:string;rejectCode:string|null;templateKind:string|null;summary:Summary|null;candidates:number;size:number};
-type Row={id:string;kind:string;template_kind:string;state:string;state_changed_at:string;original_name:string;relative_path:string|null;member_name:string|null;hn:string|null;lab:string|null;collection:string|null;round_number:number|null;ln:string|null;proposal:boolean;abnormal:boolean};
-type Data={rows:Row[];latestFolder:{folder:string;at:string}|null;intake:{folder:string;scanSubfolders:boolean;acceptZip:boolean;maxUploadMb:number;maxFilesPerScan:number;picVersion:string;lastTest:{result:TestResult|null;completed_at:string|null}|null;lastScan:{result:ScanResult|null;completed_at:string|null}|null}};
+type Intake={id:string;file:string;member:string|null;parentId:string|null;container:string|null;state:string;rejectCode:string|null;templateKind:string|null;summary:Summary|null;candidates:number;size:number;nameConflicts?:{versions:{id:string;state:string}[];sameBatch:number}};
+type Row={id:string;kind:string;template_kind:string;state:string;state_changed_at:string;original_name:string;relative_path:string|null;member_name:string|null;hn:string|null;lab:string|null;collection:string|null;round_number:number|null;ln:string|null;proposal:boolean;abnormal:boolean;name_conflict:boolean};
+type Data={rows:Row[];latestFolder:{folder:string;at:string}|null;intake:{folder:string;scanSubfolders:boolean;acceptZip:boolean;maxUploadMb:number;maxFilesPerScan:number;picVersion:string;scheduledScanMinutes:number;lastScheduled:{result:ScanResult|null;completed_at:string}|null;lastTest:{result:TestResult|null;completed_at:string|null}|null;lastScan:{result:ScanResult|null;completed_at:string|null}|null}};
 const BUCKETS=[["unlinked","รอเชื่อมโยง",["Unlinked"]],["conflict","ข้อมูลไม่ตรง",["LinkConflict"]],["blocked","ถูกบล็อกโดย Gate",["ValidationBlocked"]],["pending","รอรับรอง",["PendingCertification"]],["closed","ปิดแล้ว/ใช้ไม่ได้",["RejectedImport","Superseded","Voided","CertifiedReleased"]]] as const;
 const STEPS=["ทดสอบโฟลเดอร์","สแกนโฟลเดอร์","เลือกไฟล์และ Preview","ยืนยันนำเข้า"];
 
@@ -33,7 +33,7 @@ export function ResultWorkspace({canImport,canSettings}:{canImport:boolean;canSe
  const [data,setData]=useState<Data|null>(null),[error,setError]=useState(""),[notice,setNotice]=useState("");
  const [tab,setTab]=useState<"folder"|"upload">("folder"),[bucket,setBucket]=useState<string>("unlinked");
  const [busy,setBusy]=useState<string|null>(null),[test,setTest]=useState<TestResult|null>(null),[scan,setScan]=useState<ScanResult|null>(null),[picked,setPicked]=useState<Set<string>>(new Set());
- const [preview,setPreview]=useState<Intake[]|null>(null),[toImport,setToImport]=useState<Set<string>>(new Set()),[uploadRejected,setUploadRejected]=useState<{name:string;code:string}[]>([]);
+ const [preview,setPreview]=useState<Intake[]|null>(null),[toImport,setToImport]=useState<Set<string>>(new Set()),[acked,setAcked]=useState<Set<string>>(new Set()),[uploadRejected,setUploadRejected]=useState<{name:string;code:string}[]>([]);
  const abort=useRef<AbortController|null>(null),fileInput=useRef<HTMLInputElement>(null);
  const load=useCallback(async()=>{try{const d=await labApi<Data>("/api/p5/results");setData(d);setTest(t=>t??d.intake.lastTest?.result??null);setScan(s=>s??d.intake.lastScan?.result??null);setError("");}catch(e){setError(failureText(e));}},[]);
  useEffect(()=>{void Promise.resolve().then(load);return()=>abort.current?.abort();},[load]);
@@ -41,7 +41,7 @@ export function ResultWorkspace({canImport,canSettings}:{canImport:boolean;canSe
  const startJob=async(action:string,body:Record<string,unknown>={})=>(await labApi<{jobId:string}>("/api/p5/results",{action,...body})).jobId;
  const doTest=()=>run("test",async s=>{const j=await waitForJob<TestResult>(await startJob("testPath"),s);setTest(j.result);});
  const doScan=()=>run("scan",async s=>{const j=await waitForJob<ScanResult>(await startJob("scan"),s);setScan(j.result);setPicked(new Set((j.result?.files??[]).filter(f=>f.status==="NEW").map(f=>f.path)));setPreview(null);});
- const showPreview=(j:Job)=>{setPreview(j.intakes);setToImport(new Set(j.intakes.filter(i=>i.state==="Parsed"&&i.container!=="ZIP_BATCH").map(i=>i.id)));};
+ const showPreview=(j:Job)=>{setPreview(j.intakes);setAcked(new Set());setToImport(new Set(j.intakes.filter(i=>i.state==="Parsed"&&i.container!=="ZIP_BATCH").map(i=>i.id)));};
  const doPreview=()=>run("preview",async s=>{const paths=(scan?.files??[]).filter(f=>picked.has(f.path)&&f.sha256).map(f=>({path:f.path,sha256:f.sha256}));showPreview(await waitForJob(await startJob("preview",{paths}),s));});
  const doUpload=()=>run("upload",async s=>{
   const files=[...(fileInput.current?.files??[])];if(!files.length){setError("กรุณาเลือกไฟล์ .pdf หรือ .zip อย่างน้อย 1 ไฟล์");fileInput.current?.focus();return;}
@@ -50,7 +50,7 @@ export function ResultWorkspace({canImport,canSettings}:{canImport:boolean;canSe
   if(!r.ok){setError(d.error??"อัปโหลดไม่สำเร็จ");return;}
   setUploadRejected(d.rejected??[]);showPreview(await waitForJob(d.jobId,s));if(fileInput.current)fileInput.current.value="";
  });
- const doConfirm=()=>run("confirm",async()=>{const r=await labApi<{results:{outcome:string}[]}>("/api/p5/results",{action:"confirm",intakeIds:[...toImport]});
+ const doConfirm=()=>run("confirm",async()=>{const r=await labApi<{results:{outcome:string}[]}>("/api/p5/results",{action:"confirm",intakeIds:[...toImport],acknowledgeNameConflicts:[...acked].filter(id=>toImport.has(id))});
   const n=r.results.filter(x=>x.outcome==="Unlinked").length;setNotice(`นำเข้าแล้ว ${n} รายการ — รอการเชื่อมโยงกับรอบ/Attempt ในคิวด้านล่าง${r.results.length>n?` · ไม่นำเข้า ${r.results.length-n} รายการ (ซ้ำ/รูปแบบไม่รู้จัก/หมดอายุ)`:""}`);
   setPreview(null);setToImport(new Set());setScan(null);setBucket("unlinked");await load();});
  const step=preview?3:scan?.files?.length?2:test?.passed?1:0;
@@ -58,6 +58,9 @@ export function ResultWorkspace({canImport,canSettings}:{canImport:boolean;canSe
  const rows=useMemo(()=>(data?.rows??[]).filter(r=>(BUCKETS.find(b=>b[0]===bucket)?.[2] as readonly string[]|undefined)?.includes(r.state)),[data,bucket]);
  const toggle=(set:Set<string>,key:string,on:boolean)=>{const n=new Set(set);if(on)n.add(key);else n.delete(key);return n;};
  const folderMsg=(code:string|null)=>code?(FOLDER_ERROR_TEXT[code]??code):"";
+ const conflicted=(i:Intake)=>!!i.nameConflicts&&(i.nameConflicts.versions.length>0||i.nameConflicts.sameBatch>0);
+ const unacked=(preview??[]).filter(i=>toImport.has(i.id)&&conflicted(i)&&!acked.has(i.id)).length;
+ const sched=data?.intake.lastScheduled?.result;
 
  return <>
   <header className="page-header"><div><h1>ผลตรวจ NIPT</h1><p className="muted">นำเข้าไฟล์ผลจากโฟลเดอร์หรือจากเครื่อง ตรวจทาน เชื่อมโยงกับรอบ/Attempt และประเมิน Gate ก่อนรับรอง</p></div></header>
@@ -75,6 +78,9 @@ export function ResultWorkspace({canImport,canSettings}:{canImport:boolean;canSe
     <dl className="plan-dl p5-facts">
      <dt>โฟลเดอร์ผล PDF</dt><dd><span className="mono">{data?.intake.folder??"…"}</span>{canSettings&&<> · <Link href="/settings?key=result_management">เปลี่ยนในตั้งค่าระบบ</Link></>}</dd>
      <dt>การสแกน</dt><dd>{data?(data.intake.scanSubfolders?"รวมโฟลเดอร์ย่อย":"เฉพาะโฟลเดอร์หลัก"):"…"} · {data?.intake.acceptZip?".pdf และ .zip":".pdf เท่านั้น"} · ไม่เกิน {data?.intake.maxFilesPerScan??"…"} ไฟล์ · ไฟล์ละไม่เกิน {data?.intake.maxUploadMb??"…"} MB</dd>
+     <dt>สแกนตามรอบเวลา</dt><dd>{!data?"…":data.intake.scheduledScanMinutes===0?"ปิด (0) — สแกนเมื่อกดปุ่มเท่านั้น":`ทุก ${data.intake.scheduledScanMinutes} นาที — Worker ค้นหาและแสดงรายการเท่านั้น ไม่นำเข้าอัตโนมัติ`}
+      {sched&&!sched.errorCode&&<div className="p5-sched">สแกนตามรอบล่าสุด {bkk(data!.intake.lastScheduled!.completed_at)} · พบไฟล์ใหม่ {sched.files.filter(f=>f.status==="NEW").length} ไฟล์ <button type="button" className="button small secondary" onClick={()=>{setScan(sched);setPicked(new Set());setPreview(null);}}>แสดงรายการจากการสแกนตามรอบ</button></div>}
+      {sched?.errorCode&&<div className="help">สแกนตามรอบล่าสุดไม่สำเร็จ: {folderMsg(sched.errorCode)}</div>}</dd>
      <dt>นำเข้าล่าสุดถึงโฟลเดอร์</dt><dd>{data?.latestFolder?<><span className="mono">{data.latestFolder.folder||"(โฟลเดอร์หลัก)"}</span> · {bkk(data.latestFolder.at)}</>:"ยังไม่เคยนำเข้าจากโฟลเดอร์"}</dd>
     </dl>
     <div className="action-bar">
@@ -120,11 +126,13 @@ export function ResultWorkspace({canImport,canSettings}:{canImport:boolean;canSe
        <td className="mono">{i.summary?.hn??"—"}<br/>{i.summary?.labNumber??"—"}</td><td>{i.summary?.collectionDate??"—"}</td>
        <td>{resultLine(i.summary,i.templateKind)}{i.summary?.abnormal&&<span className="badge danger">ผิดปกติ</span>}{i.summary?.needsManualReview&&<span className="badge warning">ต้องตรวจมือ</span>}{i.summary?.unreadable?.length?<span className="badge danger">อ่านไม่ได้ {i.summary.unreadable.length} ค่า</span>:null}</td>
        <td className="num">{i.summary?`${i.candidates} รอบ/Attempt`:"—"}</td>
-       <td><Status tone={i.state==="Parsed"?"good":i.state==="Rejected"?"bad":"warning"}>{INTAKE_TEXT[i.state]??i.state}</Status>{i.rejectCode&&<div className="help">{REJECT_TEXT[i.rejectCode]??i.rejectCode}</div>}</td></tr>;})
+       <td><Status tone={i.state==="Parsed"?"good":i.state==="Rejected"?"bad":"warning"}>{INTAKE_TEXT[i.state]??i.state}</Status>{i.rejectCode&&<div className="help">{REJECT_TEXT[i.rejectCode]??i.rejectCode}</div>}
+        {conflicted(i)&&i.state==="Parsed"&&<div className="p5-conflict"><span className="badge warning">ชื่อซ้ำ เนื้อหาต่าง</span><div className="help">ชื่อเดียวกับ{i.nameConflicts!.versions.length?`รายงานที่มีอยู่ ${i.nameConflicts!.versions.length} รายการ`:"ไฟล์อื่นใน Preview นี้"} แต่ SHA-256 ต่างกัน — ไม่ถือเป็นไฟล์ซ้ำ และต้องตรวจว่าเป็นรายงานใหม่หรือฉบับแก้ไขตอนเชื่อมโยง</div>
+         <label className="check-label"><input type="checkbox" checked={acked.has(i.id)} onChange={e=>setAcked(p=>toggle(p,i.id,e.target.checked))}/> รับทราบ นำเข้าเพื่อตรวจสอบ</label></div>}</td></tr>;})
        :<tr><td colSpan={8} className="empty-row">ไม่มีไฟล์ที่อ่านได้</td></tr>}</tbody>
      </table>
     </div>
-    <div className="bulk-bar"><span>นำเข้า {toImport.size} รายการ</span><button type="button" className="button secondary" onClick={()=>{setPreview(null);setToImport(new Set());}} disabled={!!busy}>ยกเลิก Preview</button><button type="button" className="button" disabled={!toImport.size||!!busy} onClick={doConfirm}>{busy==="confirm"?"กำลังนำเข้า…":"ยืนยันนำเข้า"}</button></div>
+    <div className="bulk-bar"><span>นำเข้า {toImport.size} รายการ{unacked?` · รอรับทราบชื่อซ้ำ ${unacked} รายการ`:""}</span><button type="button" className="button secondary" onClick={()=>{setPreview(null);setToImport(new Set());}} disabled={!!busy}>ยกเลิก Preview</button><button type="button" className="button" disabled={!toImport.size||!!busy||unacked>0} onClick={doConfirm}>{busy==="confirm"?"กำลังนำเข้า…":"ยืนยันนำเข้า"}</button></div>
    </div>}
   </section>}
 
@@ -136,7 +144,7 @@ export function ResultWorkspace({canImport,canSettings}:{canImport:boolean;canSe
      <tbody>{!data?<tr><td colSpan={8} className="empty-row">กำลังโหลด…</td></tr>:rows.length?rows.map(r=><tr key={r.id}>
       <td className="p5-file">{r.member_name??r.relative_path??r.original_name}</td><td>{KIND_TEXT[r.template_kind]??r.kind}{r.abnormal&&<span className="badge danger">ผิดปกติ</span>}</td>
       <td className="mono">{r.hn??"—"}<br/>{r.lab??"—"}</td><td>{r.collection??"—"}</td><td>{r.ln?<><span className="mono">{r.ln}</span> · รอบที่ {r.round_number}</>:"—"}</td>
-      <td><Status tone={STATE_TONE[r.state]}>{STATE_TEXT[r.state]??r.state}</Status>{r.proposal&&<span className="badge warning">รอผู้ยืนยันคนที่สอง</span>}</td><td>{bkk(r.state_changed_at)}</td>
+      <td><Status tone={STATE_TONE[r.state]}>{STATE_TEXT[r.state]??r.state}</Status>{r.proposal&&<span className="badge warning">รอผู้ยืนยันคนที่สอง</span>}{r.name_conflict&&<span className="badge warning">ชื่อไฟล์ซ้ำ — ตรวจว่าใหม่/ฉบับแก้ไข</span>}</td><td>{bkk(r.state_changed_at)}</td>
       <td><Link className="button small secondary" href={`/results/${r.id}`}>เปิด</Link></td></tr>)
       :<tr><td colSpan={8} className="empty-row">ไม่มีรายการในสถานะนี้</td></tr>}</tbody></table>
    </div>

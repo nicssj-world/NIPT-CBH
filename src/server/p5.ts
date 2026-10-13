@@ -20,7 +20,9 @@ const MESSAGES:Record<string,string>={
  UNLINK_NOT_ALLOWED:"ถอดการเชื่อมโยงได้เฉพาะรายการที่เชื่อมแล้วและยังไม่ปล่อยผล",UNLINK_REVISION_PROHIBITED:"ฉบับแก้ไขที่แทนฉบับเดิมแล้วถอดการเชื่อมโยงไม่ได้ — ให้นำเข้าฉบับใหม่แทน",
  REVIEW_REQUIRES_LINKED:"ตรวจทานได้หลังเชื่อมโยงกับรอบ/Attempt แล้วเท่านั้น",VALIDATION_REQUIRES_LINKED:"ประเมิน Gate ได้หลังเชื่อมโยงแล้วเท่านั้น",ABNORMAL_ACK_REQUIRED:"ผลผิดปกติ (High risk / Detected) ต้องติ๊กรับทราบก่อน",
  IDEMPOTENCY_KEY_REUSED:"คำขอนี้ถูกใช้กับรายการอื่นแล้ว กรุณาโหลดหน้าใหม่",VOID_REQUIRES_UNLINKED:"ยกเลิกได้เฉพาะรายการนำเข้าที่ยังไม่เชื่อมโยง",
- RELEASE_HOLD_AL5:"การปล่อยผลจริงยังถูกระงับ (AL-5 / OD-05 / OD-07)",FILE_COUNT_INVALID:"เลือกได้ 1–20 ไฟล์ต่อครั้ง",UPLOAD_TOO_LARGE:"ไฟล์รวมใหญ่เกินกำหนด",INVALID_REQUEST:"คำขอไม่ถูกต้อง"
+ RELEASE_HOLD_AL5:"การปล่อยผลจริงยังถูกระงับ (AL-5 / OD-05 / OD-07)",
+ NAME_CONFLICT_ACK_REQUIRED:"มีไฟล์ชื่อซ้ำกับรายงานที่มีอยู่แต่เนื้อหาต่างกัน — ติ๊กรับทราบในแถวที่เตือนก่อนนำเข้า แล้วจึงตรวจว่าเป็นรายงานใหม่หรือฉบับแก้ไข",
+ NAME_REVIEW_REQUIRED:"ไฟล์นี้ชื่อซ้ำกับรายงานอื่นแต่เนื้อหาต่างกัน — ต้องระบุว่าเป็นรายงานใหม่หรือฉบับแก้ไขก่อนเสนอการเชื่อมโยง",NAME_REVIEW_MISMATCH:"เลือก รายงานใหม่ แล้ว จึงระบุข้อมูลคำขอแก้ไขไม่ได้",FILE_COUNT_INVALID:"เลือกได้ 1–20 ไฟล์ต่อครั้ง",UPLOAD_TOO_LARGE:"ไฟล์รวมใหญ่เกินกำหนด",INVALID_REQUEST:"คำขอไม่ถูกต้อง"
 };
 export function p5Error(error:unknown){
  if(error instanceof ZodError)return NextResponse.json({code:"VALIDATION_ERROR",error:"ข้อมูลไม่ครบหรือไม่ถูกต้อง — เหตุผลต้องมีอย่างน้อย 8 ตัวอักษร",issues:error.issues.map(x=>({path:x.path.join("."),message:x.message}))},{status:422,headers:noStore});
@@ -41,7 +43,9 @@ export async function intakeContext(db:Queryable,user:Staff){
  const s=await resultSettings(db);
  const jobs=(await db.query<{kind:string;id:string;result:Record<string,unknown>|null;created_at:Date;completed_at:Date|null}>(
   "SELECT DISTINCT ON(o.kind) o.kind,o.id,r.result,o.created_at,r.completed_at FROM job_outbox o LEFT JOIN integration_job_receipt r ON r.outbox_id=o.id WHERE o.kind IN ('synthetic_result_test_path','synthetic_result_scan') AND o.payload->>'actorId'=$1 ORDER BY o.kind,o.created_at DESC",[user.id])).rows;
- return {folder:s.pdfSourcePath,scanSubfolders:s.scanSubfolders,acceptZip:s.acceptZip,maxUploadMb:s.maxUploadMb,maxFilesPerScan:s.maxFilesPerScan,picVersion:s.picVersion,
+ // A23: the latest completed listing-only scheduled scan, shared by everyone allowed to import (it contains no parsed values).
+ const scheduled=(await db.query<{result:Record<string,unknown>;completed_at:Date}>("SELECT r.result,r.completed_at FROM job_outbox o JOIN integration_job_receipt r ON r.outbox_id=o.id WHERE o.kind='synthetic_result_scan' AND o.payload->>'trigger'='SCHEDULED' ORDER BY r.completed_at DESC LIMIT 1")).rows[0]??null;
+ return {folder:s.pdfSourcePath,scanSubfolders:s.scanSubfolders,acceptZip:s.acceptZip,maxUploadMb:s.maxUploadMb,maxFilesPerScan:s.maxFilesPerScan,picVersion:s.picVersion,scheduledScanMinutes:s.scheduledScanMinutes,lastScheduled:scheduled,
   lastTest:jobs.find(j=>j.kind==='synthetic_result_test_path')??null,lastScan:jobs.find(j=>j.kind==='synthetic_result_scan')??null};
 }
 export const pdfResponse=(bytes:Buffer,sha:string,inline:boolean,name:string)=>new NextResponse(new Uint8Array(bytes),{headers:{"Content-Type":inline?"application/pdf":"application/octet-stream",

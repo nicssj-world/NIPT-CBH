@@ -15,7 +15,7 @@ Status: **Implemented** configurable/enforced and consumed now · **Partial** st
 | 4 | User / Role / Permission | 3 | 1 | 0 | 0 | 1 |
 | 5 | HIS Inbound | 8 | 2 | 0 | 0 | 2 |
 | 6 | Laboratory | 1 | 3 | 1 | 0 | 11 |
-| 7 | Result Management | 10 | 1 | 0 | 5 | 7 |
+| 7 | Result Management | 13 | 1 | 0 | 5 | 6 |
 | 8 | HIS Outbound / CFS | 1 | 2 | 0 | 6 | 3 |
 | 9 | Storage / NAS / Backup | 0 | 2 | 1 | 2 | 1 |
 | 10 | Notifications / System / Audit | 1 | 0 | 5 | 1 | 1 |
@@ -113,7 +113,9 @@ Status: **Implemented** configurable/enforced and consumed now · **Partial** st
 | Test Path (จาก Worker) | §13.2 #7 | test_path / test_all_paths | synthetic_result_test_path (Worker) | Implemented | P5 | — |
 | Parse ไฟล์ตัวอย่าง (Dry-run) | §13.2 #7 | /import/pdf/preview | Preview ก่อนยืนยันนำเข้า | Implemented | P5 | Preview ไม่สร้างรายงานจนกว่าจะยืนยัน |
 | โฟลเดอร์ที่นำเข้าล่าสุด | — | get_latest_pdf_source_folder | หน้า ผลตรวจ | Implemented | P5 | — |
-| สแกน/นำเข้าอัตโนมัติตามรอบเวลา | — | auto_scan_min | — | HOLD | P5 | ห้าม Auto-import โดยไม่ได้รับอนุมัติ (คำสั่ง Owner) |
+| สแกนโฟลเดอร์ผลตามรอบเวลา (ค้นหาและแสดงรายการเท่านั้น) | Owner A23 | auto_scan_min | result_management.scheduledScanMinutes | Implemented | P5 | Owner A23: 0 = ปิด (ค่าเริ่มต้น); เปิดได้เฉพาะผ่าน Maker-Checker; Worker อ่านอย่างเดียว |
+| ห้ามนำเข้า/เชื่อมโยง/รับรอง/ปล่อยผลอัตโนมัติจากการสแกน | Owner A23 | — | SCHEDULED_SCAN_LIST_ONLY (Worker) | Implemented | P5 | บังคับในโค้ดและทดสอบว่าการสแกนตามรอบไม่สร้าง Intake/Report |
+| ตรวจไฟล์ซ้ำด้วย SHA-256 + เตือนชื่อซ้ำเนื้อหาต่าง | Owner A14 | file_hash, raw_filename (import_log) | result_report_version.sha256 + nameConflicts + result_link_event.name_review | Implemented | P5 | Owner A14: ไม่ข้ามเพราะชื่อซ้ำ; ต้องรับทราบตอนนำเข้าและจัดประเภทใหม่/ฉบับแก้ไขโดยสองคน |
 | รุ่น Template / Parser | §13.2 #7 | — | PARSER_VERSION, TEMPLATE_VERSIONS | Partial | P5 | บันทึกรุ่นทุกไฟล์; Template ยังไม่อนุมัติ (OD-07) |
 | PIC version | §13.2 #7 (OD-07) | — | result_management.picVersion | HOLD | P5 | OD-07; ใช้ MANUAL_REVIEWED เท่านั้น |
 | ความคลาดเคลื่อน GA | §13.2 #7 | — | result_management.gaToleranceDays | Implemented | P5 | ใช้ใน Cross-check RG-04 |

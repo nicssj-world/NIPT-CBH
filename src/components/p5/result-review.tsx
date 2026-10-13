@@ -9,11 +9,11 @@ type Cross=Record<string,string>;
 type Predicate={code:string;status:string;reason:string;governance?:string;dependency?:string};
 type Gate={gate:"RG"|"RN";eligible:boolean;failed:string[];pending:string[];waitsForP4b:boolean;predicates:Predicate[]};
 type Candidate={caseId:string;ln:string;hn:string|null;lnHalos:string|null;matchedOn:string[];cross:Cross;round:{id:string;number:number;state:string;current:boolean;collectionDate:string|null};attempt:{id:string;number:number;state:string;printedSampleId:string|null;latest:boolean}};
-type Detail={version:{id:string;kind:string;templateKind:string;templateVersion:string;parserVersion:string;state:string;rowVersion:number;sha256:string;importedAt:string;roundId:string|null;supersedesId:string|null};
+type Detail={nameConflicts:{id:string;state:string;importedAt:string}[];version:{id:string;kind:string;templateKind:string;templateVersion:string;parserVersion:string;state:string;rowVersion:number;sha256:string;importedAt:string;roundId:string|null;supersedesId:string|null};
  parsed:{identifiers:Record<string,Field>;results:Record<string,Field>;needsManualReview:boolean;abnormal:boolean;noticeCategory:string|null};
  intake:{source:string;relative_path:string|null;original_name:string;member_name:string|null;size:number;container:string};
  target:{round_number:number;ln:string;ln_halos:string|null;printed_sample_id:string|null;attempt_number:number|null;attempt_state:string|null;current:boolean}|null;
- proposal:{actor_id:string;round_id:string;attempt_id:string|null;reason:string;cross_check:Cross;revision:unknown;created_at:string}|null;candidates:Candidate[];gate:Gate|null;
+ proposal:{actor_id:string;round_id:string;attempt_id:string|null;reason:string;cross_check:Cross;revision:unknown;name_review:string|null;created_at:string}|null;candidates:Candidate[];gate:Gate|null;
  events:{from_state:string|null;to_state:string;reason:string|null;created_at:string;actor:string|null}[];links:{event:string;outcome:string|null;reason:string;cross_check:Cross;created_at:string;actor:string}[];
  gates:{gate:string;purpose:string;outcome:string;created_at:string;actor:string|null}[];reviews:{abnormal_acknowledged:boolean;note:string|null;created_at:string;reviewer:string}[];
  can:{propose:boolean;decide:boolean;unlink:boolean;review:boolean;certify:boolean;void:boolean}};
@@ -32,7 +32,7 @@ function CrossTable({cross,caption}:{cross:Cross;caption:string}){
 
 export function ResultReview({id}:{id:string}){
  const [d,setD]=useState<Detail|null>(null),[error,setError]=useState(""),[notice,setNotice]=useState(""),[busy,setBusy]=useState<string|null>(null);
- const [choice,setChoice]=useState(""),[reason,setReason]=useState(""),[revise,setRevise]=useState(false),[rev,setRev]=useState({receivedDate:"",requestedBy:"",reason:""});
+ const [choice,setChoice]=useState(""),[reason,setReason]=useState(""),[revise,setRevise]=useState(false),[nameReview,setNameReview]=useState<""|"NEW_REPORT"|"REVISION">(""),[rev,setRev]=useState({receivedDate:"",requestedBy:"",reason:""});
  const [decision,setDecision]=useState(""),[valuesOk,setValuesOk]=useState(false),[ack,setAck]=useState(false),[note,setNote]=useState("");
  const [certKey,setCertKey]=useState(key),[certAck,setCertAck]=useState(false),[outcome,setOutcome]=useState<{outcome:string;failed?:string[];pending?:string[];waitsForP4b?:boolean}|null>(null),[voidReason,setVoidReason]=useState("");
  const load=useCallback(async()=>{try{setD(await labApi<Detail>(`/api/p5/results/${id}`));setError("");}catch(e){setError(failureText(e));}},[id]);
@@ -78,6 +78,8 @@ export function ResultReview({id}:{id:string}){
 
     <section className="panel" aria-labelledby="link-h">
      <h2 id="link-h">เชื่อมโยงกับรอบ / Attempt</h2>
+     {d.nameConflicts.length>0&&<div className="notice warning-notice" role="note"><p><strong>ชื่อไฟล์ซ้ำกับรายงานอื่น {d.nameConflicts.length} รายการ แต่เนื้อหา (SHA-256) ต่างกัน</strong> — ระบบไม่ข้ามไฟล์และไม่สร้างฉบับแก้ไขอัตโนมัติ ผู้เสนอต้องระบุว่าเป็นรายงานใหม่หรือฉบับแก้ไข และผู้ยืนยันคนที่สองยืนยันการจัดประเภทเดียวกัน</p>
+      <ul>{d.nameConflicts.map(c=><li key={c.id}><Link href={`/results/${c.id}`}>รายงานชื่อเดียวกัน</Link> · {STATE_TEXT[c.state]??c.state} · นำเข้า {bkk(c.importedAt)}</li>)}</ul></div>}
      <p className="help">ทุกรอบใช้ HIS LN เดิม — ต้องเลือกรอบและ Attempt ที่ถูกต้อง โดยเทียบหลายคุณสมบัติ ระบบไม่จับคู่อัตโนมัติด้วย HN หรือ LN อย่างเดียว และต้องมีผู้รับรองอีกคนยืนยัน</p>
      {d.target&&<><dl className="plan-dl p5-facts"><dt>เชื่อมกับ</dt><dd><span className="mono">{d.target.ln}</span> · รอบที่ {d.target.round_number}{d.target.current?" (รอบปัจจุบัน)":" (ไม่ใช่รอบปัจจุบัน)"}{d.target.attempt_number&&<> · Attempt {d.target.attempt_number} ({d.target.attempt_state})</>}</dd>
        <dt>LN Halos · Printed ID</dt><dd className="mono">{d.target.ln_halos??"—"} · {d.target.printed_sample_id??"—"}</dd></dl>
@@ -86,14 +88,14 @@ export function ResultReview({id}:{id:string}){
        <div className="field"><label htmlFor="unlink-reason">เหตุผลที่ถอดการเชื่อมโยง</label><input id="unlink-reason" value={reason} onChange={e=>setReason(e.target.value)} minLength={8} maxLength={500} required/></div>
        <div className="action-bar"><button className="button secondary" disabled={!!busy}>{busy==="unlink"?"กำลังบันทึก…":"ถอดการเชื่อมโยง"}</button></div></form>}</>}
      {d.proposal&&<div className="stack">
-      <p><Status tone="warning">มีข้อเสนอรอผู้รับรองคนที่สองยืนยัน</Status> · เสนอเมื่อ {bkk(d.proposal.created_at)} · {d.proposal.reason}</p>
+      <p><Status tone="warning">มีข้อเสนอรอผู้รับรองคนที่สองยืนยัน</Status> · เสนอเมื่อ {bkk(d.proposal.created_at)} · {d.proposal.reason}{d.proposal.name_review&&<span className="badge warning">{d.proposal.name_review==="REVISION"?"จัดเป็นฉบับแก้ไข":"จัดเป็นรายงานใหม่"}</span>}</p>
       <CrossTable cross={d.proposal.cross_check} caption="ผลเทียบของข้อเสนอ"/>
       {d.can.decide?<form className="stack p5-inline-form" onSubmit={e=>{e.preventDefault();const which=(e.nativeEvent as SubmitEvent).submitter?.getAttribute("value")??"APPROVE";void act("decide",{decision:which,reason:decision},which==="APPROVE"?"ยืนยันการเชื่อมโยงแล้ว":"ปฏิเสธข้อเสนอแล้ว").then(()=>setDecision(""));}}>
        <div className="field"><label htmlFor="decide-reason">เหตุผลการตัดสิน (ผู้ยืนยันคนที่สอง)</label><input id="decide-reason" value={decision} onChange={e=>setDecision(e.target.value)} minLength={8} maxLength={500} required/></div>
        <div className="action-bar"><button className="button secondary" value="REJECT" disabled={!!busy}>ปฏิเสธข้อเสนอ</button><button className="button" value="APPROVE" disabled={!!busy}>{busy==="decide"?"กำลังบันทึก…":"ยืนยันการเชื่อมโยง"}</button></div></form>
        :<p className="help">ผู้เสนอยืนยันรายการของตนเองไม่ได้ — ต้องให้ผู้รับรองคนอื่นยืนยัน</p>}
      </div>}
-     {v.state==="Unlinked"&&!d.proposal&&(d.can.propose?<form className="stack" onSubmit={e=>{e.preventDefault();if(!picked)return;void act("propose",{roundId:picked.round.id,attemptId:isNotice?null:picked.attempt.id,reason,...(revise?{revision:rev}:{})},"ส่งข้อเสนอการเชื่อมโยงแล้ว — รอผู้รับรองคนที่สองยืนยัน").then(r=>{if(r){setReason("");setChoice("");setRevise(false);}});}}>
+     {v.state==="Unlinked"&&!d.proposal&&(d.can.propose?<form className="stack" onSubmit={e=>{e.preventDefault();if(!picked)return;void act("propose",{roundId:picked.round.id,attemptId:isNotice?null:picked.attempt.id,reason,...(revise?{revision:rev}:{}),...(nameReview?{nameReview}:{})},"ส่งข้อเสนอการเชื่อมโยงแล้ว — รอผู้รับรองคนที่สองยืนยัน").then(r=>{if(r){setReason("");setChoice("");setRevise(false);setNameReview("");}});}}>
       <fieldset className="p5-candidates"><legend>เลือก{isNotice?"รอบที่ถูกสั่งเจาะซ้ำ":"รอบและ Attempt"} ({d.candidates.length} ตัวเลือก)</legend>
        {d.candidates.length?<div className="table-wrap" role="region" aria-label="ตัวเลือกการเชื่อมโยง" tabIndex={0}><table className="data-table"><thead><tr><th scope="col"><span className="sr-only">เลือก</span></th><th scope="col">LN · รอบ</th><th scope="col">Attempt</th><th scope="col">พบจาก</th>{CROSS_KEYS.slice(0,5).map(k=><th scope="col" key={k}>{CROSS_TEXT[k]}</th>)}</tr></thead>
         <tbody>{d.candidates.map(c=><tr key={c.attempt.id} className={choice===c.attempt.id?"selected":""}>
@@ -104,12 +106,15 @@ export function ResultReview({id}:{id:string}){
         :<p className="empty-state">ไม่พบรอบ/Attempt ที่มี HN หรือเลข Lab ตรงกับ PDF — ตรวจว่าลงทะเบียนและรับสิ่งส่งตรวจแล้ว</p>}
       </fieldset>
       <div className="field"><label htmlFor="link-reason">เหตุผลที่เลือก (อย่างน้อย 8 ตัวอักษร)</label><input id="link-reason" value={reason} onChange={e=>setReason(e.target.value)} minLength={8} maxLength={500} required/></div>
-      <label className="check-label"><input type="checkbox" checked={revise} onChange={e=>setRevise(e.target.checked)}/> เป็นฉบับแก้ไขของรายงานที่รอบนี้มีอยู่แล้ว</label>
+      {d.nameConflicts.length>0?<fieldset className="p5-candidates"><legend>ไฟล์ชื่อซ้ำ — จัดประเภท (บังคับ)</legend>
+       <label className="check-label"><input type="radio" name="name-review" checked={nameReview==="NEW_REPORT"} onChange={()=>{setNameReview("NEW_REPORT");setRevise(false);}} required/> รายงานใหม่ (ไม่ใช่การแก้ไขฉบับเดิม)</label>
+       <label className="check-label"><input type="radio" name="name-review" checked={nameReview==="REVISION"} onChange={()=>{setNameReview("REVISION");setRevise(true);}}/> ฉบับแก้ไขของรายงานที่รอบนี้มีอยู่แล้ว</label></fieldset>
+      :<label className="check-label"><input type="checkbox" checked={revise} onChange={e=>setRevise(e.target.checked)}/> เป็นฉบับแก้ไขของรายงานที่รอบนี้มีอยู่แล้ว</label>}
       {revise&&<fieldset className="form-grid"><legend>ข้อมูลคำขอแก้ไข</legend>
        <div className="field"><label htmlFor="rev-date">วันที่รับเรื่อง</label><input id="rev-date" type="date" value={rev.receivedDate} onChange={e=>setRev({...rev,receivedDate:e.target.value})} required/></div>
        <div className="field"><label htmlFor="rev-by">ผู้ขอ / หน่วยงาน</label><input id="rev-by" value={rev.requestedBy} onChange={e=>setRev({...rev,requestedBy:e.target.value})} required/></div>
        <div className="field"><label htmlFor="rev-reason">เหตุผลการแก้ไข</label><input id="rev-reason" value={rev.reason} onChange={e=>setRev({...rev,reason:e.target.value})} minLength={8} required/></div></fieldset>}
-      <div className="action-bar"><button className="button" disabled={!picked||!!busy}>{busy==="propose"?"กำลังส่ง…":"เสนอการเชื่อมโยง"}</button></div>
+      <div className="action-bar"><button className="button" disabled={!picked||!!busy||(d.nameConflicts.length>0&&!nameReview)}>{busy==="propose"?"กำลังส่ง…":"เสนอการเชื่อมโยง"}</button></div>
      </form>:<p className="help">รอผู้มีสิทธิ์เสนอการเชื่อมโยง (เจ้าหน้าที่ Lab)</p>)}
     </section>
 

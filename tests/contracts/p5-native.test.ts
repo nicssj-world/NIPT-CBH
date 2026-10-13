@@ -36,7 +36,7 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('native P5: idempotent certificat
 
   // 1. The same file previewed twice by two worker sessions and confirmed twice concurrently: exactly one report version.
   const c=await prepare();
-  const ids=await Promise.all([w1,w2].map(w=>tx(w,async t=>{const id=await registerIntake(t,store,{source:'UPLOAD',relativePath:null,originalName:'native.pdf',actorId:u.staff.id,jobId:null},c.bytes);await parseIntake(t,store,id,limits);return id;})));
+  const ids=await Promise.all([w1,w2].map(w=>tx(w,async t=>{const id=await registerIntake(t,store,{source:'UPLOAD',relativePath:null,originalName:`native-${c.hn}.pdf`,actorId:u.staff.id,jobId:null},c.bytes);await parseIntake(t,store,id,limits);return id;})));
   const confirmed=await Promise.allSettled(ids.map((id,i)=>tx([a1,a2][i],t=>svc.confirmImport(t,u.staff,{intakeIds:[id]}))));
   const versions=(await owner.query<{id:string}>('SELECT v.id FROM result_report_version v JOIN result_intake_file i ON i.id=v.intake_file_id WHERE i.id=ANY($1)',[ids])).rows;
   expect(versions).toHaveLength(1);expect(confirmed.some(r=>r.status==='fulfilled')).toBe(true);

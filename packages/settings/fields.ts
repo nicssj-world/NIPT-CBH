@@ -40,6 +40,7 @@ export const SETTING_FORMS:Record<SettingKey,SettingForm>={
   {name:"scanSubfolders",label:"สแกนรวมโฟลเดอร์ย่อย",help:"เหมือน NIPTY: ค้นหา .pdf และ .zip ทุกโฟลเดอร์ย่อย",kind:"boolean"},
   {name:"acceptZip",label:"รับไฟล์ ZIP",help:"ZIP-as-PDF และ ZIP ที่รวม PDF หลายไฟล์",kind:"boolean"},
   {name:"maxFilesPerScan",label:"จำนวนไฟล์สูงสุดต่อการสแกน",help:"1–2,000 ไฟล์",kind:"number",unit:"ไฟล์",min:1,max:2000},
+  {name:"scheduledScanMinutes",label:"สแกนโฟลเดอร์ตามรอบเวลา",help:"0 = ปิด (ค่าเริ่มต้น) หรือ 5–1,440 นาที — Worker ค้นหาและแสดงรายการไฟล์ใหม่เท่านั้น ไม่นำเข้า ไม่เชื่อมโยง ไม่รับรอง และไม่ปล่อยผลอัตโนมัติ (Owner A23)",kind:"number",unit:"นาที",min:0,max:1440},
   {name:"maxUploadMb",label:"ขนาดไฟล์สูงสุด",help:"ใช้ทั้งไฟล์จากโฟลเดอร์และไฟล์ที่เลือกจากเครื่อง (1–25 MB)",kind:"number",unit:"MB",min:1,max:25},
   {name:"gaToleranceDays",label:"ความคลาดเคลื่อนอายุครรภ์ที่ยอมรับ",help:"เทียบอายุครรภ์ใน PDF กับที่คำนวณจาก EDD ของรอบ (0–14 วัน)",kind:"number",unit:"วัน",min:0,max:14},
   {name:"picVersion",label:"รุ่น PDF Identifier Contract (PIC)",help:"ยังไม่ผ่าน OD-07 — ระบบใช้การจับคู่แบบมีผู้ตรวจเท่านั้น",kind:"text"},

@@ -10,6 +10,8 @@ import {tx,syntheticCase,receiveS1} from "../helpers/lab";
 import {syntheticReportPdf} from "../../tools/his-simulator/result-pdf";
 import type {Queryable} from "../../packages/db/connection";
 import type {Principal} from "../../packages/security/policy";
+import {SETTINGS} from "../../packages/settings/catalog";
+import {proposeSetting,validateSetting,approveSetting,activateSetting} from "../../packages/settings/service";
 
 // P5 runs against the real worker: Test Path, Scan and Preview are executed by `npm run worker` on SIMULATOR_ROOT/results.
 test.beforeEach(async({context})=>{await context.setExtraHTTPHeaders({"x-real-ip":"synthetic-e2e-"+randomUUID()});});
@@ -90,6 +92,54 @@ test("P5 folder workflow: Test Path → Scan → Preview → import, then two-pe
   expect((await anc.page.request.get(`/api/p5/releases/${versionId}/file`)).status()).toBe(404);
   await axe(anc.page);
  }finally{await anc.close();}
+});
+
+/** Maker-checker activation of result_management through the real settings service (certifier proposes, clinical approver approves). */
+async function setResultSetting(patch:Record<string,unknown>){
+ const db=new Client({connectionString:browserFixtureDatabaseUrl()});await db.connect();const q=db as unknown as Queryable;
+ try{
+  const id=async(u:string)=>(await db.query<{id:string}>("SELECT id FROM app_user WHERE username=$1",[u])).rows[0].id;
+  const certifier={id:await id("synthetic.certifier"),roles:["LAB_CERTIFIER"],unitIds:[],permissions:[]} as unknown as Principal,approver={id:await id("synthetic.approver"),roles:["CLINICAL_APPROVER"],unitIds:[],permissions:[]} as unknown as Principal;
+  const active=(await db.query<{value:Record<string,unknown>}>("SELECT r.value FROM setting_active a JOIN settings_revision r ON r.id=a.revision_id WHERE a.setting_key='result_management'")).rows[0]?.value??SETTINGS.result_management.default;
+  await tx(q,async t=>{const r=await proposeSetting(t,certifier,"result_management",{...active,...patch},"SYNTHETIC_P5_E2E_A23");await validateSetting(t,certifier,r,async()=>true);await approveSetting(t,approver,r);await activateSetting(t,approver,r);});
+ }finally{await db.end();}
+}
+
+test("A14: same file name with different content is flagged, must be acknowledged, and imports as separate reports for review",async({page})=>{
+ test.setTimeout(150000);
+ const run=randomUUID().slice(0,8),name=`SYNTHETIC-SAMENAME-${run}.pdf`,root=path.join(process.env.SIMULATOR_ROOT??"data/simulator","results");
+ for(const [folder,hn] of [[`a14-${run}-a`,"990000000611"],[`a14-${run}-b`,"990000000612"]]){await mkdir(path.join(root,folder),{recursive:true});await writeFile(path.join(root,folder,name),syntheticReportPdf({kind:"SINGLETON",labNumber:"26B26101006"+hn.slice(-1)+"-1",hn,collection:"10-Oct-2026"}));}
+ await page.setViewportSize({width:1440,height:1000});await login(page,"synthetic.lab");await page.goto("/results");
+ await page.getByRole("button",{name:"สแกนโฟลเดอร์"}).click();
+ const scan=page.getByRole("region",{name:"ไฟล์ที่พบในโฟลเดอร์"});await expect(scan.getByRole("row").filter({hasText:name})).toHaveCount(2,{timeout:60000});
+ await page.getByLabel("เลือกไฟล์ใหม่ทั้งหมด").uncheck();for(const box of await page.getByLabel(`เลือก ${name}`).all())await box.check();
+ await page.getByRole("button",{name:"Preview ไฟล์ที่เลือก"}).click();
+ const preview=page.getByRole("region",{name:"ผล Preview"});await expect(preview.getByText("ชื่อซ้ำ เนื้อหาต่าง")).toHaveCount(2,{timeout:60000});
+ const confirm=page.getByRole("button",{name:"ยืนยันนำเข้า"});await expect(confirm).toBeDisabled();await expect(page.getByText("รอรับทราบชื่อซ้ำ 2 รายการ")).toBeVisible();
+ for(const box of await page.getByLabel("รับทราบ นำเข้าเพื่อตรวจสอบ").all())await box.check();
+ await axe(page);
+ await confirm.click();await expect(page.getByRole("status")).toContainText("นำเข้าแล้ว 2 รายการ");
+ await expect(page.getByRole("region",{name:"รายการรายงาน"}).getByRole("row").filter({hasText:name}).first()).toContainText("ชื่อไฟล์ซ้ำ");
+});
+
+test("A23: scheduled scan (maker-checker, default off) only lists new files via the real worker; nothing is imported",async({page})=>{
+ test.setTimeout(150000);
+ const db=new Client({connectionString:browserFixtureDatabaseUrl()});await db.connect();
+ try{
+  await page.setViewportSize({width:1280,height:900});await login(page,"synthetic.lab");await page.goto("/results");
+  await expect(page.getByText("ปิด (0) — สแกนเมื่อกดปุ่มเท่านั้น")).toBeVisible();
+  const before=(await db.query<{n:number}>("SELECT count(*)::int n FROM result_intake_file")).rows[0].n;
+  await setResultSetting({scheduledScanMinutes:5});
+  await expect.poll(async()=>(await db.query("SELECT 1 FROM job_outbox o JOIN integration_job_receipt r ON r.outbox_id=o.id WHERE o.payload->>'trigger'='SCHEDULED'")).rows.length,{timeout:60000}).toBeGreaterThan(0);
+  await page.reload();await expect(page.getByText("ทุก 5 นาที — Worker ค้นหาและแสดงรายการเท่านั้น ไม่นำเข้าอัตโนมัติ")).toBeVisible();
+  await page.getByRole("button",{name:"แสดงรายการจากการสแกนตามรอบ"}).click();
+  await expect(page.getByRole("region",{name:"ไฟล์ที่พบในโฟลเดอร์"}).getByRole("row").nth(1)).toBeVisible();
+  await expect(page.getByText("เลือก 0 ไฟล์")).toBeVisible();
+  expect((await db.query<{n:number}>("SELECT count(*)::int n FROM result_intake_file")).rows[0].n).toBe(before);
+  expect((await db.query("SELECT count(*)::int n FROM result_intake_file i JOIN job_outbox o ON o.id=i.job_id WHERE o.payload->>'trigger'='SCHEDULED'")).rows[0]).toEqual({n:0});
+  expect((await db.query("SELECT count(*)::int n FROM audit_chain WHERE action='RESULT_SCHEDULED_SCAN_QUEUED'")).rows[0].n).toBeGreaterThan(0);
+  await axe(page);
+ }finally{await setResultSetting({scheduledScanMinutes:0});await db.end();}
 });
 
 for(const width of [375,768,1280])test(`P5 result workspace is accessible and responsive at ${width}px`,async({page})=>{

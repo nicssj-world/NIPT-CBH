@@ -33,7 +33,7 @@ const REASON:Record<string,string>={TEMPLATE_AND_PIC_NOT_APPROVED:"Template/PIC 
  TEMPLATE_APPROVED:"Template อนุมัติแล้ว",REQUIRED_VALUES_READABLE:"อ่านค่าที่จำเป็นได้ครบ",LINKED_MANUAL_REVIEWED:"เชื่อมโยงโดยผู้ตรวจสองคนแล้ว",CURRENT_ROUND_CURRENT_ATTEMPT:"รอบและ Attempt ปัจจุบัน",ANALYSIS_COMPLETE:"วิเคราะห์เสร็จแล้ว",
  FINAL_QC_ACCEPTED:"QC ทุกขั้นยอมรับแล้ว",NO_IDENTITY_CONFLICT:"ไม่มีปัญหาตัวตน",CLINICAL_GATE_PASS:"Clinical Gate ผ่าน",CONSENT_GRANTED:"ยินยอมแล้ว",LATEST_REVIEWED_VERSION:"ฉบับล่าสุดและตรวจทานแล้ว",
  NOTICE_TEMPLATE_APPROVED:"Template หนังสือแจ้งอนุมัติแล้ว",LINKED_TO_REDRAW_ROUND:"เชื่อมกับรอบที่ถูกสั่งเจาะซ้ำ",REDRAW_ORDER_EXISTS:"มีคำสั่ง Redraw ของรอบนี้",CONSENT_NOT_WITHDRAWN:"ไม่ถอนความยินยอม",
- REVISION_LINKED:"ถูกแทนด้วยฉบับแก้ไข",TEMPLATE_UNKNOWN:"รูปแบบไม่รู้จัก",UNLINKED:"ถอดการเชื่อมโยง"};
+ REVISION_LINKED:"ถูกแทนด้วยฉบับแก้ไข",NAME_CONFLICT_ACKNOWLEDGED:"นำเข้าแม้ชื่อซ้ำ (รับทราบแล้ว รอตรวจว่าใหม่/ฉบับแก้ไข)",TEMPLATE_UNKNOWN:"รูปแบบไม่รู้จัก",UNLINKED:"ถอดการเชื่อมโยง"};
 export function reasonText(r:string):string{
  if(/^R[GN]-\d\d:/.test(r)){const parts=r.split(":");return `${parts[0]} ${reasonText(parts[parts.length-1])}`;}
  if(REASON[r])return REASON[r];

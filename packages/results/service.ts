@@ -58,11 +58,19 @@ export async function registerUploads(db:Queryable,user:Staff,store:FileStore,fi
 
 // ---------- Preview rows and candidates ----------
 type IntakeRow={id:string;source:string;relative_path:string|null;original_name:string;member_name:string|null;parent_id:string|null;sha256:string;byte_size:string;container:string|null;state:string;reject_code:string|null;duplicate_of:string|null;template_kind:string|null;parsed:Parsed|null;created_at:Date};
+/** A14 (Owner 2026-10-13): duplicates are SHA-256 only. A same-name file with different bytes is a *name conflict*: it is warned,
+ *  acknowledged on import and classified (new report / revision) by the people who link it — never skipped, never auto-revised. */
+export async function nameConflicts(db:Queryable,name:string,sha:string,jobId:string|null,intakeId:string){
+ const versions=(await db.query<{id:string;state:string;imported_at:Date}>("SELECT v.id,v.state,v.imported_at FROM result_report_version v JOIN result_intake_file i ON i.id=v.intake_file_id WHERE lower(coalesce(i.member_name,i.original_name))=lower($1) AND v.sha256<>$2 ORDER BY v.imported_at",[name,sha])).rows;
+ const batch=jobId?Number((await db.query<{n:number}>("SELECT count(*)::int n FROM result_intake_file WHERE job_id=$1 AND id<>$2 AND lower(coalesce(member_name,original_name))=lower($3) AND sha256<>$4 AND container IS DISTINCT FROM 'ZIP_BATCH'",[jobId,intakeId,name,sha])).rows[0].n):0;
+ return {versions:versions.map(x=>({id:x.id,state:x.state,importedAt:x.imported_at})),sameBatch:batch};
+}
+const hasConflict=(c:{versions:unknown[];sameBatch:number})=>c.versions.length>0||c.sameBatch>0;
 export async function intakeRows(db:Queryable,user:Staff,jobId:string){
  const rows=(await db.query<IntakeRow>('SELECT id,source,relative_path,original_name,member_name,parent_id,sha256,byte_size,container,state,reject_code,duplicate_of,template_kind,parsed,created_at FROM result_intake_file WHERE job_id=$1 AND actor_id=$2 ORDER BY created_at,original_name,member_name NULLS FIRST',[jobId,user.id])).rows;
  const s=await resultSettings(db);
  return Promise.all(rows.map(async r=>({id:r.id,source:r.source,file:r.relative_path??r.original_name,member:r.member_name,parentId:r.parent_id,sha256:r.sha256,size:Number(r.byte_size),container:r.container,state:r.state,rejectCode:r.reject_code,duplicateOf:r.duplicate_of,
-  templateKind:r.template_kind,summary:r.parsed?summary(r.parsed):null,candidates:r.parsed&&r.parsed.templateKind!=='UNKNOWN'?(await linkCandidates(db,user,r.parsed,s)).length:0})));
+  templateKind:r.template_kind,nameConflicts:r.container==='ZIP_BATCH'?{versions:[],sameBatch:0}:await nameConflicts(db,r.member_name??r.original_name,r.sha256,jobId,r.id),summary:r.parsed?summary(r.parsed):null,candidates:r.parsed&&r.parsed.templateKind!=='UNKNOWN'?(await linkCandidates(db,user,r.parsed,s)).length:0})));
 }
 export function summary(p:Parsed){
  const v=(f:{value:unknown}|undefined)=>f?.value??null;
@@ -136,7 +144,11 @@ async function move(db:Queryable,v:VersionRow,to:string,actor:string|null,reason
 }
 export async function confirmImport(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'result.import');
- const d=z.strictObject({intakeIds:z.array(uuid).min(1).max(100)}).parse(input);const out:{intakeId:string;outcome:string;versionId?:string}[]=[];
+ const d=z.strictObject({intakeIds:z.array(uuid).min(1).max(100),acknowledgeNameConflicts:z.array(uuid).max(100).optional()}).parse(input);const out:{intakeId:string;outcome:string;versionId?:string}[]=[];
+ const ack=new Set(d.acknowledgeNameConflicts??[]),unacknowledged:string[]=[];
+ for(const id of [...new Set(d.intakeIds)]){const r=(await db.query<{sha256:string;name:string;job_id:string|null;state:string;container:string|null}>('SELECT sha256,coalesce(member_name,original_name) name,job_id,state,container FROM result_intake_file WHERE id=$1',[id])).rows[0];
+  if(r&&r.state==='Parsed'&&r.container!=='ZIP_BATCH'&&!ack.has(id)&&hasConflict(await nameConflicts(db,r.name,r.sha256,r.job_id,id)))unacknowledged.push(id);}
+ if(unacknowledged.length)throw new LabError('NAME_CONFLICT_ACK_REQUIRED',409,{intakeIds:unacknowledged});
  for(const id of [...new Set(d.intakeIds)]){
   const r=(await db.query<IntakeRow&{actor_id:string;parser_version:string;fresh:boolean}>("SELECT *,created_at>now()-interval '24 hours' fresh FROM result_intake_file WHERE id=$1 FOR UPDATE",[id])).rows[0];
   if(!r||r.actor_id!==user.id)throw new LabError('NOT_FOUND',404);
@@ -147,7 +159,7 @@ export async function confirmImport(db:Queryable,user:Staff,input:unknown){
   const p=r.parsed!,kind=p.templateKind==='REDRAW_NOTICE'?'REDRAW_NOTICE':p.templateKind==='UNKNOWN'?'UNKNOWN':'RESULT';
   await db.query("INSERT INTO file_asset(sha256,byte_size,media_type,storage_key) VALUES($1,$2,$3,$4) ON CONFLICT(sha256) DO NOTHING",[r.sha256,r.byte_size,r.container==='PDF'?'application/pdf':'application/zip',`sha256/${r.sha256.slice(0,2)}/${r.sha256.slice(2,4)}/${r.sha256}`]);
   let v=(await db.query<VersionRow>('INSERT INTO result_report_version(intake_file_id,sha256,kind,template_kind,template_version,parser_version,parsed,imported_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',[id,r.sha256,kind,p.templateKind,p.templateVersion,r.parser_version,JSON.stringify(r.parsed),user.id])).rows[0];
-  await event(db,v.id,null,'Imported',user.id,null,{source:r.source});
+  await event(db,v.id,null,'Imported',user.id,ack.has(id)?'NAME_CONFLICT_ACKNOWLEDGED':null,{source:r.source,nameConflictAcknowledged:ack.has(id)});
   // §5.7: an unsupported template goes Imported → RejectedImport and is kept only as evidence; it can never be linked.
   v=kind==='UNKNOWN'?await move(db,v,'RejectedImport',user.id,'TEMPLATE_UNKNOWN'):await move(db,await move(db,v,'Parsed',user.id,null,{},{parserVersion:p.parserVersion}),'Unlinked',user.id,null);
   await db.query("UPDATE result_intake_file SET state='Imported',decided_at=now() WHERE id=$1",[id]);
@@ -167,7 +179,7 @@ async function lockChain(db:Queryable,roundId:string,attemptId:string|null,versi
  if(attemptId)await db.query('SELECT id FROM analytical_attempt WHERE id=$1 FOR UPDATE',[attemptId]);
  for(const id of [...versionIds].sort())await db.query('SELECT id FROM result_report_version WHERE id=$1 FOR UPDATE',[id]);
 }
-const openProposal=async(db:Queryable,versionId:string)=>(await db.query<{id:string;actor_id:string;case_id:string;round_id:string;attempt_id:string|null;revision:unknown;reason:string;cross_check:CrossCheck;created_at:Date}>(
+const openProposal=async(db:Queryable,versionId:string)=>(await db.query<{id:string;actor_id:string;case_id:string;round_id:string;attempt_id:string|null;revision:unknown;name_review:string|null;reason:string;cross_check:CrossCheck;created_at:Date}>(
  "SELECT * FROM result_link_event e WHERE e.version_id=$1 AND e.event='PROPOSED' AND NOT EXISTS(SELECT 1 FROM result_link_event x WHERE x.version_id=e.version_id AND x.event IN ('APPROVED','REJECTED','UNLINKED') AND x.sequence>e.sequence) ORDER BY e.sequence DESC LIMIT 1",[versionId])).rows[0]??null;
 async function targetOf(db:Queryable,user:Staff,v:VersionRow,roundId:string,attemptId:string|null){
  const t=(await db.query<{round_id:string;case_id:string;attempt_round:string|null;unit_id:string|null;registration_origin:string;hn:string|null;printed_sample_id:string|null;ln_halos:string|null;ln:string}>(
@@ -181,19 +193,24 @@ async function targetOf(db:Queryable,user:Staff,v:VersionRow,roundId:string,atte
  return t;
 }
 const openInSeries=async(db:Queryable,v:VersionRow,roundId:string)=>(await db.query<{id:string}>("SELECT id FROM result_report_version WHERE round_id=$1 AND kind=$2 AND id<>$3 AND state IN ('LinkConflict','Linked','ValidationBlocked','PendingCertification')",[roundId,v.kind,v.id])).rows[0]??null;
+async function versionNameConflicts(db:Queryable,v:VersionRow){const i=(await db.query<{name:string}>('SELECT coalesce(member_name,original_name) name FROM result_intake_file WHERE id=$1',[v.intake_file_id])).rows[0];return (await nameConflicts(db,i.name,v.sha256,null,v.intake_file_id)).versions;}
 const revisionSchema=z.strictObject({receivedDate:date,requestedBy:z.string().trim().min(2).max(120).refine(x=>!/\d{13}/.test(x),'REASON_TEXT_INVALID'),reason:reasonText});
 export async function proposeLink(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);
- const d=z.strictObject({versionId:uuid,roundId:uuid,attemptId:uuid.nullable(),reason:reasonText,expectedRowVersion:rowVersion,revision:revisionSchema.nullable().optional()}).parse(input);
+ const d=z.strictObject({versionId:uuid,roundId:uuid,attemptId:uuid.nullable(),reason:reasonText,expectedRowVersion:rowVersion,revision:revisionSchema.nullable().optional(),nameReview:z.enum(['NEW_REPORT','REVISION']).optional()}).parse(input);
  need(user,'result.link.manual','propose');
  const v=await versionOf(db,d.versionId,true);if(v.row_version!==d.expectedRowVersion)throw new LabError('VERSION_CONFLICT',409);
  if(v.state!=='Unlinked')throw new LabError('LINK_REQUIRES_UNLINKED',409);
  const t=await targetOf(db,user,v,d.roundId,d.attemptId);
  const open=await openInSeries(db,v,d.roundId);
+ const conflict=await versionNameConflicts(db,v);
+ if(conflict.length&&!d.nameReview)throw new LabError('NAME_REVIEW_REQUIRED',409,{versionIds:conflict.map(c=>c.id)});
+ if(d.nameReview==='REVISION'&&!d.revision)throw new LabError('REVISION_DETAILS_REQUIRED',409,{openVersionId:open?.id??null});
+ if(d.nameReview==='NEW_REPORT'&&d.revision)throw new LabError('NAME_REVIEW_MISMATCH',422);
  if(open&&!d.revision)throw new LabError('REVISION_DETAILS_REQUIRED',409,{openVersionId:open.id});
  if(!open&&d.revision)throw new LabError('NO_VERSION_TO_REVISE',409);
  const cross=crossCheck(v.parsed,t,await roundRequest(db,d.roundId),(await resultSettings(db)).gaToleranceDays);
- await db.query("INSERT INTO result_link_event(version_id,event,case_id,round_id,attempt_id,reason,cross_check,revision,actor_id) VALUES($1,'PROPOSED',$2,$3,$4,$5,$6,$7,$8)",[v.id,t.case_id,d.roundId,d.attemptId,d.reason,JSON.stringify(cross),d.revision?JSON.stringify(d.revision):null,user.id]);
+ await db.query("INSERT INTO result_link_event(version_id,event,case_id,round_id,attempt_id,reason,cross_check,revision,name_review,actor_id) VALUES($1,'PROPOSED',$2,$3,$4,$5,$6,$7,$8,$9)",[v.id,t.case_id,d.roundId,d.attemptId,d.reason,JSON.stringify(cross),d.revision?JSON.stringify(d.revision):null,conflict.length?d.nameReview:null,user.id]);
  await audit(db,user,'RESULT_LINK_PROPOSED','RESULT_VERSION',v.id,{outcome:'PROPOSED'});
  return {cross};
 }
@@ -211,7 +228,7 @@ export async function decideLink(db:Queryable,user:Staff,input:unknown){
  const t=await targetOf(db,user,v,p.round_id,p.attempt_id);
  const cross=crossCheck(v.parsed,t,await roundRequest(db,p.round_id),(await resultSettings(db)).gaToleranceDays);
  const bad=crossFailures(cross,v.kind==='REDRAW_NOTICE'?'REDRAW_NOTICE':'RESULT');const outcome=bad.length?'LinkConflict':'Linked';
- await db.query("INSERT INTO result_link_event(version_id,event,case_id,round_id,attempt_id,outcome,reason,cross_check,revision,actor_id) VALUES($1,'APPROVED',$2,$3,$4,$5,$6,$7,$8,$9)",[v.id,p.case_id,p.round_id,p.attempt_id,outcome,d.reason,JSON.stringify(cross),p.revision?JSON.stringify(p.revision):null,user.id]);
+ await db.query("INSERT INTO result_link_event(version_id,event,case_id,round_id,attempt_id,outcome,reason,cross_check,revision,name_review,actor_id) VALUES($1,'APPROVED',$2,$3,$4,$5,$6,$7,$8,$9,$10)",[v.id,p.case_id,p.round_id,p.attempt_id,outcome,d.reason,JSON.stringify(cross),p.revision?JSON.stringify(p.revision):null,p.name_review,user.id]);
  if(open){const o=await versionOf(db,open.id,true);await move(db,o,'Superseded',user.id,'REVISION_LINKED',{},{supersededBy:v.id});}
  v=await move(db,v,outcome,user.id,bad.length?`CROSS_CHECK_${bad.join('_').toUpperCase()}`:null,{case_id:p.case_id,round_id:p.round_id,attempt_id:p.attempt_id,link_mode:'MANUAL_REVIEWED',...(open?{supersedes_id:open.id,revision:p.revision}:{})});
  await audit(db,user,'RESULT_LINK_APPROVED','RESULT_VERSION',v.id,{outcome});
@@ -321,9 +338,10 @@ export async function voidVersion(db:Queryable,user:Staff,input:unknown){
 export const OPEN_BUCKETS={unlinked:['Unlinked'],conflict:['LinkConflict'],blocked:['ValidationBlocked'],pending:['PendingCertification'],closed:['RejectedImport','Superseded','Voided','CertifiedReleased']} as const;
 export async function resultQueue(db:Queryable,user:Staff){
  need(user,'result.review','read');
- const rows=(await db.query<{id:string;kind:string;template_kind:string;state:string;imported_at:Date;state_changed_at:Date;original_name:string;relative_path:string|null;member_name:string|null;hn:string|null;lab:string|null;collection:string|null;round_number:number|null;ln:string|null;proposal:boolean;abnormal:boolean;row_version:number}>(
+ const rows=(await db.query<{id:string;kind:string;template_kind:string;state:string;imported_at:Date;state_changed_at:Date;original_name:string;relative_path:string|null;member_name:string|null;hn:string|null;lab:string|null;collection:string|null;round_number:number|null;ln:string|null;proposal:boolean;abnormal:boolean;row_version:number;name_conflict:boolean}>(
   `SELECT v.id,v.kind,v.template_kind,v.state,v.imported_at,v.state_changed_at,i.original_name,i.relative_path,i.member_name,v.parsed->'identifiers'->'hn'->>'value' hn,v.parsed->'identifiers'->'labNumber'->>'value' lab,
     v.parsed->'identifiers'->'collectionDate'->>'value' collection,r.round_number,l.ln,(v.parsed->>'abnormal')::boolean abnormal,v.row_version,
+    EXISTS(SELECT 1 FROM result_report_version o JOIN result_intake_file oi ON oi.id=o.intake_file_id WHERE o.id<>v.id AND o.sha256<>v.sha256 AND lower(coalesce(oi.member_name,oi.original_name))=lower(coalesce(i.member_name,i.original_name))) name_conflict,
     EXISTS(SELECT 1 FROM result_link_event e WHERE e.version_id=v.id AND e.event='PROPOSED' AND NOT EXISTS(SELECT 1 FROM result_link_event y WHERE y.version_id=v.id AND y.event IN ('APPROVED','REJECTED','UNLINKED') AND y.sequence>e.sequence)) proposal
    FROM result_report_version v JOIN result_intake_file i ON i.id=v.intake_file_id LEFT JOIN specimen_round r ON r.id=v.round_id LEFT JOIN case_ln l ON l.id=r.case_ln_id
    ORDER BY v.state_changed_at DESC LIMIT 300`)).rows;
@@ -341,7 +359,8 @@ export async function versionDetail(db:Queryable,user:Staff,id:string){
  const s=await resultSettings(db);
  const proposal=await openProposal(db,v.id);
  const target=v.round_id?(await db.query<{round_number:number;ln:string;ln_halos:string|null;printed_sample_id:string|null;attempt_number:number|null;attempt_state:string|null;current:boolean}>('SELECT r.round_number,l.ln,n.ln_halos,a.printed_sample_id,a.attempt_number,a.state attempt_state,c.current_round_id=r.id current FROM specimen_round r JOIN nipt_case c ON c.id=r.case_id JOIN case_ln l ON l.id=r.case_ln_id LEFT JOIN specimen_lab_number n ON n.round_id=r.id LEFT JOIN analytical_attempt a ON a.id=$2 WHERE r.id=$1',[v.round_id,v.attempt_id])).rows[0]:null;
- return {version:{id:v.id,kind:v.kind,templateKind:v.template_kind,templateVersion:v.template_version,parserVersion:v.parser_version,state:v.state,rowVersion:v.row_version,sha256:v.sha256,importedAt:v.imported_at,caseId:v.case_id,roundId:v.round_id,attemptId:v.attempt_id,linkMode:v.link_mode,supersedesId:v.supersedes_id,revision:v.revision},
+ const conflicts=await versionNameConflicts(db,v);
+ return {nameConflicts:conflicts,version:{id:v.id,kind:v.kind,templateKind:v.template_kind,templateVersion:v.template_version,parserVersion:v.parser_version,state:v.state,rowVersion:v.row_version,sha256:v.sha256,importedAt:v.imported_at,caseId:v.case_id,roundId:v.round_id,attemptId:v.attempt_id,linkMode:v.link_mode,supersedesId:v.supersedes_id,revision:v.revision},
   parsed:v.parsed,summary:summary(v.parsed),intake:{...intake,size:Number(intake.byte_size)},target,proposal,
   candidates:v.state==='Unlinked'&&v.kind!=='UNKNOWN'?await linkCandidates(db,user,v.parsed,s):[],
   gate:v.round_id?await gateFor(db,v,'VALIDATION'):null,events:events.rows,links:links.rows,gates:gates.rows,reviews:reviews.rows,
