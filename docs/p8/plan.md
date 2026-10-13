@@ -18,7 +18,7 @@ Authority: Owner execution order 2026-10-14; immutable Implementation Plan v6.2.
 |2|B/D|Native synthetic cutoff/frozen in-flight manifest, pre/at/post boundary, bulk import, duplicate/identity/second-person/partial confirmation, rollback and outbound barrier rehearsal; retained evidence|COMPLETE within local preparation|
 |3|A/B/C/F|Operator health/smoke, startup/restart/failure recovery, migration drift, worker durable job recovery, least privilege, backup/restore operational procedure and measured timings|COMPLETE within local preparation|
 |4|E|Prepare staff accounts/cases and unsigned acceptance records from P7 checklist; physical validation remains pending|COMPLETE within local preparation|
-|5|A–F|Installation/operations/DR/cutover runbooks, existing gap register updates, focused validation, independent review, local commits and delivery report|Final documentation bundle validation in progress|
+|5|A–F|Installation/operations/DR/cutover runbooks, existing gap register updates, focused validation, independent review, local commits and delivery report|COMPLETE within local scope; external gates remain PARTIAL/HOLD|
 
 Tasks 1/2/3 have separate code ownership: deployment scripts/bundle/Dockerfile; cutover rehearsal tool/tests; health/recovery tool/tests. The controller owns runbooks, integration/rehearsal and final evidence. Shared migration and workflow interfaces are read-only. No original plan content is redistributed.
 
