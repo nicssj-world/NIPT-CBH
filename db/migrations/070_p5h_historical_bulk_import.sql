@@ -150,7 +150,8 @@ BEGIN
   SELECT * INTO e FROM historical_eligibility_evaluation WHERE id=NEW.evaluation_id;
   IF e.id IS NULL OR e.draft_id<>NEW.id OR e.draft_version<>NEW.version OR e.outcome<>'Submitted' THEN RAISE EXCEPTION 'HISTORICAL_SUBMIT_REQUIRES_PASSING_EVALUATION'; END IF;
  END IF;
- IF NEW.state='Promoted' AND (current_setting('nipt.historical_promotion',true) IS DISTINCT FROM NEW.id::text OR NEW.promoted_key IS NULL) THEN RAISE EXCEPTION 'HISTORICAL_PROMOTION_ONLY_VIA_FUNCTION'; END IF;
+ IF NEW.state='Promoted' AND (current_setting('nipt.historical_promotion',true) IS DISTINCT FROM NEW.id::text OR NEW.promoted_key IS NULL
+   OR NOT EXISTS(SELECT 1 FROM historical_record r WHERE r.draft_id=NEW.id AND r.case_id=NEW.promoted_case_id)) THEN RAISE EXCEPTION 'HISTORICAL_PROMOTION_ONLY_VIA_FUNCTION'; END IF;
  NEW.updated_at=now();
  RETURN NEW;
 END $$;
