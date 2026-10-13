@@ -44,3 +44,7 @@ Physical device checklist (each **PENDING PHYSICAL VALIDATION**):
 - Collect staff task success, critical-error count and SUS against the existing approved checklist; manual WCAG/NVDA and signing devices require actual testers.
 
 Before staff access, the technical operator starts the selected synthetic environment, runs the documented health/login/PDF smoke and confirms release authority false/releases0. Keep test endpoints loopback unless IT separately authorizes a LAN test. Clinical pilot, actual cutoff, clinical templates/consent and AL-7 remain HOLD.
+
+## Installed candidate preparation
+
+The isolated signed installation also has seven synthetic accounts and four cases at preparation time, recorded in .local/p8/installed-uat-prepared.json; additional automated registrations are test cases, not staff UAT outcomes. Its18 blank records are in .local/p8/installed-uat/acceptance-records.csv. The native retained database identity is independently recorded in verified-database-identity.json (the original64-byte generated name was truncated by PostgreSQL; future names were corrected without replacing the existing dataset). Actual final endpoint/runtime state and source revision are in the controller delivery artifacts. No test doctor/signature, staff result or cutoff approval was fabricated to fill a blocked clinical scenario.

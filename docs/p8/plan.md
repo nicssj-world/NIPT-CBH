@@ -14,12 +14,13 @@ Authority: Owner execution order 2026-10-14; immutable Implementation Plan v6.2.
 
 | Task | Workstreams | Deliverable and verification | State |
 |---|---|---|---|
-|1|A/F|Harden signed installation, explicit runtime/project targeting, upgrade/rollback, image/source/migration provenance; negative orchestration tests; real isolated bundle rehearsal|IN PROGRESS|
-|2|B/D|Native synthetic cutoff/frozen in-flight manifest, pre/at/post boundary, bulk import, duplicate/identity/second-person/partial confirmation, rollback and outbound barrier rehearsal; retained evidence|PENDING|
-|3|A/B/C/F|Operator health/smoke, startup/restart/failure recovery, migration drift, worker durable job recovery, least privilege, backup/restore operational procedure and measured timings|PENDING|
-|4|E|Prepare staff accounts/cases and unsigned acceptance records from P7 checklist; physical validation remains pending|PENDING|
-|5|A–F|Installation/operations/DR/cutover runbooks, existing gap register updates, focused validation, independent review, local commits and delivery report|PENDING|
+|1|A/F|Harden signed installation, explicit runtime/project targeting, upgrade/rollback, image/source/migration provenance; negative orchestration tests; real isolated bundle rehearsal|COMPLETE within local rehearsal|
+|2|B/D|Native synthetic cutoff/frozen in-flight manifest, pre/at/post boundary, bulk import, duplicate/identity/second-person/partial confirmation, rollback and outbound barrier rehearsal; retained evidence|COMPLETE within local preparation|
+|3|A/B/C/F|Operator health/smoke, startup/restart/failure recovery, migration drift, worker durable job recovery, least privilege, backup/restore operational procedure and measured timings|COMPLETE within local preparation|
+|4|E|Prepare staff accounts/cases and unsigned acceptance records from P7 checklist; physical validation remains pending|COMPLETE within local preparation|
+|5|A–F|Installation/operations/DR/cutover runbooks, existing gap register updates, focused validation, independent review, local commits and delivery report|Final documentation bundle validation in progress|
 
 Tasks 1/2/3 have separate code ownership: deployment scripts/bundle/Dockerfile; cutover rehearsal tool/tests; health/recovery tool/tests. The controller owns runbooks, integration/rehearsal and final evidence. Shared migration and workflow interfaces are read-only. No original plan content is redistributed.
 
 Ruling: plan P8 is Pilot/Go-live gated by AL-7; this session's P8-A–F preparation is explicitly permitted under synthetic HOLD. A failed/blocked action is recorded while independent safe work continues.
+
