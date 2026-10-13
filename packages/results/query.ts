@@ -79,4 +79,3 @@ export async function exportResultPage(db:Queryable,user:Staff,input:unknown){
  await audit(db,user,'RESULT_QUEUE_CSV_EXPORTED','RESULT_QUERY_EXPORT',evidence.id,{count:result.rows.length,outcome:'BOUNDED_PAGE'});
  return {...result,csv:resultCsv(result.rows)};
 }
-

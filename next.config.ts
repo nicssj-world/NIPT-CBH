@@ -4,7 +4,17 @@ const config: NextConfig = {
   poweredByHeader: false,
   // PDF.js resolves its Node fake-worker module beside pdf.mjs; bundling relocates that relative import.
   serverExternalPackages: ["argon2", "pg", "pg-boss", "pdfjs-dist"],
-  outputFileTracingIncludes: { "/api/p5/results/*/reparse": ["./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"] },
+  outputFileTracingIncludes: {
+    // Playwright's bundled registry and P4's font helper resolve these assets dynamically.
+    "/*": [
+      "./node_modules/playwright-core/browsers.json",
+      "./node_modules/@fontsource/noto-sans-thai/files/noto-sans-thai-thai-400-normal.woff2",
+      "./node_modules/@fontsource/noto-sans-thai/files/noto-sans-thai-thai-700-normal.woff2",
+      "./node_modules/@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff2",
+      "./node_modules/@fontsource/noto-sans/files/noto-sans-latin-700-normal.woff2"
+    ],
+    "/api/p5/results/*/reparse": ["./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"]
+  },
   outputFileTracingExcludes: { "*": ["./.local/**/*", "./data/**/*", "./backups/**/*", "./bundles/**/*", "./.env*", "./tests/**/*", "./playwright-report/**/*", "./test-results/**/*"] },
   async headers() {
     return [{ source: "/:path*", headers: [
