@@ -14,6 +14,12 @@ P4b merged cleanly. P5 conflicted only in shared files; every resolution keeps b
 | `docs/implementation-ledger.md` | P4b and P5 sections both kept. |
 | `docs/next-phases.md` | Newer P4b row and newer P5 row replace the two stale placeholder rows. |
 
+## Preflight (before the Draft integration PR)
+
+Remote heads: `main` 5d859c3, PR #2 branch b039521, PR #5 branch afa660a (unchanged). Both PR heads are ancestors of the candidate; nothing was rebased or force-pushed. The remote also holds `feat/p4b-integration-synthetic` (PR #4, closed draft, b94b15f): an older, narrower P4b slice (HALOS contract + P4 placement preflight) that is not contained in this candidate and does not conflict with it. After the last validated code commit (`2bd1b9b`) only this document changed.
+
+Known limits kept as blockers for any clinical adapter or release (not addressed here): `app_rw` can still change attempt state directly; P5 does not read P4b Stop-use/recall; QC5, the clinical adapter and clinical acceptance are not implemented.
+
 ## Migrations
 
 Fresh PostgreSQL 17: 001–018, 050, 051 apply in order; re-run is idempotent; `roles.sql` applies twice without error. Upgrading a database at main (001–010) applies 011–018, 050, 051. Source bytes of 011–018, 050, 051 are identical to their branches; 001–010 are identical to main. A database that already holds 050/051 (a P5-only ledger) is refused by the forward-only runner (`Backdated migration violates forward-only ordering`): integration must use new databases, never repair a ledger.
@@ -58,7 +64,7 @@ Source guard 376 files PASS; typecheck, lint PASS; `npm audit --omit=dev --audit
 
 1. **P5 gates do not read P4b/P4c state.** `RG-06/RG-07` read only `analytical_attempt.state`. P4b never writes that column, so the simulation (QC4 reviewed, `ANALYSIS_COMPLETE`, F5 Completed) never becomes `AnalysisComplete`/`FinalQcAccepted`; P5 stays BLOCKED (tested). Consequence for the future QC5/FinalQcAccepted adapter: it must also consume P4b Stop-use/recall/currentness, because P5 currently has no such input.
 2. **Direct writer risk.** `app_rw` has UPDATE on `analytical_attempt`, and the state guard permits `InProgress → AnalysisComplete → FinalQcAccepted`. A forced state satisfies RG-06/07 (tested). The database release HOLD (`p5_release_authorized() = false`) still refuses `CertifiedReleased` and any `result_release` row (tested). Keep that hold independent of any adapter.
-3. **Pre-existing P4b defect (not a merge effect) — fixed, see Final stabilization.** `event_time` for DIRECT_ENTRY comes from the application clock but `recorded_at` from the database clock, with `CHECK(event_time <= recorded_at)`. When the database clock is up to ~1 ms behind the application clock the insert fails (observed in about 20–30 % of runs against a Docker database on Windows; reproduced on P4b alone, 2 of 10). Affects `p4c_qc4_observation` and `p4b_pool_observation`. Suggested fix: take DIRECT_ENTRY time from the database clock, or allow a small tolerance. Not changed here.
+3. **Pre-existing P4b defect (not a merge effect) — fixed.** DIRECT_ENTRY `event_time` came from the application clock while `recorded_at` and the anchors use the database clock (`CHECK(event_time <= recorded_at)`). See Final stabilization, root cause 1: DIRECT_ENTRY now reads `clock_timestamp()`; also recommended for PR #2 as `a0f5223`.
 4. **Parity matrices.** Both matrices are intact and byte-identical to their branches. Rows in `legacy-functional-parity-matrix.md` that say P5 result import/UI is absent are now stale; `p5-legacy-parity-matrix.md` supersedes them. A row-level reconciliation is still to do. A14/A23 and the deferred gaps (A19, A21, A22) are unchanged.
 
 ## New regression test
