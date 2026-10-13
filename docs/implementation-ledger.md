@@ -26,3 +26,7 @@ P2 implementation and final verification are recorded in [p2-delivery.md](p2-del
 ## P4b continuation — 2026-10-13
 
 Executed the session-authorized Pooling → QC2 → F4 → immutable Pool snapshot milestone in the existing P4b worktree, after safely merging P4 main. Separate calculation/service/document modules reuse P4 evidence and transaction/security contracts. Additive migrations 011–013 and Unit/DB/native/contract/browser tests are described in [p4b-pooling-delivery.md](p4b-pooling-delivery.md). Owner-dependent operations remain HOLD; simulation artifacts never establish AL-4b acceptance. HALOS contract is preserved; PR #2 stays draft and unmerged.
+
+## P4b DNB / sequencing continuation and Owner parity lock — 2026-10-13
+
+DNB/QC3, G50/QC4, F5 and stored-source HALOS handoff simulation continue on the same P4b branch/Draft PR #2. Additive014–018 close lifecycle/verification/currentness SQL boundaries. See [delivery](p4b-sequencing-delivery.md), [Legacy Functional Parity Matrix](legacy-functional-parity-matrix.md) and [P5 integration contract](p4b-p5-integration-contract.md). One NIPT CBH runtime only; P5 worktree/PR #5 remains separate,050 reserved. Restricted synthetic outcomes do not establish AL-4b or clinical/Production acceptance.

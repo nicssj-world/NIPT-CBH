@@ -172,3 +172,7 @@ fieldset {border:0;padding:0;margin:0;}
 .sort-button {min-height:44px;padding:var(--space-1) var(--space-3);border:1px solid var(--color-line);border-radius:8px;background:#e9eff4;color:var(--color-ink);font-weight:600;}
 .data-table th .sort-button {width:100%;text-align:left;background:transparent;border-color:transparent;padding:var(--space-1) 0;}
 .receive-time {font-variant-numeric:tabular-nums;}
+
+.p4c-workspace {overflow-wrap:anywhere;}
+.p4c-workspace li,.p4c-workspace label {min-width:0;}
+.p4c-workspace input,.p4c-workspace select {max-width:100%;}
