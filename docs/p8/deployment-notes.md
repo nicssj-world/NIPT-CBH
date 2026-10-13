@@ -62,4 +62,6 @@ Private `.nipt-last-command-error.log` retains command diagnostics on CLI failur
 
 ## Focused checks
 
+After image loading, upgrade/rollback reacquire the current runtime marker under the exclusive runtime lock. Upgrade also revalidates its bound backup and actual archive checksum under that lock. Any marker change since the earlier observation aborts before draining services or changing configuration; the newer marker remains intact and the lock is released. Earlier preflight observations do not authorize a later mutation.
+
 `node --test tests/deploy/deployment-order.node.mjs tests/deploy/p8-deployment.node.mjs` exercises real signature/file verification and filesystem operations with a recorded Docker adapter. It covers verification-before-mutation, isolated target addressing, immutable image selection, missing backup, drain failure, migration failure, compatible app rollback and failed-upgrade recovery. These tests are orchestration evidence only; the controller separately records actual Docker installation/startup/upgrade/rollback and packaged smoke.

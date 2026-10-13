@@ -18,10 +18,11 @@ async function target(env,bundle,action){
  if(!/^nipt-synthetic-[a-z0-9][a-z0-9-]{2,48}$/.test(project??''))throw Error('SYNTHETIC_PROJECT_REQUIRED');
  const runtime=path.resolve(root);await noLinks(runtime);
  if(!outside(runtime,bundle)||!outside(bundle,runtime))throw Error('RUNTIME_MUST_BE_SEPARATE_FROM_BUNDLE');
- let state=null,failedState=null;
+ let state=null,failedState=null,markerSnapshot=null;
  if(action==='install'){try{await lstat(runtime);throw Error('RUNTIME_NOT_FRESH');}catch(e){if(e.code!=='ENOENT')throw e;}}
  else if(action!=='preflight'){
   state=JSON.parse(await readFile(path.join(runtime,marker),'utf8'));
+  markerSnapshot=JSON.stringify(state);
   if(state.status==='FAILED'&&action==='rollback'){
    failedState=state;state=state.lastStartedState;
    if(!state)throw Error('FAILED_INSTALL_HAS_NO_PRIOR_RUNTIME');
@@ -31,7 +32,7 @@ async function target(env,bundle,action){
  }
  const port=Number(env.NIPT_HTTPS_PORT??state?.port??8443);if(!Number.isInteger(port)||port<1024||port>65535)throw Error('LOOPBACK_PORT_INVALID');
  if(state&&port!==state.port)throw Error('RUNTIME_PORT_CHANGE_REQUIRES_REVIEW');
- return {runtime,project,port,state,failedState};
+ return {runtime,project,port,state,failedState,markerSnapshot};
 }
 async function verifiedBackup(env,t){
  if(env.BACKUP_VERIFIED!=='yes'||!env.NIPT_BACKUP_EVIDENCE)throw Error('VERIFIED_BACKUP_EVIDENCE_REQUIRED');
@@ -50,7 +51,7 @@ export async function deploy(action,{env=process.env,bundleRoot=process.cwd(),do
  const manifest=await verifySignedBundle(bundle,env.TRUSTED_RELEASE_PUBLIC_KEY),ids=imageContract(manifest);
  const inventory=await migrationInventory(path.join(bundle,'migrations'));
  if(inventory.sha256!==manifest.provenance.migrationsSha256)throw Error('BUNDLE_MIGRATION_PROVENANCE_MISMATCH');
- const t=await target(env,bundle,action);
+ let t=await target(env,bundle,action);
  let backupSha256;if(action==='upgrade')backupSha256=await verifiedBackup(env,t);
  const run=docker??(async args=>{try{return execFileSync('docker',args,{encoding:'utf8',maxBuffer:16*1024*1024,stdio:['ignore','pipe','pipe']});}catch(error){
   // Local private diagnostics can contain operational details; never echo them to CLI output.
@@ -67,13 +68,23 @@ export async function deploy(action,{env=process.env,bundleRoot=process.cwd(),do
  for(const file of (await readdir(path.join(bundle,'images'))).sort()){if(!/^[a-zA-Z0-9_.-]+\.tar$/.test(file))throw Error('IMAGE_ARCHIVE_INVALID');await run(['load','--input',path.join(bundle,'images',file)]);}
  for(const role of roles){const [image]=JSON.parse(await run(['image','inspect',ids[role]]));if(image?.Id!==ids[role])throw Error('LOADED_IMAGE_MISMATCH');assertImageProvenance(image,role,manifest);}
  let phase='PREPARE';
- let lockHeld=false;
+ let lockHeld=false,mutationStarted=false;
  const record={syntheticOnly:true,runtimeRoot:t.runtime,project:t.project,port:t.port,revision:manifest.provenance.revision,images:ids,version:manifest.version,status:'STARTED_NOT_ACCEPTED',backupSha256};
  try{
   if(action==='install'){
    await mkdir(path.dirname(t.runtime),{recursive:true});await mkdir(t.runtime);await mkdir(path.join(t.runtime,'data'));
   }
   await writeFile(path.join(t.runtime,'.nipt-deploy.lock'),JSON.stringify({action,revision:record.revision}),{flag:'wx',mode:0o600});lockHeld=true;
+  if(action!=='install'){
+   // Image loading can take minutes. Earlier marker/backup observations are not mutation authority.
+   const current=await target(env,bundle,action);
+   if(action==='upgrade')record.backupSha256=await verifiedBackup(env,current);
+   if(current.markerSnapshot!==t.markerSnapshot)throw Error('RUNTIME_CHANGED_BEFORE_DEPLOYMENT_LOCK');
+   t=current;appOverride=t.state?.appOverride;
+  }else{
+   for(const args of [['ps','-aq','--filter',`label=com.docker.compose.project=${t.project}`],['volume','ls','-q','--filter',`label=com.docker.compose.project=${t.project}`]])if(String(await run(args)).trim())throw Error('COMPOSE_PROJECT_ALREADY_OCCUPIED');
+  }
+  mutationStarted=true;
   if(action==='install'){
    await run(['run','--rm','--network','none','--user','0:0','--volume',`${t.runtime}:/runtime`,'--workdir','/runtime',ids.operations,'sh','-c','node --import /app/node_modules/tsx/dist/loader.mjs /app/tools/init-dev.ts && chown -R 1000:1000 data && find data -type d -exec chmod 750 {} + && find data -type f -exec chmod 440 {} +']);
   }else{
@@ -104,7 +115,7 @@ export async function deploy(action,{env=process.env,bundleRoot=process.cwd(),do
   await writeFile(path.join(t.runtime,marker),JSON.stringify(record,null,2));
   return record;
  }catch(error){
-  if(lockHeld)await writeFile(path.join(t.runtime,marker),JSON.stringify({...t.state,syntheticOnly:true,runtimeRoot:t.runtime,project:t.project,port:t.port,status:'FAILED',phase,attemptedRevision:record.revision,lastStartedState:t.state??undefined,schemaStatus:['MIGRATE','START'].includes(phase)?'REVIEW_REQUIRED_AFTER_ATTEMPT':t.failedState?.schemaStatus??t.state?.schemaStatus??'NO_SUCCESSFUL_INSTALL'},null,2));
+  if(lockHeld&&mutationStarted)await writeFile(path.join(t.runtime,marker),JSON.stringify({...t.state,syntheticOnly:true,runtimeRoot:t.runtime,project:t.project,port:t.port,status:'FAILED',phase,attemptedRevision:record.revision,lastStartedState:t.state??undefined,schemaStatus:['MIGRATE','START'].includes(phase)?'REVIEW_REQUIRED_AFTER_ATTEMPT':t.failedState?.schemaStatus??t.state?.schemaStatus??'NO_SUCCESSFUL_INSTALL'},null,2));
   throw error;
  }finally{if(lockHeld)await unlink(path.join(t.runtime,'.nipt-deploy.lock'));}
 }
