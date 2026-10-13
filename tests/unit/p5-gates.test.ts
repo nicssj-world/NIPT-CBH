@@ -2,13 +2,18 @@ import {describe,it,expect} from 'vitest';
 import {resultPredicates,noticePredicates,decideGate,type ResultFacts,type NoticeFacts,type CrossCheck} from '../../packages/results/gates';
 
 const match:CrossCheck={hn:'MATCH',dob:'MATCH',pregnancy:'MATCH',collectionDate:'MATCH',gestationalAge:'MATCH',labNumber:'MATCH'};
-// Facts in which every predicate the system can satisfy passes; FinalQcAccepted is used only inside this pure unit test of the
-// predicate function — no database row, fixture or API in this repository can create it (P4b owns QC4/QC5).
+// Theoretical accepted facts exercise the pure predicate's PASS branch. The runtime evidence
+// reader always returns both clinical acceptance flags false; no clinical acceptance fixture exists.
 const ideal:ResultFacts={templateKind:'SINGLETON',templateApproved:true,missing:[],pdfQc:'PASS',linked:true,linkMode:'MANUAL_REVIEWED',openProposal:false,cross:match,
- attemptState:'FinalQcAccepted',attemptIsLatest:true,hold:false,qc1Accepted:true,nonMeasuredQc1:false,batchCancelled:false,activeSlot:true,isCurrentRound:true,roundState:'ReceivedInHIS',roundNumber:1,openRepeat:false,
+ attemptState:'FinalQcAccepted',upstreamCurrent:true,upstreamReason:null,analysisAccepted:true,finalQcAccepted:true,attemptIsLatest:true,hold:false,qc1Accepted:true,nonMeasuredQc1:false,batchCancelled:false,activeSlot:true,isCurrentRound:true,roundState:'ReceivedInHIS',roundNumber:1,openRepeat:false,
  openIdentityIssues:0,clinicalState:'Pass',consentRevoked:false,consent:'GRANTED',pregnancy:'Singleton',sexPreference:'DoNotWant',sexShown:false,versionState:'PendingCertification',latestInSeries:true,activeReleaseInSeries:false,reviewedCurrent:true,certifierRoleActive:true};
 const status=(f:Partial<ResultFacts>,code:string,purpose:'VALIDATION'|'CERTIFY_ATTEMPT'='VALIDATION')=>resultPredicates({...ideal,...f},purpose).find(p=>p.code===code)!;
 describe('RG-01..RG-13 (Plan §5.9.2)',()=>{
+ it('state strings never substitute for clinical evidence; upstream invalidation remains visible before adapter HOLD',()=>{
+  expect(status({analysisAccepted:false},'RG-06').reason).toBe('CLINICAL_ANALYSIS_ADAPTER_PENDING');
+  expect(status({finalQcAccepted:false},'RG-07').reason).toBe('CLINICAL_FINAL_QC_ADAPTER_PENDING');
+  for(const code of ['RG-06','RG-07'])expect(status({upstreamCurrent:false,upstreamReason:'UPSTREAM_POOL_STOP_USE',analysisAccepted:false,finalQcAccepted:false},code).reason).toBe('UPSTREAM_POOL_STOP_USE');
+ });
  it('even ideal facts are not eligible at certification: OD-05 keeps RG-13 PENDING',()=>{
   const d=decideGate(resultPredicates(ideal,'CERTIFY_ATTEMPT'),'RG');expect(d.eligible).toBe(false);expect(d.pending).toEqual(['RG-13:OD-05:CONFIRMATION_METHOD_AND_GOVERNANCE_SIGNOFF']);
   expect(decideGate(resultPredicates(ideal,'VALIDATION'),'RG').eligible).toBe(true);

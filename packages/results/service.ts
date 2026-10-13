@@ -11,6 +11,7 @@ import {QuarantineError} from './extract';
 import {registerIntake} from './intake';
 import {missingRequired,type Parsed} from './parser';
 import {resultPredicates,noticePredicates,decideGate,crossFailures,type Cmp,type CrossCheck,type Purpose,type GateDecision,type GatePredicate} from './gates';
+import {attemptEvidence} from './evidence';
 
 // P5 Result Management service (Plan §11, §5.7–§5.10). Restricted synthetic: every path ends before release. Certification is
 // evaluated in the acting transaction and then answered with RELEASE_HOLD (AL-5/OD-05/OD-07); the database refuses any release.
@@ -273,9 +274,11 @@ async function gateFor(db:Queryable,v:VersionRow,purpose:Purpose,certifierId?:st
    EXISTS(SELECT 1 FROM lab_slot_assignment s JOIN lab_slot_disposition d ON d.batch_id=s.batch_id AND d.slot_number=s.slot_number AND d.stage='QC1' WHERE s.attempt_id=$1 AND s.removed_at IS NULL) non_measured,
    EXISTS(SELECT 1 FROM lab_slot_assignment s WHERE s.attempt_id=$1 AND s.removed_reason='BATCH_CANCELLED') batch_cancelled`,[v.attempt_id,v.round_id])).rows[0];
  const latestAttempt=(await db.query<{n:number}>('SELECT max(attempt_number)::int n FROM analytical_attempt WHERE round_id=$1',[v.round_id])).rows[0].n===a.attempt_number;
+ const evidence=await attemptEvidence(db,a.attempt_id);
  return decideGate(resultPredicates({templateKind:v.template_kind as 'SINGLETON'|'TWIN',templateApproved,missing:missingRequired(v.parsed),pdfQc:v.parsed.results.qc.value,
   linked:!!v.link_mode&&['Linked','ValidationBlocked','PendingCertification','CertifiedReleased'].includes(v.state),linkMode:v.link_mode as 'MANUAL_REVIEWED'|null,openProposal:x.open_proposal,cross,
   attemptState:a.attempt_state,attemptIsLatest:latestAttempt,hold:a.hold,qc1Accepted:y.qc1_accepted,nonMeasuredQc1:y.non_measured,batchCancelled:y.batch_cancelled||a.attempt_state==='BatchCancelled',activeSlot:a.slot_batch_id!==null,
+  upstreamCurrent:evidence.current,upstreamReason:evidence.reason,analysisAccepted:evidence.analysisAccepted,finalQcAccepted:evidence.finalQcAccepted,
   isCurrentRound:cf.isCurrentRound,roundState:cf.roundState,roundNumber:cf.roundNumber,openRepeat:y.open_repeat,openIdentityIssues:cf.openIdentityIssues,clinicalState:cf.clinicalState,consentRevoked:cf.consentRevoked,consent:cf.consentRoundEvidence,
   pregnancy:req.pregnancy,sexPreference:req.fetalSex,sexShown:v.parsed.results.fetalSex.value!==null,versionState:v.state,latestInSeries:x.latest,activeReleaseInSeries:x.active_release,reviewedCurrent:reviewed,certifierRoleActive:x.certifier},purpose),'RG');
 }
