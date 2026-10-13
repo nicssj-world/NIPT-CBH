@@ -101,4 +101,7 @@ export function assignmentDecision(r:AttemptRow,policy:PendingPolicy){
 /** FIFO proposal: Urgent first, then specimen-round receipt time (Repeat keeps the original receipt time), then attempt creation. */
 export const fifo=(a:AttemptRow,b:AttemptRow)=>Number(b.urgent)-Number(a.urgent)||(a.received_at?.getTime()??0)-(b.received_at?.getTime()??0)||a.attempt_created_at.getTime()-b.attempt_created_at.getTime()||a.attempt_id.localeCompare(b.attempt_id);
 export const caseVisible=(user:Staff,r:{unit_id:string|null;registration_origin:string})=>authorize(user,'case.read',{unitId:r.unit_id??undefined,origin:r.registration_origin as 'ANC'},'read');
+/** The database clock: the single time authority for DIRECT_ENTRY event times (it also stamps recorded_at and the execution anchors).
+ * A Date holds milliseconds, so the value is never later than the microsecond clock_timestamp() that later stamps recorded_at. */
+export async function dbClock(db:Queryable):Promise<Date>{return (await db.query<{t:Date}>('SELECT clock_timestamp() t')).rows[0].t;}
 export const bangkokToday=()=>new Date(Date.now()+7*3600000).toISOString().slice(0,10);

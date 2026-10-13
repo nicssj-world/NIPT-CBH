@@ -22,3 +22,15 @@ Ruling: Foundation implements restricted contracts, not downstream clinical work
 The P1 record above is historical. Owner lock `NIPT-CBH-AL2-20261012-001` and the later P2 Synthetic Start Order authorize the restricted P2 extension. Full clinical AL-2 acceptance and AL-3–AL-8 remain separate gates.
 
 P2 implementation and final verification are recorded in [p2-delivery.md](p2-delivery.md), with source authority in [source-register.md](source-register.md), forward migration checksums in [migrations.md](migrations.md) and outstanding decisions in [p2-governance.md](p2-governance.md). No P1 wire contract or Production release authority is changed by this extension.
+
+## P4b continuation — 2026-10-13
+
+Executed the session-authorized Pooling → QC2 → F4 → immutable Pool snapshot milestone in the existing P4b worktree, after safely merging P4 main. Separate calculation/service/document modules reuse P4 evidence and transaction/security contracts. Additive migrations 011–013 and Unit/DB/native/contract/browser tests are described in [p4b-pooling-delivery.md](p4b-pooling-delivery.md). Owner-dependent operations remain HOLD; simulation artifacts never establish AL-4b acceptance. HALOS contract is preserved; PR #2 stays draft and unmerged.
+
+## P4b DNB / sequencing continuation and Owner parity lock — 2026-10-13
+
+DNB/QC3, G50/QC4, F5 and stored-source HALOS handoff simulation continue on the same P4b branch/Draft PR #2. Additive014–018 close lifecycle/verification/currentness SQL boundaries. See [delivery](p4b-sequencing-delivery.md), [Legacy Functional Parity Matrix](legacy-functional-parity-matrix.md) and [P5 integration contract](p4b-p5-integration-contract.md). One NIPT CBH runtime only; P5 worktree/PR #5 remains separate,050 reserved. Restricted synthetic outcomes do not establish AL-4b or clinical/Production acceptance.
+
+## P5 restricted synthetic — 2026-10-13
+
+P5 Result Management was developed in parallel with P4b (separate worktree/branch `feat/p5-result-management-synthetic`) under the Owner's P5 start order and the Owner Architecture & Full Legacy Functional Parity Lock. Release stays HOLD (AL-5, OD-05, OD-07; OD-04 Clinical Governance sign-off pending). Delivery: [p5-result-management-delivery.md](p5-result-management-delivery.md); parity: [p5-legacy-parity-matrix.md](p5-legacy-parity-matrix.md); settings: [p5-settings-coverage.md](p5-settings-coverage.md).

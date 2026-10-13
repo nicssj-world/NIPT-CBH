@@ -1,0 +1,62 @@
+import {it,expect} from 'vitest';
+import {randomUUID} from 'node:crypto';
+import type {Queryable} from '../../packages/db/connection';
+import type {Principal} from '../../packages/security/policy';
+import {testDatabase} from '../helpers/database';
+import {labUsers,docDeps,tx,version} from '../helpers/lab';
+import {completedPool,dnbInput} from '../helpers/sequencing';
+import {bangkokToday} from '../../packages/lab/core';
+import {BARCODE_ORDER} from '../../packages/halos-export/contract';
+import {f5Html} from '../../packages/pdf/f5';
+import * as s from '../../packages/sequencing/service';
+import * as docs5 from '../../packages/sequencing/documents';
+it('full stored 47-member source → explicit UNVERIFIED fixture mapping → second-person exact verification → sequence/QC4 → immutable F5 completed simulation',async()=>{
+ const db=await testDatabase(),u=await labUsers(db),docs=await docDeps();
+ try{
+  const f=await completedPool(db,u,docs.deps,45,'PATIENT_PC_NC'),created=await tx(db,async t=>s.createDnb(t,u.staff,dnbInput(f.batchId,f.poolSnapshotId,await version(t,f.batchId),u.staff.id))),dnbId=created.id!;
+  const call=(fn:(t:Queryable,u:Principal,d:unknown)=>Promise<unknown>,extra:Record<string,unknown>={},actor=u.staff)=>tx(db,async t=>fn(t,actor,{batchId:f.batchId,dnbId,expectedVersion:await version(t,f.batchId),requestId:randomUUID(),...extra}));
+  const deps5={store:docs.deps.store,render:async(d:Parameters<typeof f5Html>[0])=>Buffer.from('%PDF-1.4\n'+f5Html(d))};
+  const issue=async(kind:'PRE_WORK'|'COMPLETED')=>{const input=async(t:Queryable)=>({batchId:f.batchId,dnbId,expectedVersion:await version(t,f.batchId),kind,purpose:'SYNTHETIC_SIMULATION'});
+   await tx(db,async t=>docs5.issueF5(t,u.staff,await input(t),deps5,true));return tx(db,async t=>docs5.issueF5(t,u.staff,await input(t),deps5));};
+  const prework=await issue('PRE_WORK');
+  const paperCopy=await tx(db,t=>docs5.printF5(t,u.staff,{documentId:prework.id,kind:'WORKING_COPY',reason:'synthetic QC4 paper copy'},deps5));
+  await call(s.transition,{transition:'DNB_START',reason:'จำลอง เริ่ม DNB 47 สมาชิก'});await call(s.transition,{transition:'DNB_END',reason:'จำลอง จบ DNB 47 สมาชิก'});
+  for(const field of ['STD1','STD2','QC3'])await call(s.recordObservation,{field,value:'20',unit:'ng/uL',source:'DIRECT_ENTRY'});
+  const qc3=await s.observations(db,dnbId);await expect(call(s.reviewObservation,{observationId:qc3[0].id,result:'Confirmed',note:'จำลอง ปฏิเสธตรวจเอง'})).rejects.toThrow('FORBIDDEN');
+  for(const o of qc3)await call(s.reviewObservation,{observationId:o.id,result:'Confirmed',note:'จำลอง ทวนสอบค่า DNB'},u.certifier);
+  await call(s.decideQc3,{decision:'SyntheticReviewed',criteriaVersion:s.QC3_CRITERIA,reason:'จำลอง QC3 ไม่มี Clinical Pass'},u.certifier);
+  const pool=await s.storedPool(db,f.batchId,f.poolSnapshotId),source=s.orderedSourceMembers(pool.snapshot);
+  // This is deliberately supplied fixture mapping, never a production physical conversion.
+  const members=source.map((m,i)=>({memberKey:m.memberKey,physicalPosition:m.physicalPosition,role:m.role,exportSampleId:`SYN-EXPLICIT-A-${i+1}`,
+   printedSampleId:m.printedSampleId!,lnHalos:m.lnHalos??`SYN-EXPLICIT-CONTROL-${m.physicalPosition}`,barcodeIndex:BARCODE_ORDER[i],barcodeType:'SYN-EXPLICIT-UNVERIFIED'}));
+  const handoff=await call(s.createHandoff,{mapping:{status:'synthetic-fixture-unverified',evidenceReference:'Explicit simulation fixture only; unapproved mapping and column A',members},reason:'จำลอง Mapping ที่ไม่รับรอง'}) as {id:string;fileHash:string};
+  expect(members).toHaveLength(47);expect(members.some(m=>m.physicalPosition===40)).toBe(false);expect(members.some(m=>m.barcodeIndex===13)).toBe(false);
+  const record={purpose:'SYNTHETIC_SIMULATION',equipmentModel:'DNBSEQ-G50',equipmentId:'SYN-G50-01',sequencingId:'SYN-SEQUENCE-001',cartridgeId:'SYN-CARTRIDGE-001',flowCellId:'SYN-FLOW-001',idSource:'SCAN',barcodeType:'SYN-EXPLICIT-UNVERIFIED',barcodeRange:{from:1,to:128},recipe:'FCL-SE35',configuration:{readMode:'SE',readCycles:35,barcodeCycles:10,assay:'NIPT'},pressureKpa:'-81',diskSpaceGb:'501',wash:{lot:'SYN-WASH',preparedOn:bangkokToday(),expiry:'2099-12-31',preWash:true},reason:'จำลอง Sequencing record'};
+  let sequence=await call(s.createSequencing,record) as {id:string};await expect(call(s.transitionSequencing,{sequencingId:sequence.id,transition:'SEQUENCE_START',reason:'จำลอง ก่อนทวนสอบ'})).rejects.toThrow('HANDOFF_VERIFICATION_REQUIRED');
+  const transfer=await call(s.transferHandoff,{handoffId:handoff.id,fileHash:handoff.fileHash,status:'Complete',evidenceHash:'a'.repeat(64),evidenceReference:'Synthetic transfer evidence; no real vendor import',purpose:'SYNTHETIC_SIMULATION'}) as {id:string};
+  const verification={handoffId:handoff.id,transferId:transfer.id,observedRows:members,observedDnbId:`DNB${bangkokToday().replaceAll('-','')}`,lane:'L01',fileHash:handoff.fileHash,status:'Complete',evidenceHash:'b'.repeat(64),note:'จำลอง ทวนสอบ 1 ต่อ 1'};
+  await expect(call(s.verifyHandoff,verification)).rejects.toThrow('SECOND_PERSON_REQUIRED');
+  const mismatch=await call(s.verifyHandoff,{...verification,observedRows:members.slice(1)},u.certifier) as {result:string};expect(mismatch.result).toBe('MISMATCH');expect(await s.handoffVerified(db,dnbId)).toBe(false);
+  const transfer2=await call(s.transferHandoff,{handoffId:handoff.id,fileHash:handoff.fileHash,status:'Complete',evidenceHash:'c'.repeat(64),evidenceReference:'Synthetic retransfer evidence',purpose:'SYNTHETIC_SIMULATION'}) as {id:string};
+  expect((await call(s.verifyHandoff,{...verification,transferId:transfer2.id},u.certifier) as {result:string}).result).toBe('MATCH');
+  expect(await s.handoffVerified(db,dnbId)).toBe(true);await call(s.transitionSequencing,{sequencingId:sequence.id,transition:'SEQUENCE_START',reason:'จำลอง เริ่ม Sequencing'});
+  await call(s.transitionSequencing,{sequencingId:sequence.id,transition:'SEQUENCE_END',reason:'จำลอง จบ Sequencing',firstCycle:{loadedDnb:'100',q30:'90',bic:'90',fit:'90'},postWash:true});
+  const failedLane=await call(s.recordQc4,{sequencingId:sequence.id,scope:'LANE',lane:'L01',metrics:{totalReads:'100000',uniqueReads:'90000',q30:'90',gcPercent:'40'},source:'DIRECT_ENTRY',evidenceHash:'e'.repeat(64)}) as {id:string};
+  await call(s.reviewQc4,{qc4Id:failedLane.id,result:'Hold',criteriaVersion:s.QC4_CRITERIA,note:'จำลอง ระงับ Lane และรันใหม่'},u.certifier);
+  expect((await tx(db,t=>s.workspace(t,u.staff,f.batchId))).current?.state).toBe('SEQUENCE_HOLD');
+  const oldSequence=sequence;sequence=await call(s.createSequencing,{...record,sequencingId:'SYN-SEQUENCE-002',reason:'จำลอง Sequencing attempt ใหม่'}) as {id:string};
+  expect((await tx(db,t=>s.workspace(t,u.staff,f.batchId))).current?.state).toBe('QC3');
+  await expect(call(s.transitionSequencing,{sequencingId:oldSequence.id,transition:'SEQUENCE_START',reason:'จำลอง ห้ามใช้ Run เก่า'})).rejects.toThrow('SEQUENCE_NOT_CURRENT');
+  expect((await s.qc4Evidence(db,dnbId,sequence.id)).ready).toBe(false);
+  await call(s.transitionSequencing,{sequencingId:sequence.id,transition:'SEQUENCE_START',reason:'จำลอง เริ่ม Sequencing ใหม่'});
+  await call(s.transitionSequencing,{sequencingId:sequence.id,transition:'SEQUENCE_END',reason:'จำลอง จบ Sequencing ใหม่',firstCycle:{loadedDnb:'100',q30:'90',bic:'90',fit:'90'},postWash:true});
+  await expect(call(s.transitionSequencing,{sequencingId:sequence.id,transition:'ANALYSIS_COMPLETE',reason:'จำลอง ก่อน QC4'})).rejects.toThrow('QC4_SYNTHETIC_REVIEW_REQUIRED');
+  const qc4={sequencingId:sequence.id,lane:'L01',metrics:{totalReads:'100000',uniqueReads:'90000',q30:'90',gcPercent:'40',fetalFraction:'10',dim:'1'},source:'DIRECT_ENTRY',evidenceHash:'d'.repeat(64)};
+  await call(s.recordQc4,{...qc4,scope:'LANE',source:'PAPER_TRANSCRIPTION',copyId:paperCopy.id,eventTime:new Date().toISOString(),eventPrecision:'MINUTE'});for(const m of members)await call(s.recordQc4,{...qc4,scope:'SAMPLE',memberKey:m.memberKey});
+  for(const o of (await s.qc4Evidence(db,dnbId,sequence.id)).observations)await call(s.reviewQc4,{qc4Id:o.id,result:'SyntheticReviewed',criteriaVersion:s.QC4_CRITERIA,note:'จำลอง ตรวจ QC4 ไม่ใช่ Clinical Pass'},u.certifier);
+  await call(s.transitionSequencing,{sequencingId:sequence.id,transition:'ANALYSIS_COMPLETE',reason:'จำลอง วิเคราะห์เสร็จ ยัง HOLD'});
+  const document=await issue('COMPLETED') as {id:string;sha256:string};const original=await tx(db,t=>docs5.readF5(t,u.staff,document.id,deps5));
+  const reprint=await tx(db,t=>docs5.printF5(t,u.staff,{documentId:document.id,kind:'ORIGINAL_REPRINT',reason:'จำลอง พิมพ์ต้นฉบับซ้ำ'},deps5));expect(reprint.bytes).toEqual(original.bytes);expect(reprint.sha256).toBe(document.sha256);
+  const w=await tx(db,t=>s.workspace(t,u.staff,f.batchId));expect(w.current).toMatchObject({state:'SYNTHETIC_COMPLETED',acceptance:'HOLD',clinicalUsable:false});expect(w.current?.handoffs[0].payload.vendorCompatible).toBe(false);
+ }finally{await db.close();await docs.close();}
+},120000);
