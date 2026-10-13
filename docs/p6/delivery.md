@@ -1,5 +1,7 @@
 # P6 independent contract delivery — 2026-10-13
 
+Historical pure-foundation record at adc64e1. Current continuation evidence: [integrated-delivery.md](integrated-delivery.md). AL-5/AL-6 remain HOLD.
+
 Status: independent **pure/synthetic P6 work implemented**; integrated P6 publisher and HIS interface acceptance remain **HOLD**. AL-6 is not passed, P5 release HOLD is unchanged. No real HIS/LAN/CFS connection, database mutation, migration, deployment, push, merge or PR creation occurred.
 
 Branch: `feat/p6-outbound-contract-synthetic`; worktree: `D:/Claude workspace/NIPT-CBH-P6`; base: `5d859c3a8be433b10668a9b097396cf1be69c54e`. Dependency reference: P5 PR #5 head `afa660a84217ec58279babd78fbf0426f62ad4d4` (read only). Only additive P6 files are in the diff. Existing worktrees/branches/shared files are untouched. Node dependencies are reused via an ignored local junction; no dependency manifest/lockfile was changed.

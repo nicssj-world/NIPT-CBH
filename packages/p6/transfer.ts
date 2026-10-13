@@ -111,6 +111,8 @@ const eventSchema=z.discriminatedUnion('type',[
   z.strictObject({type:z.literal('BACKUP_VERIFIED'),pdfHash:sha,resHash:sha}),z.strictObject({type:z.literal('OK_OBSERVED'),sha256:sha}),
   z.strictObject({type:z.literal('POST_OK_CHECK')}),z.strictObject({type:z.literal('PICKUP')}),z.strictObject({type:z.literal('TIMEOUT')}),
   z.strictObject({type:z.literal('CONFIRM'),evidence:evidenceSchema}),z.strictObject({type:z.literal('RETRY')}),
+  z.strictObject({type:z.literal('WRITE_STARTED'),stage:z.enum(['PDF','RES','BACKUP','OK'])}),
+  z.strictObject({type:z.literal('UNEXPECTED_OK')}),
   z.strictObject({type:z.literal('FAILURE'),stage:z.enum(['PDF','RES','BACKUP','OK']),code:z.enum(['IO_ERROR','HASH_MISMATCH','COLLISION','BACKUP_FAILED'])}),
 ]);
 export type TransferEvent=z.infer<typeof eventSchema>;
@@ -136,6 +138,7 @@ export function advanceTransfer(model:TransferModel,event:TransferEvent,gate:Syn
   if(now<model.updatedAt)throw Error('NON_MONOTONIC_TIME');
   const p=model.plan;
   const finish=(patch:Partial<TransferModel>,code:string=event.type):TransferModel=>Object.freeze({...model,...patch,updatedAt:now,hisConfirmed:false,log:Object.freeze([...model.log,Object.freeze({transferId:p.fixtureId,code,at:now})])});
+  if(event.type==='UNEXPECTED_OK')return model.state==='RECONCILIATION_REQUIRED'?model:finish({state:'RECONCILIATION_REQUIRED',reconciliationRequired:true,artifactsMayExist:true});
   if(['CANCELLED','RECONCILIATION_REQUIRED','FAILED_NEEDS_ADMIN','SYNTHETIC_CONFIRMED'].includes(model.state))throw Error('INVALID_TRANSITION');
   const index=ordered.indexOf(model.state as typeof ordered[number]);
   const effective=model.state==='RETRY_PENDING'?model.resumeState:model.state;
@@ -143,6 +146,10 @@ export function advanceTransfer(model:TransferModel,event:TransferEvent,gate:Syn
   const hasOk=effective==='OK_OBSERVED'||waiting.includes(effective??'');
   if(gate.epoch!==p.epoch||!gate.fixtureEligible||!gate.consentValid||gate.settingsVersion!==p.settingsVersion)
     return finish({state:hasOk?'RECONCILIATION_REQUIRED':'CANCELLED',reconciliationRequired:hasFiles},'GATE_CHANGED');
+  if(event.type==='WRITE_STARTED'){
+    if(index<0||index>3||event.stage!==['PDF','RES','BACKUP','OK'][index])throw Error('INVALID_TRANSITION');
+    return finish({artifactsMayExist:true});
+  }
   // Re-observing identical immutable artifacts is idempotent. Always verify proof before reuse.
   const proofIndex=expected.indexOf(event.type);
   if(proofIndex>=0){

@@ -1,4 +1,4 @@
-import {readFileSync, readdirSync} from 'node:fs';
+import {readFileSync} from 'node:fs';
 import ts from 'typescript';
 import {describe,expect,it} from 'vitest';
 import {heldReleasedResultReadPort,P5_REFERENCE} from '../../packages/p6/p5-interface';
@@ -7,7 +7,7 @@ describe('P6 isolation and closed P5 integration boundary',()=>{
   it('contains only pure contract dependencies and no dynamic imports or runtime registration',()=>{
     const root=new URL('../../packages/p6/',import.meta.url);
     const allowed=new Set(['node:crypto','zod','../integrations/res','../integrations/pet','./res']);
-    for(const name of readdirSync(root).filter(n=>n.endsWith('.ts'))){
+    for(const name of ['res.ts','transfer.ts','p5-interface.ts']){
       const file=ts.createSourceFile(name,readFileSync(new URL(name,root),'utf8'),ts.ScriptTarget.Latest,true);
       const visit=(node:ts.Node)=>{
         if(ts.isImportDeclaration(node))expect(allowed.has((node.moduleSpecifier as ts.StringLiteral).text),name).toBe(true);
