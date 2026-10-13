@@ -24,7 +24,7 @@ export const evidenceItemSchema=z.strictObject({
  appears:z.string().trim().max(200).nullable(),
  /** SHA-256 of an attached file (e.g. scan or PDF), when one exists. */
  fileSha256:z.string().regex(/^[a-f0-9]{64}$/).nullable(),
- provenance:z.enum(['PAPER_ORIGINAL','SCAN_OF_PAPER','LEGACY_NIPTY_DB_FIELD','LEGACY_NIPTY_FILE']),
+ provenance:z.enum(['PAPER_ORIGINAL','SCAN_OF_PAPER','ELECTRONIC_ORIGINAL_PDF','LEGACY_NIPTY_DB_FIELD','LEGACY_NIPTY_FILE']),
  /** Legacy source reference (table.column or file kind); never a path to patient data. */
  sourceRef:z.string().trim().max(120).nullable(),
 });

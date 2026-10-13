@@ -2,7 +2,7 @@
 
 2026-10-13 · branch `feat/p5h-historical-backfill-synthetic` (from `origin/main` bd50f16, after PR #6) · Plan v6.2.1 · Gate AL-8 **NOT READY**.
 
-**Status: restricted synthetic pure foundation only.** No UI, API route, worker job, migration, real data, HIS/LAN access or Clinical approval is involved. Passing these tests does not make Historical Backfill ready for use; it proves that the rules which can be decided without Owner/Clinical Governance input are implemented and cannot be bypassed.
+**Status: restricted synthetic build — pure foundation (commit 5c6a28a) plus the integrated Bulk Import described in §6.** The Bulk Import adds migration 070, a worker job, API routes, a three-step UI, second-person batch confirmation and guarded promotion. No real data, HIS/LAN access or Clinical approval is involved. Passing these tests does not make Historical Backfill ready for use: every clinical decision in §7 stays **Fail Closed** (nothing is eligible or promotable until the Owner approves it) and no path sends a historical result to HIS/CFS.
 
 ## 1. What exists
 
@@ -57,27 +57,54 @@ Source read: `NIPTY_handover.zip` `source/app/database.py`, `maintenance.py`, `s
 - OD-20 display status, OD-21 ANC visibility (none implemented; Lab only), OD-22 (no send path either way), OD-23 completeness vs promotion, OD-26 frozen in-flight list, OD-27 (only interim "no change after first HISTORICAL case" implemented), Q-G7 DPO/retention/validation criteria; and OD-26(c) cutover date and the in-flight list itself.
 - Interpretations to confirm: **Q-P5H-01** an event whose date is UNKNOWN fails closed (`EVENT_DATE_UNKNOWN`); **Q-P5H-02** a re-evaluation that fails only on dates/Anchor at promotion is refused and the draft stays Submitted (diagram has no Submitted→NotEligible); **Q-P5H-03** whether a controlled legacy register/DB record may be an Anchor (excluded now); **Q-P5H-04** the verifier must also differ from every earlier editor, not only the first recorder; **Q-P5H-05** `Conflict` has no exit in the diagram (resolution path via the D-18 queue undefined); **Q-P5H-06** unlinked `.pet` intake dated before the cutoff does not block.
 
-## 5. Gaps found in the current schema (why no migration was added)
+## 5. Schema gaps found in the foundation round — status after Bulk Import
 
-1. `case_guard()` (001) mixes "no HISTORICAL insert" with origin/identity immutability in one trigger; a promotion migration must replace it so creation is allowed only with a passing evaluation while immutability stays.
-2. `case_ln` CHECK and `ln_insert_guard()` accept only `AWAITING_PET/VERIFIED_BY_PET/RETIRED`; `DOCUMENT_VERIFIED` (D-47) is rejected (test documents this).
-3. `history.promote`/`history.send` are hard-denied in `authorize()` and `history.draft` has no verifier-separation hook; enabling promote is a policy (clinical) change and needs approval.
-4. `go_live_cutoff` catalog default is null and Settings coverage lists it Deferred to P5H; the OD-27 DB guard exists and is now tested.
-5. No `his_export` exists on main (P6 branch only); the AT-HIST-13 DB rejection must be added with/after P6 — P6 must call `outboundBarrier`/`assertOutboundAllowed`.
+| Gap | Resolution |
+| --- | --- |
+| 1. `case_guard()` mixed "no HISTORICAL insert" with immutability | Replaced in migration 070: insert allowed only inside `historical_promote()` after the trigger itself re-checks draft/evaluation/verification; immutability kept (tests `p5h-bulk`, `p5h-invariants`) |
+| 2. `DOCUMENT_VERIFIED` rejected | `case_ln` CHECK widened; `ln_insert_guard`/`ln_guard` rewritten: HISTORICAL cases must be `HISTORICAL_DOCUMENT/DOCUMENT_VERIFIED`, current cases may not; a historical LN can never become `VERIFIED_BY_PET` |
+| 3. `history.promote` hard-denied | **Policy change made, needs your acceptance:** removed from the hard-deny list in `packages/security/policy.ts`; only the matrix `A` cell of `HISTORICAL_VERIFIER` grants it (permission test added). It is inert in practice because the service refuses to confirm unless `historical_backfill` and `go_live_cutoff` are Active and approved. `history.send` stays denied for every role |
+| 4. `go_live_cutoff` default null | Unchanged (fail closed); read from the active setting; new CLINICAL setting `historical_backfill` (default `PENDING_OD18`) added to the catalog, form metadata and coverage matrix |
+| 5. No `his_export` on main | Still true. P6 must call `assertOutboundAllowed` (see §8); `his_order` for HISTORICAL remains rejected by the existing trigger |
+| Migration band | 070 chosen after reading the P6 worktree read-only: P6 uses 060 (uncommitted at the time). `packages/jobs/worker.ts` and `packages/db/roles.sql` are shared files touched additively; P6 also edits `worker.ts`, so expect a trivial merge at integration |
 
-**Migration proposal (not applied):** a single forward migration in a new reserved band `070–079` (P6 currently uses none beyond 051; confirm with the P6 owner before use) adding `historical_draft`, `historical_eligibility_evaluation`, `historical_record`, `historical_evidence_item`, `historical_event`, `historical_result_import`, `historical_verification` and a bulk-batch table (below), plus replacement of `case_guard`, `ln_insert_guard`, the `case_ln` CHECK, insert-only/CHECK(verifier≠recorder) triggers and a `his_export`/`his_order` rejection for HISTORICAL. Needs Owner/reviewer approval before authoring.
+## 6. Bulk Import — implemented (restricted synthetic)
 
-## 6. Bulk Import — NEXT IMPLEMENTATION TASK (not started; per Owner scope 2026-10-13)
+**Owner scope (2026-10-13):** about one batch / 47 cases; three steps: upload Excel/CSV + PDF/ZIP → review rows and errors → confirm as a batch; Draft, Eligibility, Cutoff, duplicate checks, independent review and Audit stay background mechanisms; cases still in progress at cutover follow OD-26(c) as proposed and are never imported as historical.
 
-Not built this round (usage limit). Gaps to close:
-- Row parser for Excel/CSV (template columns: LN, HN, name, DOB, collection/report dates with resolution, Consent-as-written, pregnancy type, original location, PDF file name) → per-row `HistoricalDate`, evidence items, events; `legacy-map` already gives the shape for NIPTY-derived rows.
-- PDF/ZIP matching to rows by LN with SHA-256 and identity-in-file check (reuse P5 `extract`/parser, no HIS path); unmatched/duplicate/extra files as errors.
-- `bulkBatch` model: one batch ≈ 47 rows, all-or-nothing confirm or per-row outcome (decision needed), per-row error list, idempotent confirm, batch hash, batch audit.
-- Background automation for the Owner's 3-step UX: batch creates drafts → auto pre-check → auto eligibility → reviewer queue showing batch + per-row errors → independent reviewer confirms the batch (verifier ≠ every recorder) → per-row Promotion transaction under LN lock. Needs the migration above and an Owner decision on partial-batch behaviour and how row-level original checking (D-46 item 3) is evidenced for a batch.
-- UI (3 steps), API routes, worker job, accessibility/visual gates (AT-UX-LDR-01 historical mode), Playwright E2E.
-- DB concurrency tests AT-HIST-16, `his_export` rejection AT-HIST-13 with P6, permission rows for the verifier role and policy change for `history.promote`.
-- Still blocked by AL-8 decisions in §4.
+| Step | What the user does | What the system does |
+| --- | --- | --- |
+| ① Upload (`/historical`) | Picks one `.xlsx`/`.csv` and PDFs and/or a ZIP; template download available | `createBatch`: stores originals content-addressed, records files (ZIP members expanded in memory, non-PDF flagged), enqueues job `synthetic_historical_stage` |
+| background (worker) | — | `stageBatch`: reads the table (limits: 5 MB, 1000 rows, at most `maxBatchRows`), parses each PDF with the P5 parser for LN/HN/DOB/report date, matches PDF to row (file name, else unique LN in PDF), builds evidence and events with date resolution, creates one Draft per row, flags duplicate LNs inside the sheet (all rows of the group blocked), checks `case_ln`, other drafts, HIS intakes and identity (HN alone never links), evaluates eligibility (fail closed), moves rows to `Submitted` / `NotEligible` / stays `Draft` with findings |
+| ② Review (`/historical/[id]`) | Sees only the rows that need work, with plain-language reasons; edits just those cells with a reason (min 8 chars) or abandons the row | `fixRow` creates a new append-only revision, adds the editor to the draft's contributors, re-matches the PDF, re-runs checks; a sibling that was blocked only by a duplicate is released automatically |
+| ③ Confirm | A different person with `HISTORICAL_VERIFIER` opens each original PDF (access-audited), ticks LN / report date / PDF binding / identity (at least 2 identifiers) per row; there is deliberately no "tick all" | `confirmBatch`: per-row savepoint and LN lock; re-evaluation; `decidePromotion`; `historical_verification` (a DB trigger forbids any contributor and requires the role); `historical_promote()` creates the `HISTORICAL` case, the `HISTORICAL_DOCUMENT/DOCUMENT_VERIFIED` LN and `historical_record`. A mismatch returns the row to editing; a registered LN becomes `Conflict`; replays are idempotent |
 
-## 7. Evidence (this branch, 2026-10-13)
+Decisions taken (flag if you disagree): **partial batches are allowed** — each ticked row succeeds or fails on its own, unticked rows stay waiting; a `Discrepancy` row re-enters the flow after correction; the Q-P5H-01…06 interpretations in §4 are unchanged; registry findings that only say "a person should look" (same patient seen again, same name+DOB under another HN) are warnings, everything else blocks.
 
-`npx tsc --noEmit` clean · `npm run lint` clean · `npm run guard` PASS · `npx vitest run`: 52 files passed, 13 skipped (environment-gated legacy-sample/native suites), 1234 tests passed, 14 skipped, 0 failed. Playwright E2E was not run (no UI changed). P6 worktree untouched.
+**Deliberately not there:** any send/export/release/certification for a historical case; ANC visibility (OD-21 pending: Lab and verifier only); a display status or Dashboard entry for historical cases (OD-20 pending); withdrawal and post-promotion revision screens (decision logic exists in `lifecycle.ts`, no UI); a Conflict resolution queue; cutoff-change UI and impact review (the OD-27 interim "no change after the first HISTORICAL case" is enforced by the existing DB guard).
+
+## 7. Remaining HOLD and approvals (nothing below is guessed or enabled)
+
+| Item | State |
+| --- | --- |
+| `go_live_cutoff` value and approval | HOLD — tests use a synthetic 2026-01-01 |
+| OD-18 Anchor kinds, minimum dataset, scan policy | HOLD — setting `historical_backfill` is `PENDING_OD18` by default, so every row is NotEligible and confirmation is refused |
+| OD-19 reviewer model and sampling | HOLD — interim: a second person for every row (stricter than the sampling options) |
+| OD-20 display status, OD-21 ANC visibility, OD-22 send path, OD-23 completeness vs promotion, OD-26 frozen in-flight list, OD-27, Q-G7 (DPO, retention, transcription validation) | HOLD / approval needed; AL-8 stays NOT READY |
+| Real data migration from NIPTY (database / PDFs) | Not authorized; `legacy-map.ts` only maps synthetic rows; nothing was run against real files |
+| Accepting the `history.promote` policy change (§5.3) | needs your decision at AL-8 |
+| P6 wiring of `assertOutboundAllowed`; DB rejection of historical `his_export` (AT-HIST-13) | after P6 merges |
+| Usability acceptance with real staff (AT-UX-LDR-01, UQ-11) and visual baselines | not done — only automated axe AA and a functional Playwright run |
+| Native PostgreSQL two-session concurrency test for AT-HIST-16 | the lock and the unique index are in place; the two-session test is not written |
+| Excel: multi-sheet workbooks, `.xls`, date cells other than integer serials | not supported (first sheet only) |
+
+## 8. Hand-off notes
+
+- P6: call `assertOutboundAllowed({origin, lnVerification})` before queueing, building or publishing anything; historical cases have origin `HISTORICAL` and LN `DOCUMENT_VERIFIED`.
+- Integrator: apply migration 070 after 060; re-run `tools/prepare-db.ts` to refresh grants; keep the worker running (`synthetic_historical_stage` is registered in `JOB_KINDS`).
+- To try it locally: activate `go_live_cutoff` and `historical_backfill` through Settings (Certifier proposes, Clinical Approver approves), give the importer `HISTORICAL_ENTRY` and the reviewer `HISTORICAL_VERIFIER`. `tests/e2e/p5h-bulk.spec.ts` does exactly this against the real web app and worker.
+
+## 9. Evidence
+
+2026-10-13, branch `feat/p5h-historical-backfill-synthetic`: `tsc --noEmit` clean · `npm run lint` clean · `npm run guard` PASS (411 files) · `npm run build` (production) compiles with the new routes · `npx vitest run`: 54 files passed, 13 skipped (environment-gated native/legacy-sample suites), 1,261 tests passed, 14 skipped, 0 failed · Playwright `tests/e2e/p5h-bulk.spec.ts` (real web app, real worker, PostgreSQL 17, axe WCAG 2.2 AA on the pages): 2 passed — 47 cases uploaded as CSV + ZIP, one broken row fixed in the UI, a different verifier confirmed all 47, 47 `HISTORICAL` cases and 0 `his_order` rows. Migration 070 and the new grants were also applied by `tools/prepare-db.ts` to a real PostgreSQL 17 database.
+Not run: the other Playwright specs (they need a freshly recreated browser database; the only shared UI change is a sidebar link shown solely to users holding `HISTORICAL_ENTRY` or the verifier role), the native-PostgreSQL contract suites (`NIPT_TEST_DATABASE_URL`), and any real-data run.

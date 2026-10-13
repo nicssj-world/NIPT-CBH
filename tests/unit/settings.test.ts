@@ -9,7 +9,7 @@ describe("settings lifecycle and locked architecture",()=>{
  beforeAll(async()=>{db=await testDatabase();admin=await addUser(db);approver=await addUser(db,"CLINICAL_APPROVER","synthetic.approver");});
  afterAll(async()=>{await db.close();});
  it("all ten categories and independent cutoff are typed, LD is not a toggle",()=>{
-  expect(Object.keys(SETTINGS)).toHaveLength(11);
+  expect(Object.keys(SETTINGS)).toHaveLength(12);
   expect(()=>settingDefinition("disable_redraw_same_ln")).toThrow();
   expect(()=>SETTINGS.his_outbound.schema.parse({...SETTINGS.his_outbound.default,productionAuthorized:true})).toThrow();
   expect(()=>SETTINGS.laboratory.schema.parse({...SETTINGS.laboratory.default,halosDataRows:48})).toThrow();

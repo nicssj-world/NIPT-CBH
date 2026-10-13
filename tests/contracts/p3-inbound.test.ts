@@ -242,7 +242,7 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
   await f.db.query('ALTER TABLE nipt_case DISABLE TRIGGER case_guard'); // fixture stands in for a P5H promotion
   const hc=(await rows<{id:string}>(f.db,"INSERT INTO nipt_case(registration_origin,identity_key) VALUES('HISTORICAL',$1) RETURNING id",[lnHnKey(LN,HN,f.lookupKey)]))[0].id;
   await f.db.query('ALTER TABLE nipt_case ENABLE TRIGGER case_guard');
-  await f.db.query("INSERT INTO case_ln(case_id,ln,source) VALUES($1,$2,'HISTORICAL_DOCUMENT')",[hc,LN]);
+  await f.db.query("INSERT INTO case_ln(case_id,ln,source,verification) VALUES($1,$2,'HISTORICAL_DOCUMENT','DOCUMENT_VERIFIED')",[hc,LN]);
   await writePet(f.root,DAY,{ln:LN,hn:HN,receivedAt:'20261012090000'});
   expect((await cycle(f,{now:NOW})).counts.outcome_HISTORICAL_LN_INTAKE).toBe(1);
   expect(await rows(f.db,'SELECT 1 FROM his_order')).toHaveLength(0);expect(await rows(f.db,'SELECT 1 FROM specimen_round')).toHaveLength(0);

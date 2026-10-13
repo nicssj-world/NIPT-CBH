@@ -29,16 +29,16 @@ describe('P5H fail-closed database guards (AT-HIST-02/04/06/11/13 — database p
   try{
    await scratch.query("ALTER TABLE nipt_case DISABLE TRIGGER case_guard");   // simulates the future, reviewed promotion path only
    const c=(await scratch.query<{id:string}>("INSERT INTO nipt_case(registration_origin,identity_key) VALUES('HISTORICAL',$1) RETURNING id",[KEY])).rows[0].id;
-   const ln=(await scratch.query<{id:string}>("INSERT INTO case_ln(case_id,ln,source) VALUES($1,'2600100099','HISTORICAL_DOCUMENT') RETURNING id",[c])).rows[0].id;
+   const ln=(await scratch.query<{id:string}>("INSERT INTO case_ln(case_id,ln,source,verification) VALUES($1,'2600100099','HISTORICAL_DOCUMENT','DOCUMENT_VERIFIED') RETURNING id",[c])).rows[0].id;
    await expect(scratch.query("INSERT INTO specimen_round(case_id,case_ln_id,round_number) VALUES($1,$2,1)",[c,ln])).rejects.toThrow(/historical downstream prohibited/);
    // case_ln lineage and PET verification cannot be forged for it either.
    await expect(scratch.query("UPDATE case_ln SET verification='VERIFIED_BY_PET' WHERE id=$1",[ln])).rejects.toThrow(/PET/);
    await expect(scratch.query("UPDATE case_ln SET source='ANC_ENTRY' WHERE id=$1",[ln])).rejects.toThrow(/immutable LN lineage/);
   }finally{await scratch.close();}
  });
- it('the current schema rejects a DOCUMENT_VERIFIED LN (documented gap: a reviewed P5H migration must extend ln_insert_guard and the verification CHECK)',async()=>{
+ it('a DOCUMENT_VERIFIED / HISTORICAL_DOCUMENT LN is refused for any current (ANC / LAB_DIRECT) case',async()=>{
   const c=(await db.query<{id:string}>("INSERT INTO nipt_case(registration_origin,identity_key) VALUES('ANC',$1) RETURNING id",['e'.repeat(64)])).rows[0].id;
-  await expect(db.query("INSERT INTO case_ln(case_id,ln,source,verification) VALUES($1,'2600100098','HISTORICAL_DOCUMENT','DOCUMENT_VERIFIED')",[c])).rejects.toThrow(/LN begins awaiting PET|verification_check/);
+  await expect(db.query("INSERT INTO case_ln(case_id,ln,source,verification) VALUES($1,'2600100098','HISTORICAL_DOCUMENT','DOCUMENT_VERIFIED')",[c])).rejects.toThrow(/LN begins awaiting PET/);
  });
  it('AT-HIST-14/OD-27 interim: go_live_cutoff cannot be activated once a HISTORICAL case exists',async()=>{
   const scratch=await testDatabase();
