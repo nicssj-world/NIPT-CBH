@@ -1,6 +1,6 @@
 import { describe,it,expect } from "vitest";
 import { ROLES, PERMISSION_MATRIX, authorize, type Principal } from "../../packages/security/policy";
-const blocked = new Set(["consent.sign.patient", "his.production.enable", "history.send", "history.promote", "result.certify", "notice.release", "redraw.after.release"]);
+const blocked = new Set(["consent.sign.patient", "his.production.enable", "history.send", "result.certify", "notice.release", "redraw.after.release"]);
 describe("every role × action × scope × operation cell",()=>{
   for(const [action,rule] of Object.entries(PERMISSION_MATRIX)) for(const [index,role] of ROLES.entries()) {
     it(`${role} / ${action}`,()=>{
@@ -13,6 +13,15 @@ describe("every role × action × scope × operation cell",()=>{
       }
     });
   }
+  it("P5H: only the Historical Verifier can approve a promotion; nobody can send historical results to HIS",()=>{
+    const p=(roles:Principal["roles"]):Principal=>({id:"u",roles,unitIds:[],permissions:["HISTORICAL_ENTRY"]});
+    expect(authorize(p(["HISTORICAL_VERIFIER"]),"history.promote",{},"approve")).toBe(true);
+    for(const role of ROLES.filter(r=>r!=="HISTORICAL_VERIFIER"))for(const op of ["write","propose","approve"] as const)expect(authorize(p([role]),"history.promote",{},op)).toBe(false);
+    expect(authorize(p(["HISTORICAL_VERIFIER"]),"history.promote",{},"write")).toBe(false);
+    for(const role of ROLES)for(const op of ["read","write","propose","approve"] as const)expect(authorize(p([role]),"history.send",{},op)).toBe(false);
+    expect(authorize(p(["LAB_STAFF"]),"history.draft",{},"write")).toBe(true);
+    expect(authorize({...p(["LAB_STAFF"]),permissions:[]},"history.draft",{},"write")).toBe(false);
+  });
   it("Admin never inherits PHI, certifier, breakglass or unknown permissions",()=>{
     const admin:Principal={id:"admin",roles:["APP_ADMIN"],unitIds:[],permissions:[]};
     for(const action of ["case.read","result.certify","result.read.released","made-up"]) expect(authorize(admin,action,{unitId:"x"})).toBe(false);

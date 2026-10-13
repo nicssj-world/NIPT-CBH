@@ -81,7 +81,7 @@ export const SETTINGS_COVERAGE:CoverageItem[]=[
  i(7,"ช่องทางหนังสือแจ้ง","§13.2 #7 (OD-07)",null,"result_management.noticeChannel / RN-07","HOLD","P5","ค่าระหว่างรอ: ใน NIPT เท่านั้น"),
  i(7,"สิทธิ์ปล่อยผลจริง","AL-5",null,"result_management.releaseAuthority + p5_release_authorized()","HOLD","P5","AL-5 / OD-04 CG / OD-05 / OD-07"),
  i(7,"go_live_cutoff (Versioned + Maker-Checker + รายงานผลกระทบ)","§13.1 / §13.2 #7 (D-50, OD-27)",null,"go_live_cutoff + settings_activation_guard","Deferred","P5H","Setting และ Guard มีแล้ว ผู้ใช้ค่าคือ P5H"),
- i(7,"ชุดข้อมูลขั้นต่ำ/Anchor ของเคสย้อนหลัง","§13.2 #7 (OD-18)",null,null,"Deferred","P5H","OD-18"),
+ i(7,"ชุดข้อมูลขั้นต่ำ/Anchor ของเคสย้อนหลัง","§13.2 #7 (OD-18)",null,"historical_backfill.anchorPolicy / minimumProfile","HOLD","P5H","OD-18: ค่า PENDING ทำให้ประเมินไม่ผ่านทุกเคส (Fail Closed)"),
  i(7,"ผู้ตรวจเคสย้อนหลัง","§13.2 #7 (OD-19)",null,null,"Deferred","P5H","OD-19"),
  i(7,"การแสดงผลเคสย้อนหลัง","§13.2 #7 (OD-20)",null,null,"Deferred","P5H","OD-20"),
  i(7,"การมองเห็นของ ANC ต่อผลย้อนหลัง","§13.2 #7 (OD-21)",null,null,"Deferred","P5H","OD-21"),

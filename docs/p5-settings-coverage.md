@@ -15,7 +15,7 @@ Status: **Implemented** configurable/enforced and consumed now · **Partial** st
 | 4 | User / Role / Permission | 3 | 1 | 0 | 0 | 1 |
 | 5 | HIS Inbound | 8 | 2 | 0 | 0 | 2 |
 | 6 | Laboratory | 1 | 3 | 1 | 0 | 11 |
-| 7 | Result Management | 13 | 1 | 0 | 5 | 6 |
+| 7 | Result Management | 13 | 1 | 0 | 4 | 7 |
 | 8 | HIS Outbound / CFS | 1 | 2 | 0 | 6 | 3 |
 | 9 | Storage / NAS / Backup | 0 | 2 | 1 | 2 | 1 |
 | 10 | Notifications / System / Audit | 1 | 0 | 5 | 1 | 1 |
@@ -126,7 +126,7 @@ Status: **Implemented** configurable/enforced and consumed now · **Partial** st
 | ช่องทางหนังสือแจ้ง | §13.2 #7 (OD-07) | — | result_management.noticeChannel / RN-07 | HOLD | P5 | ค่าระหว่างรอ: ใน NIPT เท่านั้น |
 | สิทธิ์ปล่อยผลจริง | AL-5 | — | result_management.releaseAuthority + p5_release_authorized() | HOLD | P5 | AL-5 / OD-04 CG / OD-05 / OD-07 |
 | go_live_cutoff (Versioned + Maker-Checker + รายงานผลกระทบ) | §13.1 / §13.2 #7 (D-50, OD-27) | — | go_live_cutoff + settings_activation_guard | Deferred | P5H | Setting และ Guard มีแล้ว ผู้ใช้ค่าคือ P5H |
-| ชุดข้อมูลขั้นต่ำ/Anchor ของเคสย้อนหลัง | §13.2 #7 (OD-18) | — | — | Deferred | P5H | OD-18 |
+| ชุดข้อมูลขั้นต่ำ/Anchor ของเคสย้อนหลัง | §13.2 #7 (OD-18) | — | historical_backfill.anchorPolicy / minimumProfile | HOLD | P5H | OD-18: ค่า PENDING ทำให้ประเมินไม่ผ่านทุกเคส (Fail Closed) |
 | ผู้ตรวจเคสย้อนหลัง | §13.2 #7 (OD-19) | — | — | Deferred | P5H | OD-19 |
 | การแสดงผลเคสย้อนหลัง | §13.2 #7 (OD-20) | — | — | Deferred | P5H | OD-20 |
 | การมองเห็นของ ANC ต่อผลย้อนหลัง | §13.2 #7 (OD-21) | — | — | Deferred | P5H | OD-21 |

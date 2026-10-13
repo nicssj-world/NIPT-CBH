@@ -70,3 +70,13 @@ GRANT SELECT,INSERT,UPDATE ON result_intake_file,result_report_version TO app_rw
 GRANT SELECT,INSERT ON result_version_event,result_link_event,result_gate_evaluation,result_review,result_access_log TO app_rw;
 GRANT SELECT ON result_release TO app_rw;
 GRANT SELECT ON result_report_version,result_release TO report_ro;
+-- P5H historical bulk import (migration 070). Evaluations, verifications and revisions are insert-only; drafts are guarded by triggers.
+GRANT SELECT,INSERT,UPDATE ON historical_batch,historical_batch_file,historical_draft TO app_rw;
+GRANT SELECT,INSERT ON historical_draft_revision,historical_eligibility_evaluation,historical_verification,historical_record TO app_rw;
+GRANT SELECT,INSERT ON historical_batch,historical_batch_file,historical_draft TO worker_rw;
+-- The worker may only record staging results; it cannot edit drafts' data, versions, contributors or promotion columns.
+GRANT UPDATE(state,row_count,error_code,staged_at,cutoff_version,policy,issues) ON historical_batch TO worker_rw;
+GRANT UPDATE(state,reject_code,parsed) ON historical_batch_file TO worker_rw;
+GRANT UPDATE(state,issues,ln_key,evaluation_id,updated_at) ON historical_draft TO worker_rw;
+GRANT SELECT,INSERT ON historical_draft_revision,historical_eligibility_evaluation TO worker_rw;
+GRANT SELECT ON historical_record,historical_verification TO worker_rw;
