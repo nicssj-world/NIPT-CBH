@@ -67,6 +67,10 @@ const rows = {
   "round.receive": "--YY---R-",
   "result.import": "--YY-----",
   "result.link.manual": "--PA---R-",
+  // P5: attesting parsed values against the PDF, and evaluating RG/RN in the certifying transaction. Release itself stays
+  // `result.certify` / `notice.release`, which remain denied below until AL-5.
+  "result.review": "--YY---R-",
+  "result.release.check": "---Y---R-",
   "result.certify": "---Y---R-",
   "notice.release": "--CY---R-",
   "result.revise": "--PY---R-",

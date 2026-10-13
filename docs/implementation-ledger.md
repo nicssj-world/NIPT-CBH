@@ -30,3 +30,7 @@ Executed the session-authorized Pooling → QC2 → F4 → immutable Pool snapsh
 ## P4b DNB / sequencing continuation and Owner parity lock — 2026-10-13
 
 DNB/QC3, G50/QC4, F5 and stored-source HALOS handoff simulation continue on the same P4b branch/Draft PR #2. Additive014–018 close lifecycle/verification/currentness SQL boundaries. See [delivery](p4b-sequencing-delivery.md), [Legacy Functional Parity Matrix](legacy-functional-parity-matrix.md) and [P5 integration contract](p4b-p5-integration-contract.md). One NIPT CBH runtime only; P5 worktree/PR #5 remains separate,050 reserved. Restricted synthetic outcomes do not establish AL-4b or clinical/Production acceptance.
+
+## P5 restricted synthetic — 2026-10-13
+
+P5 Result Management was developed in parallel with P4b (separate worktree/branch `feat/p5-result-management-synthetic`) under the Owner's P5 start order and the Owner Architecture & Full Legacy Functional Parity Lock. Release stays HOLD (AL-5, OD-05, OD-07; OD-04 Clinical Governance sign-off pending). Delivery: [p5-result-management-delivery.md](p5-result-management-delivery.md); parity: [p5-legacy-parity-matrix.md](p5-legacy-parity-matrix.md); settings: [p5-settings-coverage.md](p5-settings-coverage.md).

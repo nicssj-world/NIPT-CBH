@@ -62,3 +62,11 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO app_rw;
 -- DNB/QC3, sequencing/QC4, HALOS handoff and F5 restricted simulation evidence.
 GRANT SELECT,INSERT ON p4c_dnb_attempt,p4c_dnb_event,p4c_dnb_observation,p4c_dnb_review,p4c_qc3_decision,p4c_handoff,p4c_handoff_transfer,p4c_handoff_verification,p4c_sequencing_attempt,p4c_qc4_observation,p4c_qc4_review,p4c_command,p4c_document,p4c_document_copy TO app_rw;
 GRANT SELECT ON p4c_dnb_attempt,p4c_dnb_event,p4c_handoff,p4c_sequencing_attempt,p4c_document TO report_ro;
+-- P5 synthetic Result Management (migration 050). The worker reads the configured synthetic folder and records quarantined intake;
+-- it never creates report versions, links or releases. Releases stay SELECT-only and are additionally blocked by RELEASE_HOLD_AL5.
+GRANT SELECT,INSERT,UPDATE ON result_intake_file TO worker_rw;
+GRANT SELECT(id,sha256,state) ON result_report_version TO worker_rw;
+GRANT SELECT,INSERT,UPDATE ON result_intake_file,result_report_version TO app_rw;
+GRANT SELECT,INSERT ON result_version_event,result_link_event,result_gate_evaluation,result_review,result_access_log TO app_rw;
+GRANT SELECT ON result_release TO app_rw;
+GRANT SELECT ON result_report_version,result_release TO report_ro;

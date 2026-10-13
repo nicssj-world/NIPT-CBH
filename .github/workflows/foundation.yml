@@ -52,6 +52,8 @@ jobs:
       - name: Browser accessibility, permissions and responsive checks
         run: |
           node --import tsx apps/renderer/main.ts > "$RUNNER_TEMP/nipt-renderer.log" 2>&1 &
+          # P5: Test Path / Scan / Preview of the synthetic result folder are executed by the worker, as in production.
+          node --import tsx apps/worker/main.ts > "$RUNNER_TEMP/nipt-worker.log" 2>&1 &
           npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: always()
