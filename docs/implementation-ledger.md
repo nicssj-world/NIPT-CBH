@@ -22,3 +22,7 @@ Ruling: Foundation implements restricted contracts, not downstream clinical work
 The P1 record above is historical. Owner lock `NIPT-CBH-AL2-20261012-001` and the later P2 Synthetic Start Order authorize the restricted P2 extension. Full clinical AL-2 acceptance and AL-3–AL-8 remain separate gates.
 
 P2 implementation and final verification are recorded in [p2-delivery.md](p2-delivery.md), with source authority in [source-register.md](source-register.md), forward migration checksums in [migrations.md](migrations.md) and outstanding decisions in [p2-governance.md](p2-governance.md). No P1 wire contract or Production release authority is changed by this extension.
+
+## P5 restricted synthetic — 2026-10-13
+
+P5 Result Management was developed in parallel with P4b (separate worktree/branch `feat/p5-result-management-synthetic`) under the Owner's P5 start order and the Owner Architecture & Full Legacy Functional Parity Lock. Release stays HOLD (AL-5, OD-05, OD-07; OD-04 Clinical Governance sign-off pending). Delivery: [p5-result-management-delivery.md](p5-result-management-delivery.md); parity: [p5-legacy-parity-matrix.md](p5-legacy-parity-matrix.md); settings: [p5-settings-coverage.md](p5-settings-coverage.md).

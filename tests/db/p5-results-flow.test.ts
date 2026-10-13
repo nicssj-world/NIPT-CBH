@@ -115,6 +115,18 @@ describe('P5 ANC Result Viewer scope (§11.8, AT-RES-07, AT-RN-01, AT-LIN-12)',(
  });
 });
 
+describe('P5 browser file picker (NIPTY upload alternative)',()=>{
+ it('registers accepted files under one parse job and rejects empty/oversized files with codes; Thai names are kept',async()=>{
+  const pdf=syntheticReportPdf({kind:'SINGLETON',labNumber:'UP',hn:'990000000801',collection:'10-Oct-2026'});
+  const r=await f.run(t=>svc.registerUploads(t,f.u.staff,f.store,[{name:'ผล รายที่ 1.pdf',bytes:pdf},{name:'empty.pdf',bytes:Buffer.alloc(0)},{name:'big.pdf',bytes:Buffer.alloc(11*1024*1024,1)}]));
+  expect(r.accepted).toBe(1);expect(r.rejected).toEqual([{name:'empty.pdf',code:'EMPTY_FILE'},{name:'big.pdf',code:'FILE_TOO_LARGE'}]);
+  const rows=(await f.db.query<{id:string;original_name:string;state:string}>('SELECT id,original_name,state FROM result_intake_file WHERE job_id=$1',[r.jobId])).rows;
+  expect(rows.map(x=>[x.original_name,x.state])).toEqual([['ผล รายที่ 1.pdf','Quarantined']]);
+  expect((await f.db.query('SELECT kind FROM job_outbox WHERE id=$1',[r.jobId])).rows[0]).toEqual({kind:'synthetic_result_parse'});
+  await expect(f.run(t=>svc.registerUploads(t,f.u.anc,f.store,[{name:'x.pdf',bytes:pdf}]))).rejects.toThrow('FORBIDDEN');
+ });
+});
+
 describe('P5 folder workflow in the worker (NIPTY Test Path → Scan → Preview)',()=>{
  const limits={maxBytes:10*1024*1024,acceptZip:true};
  const seed=async()=>{
