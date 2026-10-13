@@ -172,3 +172,45 @@ fieldset {border:0;padding:0;margin:0;}
 .sort-button {min-height:44px;padding:var(--space-1) var(--space-3);border:1px solid var(--color-line);border-radius:8px;background:#e9eff4;color:var(--color-ink);font-weight:600;}
 .data-table th .sort-button {width:100%;text-align:left;background:transparent;border-color:transparent;padding:var(--space-1) 0;}
 .receive-time {font-variant-numeric:tabular-nums;}
+
+.p4c-workspace {overflow-wrap:anywhere;}
+.p4c-workspace li,.p4c-workspace label {min-width:0;}
+.p4c-workspace input,.p4c-workspace select {max-width:100%;}
+/* P5 Result Management. Built from the existing tokens; status is always text, colour only supplements it. */
+.p5-tabs {margin-top:var(--space-4);}
+.p5-facts {margin:0;}
+.p5-file {overflow-wrap:break-word;min-width:16ch;max-width:42ch;}
+.p5-scan,.p5-queue {min-width:760px;}
+.coverage-table {min-width:980px;}
+.data-table .status,.p5-nowrap {white-space:nowrap;}
+.p5-hash {overflow-wrap:anywhere;font-size:.8125rem;}
+.data-table .num,.p5-scan .num {text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.p5-checks,.p5-gates {list-style:none;margin:0;padding:0;display:grid;gap:var(--space-2);}
+.p5-gates li {display:grid;grid-template-columns:4.5rem minmax(10rem,1fr) auto;gap:var(--space-1) var(--space-3);align-items:baseline;padding:var(--space-2) 0;border-bottom:1px solid var(--color-line);}
+.p5-gates li .help {grid-column:2 / -1;margin:0;}
+.p5-code {font-weight:600;}
+.p5-gate-name {font-weight:500;}
+.p5-head-status {display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);}
+.p5-review {display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:var(--space-4);align-items:start;}
+.p5-original {position:sticky;top:var(--space-4);}
+.p5-original .pdf-frame {--pdf-height:min(78vh,1100px);}
+.p5-side {display:grid;gap:var(--space-4);min-width:0;}
+.p5-side .panel,.p5-review .panel {margin:0;}
+.p5-raw {display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-top:var(--space-1);font-size:.8125rem;color:var(--color-muted);overflow-wrap:anywhere;}
+.p5-values td {min-width:10ch;}
+.p5-values th[scope="row"] {font-weight:500;white-space:nowrap;}
+.p5-cross {margin-bottom:var(--space-3);}
+.p5-candidates {border:0;padding:0;margin:0;min-width:0;}
+.p5-candidates legend {font-weight:600;margin-bottom:var(--space-2);}
+.p5-history summary {cursor:pointer;min-height:44px;display:flex;align-items:center;font-weight:500;}
+.p5-preview {margin-top:var(--space-6);padding-top:var(--space-4);border-top:1px solid var(--color-line);}
+.setting-fields {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr));gap:var(--space-4);}
+.setting-fields .locked input {background:#eef2f5;color:var(--color-ink);border-style:dashed;}
+.setting-fields .locked-tag {display:inline-block;margin-left:var(--space-2);font-size:.8125rem;font-weight:600;color:var(--color-warning);}
+.coverage-summary {width:100%;}
+@media(max-width:1100px){.p5-review {grid-template-columns:1fr;}.p5-original {position:static;}.p5-original .pdf-frame {--pdf-height:70vh;}}
+@media(max-width:600px){.p5-gates li {grid-template-columns:1fr auto;}.p5-gates li .p5-gate-name {grid-column:1 / -1;}}
+.p5-sched {margin-top:var(--space-2);display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);}
+.p5-conflict {margin-top:var(--space-2);display:grid;gap:var(--space-1);}
+/* Links inside table cells must not rely on colour alone (WCAG 1.4.1): underline them. */
+.data-table td a:not(.button) {text-decoration:underline;text-underline-offset:3px;}
