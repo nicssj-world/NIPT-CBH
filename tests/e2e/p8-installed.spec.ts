@@ -17,7 +17,7 @@ test('P8 signed installed candidate: login, registration, worklists, HOLD and se
  expect((await page.request.get('/api/me')).status()).toBe(401);
  await login(page,'synthetic.lab');
  await page.goto('/cases');await page.getByRole('button',{name:'ลงทะเบียนโดย Lab',exact:true}).click();
- const ln='0099'+String(Date.now()).slice(-9),hn='990'+String(Date.now()).slice(-9);
+ const ln='00990'+String(Date.now()).slice(-9),hn='990'+String(Date.now()).slice(-9);
  await page.getByLabel('LN HIS จำลอง',{exact:false}).fill(ln);await page.getByLabel('HN จำลอง',{exact:false}).fill(hn);
  const unit=page.getByLabel('หน่วยงานลงทะเบียน',{exact:false});
  const unitId=await unit.locator('option').evaluateAll(options=>options.map(o=>(o as HTMLOptionElement).value).find(Boolean));
