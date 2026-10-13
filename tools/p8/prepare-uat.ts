@@ -16,7 +16,8 @@ export function uatAdminTarget(raw:string|undefined,mode:string|undefined):URL {
 
 export async function prepareUat(){
  const authority=uatAdminTarget(process.env.NIPT_P8_OPS_URL,process.env.NIPT_MODE);
- const id=randomUUID().replaceAll('-',''),name='nipt_synthetic_p2_browser_p8uat_'+id,root=path.resolve('.local/p8/uat-'+id);
+ // PostgreSQL identifiers are limited to 63 bytes. Keep all UUID bits without implicit truncation.
+ const id=randomUUID().replaceAll('-',''),name='nipt_synthetic_p2_browser_p8uat'+id,root=path.resolve('.local/p8/uat-'+id);
  await mkdir(root,{recursive:true,mode:0o700});
  const seedFile=path.join(root,'seed-password'),lookupFile=path.join(root,'lookup.key');
  const password=randomBytes(24).toString('base64url');
