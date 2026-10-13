@@ -1,9 +1,28 @@
 # Legacy functional parity matrix — read-only archive audit
 
-> **Integration note (P4b + P5 audit):** rows marked DEFERRED to P5 predate the P5 branch. After integration, [p5-legacy-parity-matrix.md](p5-legacy-parity-matrix.md) is authoritative for P5-scope capabilities (including Owner decisions A14/A23). No row was removed; row-level reconciliation is pending. See [p4b-p5-integration-audit.md](p4b-p5-integration-audit.md).
+> **Integration note (P4b + P5 audit):** rows marked DEFERRED to P5 predate the P5 branch. After integration, [p5-legacy-parity-matrix.md](p5-legacy-parity-matrix.md) is authoritative for P5-scope capabilities (including Owner decisions A14/A23). No source row was removed; the P7 effective row reconciliation below supersedes stale implementation descriptions. See [p4b-p5-integration-audit.md](p4b-p5-integration-audit.md).
 
 Owner steering recorded 2026-10-13: audit **both** ZIP archives; preserve one NIPT-CBH system; never run a second NIPTY runtime; do not implement P5 during this P4b continuation. Legacy behavior is evidence, not permission to bypass clinical/security gates. Settings across all ten groups and independent go-live cutoff are inventoried for deferred P5 acceptance. Existing P1 foundations are identified separately.
 
+
+## P7 effective row reconciliation — 2026-10-13
+
+The archive inventory below is historical evidence and is preserved without re-auditing either ZIP. These exact capability rows now resolve as follows; synthetic implementation never means clinical/operational acceptance.
+
+| Original capability row | Current effective implementation/status | Remaining gate |
+|---|---|---|
+| Results list/detail/risk filters/dates/CSV/TXT | P5 details + P7 reported/imported date, state/risk, private search/gender/QC, bounded parsed-evidence CSV; clinical TXT remains HOLD | Real PHI/DPO/clinical output AL-5/6/7 |
+| Import select/upload/folder/preview/confirm; ZIP/PDF discovery; anchored parser | P5 synthetic worker intake/immutable previews and reviewed confirmation implemented | Signed PIC/templates and clinical samples OD-07/AL-5 |
+| Unmatched/search/match/rematch/review | P5 manual round/attempt proposals + independent decision, immutable events; safe replacement for legacy auto-match | No HN-only/LN-only clinical auto-link |
+| Preview cache/selected import/source folder; Thai/Buddhist dates/GA | P5 original evidence/parser/round contract implemented; P7 CSV exports normalized parsed dates/GA with methods and unknowns | Clinical interpretation/adoption remains held |
+| Maintenance audit/repair-match/reparse/backfill-GA | P7 immutable diagnostic reparse + read-only historical integrity/audit; editable draft correction retained | No automatic overwrite/GA inference; OD-18/23/27/AL-8 correction policy |
+| Pre-maintenance DB backup/restore | P7 coherent encrypted V2 DB/files/P6 manifest, strict archive/path/link controls and fresh restore; native exact integrity drill passed | Bounded512MiB synthetic tooling; hospital volume/WAL/NAS/key escrow/RPO/RTO Q-I6 |
+| RES wire/OK/PDF naming/export counts/history/retry/confirmation | P6 durable synthetic journal, original bytes/names/N/epoch, actual local transport/recovery/reconciliation implemented | Clinical publisher/actual HIS/CFS/LAN AL-5/6 remains closed |
+| Single/bulk export clinical UI | P6 synthetic fixture queue/CLI exists; no authority to map clinical releases or operate real endpoints | Approved clinical adapter/settings/channel/receiver evidence |
+| Label/LN Halos/Barcode/HALOS | Existing receipt-bound identity, Owner NO BARCODE tube label and HALOS47 contract preserved; P7 actual label PDF geometry/segregation added | Q-I7 physical print and signed vendor mapping/method acceptance |
+| Dashboard/TAT, user administration, notifications/retention/settings | Existing PARTIAL/HOLD rows remain; no detailed operational/SoD/recipient/retention policy invented | Existing phase owners and Q-I6/clinical/governance decisions |
+
+Current tests, exact technical scope and every remaining blocker: [P7 gap register](p7/gap-register.md) and [delivery](p7/delivery.md). Full P5/P6/P5H source reports still control their own acceptance boundaries.
 ## Evidence scope
 
 Python `zipfile` read archive metadata and application/document source; Python AST identified function definitions without importing or executing legacy code. Archives were not extracted or modified. Database, patient/result payload, session, log and secret-key contents were not read. No deployed configuration or credentials were copied. The canonical source comparison covered all **60 corresponding `.py`/`.html` files under app/tests/tools: 60 byte-identical, zero different, zero unique application functions**. NIPTY also embeds historical update snapshots and developer audit helpers; these are packaging differences, not a different active application.
