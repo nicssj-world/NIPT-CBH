@@ -1,0 +1,11 @@
+export const FORMAT:string;
+export const MAX_ARCHIVE_BYTES:number;
+export function sha(bytes:Uint8Array):string;
+export function checkSize(size:number,remaining?:number):void;
+export function readBoundedFile(file:string,remaining?:number):Promise<Buffer>;
+export function canonical(value:unknown):string;
+export function safeName(name:string):string;
+export function checkedPath(input:string,options?:{missing?:boolean;fresh?:boolean}):Promise<string>;
+export function inventory(root:string,budget?:{bytes:number}):Promise<{path:string;bytes:number;sha256:string}[]>;
+export function pack(input:{path:string;bytes:Uint8Array}[]):Buffer;
+export function unpack(input:Buffer):{path:string;bytes:Buffer;directory:boolean}[];

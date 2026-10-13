@@ -42,3 +42,12 @@ Migration050 is the additive P5 restricted synthetic Result Management schema. I
 Migration051 implements Owner decision A14. It adds `result_link_event.name_review` (NEW_REPORT/REVISION) with consistency checks against `revision`, and an index on the intake display name. It replaces `p5_link_event_guard()` so that a second-person approval must repeat the proposer's classification. The function is replaced by a new forward migration; 050 is byte-identical. Ordered 001–010 + 050 + 051 application was verified on fresh disposable PGlite and PostgreSQL 17 databases.
 
 Migration070 is the additive P5H restricted synthetic Historical Backfill schema in reserved band **070** (P5 uses 050–051; the P6 branch uses 060 — checked read-only on 2026-10-13). It adds `historical_batch`, `historical_batch_file`, `historical_draft` (+ append-only `historical_draft_revision`), insert-only `historical_eligibility_evaluation` and `historical_verification`, and `historical_record`. It replaces `case_guard`, `ln_insert_guard` and `ln_guard` and widens the `case_ln.verification` CHECK so that a HISTORICAL case can exist **only** through `historical_promote()`: a Submitted draft, a passing evaluation of the same draft version, and a CONFIRMED verification by a different person holding `HISTORICAL_VERIFIER`, all re-checked inside the trigger. Origin/identity immutability is kept, a HISTORICAL LN can never become `VERIFIED_BY_PET`, and no existing downstream guard (round, attempt, order, report) is relaxed. Grants for `app_rw`/`worker_rw` are appended to `packages/db/roles.sql`. Applied only to disposable synthetic databases (PGlite and the local synthetic PostgreSQL 17); no Production apply.
+
+## P7 forward migrations — disposable synthetic only
+
+| Migration | SHA-256 | Boundary |
+| --- | --- | --- |
+| 080_p7_closed_clinical_state.sql | 4e9a182a43c4ef895bf35d7b33e1fb787ca5c2bf17356976b7d31fdf4c1d4218 | Rejects unauthorized clinical acceptance state entry; no adapter bypass |
+| 081_p7_result_maintenance_evidence.sql | be8bf50b80fe209631e1bbc62623e83d0900c9f9b861bc9b8437bc92af5013a8 | Append-only query export and diagnostic reparse; no report or release mutation |
+
+Existing 001–070 migration bytes are unchanged from ad66ab4. Ordered application and ledger checksums were verified on fresh native/PGlite databases, and all113public tables/ledger rows restored in the native DR drill. Runtime grants are reapplied separately; no Production apply or ledger repair.

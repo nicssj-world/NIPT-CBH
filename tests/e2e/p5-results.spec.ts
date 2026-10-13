@@ -58,7 +58,7 @@ test("P5 folder workflow: Test Path → Scan → Preview → import, then two-pe
  await page.getByRole("button",{name:"Preview ไฟล์ที่เลือก"}).click();
  const preview=page.getByRole("region",{name:"ผล Preview"});await expect(preview).toContainText("ผลตรวจ ครรภ์เดี่ยว",{timeout:60000});
  await expect(preview).toContainText(f.hn);await expect(preview).toContainText("1 รอบ/Attempt");await expect(preview).toContainText("อ่านได้ — พร้อมนำเข้า");
- await page.getByRole("button",{name:"ยืนยันนำเข้า"}).click();await expect(page.getByRole("status")).toContainText("นำเข้าแล้ว 1 รายการ");
+ await page.getByRole("button",{name:"ยืนยันนำเข้า"}).click();await expect(page.getByRole("status").filter({hasText:"นำเข้าแล้ว 1 รายการ"})).toBeVisible();
  const row=page.getByRole("region",{name:"รายการรายงาน"}).getByRole("row").filter({hasText:f.file});await expect(row).toContainText("รอเชื่อมโยงกับรอบ/Attempt");
  await row.getByRole("link",{name:"เปิด"}).click();
  await expect(page.getByRole("heading",{name:"ตรวจทานผล",exact:true})).toBeVisible();
@@ -118,7 +118,7 @@ test("A14: same file name with different content is flagged, must be acknowledge
  const confirm=page.getByRole("button",{name:"ยืนยันนำเข้า"});await expect(confirm).toBeDisabled();await expect(page.getByText("รอรับทราบชื่อซ้ำ 2 รายการ")).toBeVisible();
  for(const box of await page.getByLabel("รับทราบ นำเข้าเพื่อตรวจสอบ").all())await box.check();
  await axe(page);
- await confirm.click();await expect(page.getByRole("status")).toContainText("นำเข้าแล้ว 2 รายการ");
+ await confirm.click();await expect(page.getByRole("status").filter({hasText:"นำเข้าแล้ว 2 รายการ"})).toBeVisible();
  await expect(page.getByRole("region",{name:"รายการรายงาน"}).getByRole("row").filter({hasText:name}).first()).toContainText("ชื่อไฟล์ซ้ำ");
 });
 

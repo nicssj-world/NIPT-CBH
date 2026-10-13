@@ -8,7 +8,7 @@ export type RgCode='RG-01'|'RG-02'|'RG-03'|'RG-04'|'RG-05'|'RG-06'|'RG-07'|'RG-0
 export type RnCode='RN-01'|'RN-02'|'RN-03'|'RN-04'|'RN-05'|'RN-06'|'RN-07';
 export type Governance='OD-04'|'OD-05'|'OD-07'|'OD-08'|'OD-09'|'OD-16';
 export type GatePredicate={code:RgCode|RnCode;status:Tri;reason:string;governance?:Governance;dependency?:'P4b'};
-export const RG_RULE_VERSION='P5-RG-SYNTHETIC-v1',RN_RULE_VERSION='P5-RN-SYNTHETIC-v1';
+export const RG_RULE_VERSION='P7-RG-CLOSED-CLINICAL-v2',RN_RULE_VERSION='P5-RN-SYNTHETIC-v1';
 export type Purpose='VALIDATION'|'CERTIFY_ATTEMPT';
 
 export type CrossCheck={hn:Cmp;dob:Cmp;pregnancy:Cmp;collectionDate:Cmp;gestationalAge:Cmp;labNumber:Cmp};
@@ -16,6 +16,7 @@ export type ResultFacts={
  templateKind:'SINGLETON'|'TWIN';templateApproved:boolean;missing:string[];pdfQc:string|null;
  linked:boolean;linkMode:'MANUAL_REVIEWED'|null;openProposal:boolean;cross:CrossCheck;
  attemptState:string|null;attemptIsLatest:boolean;hold:boolean;qc1Accepted:boolean;nonMeasuredQc1:boolean;batchCancelled:boolean;activeSlot:boolean;
+ upstreamCurrent:boolean;upstreamReason:string|null;analysisAccepted:boolean;finalQcAccepted:boolean;
  isCurrentRound:boolean;roundState:string;roundNumber:number;openRepeat:boolean;
  openIdentityIssues:number;clinicalState:string|null;consentRevoked:boolean;consent:'GRANTED'|'DECLINED'|'NONE';
  pregnancy:'Singleton'|'Twins'|null;sexPreference:string|null;sexShown:boolean;
@@ -46,10 +47,10 @@ export function resultPredicates(f:ResultFacts,purpose:Purpose):GatePredicate[]{
  out.push(crossPredicate('RG-04',f.cross,'RESULT',0));
  out.push(!f.isCurrentRound?p('RG-05','FAIL','NOT_CURRENT_ROUND'):f.roundState==='RedrawRequested'?p('RG-05','FAIL','REDRAW_REQUESTED'):f.openRepeat?p('RG-05','FAIL','REPEAT_ORDER_OPEN')
   :!f.attemptIsLatest||['Superseded','BatchCancelled','Stopped','Cancelled'].includes(f.attemptState??'')?p('RG-05','FAIL',`ATTEMPT_NOT_CURRENT_${String(f.attemptState).toUpperCase()}`):p('RG-05','PASS','CURRENT_ROUND_CURRENT_ATTEMPT'));
- out.push(f.batchCancelled?p('RG-06','FAIL','BATCH_CANCELLED'):!['AnalysisComplete','FinalQcAccepted','Final'].includes(f.attemptState??'')?p('RG-06','FAIL','ANALYSIS_COMPLETION_NOT_RECORDED',{dependency:'P4b'})
-  :!f.activeSlot?p('RG-06','FAIL','NO_ACTIVE_SLOT'):p('RG-06','PASS','ANALYSIS_COMPLETE'));
+ out.push(f.batchCancelled?p('RG-06','FAIL','BATCH_CANCELLED'):f.upstreamReason?p('RG-06','FAIL',f.upstreamReason,{dependency:'P4b'}):!['AnalysisComplete','FinalQcAccepted','Final'].includes(f.attemptState??'')?p('RG-06','FAIL','ANALYSIS_COMPLETION_NOT_RECORDED',{dependency:'P4b'})
+  :!f.activeSlot?p('RG-06','FAIL','NO_ACTIVE_SLOT'):!f.upstreamCurrent?p('RG-06','FAIL','UPSTREAM_EVIDENCE_MISSING',{dependency:'P4b'}):!f.analysisAccepted?p('RG-06','FAIL','CLINICAL_ANALYSIS_ADAPTER_PENDING',{dependency:'P4b'}):p('RG-06','PASS','ANALYSIS_COMPLETE'));
  // RG-07 (v6.2, AT-QC-EARLY-02): only FinalQcAccepted counts; QC1 Accepted alone is never read as "all QC passed".
- out.push(f.hold?p('RG-07','FAIL','QC_HOLD_OPEN'):f.nonMeasuredQc1?p('RG-07','FAIL','QC1_SLOT_NOT_MEASURED'):f.attemptState==='FinalQcAccepted'?p('RG-07','PASS','FINAL_QC_ACCEPTED')
+ out.push(f.hold?p('RG-07','FAIL','QC_HOLD_OPEN'):f.nonMeasuredQc1?p('RG-07','FAIL','QC1_SLOT_NOT_MEASURED'):f.upstreamReason?p('RG-07','FAIL',f.upstreamReason,{dependency:'P4b'}):f.attemptState==='FinalQcAccepted'?(!f.upstreamCurrent?p('RG-07','FAIL','UPSTREAM_EVIDENCE_MISSING',{dependency:'P4b'}):!f.finalQcAccepted?p('RG-07','FAIL','CLINICAL_FINAL_QC_ADAPTER_PENDING',{dependency:'P4b'}):p('RG-07','PASS','FINAL_QC_ACCEPTED'))
   :f.qc1Accepted?p('RG-07','FAIL','QC1_ONLY_NOT_FINAL_QC_ACCEPTED',{dependency:'P4b'}):p('RG-07','FAIL','FINAL_QC_NOT_ACCEPTED',{dependency:'P4b'}));
  out.push(f.openIdentityIssues>0?p('RG-08','FAIL','IDENTITY_ISSUE_OPEN'):p('RG-08','PASS','NO_IDENTITY_CONFLICT'));
  out.push(['Pass','AcknowledgedConditions'].includes(f.clinicalState??'')?p('RG-09','PASS','CLINICAL_GATE_PASS'):f.clinicalState==='PendingClinicalReview'?p('RG-09','PENDING','CLINICAL_RULES_NOT_APPROVED',{governance:'OD-08'}):p('RG-09','FAIL',f.clinicalState?`CLINICAL_${f.clinicalState.replace(/[^A-Za-z]/g,'_').toUpperCase()}`:'CLINICAL_NOT_ASSESSED'));

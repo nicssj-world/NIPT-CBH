@@ -13,6 +13,7 @@ import * as docs5 from '../../packages/sequencing/documents';
 import * as svc from '../../packages/results/service';
 import {registerIntake,parseIntake} from '../../packages/results/intake';
 import * as intake from '../../packages/lab/intake';
+import {attemptEvidence} from '../../packages/results/evidence';
 
 // P4b + P5 integration regression (integration worktree only). Real services from both phases on one disposable PGlite database:
 // a 47-member Pool → DNB/QC3 → verified handoff → sequencing → QC4 → simulated ANALYSIS_COMPLETE → F5, then the P5 import/link/gate path
@@ -96,21 +97,49 @@ describe('P4b → P5 interface on one integrated database',()=>{
    expect(link).toMatchObject({attempt_id:attempt0.id,round_id:p.cases[0].roundId,state:'ValidationBlocked'});
    const r=await certify(f,versionId);
    expect(r.outcome).toBe('BLOCKED');expect(r.waitsForP4b).toBe(true);
+   expect(await attemptEvidence(f.db,attempt0.id)).toMatchObject({current:true,reason:null,analysisAccepted:false,finalQcAccepted:false,sequencingId:sequence.id});
    expect(r.failed).toEqual(expect.arrayContaining(['RG-06:ANALYSIS_COMPLETION_NOT_RECORDED','RG-07:QC1_ONLY_NOT_FINAL_QC_ACCEPTED']));
    expect(await releaseRows(f)).toBe(0);void qc4;
   }finally{await f.close();}
  },300000);
 
- it('even if an upstream writer forced AnalysisComplete/FinalQcAccepted, the database release HOLD still refuses any release or CertifiedReleased state (RELEASE_HOLD_AL5)',async()=>{
+ it('P5 exposes current sequence hold, replacement currentness, DNB Stop-use/recall and Pool Stop-use without masking them with clinical adapter HOLD',async()=>{
+  const f=await resultFixture();
+  try{
+   const c=await toAnalysisComplete(f),{p,call,sequence,u}=c,id=p.attempts[0].id;
+   const hn=await enrich(f,p.cases[0]),versionId=await p5Link(f,hn,{id,printed_sample_id:(await attemptRow(f,id)).printed_sample_id},p.cases[0]);
+   const check=async(reason:string)=>{expect(await attemptEvidence(f.db,id)).toMatchObject({current:false,reason,analysisAccepted:false,finalQcAccepted:false});
+    expect((await certify(f,versionId)).failed).toEqual(expect.arrayContaining([`RG-06:${reason}`,`RG-07:${reason}`]));expect(await releaseRows(f)).toBe(0);};
+   const {qc4}=await finishQc4(c),lane=(await s.qc4Evidence(f.db,c.dnbId,sequence.id)).observations.find(o=>o.scope==='LANE')!;void qc4;
+   await call(s.reviewQc4,{qc4Id:lane.id,result:'Hold',criteriaVersion:s.QC4_CRITERIA,note:'จำลอง QC4 Hold รอบเดิม'},u.certifier);
+   await check('UPSTREAM_SEQUENCE_HOLD');
+   const replacement=await call(s.createSequencing,{...makeRecord(),reason:'จำลอง Sequencing รอบใหม่หลัง Hold'}) as {id:string};
+   expect(await attemptEvidence(f.db,id)).toMatchObject({current:true,reason:null,sequencingId:replacement.id,analysisAccepted:false,finalQcAccepted:false});
+   const document=(await f.db.query<{id:string}>("SELECT id FROM p4c_document WHERE dnb_id=$1 AND kind='PRE_WORK'",[c.dnbId])).rows[0];
+   const copy=await tx(f.db,t=>docs5.printF5(t,u.staff,{documentId:document.id,kind:'WORKING_COPY',reason:'จำลอง สำเนาสำหรับตรวจ Recall'},c.deps5));
+   await call(s.transition,{transition:'STOP_USE',reason:'จำลอง ระงับ DNB ก่อนเรียกคืน'},u.certifier);
+   await check('UPSTREAM_DNB_RECALL_PENDING');
+   await call(s.recallCopy,{copyId:copy.id,reason:'จำลอง เรียกคืนสำเนา F5'},u.certifier);
+   await check('UPSTREAM_DNB_RECALLED');
+   // Genuine upstream mutation creates Pool Stop-use atomically; no immutable evidence is overwritten.
+   await f.db.query("UPDATE analytical_attempt SET state='Stopped' WHERE id=$1",[id]);
+   await check('UPSTREAM_POOL_STOP_USE');
+  }finally{await f.close();}
+ },300000);
+
+ it('protected clinical INSERT/UPDATE are closed; independent database release HOLD still refuses any release or CertifiedReleased state',async()=>{
   const f=await resultFixture();
   try{
    const c=await toAnalysisComplete(f),{p}=c,attempt0={id:p.attempts[0].id,printed_sample_id:(await attemptRow(f,p.attempts[0].id)).printed_sample_id};
    const hn=await enrich(f,p.cases[0]),versionId=await p5Link(f,hn,attempt0,p.cases[0]);
-   // Emulates a future (unreviewed) adapter or a privileged mistake. RG-06/RG-07 become satisfiable, which is exactly why the DB hold must be independent.
-   await f.db.query("UPDATE analytical_attempt SET state='AnalysisComplete' WHERE id=$1",[attempt0.id]);
-   await f.db.query("UPDATE analytical_attempt SET state='FinalQcAccepted' WHERE id=$1",[attempt0.id]);
+   const before=await attemptRow(f,attempt0.id);
+   for(const state of ['AnalysisComplete','FinalQcAccepted','Final']){
+    await expect(f.db.query('UPDATE analytical_attempt SET state=$2 WHERE id=$1',[attempt0.id,state])).rejects.toThrow('CLINICAL_QC_ADAPTER_PENDING');
+    await expect(f.db.query('INSERT INTO analytical_attempt(case_id,round_id,attempt_number,state) VALUES($1,$2,1,$3)',[p.cases[0].caseId,p.cases[0].roundId,state])).rejects.toThrow('CLINICAL_QC_ADAPTER_PENDING');
+   }
+   expect(await attemptRow(f,attempt0.id)).toEqual(before);
    const r=await certify(f,versionId);
-   expect(r.failed.filter(x=>/^RG-0[67]:/.test(x))).toEqual([]);          // upstream gates now pass …
+   expect(r.failed.filter(x=>/^RG-0[67]:/.test(x))).toHaveLength(2);
    expect(r.outcome).not.toBe('CertifiedReleased');
    expect(r.pending.length+r.failed.length).toBeGreaterThan(0);          // … but governance gates (OD-05/07/08) remain open
    expect(await releaseRows(f)).toBe(0);

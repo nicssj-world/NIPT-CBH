@@ -1,0 +1,17 @@
+# P7 historical maintenance, printing and practical performance
+
+Synthetic/disposable evidence only, 2026-10-13. No clinical data, deployment or physical printer was used.
+
+- Historical maintenance: `packages/historical/maintenance.ts` reports draft/revision, eligibility hash, promoted-record/verifier lineage, forbidden clinical/HIS lineage, original-file size/hash and global audit-chain findings. It never backfills GA, repairs matching or changes eligibility. Cutoff-version drift is counted as an OD-27 review obligation. The CLI accepts only an explicit loopback synthetic URL, enabled actor/current roles and explicit filestore, and runs in a repeatable-read READ ONLY transaction. No fallback to DATABASE_URL or environment-file loading.
+- Focused `tests/db/p7-historical-maintenance.test.ts`: passed using an actually promoted synthetic row. Deleting its disposable PDF yields HISTORICAL_ORIGINAL_MISSING while all drafts/evaluations/audit rows remain byte-for-byte unchanged; unauthorized ANC reader is refused. CLI/native DR inspection independently returned zero issues on the restored representative dataset.
+- Printing: `tests/unit/p7-print-layout.test.ts` passed actual Chromium PDF generation and pdf.js extraction for two samples: eight separate 60x20mm pages, exactly two correct HIS LN strings per page, expected LN Halos/suffix pairs and no cross-sample identities. The original Owner NO BARCODE lock and four stickers/eight halves per sample remain unchanged; Batch/HALOS Barcode indices are separate. Q-I7 physical printer/stock/DPI/cut/scale acceptance is NOT RUN.
+- Combined focused maintenance+print:2/2 passed; scoped ESLint passed. Initial controller test mistakes (confirmBatch returns a summary object; pdf.js cleanup belongs to its loading task) were corrected before the green run; these were test defects, not product fixes.
+- Existing candidate regression includes Thai Request/Consent/F2/F3/F4/F5 PDF, original hash/preview/reprint, identity/watermark and HALOS47 contracts. Actual clinical report templates/signed field inventory, hospital vendor import and staff print acceptance remain HOLD.
+
+## Bounded practical workload
+
+`tools/p7/performance.ts` creates a new UUID-named database on the explicitly selected owned loopback P7 cluster and500 new marked synthetic PDF files. Every report passes actual immutable intake/parse/confirm services and remains Unlinked; no case/round/release is fabricated. The source scanner verifies all500 as imported, and thirty stable100-row page queries plus five full folder scans are measured. EXPLAIN ANALYZE/BUFFERS and metrics are retained under ignored `.local/p7-performance`.
+
+First observed PostgreSQL17.11 run: query median6.91ms,p95 10.27ms; scan median297.38ms,p95 300.68ms; clinical releases0. This is a bounded local practical workload. It does not establish hospital expected volume,x5 forecast,p95 web latency, sustained concurrent load or AT-PERF-01 acceptance. Approved load/thresholds and Q-I6 remain required. Final candidate metrics, if query shape changes, are recorded in the delivery report.
+
+After the final A19 reported-date/private-search/gender/QC query extension, the same bounded workload was rerun on a new disposable database: query median8.95ms,p95 11.22ms; scan median309.33ms,p95 325.16ms; clinical releases0. Exact metrics/EXPLAIN are retained at `.local/p7-performance/257a7275fe60453ebb503f1a4abc05aa`. This shape-change rerun does not repeat the prior P6 stress suite or establish hospital acceptance.

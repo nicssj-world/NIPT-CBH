@@ -38,17 +38,24 @@ Rollback requires `PREVIOUS_BUNDLE` as an absolute path to a compatible independ
 
 ## Backup / restore
 
-`deploy/scripts/backup.mjs` uses PostgreSQL17 custom dump, file-store copy, tar and AES-256-GCM with format AAD, random IV, tag and encrypted-payload SHA256. Keys are not in the archive. Native execution needs PostgreSQL17 client tools in `PG_BIN`; the operations image also contains these binaries/dependencies.
+`deploy/scripts/backup.mjs` writes V2 encrypted synthetic backups: PostgreSQL17 custom dump, immutable file store, every database-referenced P6 sandbox, and an authenticated exact file/hash/size manifest. It uses AES-256-GCM with version AAD, random IV, tag and encrypted-payload SHA256. Keys are excluded. Native execution needs PostgreSQL17 clients in `PG_BIN`; the operations image contains the dependencies.
+
+Stop all writers for this synthetic dataset before invoking the tool, including Web, Worker, simulator and fixture/maintenance tools. Set `BACKUP_SOURCE_QUIESCENT=yes` only after doing so; the script does not stop services. It holds SHARE locks on user tables, exports a snapshot to `pg_dump`, and checks source file inventory/hashes before and after copying. These checks supplement the operator's quiescence assertion; they do not certify a concurrently changing filesystem or hostile OS namespace. Interrupted P6 stage files or linked files must be investigated separately; the backup refuses them. Only P6 roots referenced by this database are included, so a shared sandbox parent is not indiscriminately archived. The bounded synthetic archive limit is 512 MiB; larger datasets require separately reviewed streaming tooling.
 
 ```powershell
 $env:PG_BIN='C:\Program Files\pgsql\bin'
+$env:BACKUP_SOURCE_QUIESCENT='yes'
+# Optional: explicit local sandbox parent; default is .local/p6-sandbox.
+$env:P6_SANDBOX_ROOT='.local/p6-sandbox'
 node --env-file=.env.local deploy/scripts/backup.mjs
 # Create an empty local database named nipt_synthetic_restore_* first.
 $env:RESTORE_TO_NEW_SYNTHETIC_DATABASE='yes'
 $env:RESTORE_DATABASE_URL='postgresql://local_operator@127.0.0.1:55432/nipt_synthetic_restore_drill'
-node --env-file=.env.local deploy/scripts/restore.mjs '<backup base without extension>' '.local/new-restored-files'
+node --env-file=.env.local deploy/scripts/restore.mjs '<backup base without extension>' '.local/new-restored-files' '.local/new-restored-p6-archive'
 ```
 
-Use environment/file secrets, never paste real passwords into commands or logs. Restore authenticates GCM and checksum before extraction; rejects unsafe paths, existing destination file store and nonempty public schema; uses `--no-owner --no-acl`. Reapply reviewed roles through owner-controlled preparation. Verify table counts, audit hash chain and every referenced file hash. Partial failed restores must remain isolated; retry into another new target. Backups need the independently retained encryption key; loss of key means no recovery.
+Use environment/file secrets, never paste real passwords into commands or logs. Restore authenticates GCM/checksum, validates raw restricted USTAR headers and exact V2 file hashes before extraction, and exclusively writes regular files. It rejects links, extension headers, path aliases/escapes, linked ancestry and existing destinations. The new database must contain no application relations, extra schemas or public routines. SQL restores in one transaction with `--no-owner --no-acl`. Reapply reviewed roles separately and verify all table digests, lineage, audit chain, referenced file hashes and P6 artifacts before use. A post-SQL failure can leave an isolated database or partial file destination; retry into fresh targets, never reuse or cut over automatically.
+
+The separate restored P6 root is an **archive**, not the runtime `.local/p6-sandbox`. The tool does not activate it, replay deliveries or rewrite sandbox IDs. V1 remains readable for restricted safe archives from pre-P6 schemas. A V1 custom dump containing any `p6_*` table is rejected with `P6_BACKUP_COVERAGE_UNPROVEN`, even if those tables might be empty, because V1 never covered their artifacts. Unsupported legacy tar extensions also fail closed. Retain the original archive and use separately reviewed recovery tooling when this conservative compatibility rule applies. Backups need the independently retained encryption key; loss of key means no recovery.
 
 The local native restore drill is evidence for tooling, not hospital RPO/RTO or a signed DR exercise. Mount-agent in P1 is simulator-only: read-only source proof and last-known-good versioned activation; real CIFS/service account, NAS retention/monitoring and per-HIS-result backup remain governed integration work.

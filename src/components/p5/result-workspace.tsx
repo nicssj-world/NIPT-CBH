@@ -13,8 +13,9 @@ type ScanResult={folder:string;files:ScanFile[];folders:number;truncated:boolean
 type Summary={labNumber:string|null;hn:string|null;collectionDate:string|null;t21:string|null;t18:string|null;t13:string|null;sca:string[]|null;yChromosome:string|null;fetalFraction:number|null;qc:string|null;needsManualReview:boolean;abnormal:boolean;unreadable:string[]};
 type Intake={id:string;file:string;member:string|null;parentId:string|null;container:string|null;state:string;rejectCode:string|null;templateKind:string|null;summary:Summary|null;candidates:number;size:number;nameConflicts?:{versions:{id:string;state:string}[];sameBatch:number}};
 type Row={id:string;kind:string;template_kind:string;state:string;state_changed_at:string;original_name:string;relative_path:string|null;member_name:string|null;hn:string|null;lab:string|null;collection:string|null;round_number:number|null;ln:string|null;proposal:boolean;abnormal:boolean;name_conflict:boolean};
-type Data={rows:Row[];latestFolder:{folder:string;at:string}|null;intake:{folder:string;scanSubfolders:boolean;acceptZip:boolean;maxUploadMb:number;maxFilesPerScan:number;picVersion:string;scheduledScanMinutes:number;lastScheduled:{result:ScanResult|null;completed_at:string}|null;lastTest:{result:TestResult|null;completed_at:string|null}|null;lastScan:{result:ScanResult|null;completed_at:string|null}|null}};
+type Data={page:{number:number;size:number;hasNext:boolean;scope:"BOUNDED_PAGE"};rows:Row[];latestFolder:{folder:string;at:string}|null;intake:{folder:string;scanSubfolders:boolean;acceptZip:boolean;maxUploadMb:number;maxFilesPerScan:number;picVersion:string;scheduledScanMinutes:number;lastScheduled:{result:ScanResult|null;completed_at:string}|null;lastTest:{result:TestResult|null;completed_at:string|null}|null;lastScan:{result:ScanResult|null;completed_at:string|null}|null}};
 const BUCKETS=[["unlinked","รอเชื่อมโยง",["Unlinked"]],["conflict","ข้อมูลไม่ตรง",["LinkConflict"]],["blocked","ถูกบล็อกโดย Gate",["ValidationBlocked"]],["pending","รอรับรอง",["PendingCertification"]],["closed","ปิดแล้ว/ใช้ไม่ได้",["RejectedImport","Superseded","Voided","CertifiedReleased"]]] as const;
+const DEFAULT_FILTERS={dateField:"REPORTED",from:"",to:"",q:"",gender:"ALL",qc:"ALL",risk:"ALL"};
 const STEPS=["ทดสอบโฟลเดอร์","สแกนโฟลเดอร์","เลือกไฟล์และ Preview","ยืนยันนำเข้า"];
 
 /** Polls the requester's own worker job until its receipt exists. The worker, not the browser, reads the folder. */
@@ -29,13 +30,16 @@ function resultLine(s:Summary|null,kind:string|null){
  const t=[s.t21,s.t18,s.t13].map(v=>v??"อ่านไม่ได้").join(" / ");return kind==="TWIN"?`${t} · Y: ${s.yChromosome??"อ่านไม่ได้"}`:`${t} · FF ${s.fetalFraction??"อ่านไม่ได้"}`;
 }
 
-export function ResultWorkspace({canImport,canSettings}:{canImport:boolean;canSettings:boolean}){
+export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImport:boolean;canSettings:boolean;canExport?:boolean}){
  const [data,setData]=useState<Data|null>(null),[error,setError]=useState(""),[notice,setNotice]=useState("");
  const [tab,setTab]=useState<"folder"|"upload">("folder"),[bucket,setBucket]=useState<string>("unlinked");
  const [busy,setBusy]=useState<string|null>(null),[test,setTest]=useState<TestResult|null>(null),[scan,setScan]=useState<ScanResult|null>(null),[picked,setPicked]=useState<Set<string>>(new Set());
  const [preview,setPreview]=useState<Intake[]|null>(null),[toImport,setToImport]=useState<Set<string>>(new Set()),[acked,setAcked]=useState<Set<string>>(new Set()),[uploadRejected,setUploadRejected]=useState<{name:string;code:string}[]>([]);
+ const [draftFilters,setDraftFilters]=useState(DEFAULT_FILTERS),[filters,setFilters]=useState(DEFAULT_FILTERS),[page,setPage]=useState(1),[queueLoading,setQueueLoading]=useState(false);
+ const query=useMemo(()=>({bucket,...filters,...(!filters.from?{from:undefined}:{}),...(!filters.to?{to:undefined}:{}),page,pageSize:100}),[bucket,filters,page]);
+ const loadSequence=useRef(0);
  const abort=useRef<AbortController|null>(null),fileInput=useRef<HTMLInputElement>(null);
- const load=useCallback(async()=>{try{const d=await labApi<Data>("/api/p5/results");setData(d);setTest(t=>t??d.intake.lastTest?.result??null);setScan(s=>s??d.intake.lastScan?.result??null);setError("");}catch(e){setError(failureText(e));}},[]);
+ const load=useCallback(async()=>{const seq=++loadSequence.current;setQueueLoading(true);setData(null);try{const d=await labApi<Data>("/api/p5/results",{action:"query",...query});if(seq!==loadSequence.current)return;setData(d);setTest(t=>t??d.intake.lastTest?.result??null);setScan(s=>s??d.intake.lastScan?.result??null);setError("");}catch(e){if(seq===loadSequence.current)setError(failureText(e));}finally{if(seq===loadSequence.current)setQueueLoading(false);}},[query]);
  useEffect(()=>{void Promise.resolve().then(load);return()=>abort.current?.abort();},[load]);
  const run=async<T,>(label:string,fn:(signal:AbortSignal)=>Promise<T>)=>{abort.current?.abort();const c=new AbortController();abort.current=c;setBusy(label);setError("");setNotice("");try{return await fn(c.signal);}catch(e){if(!(e instanceof Error&&e.message==="ABORTED"))setError(jobError(e));return null;}finally{if(abort.current===c)setBusy(null);}};
  const startJob=async(action:string,body:Record<string,unknown>={})=>(await labApi<{jobId:string}>("/api/p5/results",{action,...body})).jobId;
@@ -53,6 +57,8 @@ export function ResultWorkspace({canImport,canSettings}:{canImport:boolean;canSe
  const doConfirm=()=>run("confirm",async()=>{const r=await labApi<{results:{outcome:string}[]}>("/api/p5/results",{action:"confirm",intakeIds:[...toImport],acknowledgeNameConflicts:[...acked].filter(id=>toImport.has(id))});
   const n=r.results.filter(x=>x.outcome==="Unlinked").length;setNotice(`นำเข้าแล้ว ${n} รายการ — รอการเชื่อมโยงกับรอบ/Attempt ในคิวด้านล่าง${r.results.length>n?` · ไม่นำเข้า ${r.results.length-n} รายการ (ซ้ำ/รูปแบบไม่รู้จัก/หมดอายุ)`:""}`);
   setPreview(null);setToImport(new Set());setScan(null);setBucket("unlinked");await load();});
+ const doExport=()=>run("csv",async()=>{const r=await fetch("/api/p5/results/csv",{method:"POST",cache:"no-store",headers:{"content-type":"application/json","x-csrf-token":csrf()},body:JSON.stringify(query)});if(!r.ok){const d=await r.json().catch(()=>({}));setError(d.error??"ส่งออกไม่สำเร็จ กรุณาลองอีกครั้ง");return;}
+  const url=URL.createObjectURL(await r.blob()),a=document.createElement("a");a.href=url;a.download=`synthetic-results-page-${page}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);setNotice("ส่งออก CSV เฉพาะหน้าปัจจุบันแล้ว — ไม่ใช่รายการทั้งหมด");});
  const step=preview?3:scan?.files?.length?2:test?.passed?1:0;
  const newFiles=useMemo(()=>(scan?.files??[]).filter(f=>f.status==="NEW"),[scan]);
  const rows=useMemo(()=>(data?.rows??[]).filter(r=>(BUCKETS.find(b=>b[0]===bucket)?.[2] as readonly string[]|undefined)?.includes(r.state)),[data,bucket]);
@@ -138,10 +144,28 @@ export function ResultWorkspace({canImport,canSettings}:{canImport:boolean;canSe
 
   <section className="panel" aria-labelledby="queue-h">
    <h2 id="queue-h">คิวตรวจทานผล</h2>
-   <div className="tabs" role="tablist" aria-label="สถานะรายงาน">{BUCKETS.map(([key,label,states])=><button key={key} type="button" role="tab" className="tab" aria-selected={bucket===key} onClick={()=>setBucket(key)}>{label}<span className="count">{(data?.rows??[]).filter(r=>(states as readonly string[]).includes(r.state)).length}</span></button>)}</div>
+   <form className="search-form" autoComplete="off" aria-label="กรองคิวผลตรวจ" onSubmit={e=>{e.preventDefault();if(draftFilters.from&&draftFilters.to&&draftFilters.from>draftFilters.to){setError("วันที่เริ่มต้องไม่เกินวันที่สิ้นสุด กรุณาตรวจช่วงวันที่");return;}setPage(1);setFilters({...draftFilters});}}>
+    <div className="field"><label htmlFor="result-search">ค้นหา HN / เลข Lab / ชื่อที่อ่านได้</label><input id="result-search" type="search" maxLength={100} autoComplete="off" value={draftFilters.q} onChange={e=>setDraftFilters(f=>({...f,q:e.target.value}))}/></div>
+    <div className="field"><label htmlFor="result-date-field">กรองตามวันที่</label><select id="result-date-field" value={draftFilters.dateField} onChange={e=>setDraftFilters(f=>({...f,dateField:e.target.value}))}><option value="REPORTED">วันที่รายงานที่อ่านได้</option><option value="IMPORTED">วันที่นำเข้า (เวลาไทย)</option></select></div>
+    <div className="field"><label htmlFor="result-from">ตั้งแต่วันที่</label><input id="result-from" type="date" value={draftFilters.from} onChange={e=>setDraftFilters(f=>({...f,from:e.target.value}))}/></div>
+    <div className="field"><label htmlFor="result-to">ถึงวันที่</label><input id="result-to" type="date" value={draftFilters.to} onChange={e=>setDraftFilters(f=>({...f,to:e.target.value}))}/></div>
+    <div className="field"><label htmlFor="result-risk">ความเสี่ยงตามค่าที่อ่าน</label><select id="result-risk" value={draftFilters.risk} onChange={e=>setDraftFilters(f=>({...f,risk:e.target.value}))}><option value="ALL">ทั้งหมด</option><option value="HIGH">High Risk / Detected</option><option value="LOW">Low Risk ที่อ่านครบ</option><option value="UNKNOWN">Unknown / อ่านไม่ครบ / หนังสือแจ้ง</option></select></div>
+    <div className="field"><label htmlFor="result-gender">เพศตามค่าที่อ่าน</label><select id="result-gender" value={draftFilters.gender} onChange={e=>setDraftFilters(f=>({...f,gender:e.target.value}))}><option value="ALL">ทั้งหมด</option><option value="Male">Male</option><option value="Female">Female</option><option value="UNKNOWN">Unknown / อ่านไม่ได้</option></select></div>
+    <div className="field"><label htmlFor="result-qc">QC ตามค่าที่อ่าน</label><select id="result-qc" value={draftFilters.qc} onChange={e=>setDraftFilters(f=>({...f,qc:e.target.value}))}><option value="ALL">ทั้งหมด</option><option value="PASS">PASS</option><option value="FAIL">FAIL</option><option value="UNKNOWN">Unknown / อ่านไม่ได้</option></select></div>
+    <button className="button secondary" disabled={queueLoading}>ใช้ตัวกรอง</button>
+    <button type="button" className="button secondary" disabled={queueLoading} onClick={()=>{setDraftFilters(DEFAULT_FILTERS);setFilters(DEFAULT_FILTERS);setPage(1);}}>ล้างตัวกรอง</button>
+   </form>
+   <p className="help">ตัวกรองอ้างอิงค่าที่ Parser อ่านได้ ไม่ใช่การรับรองผล — ค่าที่ไม่รู้จักหรืออ่านไม่ครบเป็น Unknown</p>
+   <div className="tabs" role="tablist" aria-label="สถานะรายงาน">{BUCKETS.map(([key,label])=><button key={key} type="button" role="tab" className="tab" aria-selected={bucket===key} onClick={()=>{setBucket(key);setPage(1);}}>{label}</button>)}</div>
+   <p className="help" role="status">{queueLoading?"กำลังโหลดคิว…":data?`หน้าที่ ${data.page.number} · แสดง ${data.rows.length} รายการ (สูงสุด ${data.page.size} ต่อหน้า)${data.page.hasNext?" · ยังมีหน้าถัดไป":""} — จำนวนนี้เฉพาะหน้าปัจจุบัน`:"โหลดคิวไม่สำเร็จ — ลองใช้ตัวกรองอีกครั้ง"}</p>
+   <div className="action-bar">
+    <button type="button" className="button secondary" disabled={queueLoading||page===1} onClick={()=>setPage(p=>p-1)}>หน้าก่อนหน้า</button>
+    <button type="button" className="button secondary" disabled={queueLoading||!data?.page.hasNext} onClick={()=>setPage(p=>p+1)}>หน้าถัดไป</button>
+    {canExport&&<button type="button" className="button secondary" disabled={queueLoading||!data||!!busy} onClick={doExport}>{busy==="csv"?"กำลังส่งออก…":"ส่งออก CSV เฉพาะหน้านี้"}</button>}
+   </div>
    <div className="table-wrap" role="region" aria-label="รายการรายงาน" tabIndex={0}>
     <table className="data-table p5-queue"><thead><tr><th scope="col">ไฟล์</th><th scope="col">ชนิด</th><th scope="col">HN · เลข Lab</th><th scope="col">วันที่เก็บ</th><th scope="col">LN · รอบ</th><th scope="col">สถานะ</th><th scope="col">อัปเดต</th><th scope="col"><span className="sr-only">เปิด</span></th></tr></thead>
-     <tbody>{!data?<tr><td colSpan={8} className="empty-row">กำลังโหลด…</td></tr>:rows.length?rows.map(r=><tr key={r.id}>
+     <tbody>{!data?<tr><td colSpan={8} className="empty-row">{queueLoading?"กำลังโหลด…":"โหลดคิวไม่สำเร็จ"}</td></tr>:rows.length?rows.map(r=><tr key={r.id}>
       <td className="p5-file">{r.member_name??r.relative_path??r.original_name}</td><td>{KIND_TEXT[r.template_kind]??r.kind}{r.abnormal&&<span className="badge danger">ผิดปกติ</span>}</td>
       <td className="mono">{r.hn??"—"}<br/>{r.lab??"—"}</td><td>{r.collection??"—"}</td><td>{r.ln?<><span className="mono">{r.ln}</span> · รอบที่ {r.round_number}</>:"—"}</td>
       <td><Status tone={STATE_TONE[r.state]}>{STATE_TEXT[r.state]??r.state}</Status>{r.proposal&&<span className="badge warning">รอผู้ยืนยันคนที่สอง</span>}{r.name_conflict&&<span className="badge warning">ชื่อไฟล์ซ้ำ — ตรวจว่าใหม่/ฉบับแก้ไข</span>}</td><td>{bkk(r.state_changed_at)}</td>
