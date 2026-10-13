@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {contentHash} from '../p2/service';
 import {z} from 'zod';
 import type {Queryable} from '../db/connection';
-import {LabError,assertSession,need,uuid,reasonText,audit,type Staff,attemptFacts,bangkokToday} from '../lab/core';
+import {LabError,assertSession,need,uuid,reasonText,audit,type Staff,attemptFacts,bangkokToday,dbClock} from '../lab/core';
 import {lockBatch,latestSnapshot,sheetOf,type PlacementPayload} from '../lab/batch';
 import {CONTROL_LABEL} from '../lab/rules';
 import {calculate,digest,scenarioSchema,selectCrosscheck,compareCrosscheck,numeric,HOLDS,type Calculation} from './calculation';
@@ -134,7 +134,7 @@ export async function recordPoolObservation(db:Queryable,user:Staff,input:unknow
  const live=(await observations(db,p.id)).find(o=>o.field===d.field&&o.slot===(d.slot??null));
  if(live&&(!d.supersedesId||d.supersedesId!==live.id||!d.reason))throw new LabError('OBSERVATION_EXISTS_USE_CORRECTION',409);
  if(!live&&d.supersedesId)throw new LabError('SUPERSEDE_TARGET_MISMATCH',409);
- const now=new Date();let at:Date|null=now,precision=d.eventPrecision??'MINUTE';
+ const now=await dbClock(db);let at:Date|null=now,precision=d.eventPrecision??'MINUTE';
  if(d.source==='PAPER_TRANSCRIPTION'){
   if(!d.copyId)throw new LabError('WORKING_COPY_REQUIRED',422);
   const copy=(await db.query(`SELECT c.id FROM p4b_document_copy c JOIN p4b_document doc ON doc.id=c.document_id WHERE c.id=$1 AND doc.pool_id=$2 AND c.kind='WORKING_COPY'

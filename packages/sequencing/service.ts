@@ -1,6 +1,6 @@
 import {z} from 'zod';
 import type {Queryable} from '../db/connection';
-import {LabError,assertSession,need,uuid,audit,bangkokToday,type Staff} from '../lab/core';
+import {LabError,assertSession,need,uuid,audit,bangkokToday,dbClock,type Staff} from '../lab/core';
 import {lockBatch} from '../lab/batch';
 import {digest} from '../pooling/calculation';
 import {getPool,poolingSource,events as poolEvents,stopped as poolStopped,type PoolRow} from '../pooling/service';
@@ -102,7 +102,7 @@ export async function transition(db:Queryable,user:Staff,input:unknown){const d=
   await appendEvent(db,user,c.dnb.id,d.transition,{reason:d.reason});return {};
  });}
 async function paperTime(db:Queryable,dnbId:string,d:{source:string;copyId?:string;eventTime?:string|null;eventPrecision?:string},anchor:Date|string){
- const now=new Date();if(d.source==='DIRECT_ENTRY'){if(d.copyId||d.eventTime!==undefined||d.eventPrecision)throw new LabError('DIRECT_ENTRY_SERVER_TIME',422);return {at:now,precision:'MINUTE'};}
+ const now=await dbClock(db);if(d.source==='DIRECT_ENTRY'){if(d.copyId||d.eventTime!==undefined||d.eventPrecision)throw new LabError('DIRECT_ENTRY_SERVER_TIME',422);return {at:now,precision:'MINUTE'};}
  if(!d.copyId||!(await db.query<{usable:boolean}>('SELECT p4c_paper_usable($1,$2) usable',[dnbId,d.copyId])).rows[0].usable)throw new LabError('WORKING_COPY_NOT_USABLE',409);
  const precision=d.eventPrecision??(d.eventTime?'MINUTE':'NOT_RECORDED'),at=precision==='NOT_RECORDED'?null:d.eventTime?new Date(d.eventTime):null;
  if(precision==='NOT_RECORDED'&&d.eventTime||precision!=='NOT_RECORDED'&&!at)throw new LabError('EVENT_TIME_REQUIRED',422);
