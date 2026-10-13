@@ -1,0 +1,122 @@
+import {beforeEach,afterEach,it,expect} from 'vitest';
+import type {PGlite} from '@electric-sql/pglite';
+import {readFile} from 'node:fs/promises';
+import {testDatabase} from '../helpers/database';
+import {labUsers,docDeps,tx,version} from '../helpers/lab';
+import {poolingFixture,POOL_SCENARIO} from '../helpers/pooling';
+import * as s from '../../packages/pooling/service';
+import * as d from '../../packages/pooling/documents';
+import * as rec from '../../packages/lab/records';
+import {digest} from '../../packages/pooling/calculation';
+import {f4Html,type F4Document} from '../../packages/pdf/f4';
+import type {Queryable} from '../../packages/db/connection';
+import type {Principal} from '../../packages/security/policy';
+let db:PGlite,u:Awaited<ReturnType<typeof labUsers>>,docs:Awaited<ReturnType<typeof docDeps>>,fixture:Awaited<ReturnType<typeof poolingFixture>>;
+let poolId:string;const rendered:F4Document[]=[];
+const deps=()=>({store:docs.deps.store,render:async(doc:F4Document)=>{rendered.push(doc);return Buffer.from('%PDF-1.4\n'+f4Html(doc));}});
+const call=async(fn:(db:Queryable,user:Principal,input:unknown)=>Promise<unknown>,extra:Record<string,unknown>={},user=u.staff)=>tx(db,async t=>fn(t,user,{batchId:fixture.batchId,poolId,expectedVersion:await version(t,fixture.batchId),...extra}));
+const issue=async(kind:'PRE_WORK'|'COMPLETED')=>{await call((db,user,input)=>d.issueSyntheticDocument(db,user,input,deps(),true),{kind,purpose:'SYNTHETIC_SIMULATION'});return call((db,user,input)=>d.issueSyntheticDocument(db,user,input,deps()),{kind,purpose:'SYNTHETIC_SIMULATION'});};
+const ws=()=>tx(db,t=>s.workspace(t,u.staff,fixture.batchId));
+async function check(){await call(s.crosscheck,{values:[{slot:2,value:'128'},{slot:3,value:'128'}]});}
+beforeEach(async()=>{db=await testDatabase();u=await labUsers(db);docs=await docDeps();rendered.length=0;fixture=await poolingFixture(db,u,docs.deps);const p=await tx(db,async t=>s.createPool(t,u.staff,{batchId:fixture.batchId,expectedVersion:await version(t,fixture.batchId),scenario:POOL_SCENARIO,reason:'จำลอง Pool fixture'}));poolId=p.id;});
+afterEach(async()=>{await db.close();await docs.close();});
+it('copies immutable placement/QC1 provenance, excludes controls by explicit scenario, no partial-batch phantom; blind API',async()=>{
+ const w=await ws();expect(w.current?.payload.members.map(m=>m.slot)).toEqual([2,3]);expect(w.current?.payload.excluded.map(m=>m.kind)).toContain('PC');
+ expect(w.current?.calculation).toBeNull();expect(JSON.stringify(w)).not.toContain('"planned":"128.00"');expect(w.current?.exportAllowed).toBe(false);
+ expect(w.current?.payload.members.every(m=>m.qc1.id&&m.qc1.review&&m.qc1.decision)).toBe(true);
+ const p=(await db.query<s.PoolRow>('SELECT * FROM p4b_pool_attempt WHERE id=$1',[poolId])).rows[0];expect(digest(p.payload)).toBe(p.sha256);
+ await expect(db.query("UPDATE p4b_pool_attempt SET reason='tampered evidence' WHERE id=$1",[poolId])).rejects.toThrow(/append-only/);
+ await expect(call(s.operationalGate,{},u.certifier)).rejects.toThrow('OWNER_DECISIONS_HOLD');
+});
+it('blocks unverified/QC1 Hold/QcFailed sheets and pending dispositions instead of silently accepting',async()=>{
+ await tx(db,t=>rec.decideStageQc1(t,u.certifier,{attemptId:fixture.attempts[0].id,decision:'Hold',reason:'จำลอง ระงับค่า QC1'}));
+ const source=await tx(db,t=>s.poolingSource(t,fixture.batchId,'PATIENT_PC_NC'));
+ expect(source.members.map(m=>m.slot)).toEqual([1,3]);expect(source.excluded.find(x=>x.slot===2)?.reasons).toContain('QC1_NOT_ACCEPTED_FOR_CURRENT_VALUE');
+ expect((await ws()).current?.stopUse).toBe(true);
+ await tx(db,t=>rec.decideStageQc1(t,u.certifier,{attemptId:fixture.attempts[1].id,decision:'Failed',reason:'จำลอง QC1 ไม่ผ่าน'}));
+ expect((await tx(db,t=>s.poolingSource(t,fixture.batchId,'PATIENT_ONLY'))).members).toEqual([]);
+ await expect(call(s.transition,{transition:'START',reason:'จำลอง เริ่มงานเก่า'})).rejects.toThrow('POOL_STOP_USE');
+});
+it('rejects early issuance/execution/QC2, input overrides, stale versions and RBAC',async()=>{
+ await expect(issue('PRE_WORK')).rejects.toThrow('CROSSCHECK_PASS_REQUIRED');await expect(call(s.transition,{transition:'START',reason:'จำลอง ยังไม่มีใบงาน'})).rejects.toThrow('SYNTHETIC_PRE_WORK_REQUIRED');
+ await expect(call(s.recordPoolObservation,{field:'QC2',value:{value:'3.3',unit:'ng/uL'},source:'DIRECT_ENTRY'})).rejects.toThrow('POOL_NOT_IN_EXECUTION');
+ await expect(call(s.crosscheck,{values:[],expectedVersion:0})).rejects.toThrow();
+ await expect(call(s.crosscheck,{values:[{slot:2,value:'128'},{slot:3,value:'128'}]},u.auditor)).rejects.toThrow('FORBIDDEN');
+ await expect(call(s.crosscheck,{values:[{slot:2,value:'128'},{slot:3,value:'128'}],concentration:'999'})).rejects.toThrow();
+ await check();await expect(call((db,user,input)=>d.issueSyntheticDocument(db,user,input,deps()),{kind:'PRE_WORK',purpose:'SYNTHETIC_SIMULATION'})).rejects.toThrow('CURRENT_PREVIEW_REQUIRED');
+});
+it('crosscheck mismatch records seed, values, actor/time and nonconformity HOLD; retry is a new Pool attempt only',async()=>{
+ await call(s.crosscheck,{values:[{slot:2,value:'127'},{slot:3,value:'128'}]});expect((await ws()).current?.state).toBe('HOLD');
+ const ev=(await ws()).current!.events.find(e=>e.event_type==='CROSSCHECK_FAIL')!;expect(ev.payload.seed).toBeTruthy();expect(ev.actor_id).toBe(u.staff.id);expect(ev.created_at).toBeTruthy();
+ await expect(issue('PRE_WORK')).rejects.toThrow('CROSSCHECK_PASS_REQUIRED');
+ const oldCount=(await db.query('SELECT count(*)::int n FROM analytical_attempt')).rows[0];
+ const p=await tx(db,async t=>s.createPool(t,u.staff,{batchId:fixture.batchId,expectedVersion:await version(t,fixture.batchId),scenario:POOL_SCENARIO,reason:'จำลอง Pool attempt ใหม่'}));
+ expect(p.id).not.toBe(poolId);expect((await db.query('SELECT count(*)::int n FROM analytical_attempt')).rows[0]).toEqual(oldCount);
+ expect((await db.query('SELECT supersedes_id FROM p4b_pool_attempt WHERE id=$1',[p.id])).rows[0]).toEqual({supersedes_id:poolId});
+});
+it('synthetic F4 lifecycle: empty pre-work → actual evidence → second person → QC2 → immutable HOLD snapshot',async()=>{
+ await check();await issue('PRE_WORK');expect(f4Html(rendered[0])).not.toContain('✓');expect(rendered[0].rows.every(r=>r.actual===null)).toBe(true);
+ const pre=(await ws()).current!.documents[0];const copy=await tx(db,t=>d.printF4(t,u.staff,{documentId:pre.id,kind:'WORKING_COPY',reason:'จำลอง สำเนาใช้งาน Pool'},deps()));
+ await call(s.transition,{transition:'START',reason:'จำลอง เริ่มงาน Pool'});
+ await expect(call(s.recordPoolObservation,{field:'QC2',value:{value:'3.3',unit:'ng/uL'},source:'DIRECT_ENTRY'})).rejects.toThrow('QC2_BEFORE_POOL_PRODUCT');
+ await expect(call(s.recordPoolObservation,{field:'TRANSFER',slot:4,value:{checked:true},source:'DIRECT_ENTRY'})).rejects.toThrow('TRANSFER_MEMBER_REQUIRED');
+ await call(s.recordPoolObservation,{field:'TRANSFER',slot:2,value:{checked:true},source:'PAPER_TRANSCRIPTION',copyId:copy.id,eventPrecision:'NOT_RECORDED'});
+ await call(s.recordPoolObservation,{field:'TRANSFER',slot:3,value:{checked:true},source:'DIRECT_ENTRY'});
+ await call(s.recordPoolObservation,{field:'BUFFER',value:{value:'512',unit:'uL'},source:'DIRECT_ENTRY'});
+ await call(s.transition,{transition:'END',reason:'จำลอง จบงาน Pool'});
+ for(const field of ['QC2','STD1','STD2'])await call(s.recordPoolObservation,{field,value:{value:'3.3',unit:'ng/uL'},source:'DIRECT_ENTRY'});
+ const obs=(await ws()).current!.observations;expect(obs.find(o=>o.source==='PAPER_TRANSCRIPTION')?.event_time).toBeNull();
+ await expect(call(s.reviewPoolObservation,{observationId:obs[0].id,result:'Confirmed',note:'จำลอง ตรวจสอบเอง'}, {...u.certifier,id:u.staff.id})).rejects.toThrow('SECOND_PERSON_REQUIRED');
+ await expect(issue('COMPLETED')).rejects.toThrow('POOL_COMPLETION_EVIDENCE_INCOMPLETE');
+ for(const o of obs)await call(s.reviewPoolObservation,{observationId:o.id,result:'Confirmed',note:'จำลอง ตรวจสอบกับหลักฐาน'},u.certifier);
+ await expect(call(s.decideQc2,{decision:'Accepted',criteriaVersion:s.QC2_CRITERIA,reason:'จำลอง ห้ามอนุมัติจริง'},u.certifier)).rejects.toThrow();
+ await call(s.decideQc2,{decision:'Remeasure',criteriaVersion:s.QC2_CRITERIA,reason:'จำลอง สั่งวัด QC2 ใหม่'},u.certifier);
+ await expect(call(s.decideQc2,{decision:'SyntheticReviewed',criteriaVersion:s.QC2_CRITERIA,reason:'จำลอง ห้ามข้ามการวัดซ้ำ'},u.certifier)).rejects.toThrow('QC2_REMEASUREMENT_REQUIRED');
+ await call(s.recordPoolObservation,{field:'QC2',value:{value:'3.4',unit:'ng/uL'},source:'DIRECT_ENTRY',supersedesId:obs.find(o=>o.field==='QC2')!.id,reason:'จำลอง ผลการวัด QC2 ซ้ำ'});
+ const remeasured=(await ws()).current!.observations.find(o=>o.field==='QC2')!;
+ await expect(call(s.decideQc2,{decision:'SyntheticReviewed',criteriaVersion:s.QC2_CRITERIA,reason:'จำลอง ยังไม่ทวนสอบค่าซ้ำ'},u.certifier)).rejects.toThrow('QC2_VERIFIED_EVIDENCE_REQUIRED');
+ await call(s.reviewPoolObservation,{observationId:remeasured.id,result:'Confirmed',note:'จำลอง ทวนสอบค่าการวัดซ้ำ'},u.certifier);
+ expect((await db.query("SELECT 1 FROM p4b_pool_observation WHERE pool_id=$1 AND field='QC2'",[poolId])).rows).toHaveLength(2);
+ await call(s.decideQc2,{decision:'SyntheticReviewed',criteriaVersion:s.QC2_CRITERIA,reason:'จำลอง ตรวจ QC2 ไม่รับรองคลินิก'},u.certifier);
+ await issue('COMPLETED');const snapshot=(await db.query<{payload:Record<string,unknown>;sha256:string}>('SELECT * FROM p4b_pool_snapshot WHERE pool_id=$1',[poolId])).rows[0];
+ expect(snapshot.payload.acceptance).toBe('HOLD');expect(snapshot.payload.exportAllowed).toBe(false);expect(digest(snapshot.payload)).toBe(snapshot.sha256);
+ expect((await ws()).current?.state).toBe('SYNTHETIC_COMPLETED');expect(f4Html(rendered.at(-1)!)).toContain('PAPER_TRANSCRIPTION');
+ await expect(db.query('DELETE FROM p4b_pool_snapshot WHERE pool_id=$1',[poolId])).rejects.toThrow(/append-only/);
+ await expect(call(s.operationalGate,{},u.certifier)).rejects.toThrow('OWNER_DECISIONS_HOLD');
+});
+it('original reprint preserves bytes, upstream mutation atomically Stop-use; recall and replacement preserve history',async()=>{
+ await check();await issue('PRE_WORK');const pre=(await ws()).current!.documents[0];
+ const original=await tx(db,t=>d.readF4(t,u.staff,pre.id,deps()));const reprint=await tx(db,t=>d.printF4(t,u.staff,{documentId:pre.id,kind:'ORIGINAL_REPRINT',reason:'จำลอง พิมพ์ซ้ำ Original'},deps()));expect(reprint.bytes).toEqual(original.bytes);
+ const copy=await tx(db,t=>d.printF4(t,u.staff,{documentId:pre.id,kind:'WORKING_COPY',reason:'จำลอง สำเนาก่อนระงับ'},deps()));expect(copy.sha256).not.toBe(original.sha256);
+ await tx(db,t=>rec.decideStageQc1(t,u.certifier,{attemptId:fixture.attempts[0].id,decision:'Hold',reason:'จำลอง ต้นทางเปลี่ยน'}));
+ expect((await db.query("SELECT 1 FROM p4b_pool_event WHERE pool_id=$1 AND event_type='STOP_USE'",[poolId])).rows).toHaveLength(1);
+ expect((await db.query("SELECT actor_id,payload->>'systemGenerated' system FROM p4b_pool_event WHERE pool_id=$1 AND event_type='STOP_USE'",[poolId])).rows[0]).toEqual({actor_id:null,system:'true'});
+ await expect(tx(db,t=>d.printF4(t,u.staff,{documentId:pre.id,kind:'WORKING_COPY',reason:'จำลอง สำเนาหลังระงับ'},deps()))).rejects.toThrow('WORKING_COPY_NOT_USABLE');
+ const replacement=()=>tx(db,async t=>s.createPool(t,u.staff,{batchId:fixture.batchId,expectedVersion:await version(t,fixture.batchId),scenario:POOL_SCENARIO,reason:'จำลอง สร้าง Pool ใหม่'}));
+ await expect(replacement()).rejects.toThrow('RECALL_PENDING');
+ await call(d.recallF4,{copyId:copy.id,reason:'จำลอง เก็บสำเนาคืน'},u.certifier);
+ const marked=await tx(db,t=>d.printF4(t,u.staff,{documentId:pre.id,kind:'STATUS_MARKED',reason:'จำลอง อ่านฉบับระงับ'},deps()));expect(marked.sha256).not.toBe(original.sha256);
+ expect((await tx(db,t=>d.readF4(t,u.staff,pre.id,deps()))).bytes).toEqual(original.bytes);
+ await replacement();expect((await ws()).current?.payload.attemptNumber).toBe(2);
+});
+it('database least privilege denies worker writes and enforces second-person review',async()=>{
+ await db.exec(await readFile('packages/db/roles.sql','utf8'));await db.query('SET ROLE worker_rw');
+ try{await expect(db.query('SELECT * FROM p4b_pool_attempt')).rejects.toThrow(/permission/);}finally{await db.query('RESET ROLE');}
+ await check();await issue('PRE_WORK');await call(s.transition,{transition:'START',reason:'จำลอง เริ่มตรวจ DB'});await call(s.recordPoolObservation,{field:'TRANSFER',slot:2,value:{checked:true},source:'DIRECT_ENTRY'});
+ const o=(await ws()).current!.observations[0];await expect(db.query("INSERT INTO p4b_pool_review(observation_id,result,reviewer_id,note) VALUES($1,'Confirmed',$2,'synthetic self review')",[o.id,u.staff.id])).rejects.toThrow('SECOND_PERSON_REQUIRED');
+});
+it('cancelled Batch atomically stops pools while preserving original evidence access and recall',async()=>{
+ await check();await issue('PRE_WORK');const doc=(await ws()).current!.documents[0];
+ const copy=await tx(db,t=>d.printF4(t,u.staff,{documentId:doc.id,kind:'WORKING_COPY',reason:'จำลอง สำเนาก่อน Cancel'},deps()));
+ await db.query("UPDATE lab_batch SET state='Cancelled',cancelled_by=$2,cancelled_at=now(),cancel_reason='SYNTHETIC cancelled' WHERE id=$1",[fixture.batchId,u.certifier.id]);
+ expect((await ws()).current?.stopUse).toBe(true);expect((await tx(db,t=>d.readF4(t,u.staff,doc.id,deps()))).status).toBe('STOP_USE');
+ await call(d.recallF4,{copyId:copy.id,reason:'จำลอง เรียกคืนหลัง Cancel'},u.certifier);
+});
+it('three-sheet and partial placement: PC/NC explicit scenario, Blank40 always excluded, no phantom patient',async()=>{
+ const f=await poolingFixture(db,u,docs.deps,31);
+ const source=await tx(db,t=>s.poolingSource(t,f.batchId,'PATIENT_PC_NC'));
+ expect(source.placements).toHaveLength(3);expect(source.members).toHaveLength(33);expect(source.members.filter(m=>m.kind==='PC').map(m=>m.slot)).toEqual([1]);expect(source.members.filter(m=>m.kind==='NC').map(m=>m.slot)).toEqual([25]);
+ expect(source.excluded.find(m=>m.slot===40)?.reasons).toContain('BLANK_EXCLUDED');expect(source.members.some(m=>m.slot===40)).toBe(false);
+ expect(new Set(source.members.map(m=>m.slot)).size).toBe(33);
+ const only=await tx(db,t=>s.poolingSource(t,f.batchId,'PATIENT_ONLY'));expect(only.members).toHaveLength(31);
+});
