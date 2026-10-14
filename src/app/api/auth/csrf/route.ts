@@ -1,9 +1,9 @@
 import {NextResponse} from "next/server";
 import {token} from "../../../../../packages/security/session";
-import {assertSynthetic} from "../../../../../packages/security/runtime";
+import {assertRuntime} from "../../../../../packages/security/runtime";
 import {cookieOptions,CSRF_COOKIE,currentUser} from "../../../../server/http";
 export async function GET(){
- assertSynthetic();
+ assertRuntime();
  const user=await currentUser();
  // Pre-login token. Existing session-bound CSRF is returned through /api/me instead.
  if(user) return NextResponse.json({error:"ALREADY_AUTHENTICATED"},{status:409});

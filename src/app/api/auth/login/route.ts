@@ -2,10 +2,10 @@ import {NextResponse,type NextRequest} from "next/server";
 import {withTransaction} from "../../../../../packages/db/connection";
 import {appendAudit} from "../../../../../packages/db/audit";
 import {authenticate,digest,throttleLogin,validateCsrf} from "../../../../../packages/security/session";
-import {assertSynthetic,configuredOrigin} from "../../../../../packages/security/runtime";
+import {assertRuntime,configuredOrigin} from "../../../../../packages/security/runtime";
 import {apiError,cookieOptions,readJson,SESSION_COOKIE,CSRF_COOKIE} from "../../../../server/http";
 export async function POST(request:NextRequest){try{
- assertSynthetic(); const input=await readJson(request);
+ assertRuntime(); const input=await readJson(request);
  validateCsrf(request.headers.get("origin"),configuredOrigin().origin,String(input.csrf??""),digest(request.cookies.get(CSRF_COOKIE)?.value??""));
  if(typeof input.username!=="string"||typeof input.password!=="string"||input.username.length>64)throw new Error("INVALID_LOGIN");
  const result=await withTransaction(async db=>{

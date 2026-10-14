@@ -1,13 +1,13 @@
 import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
-import { pool } from "../../packages/db/connection";
-import { assertSynthetic, configuredOrigin, secureCookie } from "../../packages/security/runtime";
+import { pool,assertDatabaseMode } from "../../packages/db/connection";
+import { assertRuntime, configuredOrigin, secureCookie } from "../../packages/security/runtime";
 import { readSession, validateCsrf } from "../../packages/security/session";
 import { requirePermission, type ResourceScope, type Operation } from "../../packages/security/policy";
 export const SESSION_COOKIE="nipt_session";
 export const CSRF_COOKIE="nipt_csrf";
 export async function currentUser() {
- assertSynthetic(); const jar=await cookies();const raw=jar.get(SESSION_COOKIE)?.value;
+ assertRuntime(); await assertDatabaseMode(pool()); const jar=await cookies();const raw=jar.get(SESSION_COOKIE)?.value;
  return raw ? readSession(pool(),raw) : null;
 }
 export async function protect(request:NextRequest,action?:string,resource?:ResourceScope,operation:Operation="read") {
