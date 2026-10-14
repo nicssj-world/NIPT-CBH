@@ -1,9 +1,12 @@
 import {createHash} from 'node:crypto';
 import type {Pool} from 'pg';
 import type {Queryable} from '../db/connection';
-import {applyWorkerEvent,loadTransfer,loadFixtureDraft,type TransferRow} from './journal';
+import {applyWorkerEvent,loadTransfer,loadFixtureDraft,cancelFixtureTransfer,type TransferRow} from './journal';
 import {assertOutboundOrigin} from '../historical/barrier';
 import {freezeSyntheticTransfer,type TransferEvent} from './transfer';
+import {activeHis,outboundDraftSettings} from '../settings/his';
+import {SETTINGS} from '../settings/catalog';
+import {shareError} from '../integrations/authorized-share';
 import {openSandbox,assertSandboxEnabled,type Artifact,type FileHook} from './sandbox';
 
 const terminal=new Set(['CANCELLED','RECONCILIATION_REQUIRED','FAILED_NEEDS_ADMIN','SYNTHETIC_CONFIRMED','UNKNOWN_TIMEOUT']);
@@ -37,26 +40,40 @@ export async function runTransfer(db:Queryable,id:string,hooks:WorkerTestHooks={
     const dispatch=async(event:TransferEvent)=>{
       row=await applyWorkerEvent(db,id,event);return row;
     };
-    if(gated(row)){await dispatch(proof(row));return row.model.state;}
     const draft=await loadFixtureDraft(db,row.fixture_id);
+    const configurationCurrent=async()=>{
+      if(!row.plan.settingsVersion.startsWith('SYNTHETIC-SETTINGS-'))return true;
+      const active=await activeHis(db,'his_outbound');
+      const s=SETTINGS.his_outbound.schema.parse(active.value);
+      if(!s.enabled||freezeSyntheticTransfer({...draft,settings:outboundDraftSettings(active),profile:{...draft.profile,style:s.resultStyle}},row.plan.sequence).fingerprint!==row.plan.fingerprint){await cancelFixtureTransfer(db,id,'CONFIG_CHANGED');row=await loadTransfer(db,id);return false;}return true;
+    };
+    if(!await configurationCurrent()){await dispatch(proof(row));return row.model.state;}
+    if(gated(row)){await dispatch(proof(row));return row.model.state;}
     if(freezeSyntheticTransfer(draft,row.plan.sequence).fingerprint!==row.plan.fingerprint)throw Error('FROZEN_CONTRACT_CHANGED');
+    if(row.model.state==='RETRY_PENDING'){
+      if(Date.now()<(row.model.nextRetryAt??Infinity))return 'BACKOFF_PENDING';
+      await dispatch({type:'RETRY'});
+    }
     let sandbox;
     try{sandbox=await openSandbox(row.sandbox_id,draft.settings,async event=>{
       await hooks.fileHook?.(event);
       if(['BEFORE_WRITE','AFTER_TEMP_SYNC','BEFORE_PUBLISH'].includes(event.point)){
+        if(!await configurationCurrent())throw Error('P6_GATE_CHANGED');
         const current=await loadTransfer(db,id);if(gated(current))throw Error('P6_GATE_CHANGED');
       }
     },async publish=>{
       await db.query('BEGIN');
       try{
         await db.query('SELECT id FROM p6_transfer WHERE id=$1 FOR UPDATE',[id]);
+        if(row.plan.settingsVersion.startsWith('SYNTHETIC-SETTINGS-')){await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['settings:his_outbound']);const a=(await db.query<{revision_id:string}>("SELECT revision_id FROM setting_active WHERE setting_key='his_outbound'")).rows[0];if(row.plan.settingsVersion!=='SYNTHETIC-SETTINGS-'+a?.revision_id)throw Error('P6_GATE_CHANGED');}
         if(gated(await loadTransfer(db,id)))throw Error('P6_GATE_CHANGED');
         await hooks.afterFinalGateRead?.();
         await publish();await db.query('COMMIT');
       }catch(e){await db.query('ROLLBACK');throw e;}
     });}
-    catch{
-      if(stages[row.model.state])await dispatch({type:'FAILURE',stage:stages[row.model.state],code:'COLLISION'});
+    catch(e){
+      const accessCode=shareError(e),recoverable=['SHARE_PATH_NOT_FOUND','SHARE_PERMISSION_DENIED','SHARE_FILE_ACCESS_FAILED'].includes(accessCode);
+      if(stages[row.model.state])await dispatch({type:'FAILURE',stage:stages[row.model.state],code:recoverable?'IO_ERROR':'COLLISION',accessCode});
       else await dispatch({type:'UNEXPECTED_OK'});
       return row.model.state;
     }
@@ -65,19 +82,15 @@ export async function runTransfer(db:Queryable,id:string,hooks:WorkerTestHooks={
         await dispatch({type:'UNEXPECTED_OK'});return row.model.state;
       }
     }catch{await dispatch({type:'UNEXPECTED_OK'});return row.model.state;}
-    if(row.model.state==='RETRY_PENDING'){
-      if(Date.now()<(row.model.nextRetryAt??Infinity))return 'BACKOFF_PENDING';
-      await dispatch({type:'RETRY'});
-    }
     while(stages[row.model.state]){
-      row=await loadTransfer(db,id);if(gated(row)){await dispatch({type:'WRITE_STARTED',stage:stages[row.model.state]});return row.model.state;}
+      row=await loadTransfer(db,id);await configurationCurrent();if(gated(row)){await dispatch({type:'WRITE_STARTED',stage:stages[row.model.state]});return row.model.state;}
       const stage=stages[row.model.state];
       await dispatch({type:'WRITE_STARTED',stage});if(terminal.has(row.model.state))return row.model.state;
       try{await sandbox.ensure(stage,row.plan);}
       catch(e){
         if(stage==='OK'&&e instanceof Error&&e.message==='P6_GATE_CHANGED')await dispatch({type:'WRITE_STARTED',stage:'OK'});
         else if(stage==='OK')await dispatch({type:'UNEXPECTED_OK'});
-        else await dispatch({type:'FAILURE',stage,code:e instanceof Error&&['DESTINATION_COLLISION','LINK_PROHIBITED','UNSAFE_SANDBOX_PATH'].includes(e.message)?'COLLISION':'IO_ERROR'});
+        else await dispatch({type:'FAILURE',stage,code:e instanceof Error&&['DESTINATION_COLLISION','LINK_PROHIBITED','UNSAFE_SANDBOX_PATH','SHARE_LINK_PROHIBITED','SHARE_ROOT_NOT_ALLOWED'].includes(e.message)?'COLLISION':'IO_ERROR',accessCode:shareError(e)});
         return row.model.state;
       }
       // Test-only process-stop injection intentionally bypasses normal error/retry handling,
@@ -93,7 +106,7 @@ export async function runTransfer(db:Queryable,id:string,hooks:WorkerTestHooks={
       await dispatch({type:'POST_OK_CHECK'});
     }
     if(['AWAITING_CONFIRMATION','PICKED_UP_UNCONFIRMED'].includes(row.model.state)){
-      row=await loadTransfer(db,id);if(gated(row)){await dispatch({type:'PICKUP'});return row.model.state;}
+      row=await loadTransfer(db,id);await configurationCurrent();if(gated(row)){await dispatch({type:'PICKUP'});return row.model.state;}
       if(Date.now()>=(row.model.awaitingAt??Infinity)+row.plan.confirmationTimeoutMs)await dispatch({type:'TIMEOUT'});
       else if(row.model.state==='AWAITING_CONFIRMATION'&&(!await sandbox.exists('OK',row.plan)||!await sandbox.exists('RES',row.plan)))await dispatch({type:'PICKUP'});
     }

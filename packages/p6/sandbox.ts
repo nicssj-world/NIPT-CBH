@@ -4,6 +4,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {z} from 'zod';
 import {validateSyntheticPaths,initialTransfer,type SyntheticDraft,type SyntheticTransfer} from './transfer';
+import {openAuthorizedDirectory,isWithinShareRoot} from '../integrations/authorized-share';
 
 export type Artifact='PDF'|'RES'|'BACKUP'|'OK';
 export type FilePoint='BEFORE_WRITE'|'AFTER_TEMP_SYNC'|'BEFORE_PUBLISH'|'AFTER_LINK'|'AFTER_PUBLISH'|'AFTER_VERIFY';
@@ -46,18 +47,21 @@ export async function openSandbox(id:string,settings:SyntheticDraft['settings'],
   assertSandboxEnabled();z.string().regex(/^SYNTHETIC-[A-Za-z0-9_-]+$/).max(100).parse(id);
   const config=validateSyntheticPaths(settings),dirs=[config.resDirectory,config.pdfDirectory,config.backupDirectory].map(s=>s.toLowerCase());
   if(dirs.some((a,i)=>dirs.some((b,j)=>i!==j&&(a===b||a.startsWith(b+'/')))))throw Error('PATH_ALIAS');
-  const root=path.resolve(projectRoot,'.local','p6-sandbox',id);
-  await checked(root,true);
+  const root=config.connection?.backupPath??path.resolve(projectRoot,'.local','p6-sandbox',id);
+  const authorized=config.connection?await Promise.all([config.connection.resPath,config.connection.pdfPath,config.connection.backupPath].map(p=>openAuthorizedDirectory(p,'OUTBOUND',config.connection!.secretRef))):undefined;
+  if(authorized){const bases=authorized.map(d=>d.base);if(bases.some((a,i)=>bases.some((b,j)=>i!==j&&isWithinShareRoot(b,a))))throw Error('PATH_ALIAS');}
+  else await checked(root,true);
   const target=async(relative:string,create=false,ownedTwin=false)=>{
     assertSandboxEnabled();safeRelative(relative);
+    if(authorized){const prefixes=[config.resDirectory,config.pdfDirectory,config.backupDirectory];const index=prefixes.findIndex(p=>relative.startsWith(p+'/'));if(index<0)throw Error('UNSAFE_SANDBOX_PATH');return authorized[index].file(relative.slice(prefixes[index].length+1),create,ownedTwin);}
     const absolute=path.resolve(root,...relative.split('/'));
     if(!absolute.startsWith(root+path.sep))throw Error('UNSAFE_SANDBOX_PATH');
     return checked(absolute,create,true,ownedTwin);
   };
-  const mark=await target('.p6-synthetic-root');
-  try{await fs.writeFile(mark,marker,{flag:'wx',mode:0o600});}catch(e){if((e as NodeJS.ErrnoException).code!=='EEXIST')throw e;}
-  if(!(await fs.readFile(await target('.p6-synthetic-root'))).equals(marker))throw Error('SANDBOX_MARKER_REQUIRED');
-  const prepare=async()=>{for(const d of [config.pdfDirectory,config.resDirectory,config.backupDirectory,'stage'])await checked(path.join(root,...d.split('/')),true);};
+  if(!authorized){const mark=await target('.p6-synthetic-root');
+   try{await fs.writeFile(mark,marker,{flag:'wx',mode:0o600});}catch(e){if((e as NodeJS.ErrnoException).code!=='EEXIST')throw e;}
+   if(!(await fs.readFile(await target('.p6-synthetic-root'))).equals(marker))throw Error('SANDBOX_MARKER_REQUIRED');}
+  const prepare=async()=>{if(authorized){for(const d of authorized)await d.assert();}else for(const d of [config.pdfDirectory,config.resDirectory,config.backupDirectory,'stage'])await checked(path.join(root,...d.split('/')),true);};
   await prepare();
   const read=async(relative:string)=>fs.readFile(await target(relative));
   const verify=async(relative:string,expected:Buffer)=>{
@@ -67,7 +71,7 @@ export async function openSandbox(id:string,settings:SyntheticDraft['settings'],
     await hook?.({artifact,point:'BEFORE_WRITE'});
     // Staging identity is derived from the immutable DB-journaled fingerprint and exact destination.
     // A matching two-link twin can therefore be recovered without accepting external hardlinks.
-    const stageKey='stage/SYNTHETIC-'+fingerprint+'-'+hash(Buffer.from(relative))+'.part';
+    const stageKey=(authorized?relative.slice(0,relative.lastIndexOf('/'))+'/.nipt-stage/':'stage/')+'SYNTHETIC-'+fingerprint+'-'+hash(Buffer.from(relative))+'.part';
     const destination=await target(relative,true,true),temp=await target(stageKey,true,true);
     const status=async(p:string)=>fs.lstat(p,{bigint:true}).catch(e=>{if((e as NodeJS.ErrnoException).code==='ENOENT')return undefined;throw e;});
     const ds=await status(destination),ts=await status(temp);

@@ -15,3 +15,6 @@ GRANT SELECT,INSERT ON p6_reconciliation TO worker_rw;
 GRANT SELECT ON p6_reconciliation TO app_rw,report_ro;
 -- Actual authority is read only and is never inferred from an ANC-view release.
 GRANT SELECT ON result_release TO worker_rw;
+
+-- Settings-bound fixture enrollment reads approved configuration; no configuration writes.
+GRANT SELECT ON settings_revision,setting_active TO p6_fixture_writer;

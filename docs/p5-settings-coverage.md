@@ -13,10 +13,10 @@ Status: **Implemented** configurable/enforced and consumed now · **Partial** st
 | 2 | ANC / Request & Consent | 0 | 2 | 1 | 0 | 6 |
 | 3 | ANC Doctors | 1 | 1 | 0 | 0 | 0 |
 | 4 | User / Role / Permission | 3 | 1 | 0 | 0 | 1 |
-| 5 | HIS Inbound | 8 | 2 | 0 | 0 | 2 |
+| 5 | HIS Inbound | 10 | 1 | 0 | 0 | 1 |
 | 6 | Laboratory | 1 | 3 | 1 | 0 | 11 |
 | 7 | Result Management | 13 | 1 | 0 | 4 | 7 |
-| 8 | HIS Outbound / CFS | 1 | 2 | 0 | 6 | 3 |
+| 8 | HIS Outbound / CFS | 5 | 0 | 0 | 4 | 3 |
 | 9 | Storage / NAS / Backup | 0 | 2 | 1 | 2 | 1 |
 | 10 | Notifications / System / Audit | 1 | 0 | 5 | 1 | 1 |
 
@@ -67,7 +67,7 @@ Status: **Implemented** configurable/enforced and consumed now · **Partial** st
 
 | รายการ | Plan | NIPTY | NIPT CBH | สถานะ | Phase | หมายเหตุ |
 | --- | --- | --- | --- | --- | --- | --- |
-| Server / Share / Base path | §13.2 #5 | path_request | his_inbound.basePath | Partial | P3 | ตัวจำลองเท่านั้น Path จริงรอ AL-3 |
+| Server / Share / Base path | §13.2 #5 | path_request | his_inbound.basePath | Implemented | P3/P6 | Active Settings + Local/UNC Allowed Test Root; ผู้ป่วยจริง HOLD AL-3 |
 | รูปแบบโฟลเดอร์รายวัน | §13.2 #5 | path_request (YYYYMMDD) | packages/inbound/discovery.ts | Implemented | P3 | บังคับในโค้ด |
 | Section / Test code | §13.2 #5 | nipt_testcode | his_inbound.section / testCode | Implemented | P3 | Literal ตาม LOCKED §7.1 |
 | Interval | §13.2 #5 | pet_scan_interval_min | his_inbound.intervalSeconds | Implemented | P3 | — |
@@ -76,7 +76,7 @@ Status: **Implemented** configurable/enforced and consumed now · **Partial** st
 | Deep scan / Scan now / ดู Log | §13.2 #5 | — | หน้า รับใบสั่งจาก HIS | Implemented | P3 | — |
 | Test Connection (Read-only) | §13.2 #5 | test_path(read_only) | synthetic_inbound_test (Worker) | Implemented | P3 | — |
 | เกณฑ์เตือน .ok ขาด | §13.2 #5 | — | his_inbound_waiting | Partial | P3 | บันทึกไฟล์ที่รอ .ok แต่ยังไม่มีเกณฑ์เตือนแบบตั้งค่าได้ |
-| Credential (Secret ref) | §13.2 #5 | — | his_inbound.secretRef | HOLD | P3 | AL-3 |
+| Credential (Secret ref) | §13.2 #5 | — | his_inbound.secretRef | Implemented | P3/P6 | อ้างอิง Credential ที่ IT ผูกกับ Service Account ใน Share Policy; ไม่เก็บรหัสผ่านใน Settings |
 | แหล่งวันที่เก็บตัวอย่างของ S1 | §13.2 #5 (OD-14) | — | — | HOLD | P3 | OD-14 |
 | นำเข้า STAT workload (.txt) | — | path_workload, auto_scan_min | — | Implemented | P3 | แทนที่ด้วย HIS .pet ตาม Plan §10 จึงไม่นำ STAT มาใช้ |
 
@@ -135,17 +135,17 @@ Status: **Implemented** configurable/enforced and consumed now · **Partial** st
 
 | รายการ | Plan | NIPTY | NIPT CBH | สถานะ | Phase | หมายเหตุ |
 | --- | --- | --- | --- | --- | --- | --- |
-| ปลายทาง (Path + Secret) | §13.2 #8 | path_resoutput, path_pdfrename | — | Deferred | P6 | AL-6 |
+| ปลายทาง (Path + Secret) | §13.2 #8 | path_resoutput, path_pdfrename | his_outbound.resDestinationPath / pdfDestinationPath / backupPath / secretRef | Implemented | P6 | Synthetic Authorized Test Share เท่านั้น; Clinical HOLD AL-5/6 |
 | Sandbox เป็นค่าเริ่มต้น | §13.2 #8 | — | his_outbound.target = SIMULATOR | Implemented | P1 | Literal |
 | Production outbound authorized | §13.2 #8 | — | his_outbound.productionAuthorized = false | HOLD | P6 | AL-6 |
 | RES profile (HL7 fields) | §13.2 #8 | hl7_sender, hl7_receiver, hl7_specimen_code, hl7_o_field18, hl7_accession_sfx, hl7_operator_id, hl7_ward_id, hl7_ward_name | — | Deferred | P6 | AL-6 / Q-I3 |
 | รูปแบบชื่อ PDF | §13.2 #8 | pdf_template, hospital_suffix | — | Deferred | P6 | — |
-| Result style | §13.2 #8 | nipt_result_style | his_outbound.resultStyle | Partial | P6 | เก็บได้ ยังไม่มีผู้ใช้ค่า |
+| Result style | §13.2 #8 | nipt_result_style | his_outbound.resultStyle | Implemented | P6 | ผูกกับ RES Profile ใน Frozen Transfer ของ Active Settings |
 | ข้อความผลใน .res | — | nipt_result_text | — | Deferred | P6 | — |
 | ความยาว R[3] | §13.2 #8 | — | — | Deferred | P6 | — |
 | วันที่เก็บตัวอย่างใน .res ของรอบ ≥ 2 | §13.2 #8 (Q-I5) | — | his_outbound.round2SpecimenDatePolicy = null | HOLD | P6 | Q-I5 |
-| Retry / Backoff | §13.2 #8 | — | his_outbound.retryLimit | Partial | P6 | Worker ตัวจำลองใช้ค่าคงที่ |
-| นโยบาย Evidence / Timeout | §13.2 #8 | — | — | Deferred | P6 | Q-I4 |
+| Retry / Backoff | §13.2 #8 | — | his_outbound.retryLimit / retryDelaySeconds | Implemented | P6 | P6 Journal/Backoff/Recovery เดิม; Settings UI แสดง History/Error/Retry |
+| นโยบาย Evidence / Timeout | §13.2 #8 | — | his_outbound.confirmationTimeoutSeconds | Implemented | P6 | Synthetic Timeout; Pickup/OK ไม่ยืนยัน HIS; Clinical Evidence Acceptance ยัง HOLD |
 | ช่องทางหนังสือแจ้ง/ผลแก้ไข | §13.2 #8 (OD-07) | — | — | HOLD | P6 | OD-07 |
 
 ## 9. Storage / NAS / Backup

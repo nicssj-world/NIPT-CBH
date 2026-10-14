@@ -23,3 +23,7 @@ Extends every capability in [the original matrix](legacy-parity-matrix.md), pres
 | LAB_DIRECT/HISTORICAL | ANC/LAB_DIRECT fixtures, historical rejected, no clinical adapter fallback | IMPLEMENTED SYNTHETIC; verified-PET/clinical lineage HOLD; P5H untouched |
 
 No clinical capability is marked implemented because a synthetic substitute works. AT-HISOUT-LAN-01 NOT RUN; AL-5/AL-6 HOLD. Playwright covers CLI workflow, with no new browser UI.
+
+## HIS Settings integration follow-up (2026-10-14)
+
+[HIS Settings functional integration](../his-settings-integration.md) adds active, version-bound paths, Worker connection tests and Settings history/retry with the existing P6 journal/transport. Earlier fixed-sandbox wording describes the original delivery. Hospital LAN/UNC acceptance remains NOT RUN; AL-5/6 and clinical publication stay HOLD.

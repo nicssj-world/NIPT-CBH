@@ -396,3 +396,7 @@ Function inventory: 201 definitions. This is a tracking inventory, not a claim t
 ## Parallel P5 evidence boundary
 
 This matrix records the P4b branch, not a merged project. PR #5 at7d5f1d6 reports a P5-specific matrix,100-sample parser differential, folder import and ten-group Settings coverage. Those claims were read from the Draft PR and were not executed in this P4b branch. P5 rows remain DEFERRED to its owner for reconciliation against `docs/p5-legacy-parity-matrix.md` and `docs/p5-settings-coverage.md` on that branch. They must not be counted as silent feature loss or as independently accepted parity here. Final combined-regression evidence and unresolved safety/clinical differences still govern acceptance.
+
+## HIS Settings integration follow-up (2026-10-14)
+
+[HIS Settings functional integration](his-settings-integration.md) closes active Worker path/connection configuration and Settings monitoring/retry for authorized synthetic test roots using the existing inbound and P6 engines. Earlier simulator-only/deferred descriptions are historical baseline evidence. Hospital LAN/UNC acceptance remains NOT RUN and clinical authority remains HOLD.
