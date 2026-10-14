@@ -39,6 +39,11 @@ GRANT SELECT,INSERT ON his_intake_issue_event,his_inbound_source,his_inbound_sca
 GRANT SELECT ON nipt_case,case_ln,specimen_round,his_order,app_user TO worker_rw;
 -- Read requested redraw lineage for PET-backed S2; worker still cannot create/edit redraw requests.
 GRANT SELECT ON redraw_request TO worker_rw;
+GRANT SELECT,INSERT ON specimen_acceptance TO app_rw;
+GRANT SELECT,INSERT ON task_workbook_revision,task_workbook_export TO app_rw;
+-- Operational lab/result evidence remains append-only; P5 release writes require DB review guards.
+GRANT SELECT,INSERT ON p4b_halos_export,p4b_halos_verification,result_qc5_review,result_release_completed TO app_rw;
+GRANT INSERT,UPDATE ON result_release TO app_rw;
 GRANT SELECT,INSERT ON case_event TO worker_rw;
 -- Worker matching compares the registrant's immutable P2 HN; it never writes P2 evidence. Column-scoped reads only.
 GRANT SELECT(case_id,hn) ON p2_case_identity TO worker_rw;

@@ -15,6 +15,10 @@ GRANT SELECT,INSERT ON p6_reconciliation TO worker_rw;
 GRANT SELECT ON p6_reconciliation TO app_rw,report_ro;
 -- Actual authority is read only and is never inferred from an ANC-view release.
 GRANT SELECT ON result_release TO worker_rw;
+-- Actual source validation, never writes to P5/P2; existing P6 journal is shared by both modes.
+GRANT SELECT ON result_report_version,redraw_request,p2_revocation TO worker_rw;
+GRANT INSERT ON p6_transfer TO worker_rw;
+GRANT EXECUTE ON FUNCTION p6_release_eligible(uuid,integer) TO worker_rw,app_rw;
 
 -- Settings-bound fixture enrollment reads approved configuration; no configuration writes.
 GRANT SELECT ON settings_revision,setting_active TO p6_fixture_writer;
