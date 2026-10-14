@@ -10,7 +10,7 @@ import {resultSettings,limitsOf,type P5JobKind} from './service';
 // Worker side of the P5 jobs. Expected folder problems (wrong path, missing folder, unsafe name) become a stored receipt with an
 // error code so the person who pressed the button sees the reason; nothing is retried silently and nothing is written to the folder.
 const payloadSchema=z.object({actorId:z.uuid().optional(),trigger:z.enum(['MANUAL','SCHEDULED']).optional(),paths:z.array(z.object({path:z.string(),sha256:z.string().regex(/^[a-f0-9]{64}$/)}).strict()).max(50).optional()}).strict();
-const EXPECTED=/^(SIMULATOR_PATH_REQUIRED|SIMULATOR_ROOT_REQUIRED|SIMULATOR_MARKER_REQUIRED|UNSAFE_PATH|SYMLINK_PROHIBITED|NOT_DIRECTORY|PATH_ESCAPE|RESULT_FILE_REQUIRED|NETWORK_PATH_PROHIBITED)$/;
+const EXPECTED=/^(SHARE_[A-Z_]+|UNSAFE_SHARE_PATH|SIMULATOR_PATH_REQUIRED|SIMULATOR_ROOT_REQUIRED|SIMULATOR_MARKER_REQUIRED|UNSAFE_PATH|SYMLINK_PROHIBITED|NOT_DIRECTORY|PATH_ESCAPE|RESULT_FILE_REQUIRED|NETWORK_PATH_PROHIBITED)$/;
 export async function runResultJob(pool:Pool,id:string,kind:P5JobKind,rawPayload:unknown,root:string,store:FileStore):Promise<Record<string,unknown>>{
  const payload=payloadSchema.parse(rawPayload??{}),s=await resultSettings(pool),limits=limitsOf(s);
  // A scheduled job has no person behind it: it may only list. Preview/parse always belong to the person who asked for them.

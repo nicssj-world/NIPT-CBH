@@ -1,10 +1,11 @@
 "use client";
 import {useEffect,useMemo,useState} from "react";
 import {HisSettingsStatus} from "./his-settings-status";
+import {HisProfileFields,HisCertifierFields} from './his-profile-fields';
 import {useSearchParams} from "next/navigation";
 type Category={key:string;category:string;risk:string;default:unknown;canPropose:boolean;canActivate:boolean};
 type Revision={id:string;setting_key:string;version:number;state:string;created_by:string;approved_by:string|null;test_passed:boolean;value:unknown};
-type FieldSpec={name:string;label:string;help:string;kind:"text"|"path"|"number"|"boolean"|"select"|"locked"|"date"|"hash"|"uuid-or-empty";options?:{value:string;label:string}[];unit?:string;min?:number;max?:number;lockedBy?:string};
+type FieldSpec={name:string;label:string;help:string;kind:"text"|"path"|"number"|"boolean"|"select"|"locked"|"date"|"hash"|"uuid-or-empty"|"res-profile"|"his-certifiers";options?:{value:string;label:string}[];unit?:string;min?:number;max?:number;lockedBy?:string};
 type Form={key:string;title:string;summary:string;phase:string;fields:FieldSpec[]};
 type Coverage={category:number;item:string;plan:string;nipty:string|null;source:string|null;status:string;phase:string;note:string};
 type Values=Record<string,unknown>;
@@ -16,11 +17,12 @@ const STATUSES=["Implemented","Partial","Missing","Deferred","HOLD"];
 
 /** Labelled form per category (no hand-edited JSON). The server schema still validates; maker-checker and RBAC are unchanged. */
 export function SettingsEditor(){
+ const [certifierUsers,setCertifierUsers]=useState<{id:string;display_name:string}[]>([]);
  const params=useSearchParams();
  const [userId,setUserId]=useState(""),[canApprove,setCanApprove]=useState(false),[canRetry,setCanRetry]=useState(false),[forms,setForms]=useState<Record<string,Form>>({}),[active,setActive]=useState<Values>({}),[coverage,setCoverage]=useState<Coverage[]>([]),[categories,setCategories]=useState<string[]>([]);
  const [catalog,setCatalog]=useState<Category[]>([]),[revisions,setRevisions]=useState<Revision[]>([]),[key,setKey]=useState(params.get("key")??"general"),[value,setValue]=useState<Values>({}),[reason,setReason]=useState(""),[message,setMessage]=useState(""),[error,setError]=useState(""),[busy,setBusy]=useState(false),[dirty,setDirty]=useState(false);
  const startValue=(k:string,cat:Category[],act:Values)=>({...((cat.find(c=>c.key===k)?.default??{}) as Values),...((act[k]??{}) as Values)});
- async function load(){const r=await fetch("/api/settings");if(!r.ok)throw new Error();const d=await r.json();setUserId(d.userId);setCanApprove(d.canApprove);setCanRetry(d.canRetry);setCatalog(d.catalog);setRevisions(d.revisions);setForms(d.forms);setActive(d.active);setCoverage(d.coverage);setCategories(d.coverageCategories);return d as {catalog:Category[];active:Values};}
+ async function load(){const r=await fetch("/api/settings");if(!r.ok)throw new Error();const d=await r.json();setUserId(d.userId);setCertifierUsers(d.certifierUsers??[]);setCanApprove(d.canApprove);setCanRetry(d.canRetry);setCatalog(d.catalog);setRevisions(d.revisions);setForms(d.forms);setActive(d.active);setCoverage(d.coverage);setCategories(d.coverageCategories);return d as {catalog:Category[];active:Values};}
  useEffect(()=>{const wanted=params.get("key")??"general";Promise.resolve().then(load).then(d=>{const k=d.catalog.some(c=>c.key===wanted)?wanted:"general";setKey(k);setValue(startValue(k,d.catalog,d.active));}).catch(()=>setError("โหลดการตั้งค่าไม่ได้ กรุณาโหลดหน้านี้ใหม่"));},[params]);
  useEffect(()=>{const warn=(e:BeforeUnloadEvent)=>{if(dirty){e.preventDefault();e.returnValue="";}};window.addEventListener("beforeunload",warn);return()=>window.removeEventListener("beforeunload",warn);},[dirty]);
  async function action(operation:string,id?:string){setBusy(true);setError("");setMessage("");try{const me=await fetch("/api/me").then(r=>r.json());const input={operation,id,key,value:operation==="propose"?value:undefined,reason};const r=await fetch("/api/settings",{method:"POST",headers:{"Content-Type":"application/json","x-csrf-token":me.csrf},body:JSON.stringify(input)});const data=await r.json();if(!r.ok){setError(data.error);return;}
@@ -31,11 +33,13 @@ export function SettingsEditor(){
  const set=(name:string,v:unknown)=>{setValue(x=>({...x,[name]:v}));setDirty(true);};
  const editable=!!category?.canPropose;
  const input=(f:FieldSpec)=>{const id=`setting-${f.name}`,v=value[f.name],help=<p id={`${id}-help`} className="help">{f.help}{f.unit?` · หน่วย: ${f.unit}`:""}</p>;
+  if(f.kind==='res-profile')return <HisProfileFields key={f.name} value={v} editable={editable} onChange={v=>set(f.name,v)}/>;
+  if(f.kind==='his-certifiers')return <HisCertifierFields key={f.name} value={v} users={certifierUsers} editable={editable} onChange={v=>set(f.name,v)}/>;
   if(f.kind==="locked")return <div className="field locked" key={f.name}><label htmlFor={id}>{f.label}<span className="locked-tag">{f.lockedBy}</span></label><input id={id} value={v===null||v===undefined?"ไม่มีค่า":String(v)} readOnly aria-readonly="true" aria-describedby={`${id}-help`}/>{help}</div>;
   if(f.kind==="boolean")return <div className="field" key={f.name}><label className="check-label"><input type="checkbox" checked={v===true} disabled={!editable} onChange={e=>set(f.name,e.target.checked)} aria-describedby={`${id}-help`}/> {f.label}</label>{help}</div>;
-  if(f.kind==="select")return <div className="field" key={f.name}><label htmlFor={id}>{f.label}</label><select id={id} value={v===undefined?"":String(v)} disabled={!editable} onChange={e=>set(f.name,e.target.value===""?undefined:e.target.value)} aria-describedby={`${id}-help`}>{v===undefined&&<option value="">— ไม่กำหนด —</option>}{f.options!.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select>{help}</div>;
+  if(f.kind==="select")return <div className="field" key={f.name}><label htmlFor={id}>{f.label}</label><select id={id} value={v===undefined||v===null?"":String(v)} disabled={!editable} onChange={e=>set(f.name,e.target.value===""?(f.name==="round2SpecimenDatePolicy"?null:undefined):e.target.value)} aria-describedby={`${id}-help`}>{v===undefined&&<option value="">— ไม่กำหนด —</option>}{f.options!.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select>{help}</div>;
   if(f.kind==="number")return <div className="field" key={f.name}><label htmlFor={id}>{f.label}{f.unit?` (${f.unit})`:""}</label><input id={id} type="number" inputMode="numeric" min={f.min} max={f.max} value={typeof v==="number"?v:""} readOnly={!editable} onChange={e=>set(f.name,e.target.value===""?null:Number(e.target.value))} aria-describedby={`${id}-help`} required/>{help}</div>;
-  return <div className="field" key={f.name}><label htmlFor={id}>{f.label}</label><input id={id} type={f.kind==="date"?"date":"text"} className={["path","hash","uuid-or-empty"].includes(f.kind)?"mono":undefined} spellCheck={false} value={v===null||v===undefined?"":String(v)} readOnly={!editable} maxLength={f.max??500}
+  return <div className="field" key={f.name}><label htmlFor={id}>{f.label}</label><input id={id} type={f.kind==="date"?"date":"text"} className={["path","hash","uuid-or-empty"].includes(f.kind)?"mono":undefined} spellCheck={false} value={v===null||v===undefined||v===null?"":String(v)} readOnly={!editable} maxLength={f.max??500}
    onChange={e=>set(f.name,f.kind==="uuid-or-empty"&&e.target.value===""?null:e.target.value)} aria-describedby={`${id}-help`} required={f.kind!=="uuid-or-empty"}/>{help}</div>;};
  return <>
   <div className="setting-layout"><section className="panel"><label htmlFor="category">หมวดการตั้งค่า</label>

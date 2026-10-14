@@ -3,7 +3,7 @@ import {SETTINGS,type SettingKey} from "./catalog";
 // Field-level form metadata for every catalog key, so staff edit labelled inputs instead of JSON (Plan §13.1–§13.2).
 // The catalog schema remains the only validator; this file only describes how each value is shown. A unit test asserts that
 // every schema field has exactly one entry here and that locked fields are literals in the schema.
-export type FieldKind="text"|"path"|"number"|"boolean"|"select"|"locked"|"date"|"hash"|"uuid-or-empty";
+export type FieldKind="text"|"path"|"number"|"boolean"|"select"|"locked"|"date"|"hash"|"uuid-or-empty"|"res-profile"|"his-certifiers";
 export type FieldSpec={name:string;label:string;help:string;kind:FieldKind;options?:readonly {value:string;label:string}[];unit?:string;min?:number;max?:number;lockedBy?:string};
 export type SettingForm={key:SettingKey;title:string;summary:string;phase:string;fields:FieldSpec[]};
 
@@ -36,7 +36,7 @@ export const SETTING_FORMS:Record<SettingKey,SettingForm>={
   {name:"halosDataRows",label:"จำนวนแถวข้อมูล HALOS",help:"Owner Lock OD-35",kind:"locked",lockedBy:"Owner Lock OD-35"},
   {name:"pendingGovernanceGate",label:"นโยบายเมื่อ Gate รอการตัดสินใจ",help:"HOLD = หยุด; PROCEED_SYNTHETIC_LABELLED = ข้อมูลจำลองเดินต่อพร้อมป้ายกำกับ",kind:"select",options:[{value:"HOLD",label:"HOLD — หยุดรอการตัดสินใจ"},{value:"PROCEED_SYNTHETIC_LABELLED",label:"ข้อมูลจำลองเดินต่อพร้อมป้ายกำกับ"}]}]},
  result_management:{key:"result_management",title:"การจัดการผลตรวจ",summary:"โฟลเดอร์ผล PDF แบบ NIPTY + การจับคู่แบบมีผู้ตรวจ — การปล่อยผลจริงยัง HOLD",phase:"P5",fields:[
-  {name:"pdfSourcePath",label:"โฟลเดอร์ผล PDF (PDF Source Folder)",help:"Worker อ่านอย่างเดียว ข้อมูลจำลองต้องอยู่ใต้ simulator/results — ห้ามใช้ Path จริงของโรงพยาบาล",kind:"path"},
+  {name:"pdfSourcePath",label:"โฟลเดอร์ผล PDF (PDF Source Folder)",help:"Worker อ่านอย่างเดียว โหมดใช้งานจริงต้องมีสิทธิ์ RESULTS ใน Share Policy ของบัญชีบริการ; โหมดจำลองใช้ simulator/results",kind:"path"},
   {name:"scanSubfolders",label:"สแกนรวมโฟลเดอร์ย่อย",help:"เหมือน NIPTY: ค้นหา .pdf และ .zip ทุกโฟลเดอร์ย่อย",kind:"boolean"},
   {name:"acceptZip",label:"รับไฟล์ ZIP",help:"ZIP-as-PDF และ ZIP ที่รวม PDF หลายไฟล์",kind:"boolean"},
   {name:"maxFilesPerScan",label:"จำนวนไฟล์สูงสุดต่อการสแกน",help:"1–2,000 ไฟล์",kind:"number",unit:"ไฟล์",min:1,max:2000},
@@ -57,12 +57,14 @@ export const SETTING_FORMS:Record<SettingKey,SettingForm>={
   {name:"secretRef",label:"Credential / Secret Reference",help:"UUID อ้างอิง Credential ที่ IT จัดเตรียมให้ Service Account — ไม่ใส่รหัสผ่าน",kind:"uuid-or-empty"},
   {name:"retryDelaySeconds",label:"ระยะรอ Retry เริ่มต้น",help:"เพิ่มแบบ Exponential ตามจำนวนครั้ง สูงสุดหนึ่งวัน",kind:"number",unit:"วินาที",min:1,max:3600},
   {name:"confirmationTimeoutSeconds",label:"ระยะรอการยืนยัน",help:"หมดเวลาเป็น UNKNOWN_TIMEOUT — ไม่ถือว่า HIS รับผลแล้ว",kind:"number",unit:"วินาที",min:1,max:86400},
-  {name:"enabled",label:"เปิด Synthetic Transfer",help:"การส่ง Clinical จริงยังปิดอยู่",kind:"boolean"},
-  {name:"target",label:"ปลายทาง",help:"Synthetic Transport เท่านั้น รวม Authorized Test Share",kind:"locked",lockedBy:"SYNTHETIC ONLY"},
-  {name:"productionAuthorized",label:"อนุญาตส่งจริง",help:"ปิดถาวรใน Phase นี้",kind:"locked",lockedBy:"AL-6 HOLD"},
+    {name:"enabled",label:"เปิดการส่งผล",help:"Worker ใช้รุ่นที่เปิดใช้งานแล้ว",kind:"boolean"},
+    {name:"target",label:"ปลายทาง",help:"Share ต้องได้รับสิทธิ์จากการตั้งค่าระบบและ Service Account",kind:"select",options:[{value:"SIMULATOR",label:"ตัวจำลอง"},{value:"AUTHORIZED_SHARE",label:"HIS/CFS Share ที่ได้รับอนุญาต"}]},
+    {name:"productionAuthorized",label:"เปิดส่งผลที่รับรองแล้ว",help:"มีผลเฉพาะ Operational runtime และฐานข้อมูลที่ตั้งค่าไว้ตรงกัน",kind:"boolean"},
   {name:"resultStyle",label:"รูปแบบข้อความผลใน .res",help:"เทียบ NIPTY nipt_result_style",kind:"select",options:[{value:"full",label:"full — ระบุครบ"},{value:"short",label:"short — สั้น"},{value:"fixed",label:"fixed — ข้อความคงที่"}]},
   {name:"retryLimit",label:"จำนวนครั้งลองใหม่",help:"1–10",kind:"number",unit:"ครั้ง",min:1,max:10},
-  {name:"round2SpecimenDatePolicy",label:"วันที่เก็บตัวอย่างใน .res ของรอบ ≥ 2",help:"ไม่มีค่าเริ่มต้นจนกว่า Q-I5",kind:"locked",lockedBy:"Q-I5 HOLD"}]},
+    {name:"round2SpecimenDatePolicy",label:"วันที่เก็บตัวอย่างใน .res ของรอบ ≥ 2",help:"เลือกรอบของหลักฐาน PET ที่ HIS ต้องการ",kind:"select",options:[{value:"",label:"ยังไม่กำหนด"},{value:"CURRENT_ROUND",label:"รอบปัจจุบัน"},{value:"ORIGINAL_ORDER",label:"รอบแรก"}]},
+    {name:"resProfile",label:"รูปแบบ RES",help:"ใช้ค่าตามข้อกำหนดของ HIS",kind:"res-profile"},
+    {name:"certifierHisMappings",label:"ผู้รับรองใน HIS",help:"ผูกรหัสกับผู้รับรองที่ได้รับสิทธิ์",kind:"his-certifiers"}]},
  storage_backup:{key:"storage_backup",title:"ที่เก็บไฟล์ / NAS / Backup",summary:"ระยะเก็บ Backup ของตัวจำลอง",phase:"P1/P7",fields:[
   {name:"retentionDays",label:"เก็บ Backup",help:"1–3,650 วัน",kind:"number",unit:"วัน",min:1,max:3650},
   {name:"target",label:"ปลายทาง Backup",help:"ตัวจำลองเท่านั้น",kind:"locked",lockedBy:"Q-I6 HOLD"}]},

@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {operationalDataEnabled} from '../security/runtime';
 import type {Queryable} from '../db/connection';
 import {appendAudit} from '../db/audit';
 import {requirePermission,type Principal} from '../security/policy';
@@ -31,7 +32,7 @@ export function outboundDraftSettings(row:ActiveHis){
  const s=SETTINGS.his_outbound.schema.parse(row.value),paths=[s.resDestinationPath,s.pdfDestinationPath,s.backupPath];
  const defaults=['simulator/p6/res','simulator/p6/cfs','simulator/p6/backup'];
  const local=paths.every((p,i)=>p===defaults[i]);if(!local&&paths.some(p=>p.startsWith('simulator/')))throw Error('HIS_MIXED_DESTINATIONS_PROHIBITED');
- return {version:'SYNTHETIC-SETTINGS-'+row.id,resDirectory:defaults[0],pdfDirectory:defaults[1],backupDirectory:defaults[2],retryDelaysMs:Array.from({length:s.retryLimit},(_,i)=>Math.min(86400000,s.retryDelaySeconds*1000*2**i)),confirmationTimeoutMs:s.confirmationTimeoutSeconds*1000,
+ return {version:(operationalDataEnabled()?'OPERATIONAL-SETTINGS-':'SYNTHETIC-SETTINGS-')+row.id,resDirectory:defaults[0],pdfDirectory:defaults[1],backupDirectory:defaults[2],retryDelaysMs:Array.from({length:s.retryLimit},(_,i)=>Math.min(86400000,s.retryDelaySeconds*1000*2**i)),confirmationTimeoutMs:s.confirmationTimeoutSeconds*1000,
   ...(!local?{connection:{revisionId:row.id,resPath:paths[0],pdfPath:paths[1],backupPath:paths[2],secretRef:s.secretRef}}:{})};
 }
 /** Called only by existing fixture-enrollment tooling. Never accepts a P5 release as fixture data. */
