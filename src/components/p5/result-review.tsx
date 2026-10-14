@@ -9,7 +9,7 @@ type Cross=Record<string,string>;
 type Predicate={code:string;status:string;reason:string;governance?:string;dependency?:string};
 type Gate={gate:"RG"|"RN";eligible:boolean;failed:string[];pending:string[];waitsForP4b:boolean;predicates:Predicate[]};
 type Candidate={caseId:string;ln:string;hn:string|null;lnHalos:string|null;matchedOn:string[];cross:Cross;round:{id:string;number:number;state:string;current:boolean;collectionDate:string|null};attempt:{id:string;number:number;state:string;printedSampleId:string|null;latest:boolean}};
-type Detail={nameConflicts:{id:string;state:string;importedAt:string}[];version:{id:string;kind:string;templateKind:string;templateVersion:string;parserVersion:string;state:string;rowVersion:number;sha256:string;importedAt:string;roundId:string|null;supersedesId:string|null};
+type Detail={operational?:boolean;nameConflicts:{id:string;state:string;importedAt:string}[];version:{id:string;kind:string;templateKind:string;templateVersion:string;parserVersion:string;state:string;rowVersion:number;sha256:string;importedAt:string;roundId:string|null;supersedesId:string|null};
  parsed:{identifiers:Record<string,Field>;results:Record<string,Field>;needsManualReview:boolean;abnormal:boolean;noticeCategory:string|null};
  intake:{source:string;relative_path:string|null;original_name:string;member_name:string|null;size:number;container:string};
  target:{round_number:number;ln:string;ln_halos:string|null;printed_sample_id:string|null;attempt_number:number|null;attempt_state:string|null;current:boolean}|null;
@@ -31,6 +31,7 @@ function CrossTable({cross,caption}:{cross:Cross;caption:string}){
 }
 
 export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:boolean}){
+ const [qcCriteria,setQcCriteria]=useState(''),[qcReason,setQcReason]=useState(''),[qcTemplate,setQcTemplate]=useState(false),[qcDisclosure,setQcDisclosure]=useState(false),[confirmCertification,setConfirmCertification]=useState(false);
  const [noticeTone,setNoticeTone]=useState<"success"|"warning-notice">("success");
  const [d,setD]=useState<Detail|null>(null),[error,setError]=useState(""),[notice,setNotice]=useState(""),[busy,setBusy]=useState<string|null>(null);
  const [choice,setChoice]=useState(""),[reason,setReason]=useState(""),[revise,setRevise]=useState(false),[nameReview,setNameReview]=useState<""|"NEW_REPORT"|"REVISION">(""),[rev,setRev]=useState({receivedDate:"",requestedBy:"",reason:""});
@@ -152,11 +153,11 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
 
     {d.can.certify&&<section className="panel" aria-labelledby="certify-h">
      <h2 id="certify-h">รับรองและส่งผล</h2>
-     <p className="help">ระบบประเมิน Gate ใหม่ทั้งหมดในขณะกด และบันทึกผลการประเมินทุกครั้ง ในระยะนี้แม้ผ่าน Gate ก็จะไม่ปล่อยผล (AL-5 / OD-05 / OD-07)</p>
+     {d.operational?<><p className="help">ทบทวน QC5 และยืนยันการรับรอง ระบบตรวจสิทธิ์และหลักฐานปัจจุบันก่อนปล่อยผลทุกครั้ง</p><fieldset><legend>QC5 ของ PDF ฉบับนี้</legend><label htmlFor="qc5-criteria">เอกสาร / เกณฑ์ที่ใช้ทบทวน</label><input id="qc5-criteria" value={qcCriteria} onChange={e=>setQcCriteria(e.target.value)}/><label htmlFor="qc5-reason">ผลทบทวน</label><textarea id="qc5-reason" value={qcReason} onChange={e=>setQcReason(e.target.value)}/><label className="check-label"><input type="checkbox" checked={qcTemplate} onChange={e=>setQcTemplate(e.target.checked)}/> ตรวจรูปแบบและค่ากับ PDF ต้นฉบับแล้ว</label><label className="check-label"><input type="checkbox" checked={qcDisclosure} onChange={e=>setQcDisclosure(e.target.checked)}/> ตรวจความยินยอมและข้อมูลที่เปิดเผยในรายงานแล้ว</label><button className="button secondary" disabled={!!busy||!qcTemplate||!qcDisclosure||qcCriteria.trim().length<8||qcReason.trim().length<8} onClick={()=>void act('qc5',{criteriaReference:qcCriteria,reason:qcReason,templateReviewed:true,disclosureReviewed:true,abnormalAcknowledged:certAck},'บันทึก QC5 แล้ว')}>ยืนยัน QC5</button></fieldset><label className="check-label"><input type="checkbox" checked={confirmCertification} onChange={e=>setConfirmCertification(e.target.checked)}/> ยืนยันรับรองผลด้วยบัญชีของฉัน</label></>:<p className="help">ระบบประเมิน Gate ใหม่ทั้งหมดในขณะกด และบันทึกผลการประเมินทุกครั้ง ในระยะนี้แม้ผ่าน Gate ก็จะไม่ปล่อยผล (AL-5 / OD-05 / OD-07)</p>}
      {p.abnormal&&<label className="check-label"><input type="checkbox" checked={certAck} onChange={e=>setCertAck(e.target.checked)}/> รับทราบผลผิดปกติก่อนรับรอง</label>}
-     <div className="action-bar"><button type="button" className="button" disabled={!!busy||(p.abnormal&&!certAck)} onClick={async()=>{const r=await act("certify",{idempotencyKey:certKey,abnormalAcknowledged:certAck},"บันทึกการประเมินขณะรับรองแล้ว");if(r){setOutcome(r as typeof outcome);setCertKey(key());}}}>{busy==="certify"?"กำลังประเมิน…":"รับรองและส่งผล"}</button></div>
+     <div className="action-bar"><button type="button" className="button" disabled={!!busy||(p.abnormal&&!certAck)||(d.operational&&!confirmCertification)} onClick={async()=>{const r=await act("certify",{idempotencyKey:certKey,abnormalAcknowledged:certAck,...(d.operational?{confirmed:true}:{})},"บันทึกการประเมินขณะรับรองแล้ว");if(r){setOutcome(r as typeof outcome);setCertKey(key());}}}>{busy==="certify"?"กำลังประเมิน…":"รับรองและส่งผล"}</button></div>
      {outcome&&<div role="status" className={`notice ${outcome.outcome==="RELEASE_HOLD"?"warning-notice":""}`}>
-      {outcome.outcome==="RELEASE_HOLD"?<p><strong>ผ่าน Gate แต่ยังไม่ปล่อยผล</strong> — การปล่อยผลจริงถูกระงับจนกว่า AL-5 ผ่าน</p>
+      {outcome.outcome==='CertifiedReleased'?<p><strong>รับรองและปล่อยผลแล้ว</strong> — ตรวจสถานะการส่งไฟล์ในประวัติ HIS/CFS การส่งไฟล์ยังไม่ใช่หลักฐานว่า HIS รับผลแล้ว</p>:outcome.outcome==="RELEASE_HOLD"?<p><strong>ผ่าน Gate แต่ยังไม่ปล่อยผล</strong> — การปล่อยผลจริงถูกระงับจนกว่า AL-5 ผ่าน</p>
        :<><p><strong>รับรองไม่ได้</strong> — ไม่ผ่าน Gate</p><ul>{[...(outcome.failed??[]),...(outcome.pending??[])].map(x=>{const [code,...rest]=x.split(":");return <li key={x}>{code} {GATE_NAME[code]}: {reasonText(rest[rest.length-1])}</li>;})}</ul></>}
      </div>}
     </section>}

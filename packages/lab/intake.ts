@@ -23,6 +23,13 @@ function worklistRow(r:AttemptRow,policy:'HOLD'|'PROCEED_SYNTHETIC_LABELLED'){
   placement:r.slot_batch_id?{batchId:r.slot_batch_id,runLabel:r.run_label,slot:r.slot_number,sheetState:r.sheet_state}:null,labels:{prints:r.label_prints,lastPrintedAt:iso(r.last_label_print)}};
 }
 export type WorklistAttempt=ReturnType<typeof worklistRow>;
+export async function acceptSpecimen(db:Queryable,user:Staff,input:unknown){
+ await assertSession(db,user);const d=z.strictObject({roundId:uuid,identityChecked:z.literal(true),labelChecked:z.literal(true),condition:z.enum(['ACCEPTABLE','REJECTED']),criteriaReference:reasonText,reason:reasonText}).parse(input);
+ const r=await lockedRound(db,user,d.roundId);need(user,'round.receive','write',{unitId:r.unit_id??undefined,origin:r.registration_origin as 'ANC'});
+ if(process.env.NIPT_MODE!=='operational')throw new LabError('OPERATIONAL_MODE_REQUIRED',409);
+ const id=(await db.query<{id:string}>('INSERT INTO specimen_acceptance(round_id,identity_checked,label_checked,condition,criteria_reference,reason,actor_id) VALUES($1,true,true,$2,$3,$4,$5) RETURNING id',[r.id,d.condition,d.criteriaReference,d.reason,user.id])).rows[0].id;
+ await audit(db,user,'SPECIMEN_ACCEPTANCE_RECORDED','specimen_acceptance',id,{outcome:d.condition});return {id,condition:d.condition};
+}
 
 /** F1 queues (Plan §12.9 "คิวในหน้าจอ Lab"). S1 enters from the matched HIS PET receipt only; there is no second S1 receipt here. */
 export async function labWorklist(db:Queryable,user:Staff){
@@ -41,7 +48,7 @@ export async function labWorklist(db:Queryable,user:Staff){
   WHERE r.received_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM specimen_lab_number n WHERE n.round_id=r.id) ORDER BY r.received_at`)).rows.filter(r=>caseVisible(user,r)).map(r=>({kind:'LN_HALOS_MISSING' as const,category:'LN_HALOS_MISSING' as QueueCategory,caseId:r.case_id,roundId:r.round_id,roundNumber:r.round_number,hisLn:r.ln,receivedAt:r.received_at.toISOString(),receivedSource:r.received_source}));
  const caseIds=[...new Set([...attempts.map(a=>a.caseId),...expected.map(e=>e.caseId),...missing.map(m=>m.caseId)])].slice(0,200);
  if(caseIds.length)await recordPhiAccess(db,user.id,caseIds,'REGISTRY_VIEW');
- return {policy,attempts,expected,missing,generatedAt:new Date().toISOString()};
+ return {policy,attempts,expected,missing,operational:process.env.NIPT_MODE==='operational',generatedAt:new Date().toISOString()};
 }
 
 async function lockedRound(db:Queryable,user:Staff,roundId:string){

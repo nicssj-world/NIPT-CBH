@@ -6,10 +6,10 @@ import * as rec from '../../packages/lab/records';
 import {syntheticCase,receiveS1,attemptOf,tx,version,setPendingPolicy} from './lab';
 export const POOL_SCENARIO={controls:'PATIENT_ONLY',targetPmol:'16',ngPerPmol:'160',desiredVolume:'768',buffer:'TE',pipetteDecimals:2} as const;
 /** Real P4 service journey on disposable synthetic databases; no forged verification or signatures. */
-export async function poolingFixture(db:Queryable,u:{staff:Principal;certifier:Principal;approver:Principal;unit:string},deps:rec.DocDeps,count=2){
+export async function poolingFixture(db:Queryable,u:{staff:Principal;certifier:Principal;approver:Principal;unit:string},deps:rec.DocDeps,count=2,receipt?:(db:Queryable,c:Awaited<ReturnType<typeof syntheticCase>>,index:number)=>Promise<void>){
  await setPendingPolicy(db,u,'PROCEED_SYNTHETIC_LABELLED');
  const cases=[];
- for(let i=0;i<count;i++){const c=await tx(db,t=>syntheticCase(t,u));await tx(db,t=>receiveS1(t,c,new Date(Date.now()-(count-i)*60000)));cases.push(c);}
+ for(let i=0;i<count;i++){const c=await tx(db,t=>syntheticCase(t,u,receipt?{ln:`990009100${String(i).padStart(3,'0')}`} :{}));await tx(db,t=>receipt?receipt(t,c,i):receiveS1(t,c,new Date(Date.now()-(count-i)*60000)));cases.push(c);}
  const attempts=await Promise.all(cases.map(c=>attemptOf(db,c.roundId)));
  const b=await tx(db,t=>batch.createBatch(t,u.staff)),id=b.batchId;
  const call=async(fn:(t:Queryable,u:Principal,input:unknown)=>Promise<unknown>,extra:Record<string,unknown>={})=>tx(db,async t=>fn(t,u.staff,{batchId:id,expectedVersion:await version(t,id),...extra}));

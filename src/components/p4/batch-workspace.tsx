@@ -11,7 +11,7 @@ type Obs={id:string;sheetId:string|null;slot:number|null;fieldId:string;item:str
 type Field={id:string;item:string;form:string;scope:string;kind:string;cls:string;label:string;source:string;sheets:number[]};
 type Disp={id:string;slot_number:number;stage:string;disposition:string;reason_code:string;note:string;proposer:string;proposed_by:string;confirmer:string|null;confirmed_at:string|null};
 type Copy={id:string;document_id:string;kind:string;copy_number:number|null;created_at:string;recalled_at:string|null;actor:string;document_status:string;doc_code:string;revision:number};
-export type Workspace={batch:{id:string;runLabel:string;state:string;version:number;templateVersion:string;formulaVersion:string;cancelReason:string|null};sheets:Sheet[];slots:Slot[];documents:Doc[];events:{event_type:string;sheet_number:number|null;reason:string|null;created_at:string;actor:string}[];snapshots:{id:string;sheet_number:number;revision:number;content_hash:string;created_at:string}[];
+export type Workspace={operational?:boolean;batch:{id:string;runLabel:string;state:string;version:number;templateVersion:string;formulaVersion:string;cancelReason:string|null};sheets:Sheet[];slots:Slot[];documents:Doc[];events:{event_type:string;sheet_number:number|null;reason:string|null;created_at:string;actor:string}[];snapshots:{id:string;sheet_number:number;revision:number;content_hash:string;created_at:string}[];
  observations:Obs[];dispositions:Disp[];copies:Copy[];completeness:{sheet:number;ready:boolean;missingFields:{id:string;item:string;label:string}[];slots:{slot:number;status:string}[];open:number}[];policy:string;
  qc:{ready:boolean;rows:{slot:number;status:string;decision:string|null;observationId:string|null;attemptId:string|null}[];standards:({id:string;status:string}|null)[];operator:{id:string;status:string}|null};fields:Field[];criteria:{code:string;label:string}[];dispositionReasons:string[];
  allowed:Record<"draft"|"assign"|"finalize"|"amend"|"unlock"|"execute"|"transcribe"|"verify"|"qcRecord"|"qcAccept"|"dispositionPropose"|"dispositionConfirm"|"recall"|"obsoletePrint"|"labels",boolean>};
@@ -43,6 +43,7 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
   <header className="page-header"><div><p className="muted"><Link href="/lab/batches">Batch / Task List</Link></p><h1>{w.batch.runLabel}</h1><p className="muted">สถานะ Batch: <strong>{BATCH_STATE[w.batch.state]??w.batch.state}</strong> · Template {w.batch.templateVersion} · Formula {w.batch.formulaVersion} · Version {w.batch.version}</p></div>
    {w.batch.state!=="Cancelled"&&(w.allowed.draft||w.allowed.unlock)&&<button className="button secondary" type="button" onClick={()=>setDialog({type:"cancel"})}>ยกเลิก Batch</button>}</header>
   {w.batch.cancelReason&&<p className="notice" role="note">Batch ถูกยกเลิก: {w.batch.cancelReason}</p>}
+  <p><Link href={`/lab/batches/${w.batch.id}/workbook`}>แบบฟอร์ม Excel ต้นฉบับ · Draft / XLSX / PDF</Link></p>
   {w.policy==="PROCEED_SYNTHETIC_LABELLED"&&<p className="notice warning-notice" role="note">ข้อมูลจำลอง: Gate ที่ยังรอการตัดสิน (OD-01/08/16) ผ่านด้วยนโยบายจำลองและถูกระบุบนใบงาน — ไม่ใช่การรับรองทางคลินิก</p>}
   {msg&&<div className={`notice${msg.ok?" success":""}`} role={msg.ok?"status":"alert"}>{msg.text}{Array.isArray(msg.details)&&<ul>{(msg.details as {slot:number;failed:string[];pending:string[]}[]).map((d,i)=><li key={i}>ตน. {d.slot??"-"}: {[...(d.failed??[]),...(d.pending??[])].map(gateText).join(", ")}</li>)}</ul>}
    {msg.details&&!Array.isArray(msg.details)&&typeof msg.details==="object"?<pre className="details">{JSON.stringify(msg.details,null,1)}</pre>:null}</div>}
@@ -177,17 +178,17 @@ function QcPanel({w,busy,act,userId}:{w:Workspace;busy:boolean;act:Act;userId:st
     <td>{o?.candidates?.map(c=><div key={c.code} className="small">{c.code.includes("WI")?"WI":"Workbook"}: {OUTCOME[c.outcome]}</div>)}</td>
     <td>{r.decision?r.decision:s.control?(r.status==="MEASURED"?"Control — ตามนโยบาย IQC (OD-34)":"—"):o?.status==="Verified"&&w.allowed.qcAccept&&r.attemptId?<button className="button small" type="button" onClick={()=>setDecide({attemptId:r.attemptId!,slot:r.slot,cand:o.candidates})}>ตัดสิน</button>:"—"}</td></tr>;})}</tbody></table></div>
   <ReviewPanel w={w} obs={w.observations.filter(o=>o.fieldId.startsWith("F3-"))} act={act} busy={busy} userId={userId}/>
-  {decide&&<DecideDialog decide={decide} close={()=>setDecide(null)} act={act}/>}
+  {decide&&<DecideDialog decide={decide} operational={w.operational} close={()=>setDecide(null)} act={act}/>}
  </section>;
 }
-function DecideDialog({decide,close,act}:{decide:{attemptId:string;slot:number;cand:Obs["candidates"]};close:()=>void;act:Act}){
- const [decision,setDecision]=useState(""),[reason,setReason]=useState("");
+function DecideDialog({decide,close,act,operational}:{decide:{attemptId:string;slot:number;cand:Obs["candidates"]};close:()=>void;act:Act;operational?:boolean}){
+ const [decision,setDecision]=useState(""),[reason,setReason]=useState(""),[criteriaReference,setCriteriaReference]=useState('');
  return <Dialog title={`ตัดสิน Stage QC1 — ตำแหน่ง ${decide.slot}`} onClose={close}><div className="stack">
-  <p className="notice warning-notice">การตัดสินนี้บันทึกเป็น “เกณฑ์ยังไม่รับรอง (UNAPPROVED_OD31)” เสมอ</p>
+  {operational?<div className="field"><label htmlFor="qc1-criteria">เอกสาร / เกณฑ์ QC1 ที่ใช้ทบทวน</label><input id="qc1-criteria" value={criteriaReference} onChange={e=>setCriteriaReference(e.target.value)}/></div>:<p className="notice warning-notice">การตัดสินนี้บันทึกเป็น “เกณฑ์ยังไม่รับรอง (UNAPPROVED_OD31)” เสมอ</p>}
   <ul>{decide.cand?.map(c=><li key={c.code}>{c.code}: {OUTCOME[c.outcome]}</li>)}</ul>
   <fieldset><legend>ผลการตัดสิน</legend>{[["Accepted","ยอมรับ"],["Failed","ไม่ผ่าน → Attempt QcFailed (สั่งตรวจซ้ำ/เจาะซ้ำได้)"],["Remeasure","วัดซ้ำ (QcHold)"],["Hold","ระงับ (QcHold)"]].map(([v,l])=><label key={v} className="check-label"><input type="radio" name="dec" checked={decision===v} onChange={()=>setDecision(v)}/> {l}</label>)}</fieldset>
   <label htmlFor="dec-reason">เหตุผล</label><textarea id="dec-reason" rows={3} value={reason} onChange={e=>setReason(e.target.value)}/>
-  <div className="dialog-actions"><button className="button" type="button" disabled={!decision||reason.trim().length<8} onClick={async()=>{if(await act("decideQc",{attemptId:decide.attemptId,decision,reason},"บันทึกการตัดสิน Stage QC1 แล้ว"))close();}}>บันทึกการตัดสิน</button><button className="button secondary" type="button" onClick={close}>ยกเลิก</button></div>
+  <div className="dialog-actions"><button className="button" type="button" disabled={!decision||reason.trim().length<8||(operational&&criteriaReference.trim().length<8)} onClick={async()=>{if(await act("decideQc",{attemptId:decide.attemptId,decision,reason,...(operational?{criteriaReference}:{})},"บันทึกการตัดสิน Stage QC1 แล้ว"))close();}}>บันทึกการตัดสิน</button><button className="button secondary" type="button" onClick={close}>ยกเลิก</button></div>
  </div></Dialog>;
 }
 function WorkspaceDialog({dialog,w,sheetNo,busy,act,close,setMsg,reload}:{dialog:{type:string;slot?:number};w:Workspace;sheetNo:number;busy:boolean;act:Act;close:()=>void;setMsg:(m:{ok:boolean;text:string})=>void;reload:()=>Promise<void>}){

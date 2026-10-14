@@ -12,7 +12,7 @@ type Attempt={kind:"ATTEMPT";category:string;caseId:string;roundId:string;roundN
  placement:{batchId:string;runLabel:string|null;slot:number|null;sheetState:string|null}|null;labels:{prints:number;lastPrintedAt:string|null}};
 type Expected={kind:"REDRAW_EXPECTED";caseId:string;roundId:string;roundNumber:number;hisLn:string;requestedAt:string;reasonCode:string;previousLnHalos:string|null};
 type Missing={kind:"LN_HALOS_MISSING";caseId:string;roundId:string;roundNumber:number;hisLn:string;receivedAt:string;receivedSource:string};
-export type WorklistData={policy:string;attempts:Attempt[];expected:Expected[];missing:Missing[];generatedAt:string};
+export type WorklistData={operational?:boolean;policy:string;attempts:Attempt[];expected:Expected[];missing:Missing[];generatedAt:string};
 type Can={labels:boolean;assign:boolean;receive:boolean;repeat:boolean;redraw:boolean;redrawCancel:boolean;hold:boolean};
 type Batch={id:string;run_label:string;state:string;version:number;samples:number;sheet_states:string[]};
 
@@ -39,7 +39,7 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
  const toggle=(id:string)=>setSelected(s=>{const n=new Set(s);if(n.has(id))n.delete(id);else n.add(id);return n;});
  const allShown=attempts.length>0&&attempts.every(a=>selected.has(a.attemptId));
  return <>
-  {data.policy==="PROCEED_SYNTHETIC_LABELLED"?<p className="notice warning-notice" role="note"><strong>นโยบายจำลอง:</strong> ตัวอย่างที่ติดเฉพาะข้อที่ยังรอการตัดสิน (OD-01, OD-08, OD-16) จัดเข้า Batch ได้พร้อมป้ายกำกับ — ไม่ใช่การรับรองทางคลินิก ข้อที่ไม่ผ่านจริงยังบล็อกเสมอ</p>
+  {data.operational?<p className="help">จัดเข้า Batch ได้เมื่อรับ PET ตรวจสิ่งส่งตรวจ เอกสารยินยอม และทบทวนทางคลินิกของรอบปัจจุบันครบแล้ว</p>:data.policy==="PROCEED_SYNTHETIC_LABELLED"?<p className="notice warning-notice" role="note"><strong>นโยบายจำลอง:</strong> ตัวอย่างที่ติดเฉพาะข้อที่ยังรอการตัดสิน (OD-01, OD-08, OD-16) จัดเข้า Batch ได้พร้อมป้ายกำกับ — ไม่ใช่การรับรองทางคลินิก ข้อที่ไม่ผ่านจริงยังบล็อกเสมอ</p>
    :<p className="notice warning-notice" role="note"><strong>Gate รอการตัดสิน:</strong> เกณฑ์ Clinical Gate (OD-08) และการยอมรับตัวอย่าง (OD-01) ยังไม่ได้รับรอง ระบบจึงยังไม่ให้จัดตัวอย่างเข้า Batch (นโยบาย HOLD)</p>}
   <div className="tabs" role="tablist" aria-label="คิวงาน Lab">{TABS.map(([t,label])=><button key={t} role="tab" type="button" id={`tab-${t}`} aria-selected={tab===t} aria-controls="queue-panel" className="tab" onClick={()=>{setTab(t);setSelected(new Set());}}>{label} <span className="count">{counts[t]}</span></button>)}</div>
   <section id="queue-panel" role="tabpanel" aria-labelledby={`tab-${tab}`} className="panel">
@@ -73,13 +73,13 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
        {a.gate?.syntheticPendingAccepted&&<p className="small muted">ผ่านด้วยนโยบายจำลอง: {a.gate.pending.map(gateText).join(", ")}</p>}</td>
       <td>{a.labels.prints?<span className="status good">พิมพ์แล้ว {a.labels.prints}</span>:<span className="status warning">ยังไม่พิมพ์</span>}</td>
       <td>{a.placement?<Link href={`/lab/batches/${a.placement.batchId}`}>{a.placement.runLabel} · ตน. {a.placement.slot}</Link>:"—"}</td>
-      <td><RowActions a={a} can={can} open={(type)=>setDialog({type,row:a})}/></td>
+      <td>{data.operational&&can.receive&&a.attemptState==='Ready'&&<button className="button small" onClick={()=>setDialog({type:'accept',row:a})}>ตรวจรับสิ่งส่งตรวจ</button>}<RowActions a={a} can={can} open={(type)=>setDialog({type,row:a})}/></td>
      </tr>)}</tbody></table></div>}
    </>}
   </section>
   {dialog?.type==="labels"&&<LabelDialog samples={(dialog.samples??[dialog.row as Attempt]).map(a=>({roundId:a.roundId,hisLn:a.hisLn,lnHalos:a.lnHalos,labelCode:a.labelCode,roundNumber:a.roundNumber,printed:a.labels.prints}))} onClose={()=>setDialog(null)} onPrinted={reload}/>}
   {dialog?.type==="assign"&&<AssignDialog attempts={dialog.samples!} onClose={()=>setDialog(null)} onDone={async msg=>{setDialog(null);setStatus(msg);await reload();}}/>}
-  {dialog&&["urgent","hold","repeat","redraw","receive","recover","cancelRedraw"].includes(dialog.type)&&<ActionDialog type={dialog.type} row={dialog.row!} onClose={()=>setDialog(null)} onDone={async msg=>{setStatus(msg);await reload();}}/>}
+  {dialog&&["accept","urgent","hold","repeat","redraw","receive","recover","cancelRedraw"].includes(dialog.type)&&<ActionDialog type={dialog.type} row={dialog.row!} onClose={()=>setDialog(null)} onDone={async msg=>{setStatus(msg);await reload();}}/>}
  </>;
 }
 function RowActions({a,can,open}:{a:Attempt;can:Can;open:(type:string)=>void}){
@@ -132,7 +132,7 @@ function ActionDialog({type,row,onClose,onDone}:{type:string;row:Attempt|Expecte
  const a=row as Attempt;const [note,setNote]=useState(""),[code,setCode]=useState(""),[level,setLevel]=useState("RE_LIBRARY"),[identity,setIdentity]=useState(false),[label,setLabel]=useState(false),[condition,setCondition]=useState("ACCEPTABLE"),[date,setDate]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState(""),[issued,setIssued]=useState<null|{lnHalos:string;duplicate:boolean}>(null);
  const titles:Record<string,string>={urgent:a.urgent?"ยกเลิกสถานะด่วน":"ตั้งเป็นงานด่วน",hold:a.hold?"ปลด Hold":"ระงับ (Hold)",repeat:"สั่งตรวจซ้ำ (Repeat) — สิ่งส่งตรวจเดิม",redraw:"สั่งเก็บตัวอย่างใหม่ (Redraw)",receive:"รับตัวอย่างเจาะซ้ำใน NIPT",recover:"ออก LN Halos จากการรับเดิม",cancelRedraw:"ยกเลิกคำสั่งเก็บตัวอย่างใหม่"};
  async function submit(){setBusy(true);setError("");try{
-  const body:Record<string,unknown>=type==="urgent"?{action:"setUrgent",attemptId:a.attemptId,urgent:!a.urgent,reason:note}:type==="hold"?{action:"setHold",attemptId:a.attemptId,hold:!a.hold,reason:note}
+  const body:Record<string,unknown>=type==='accept'?{action:'acceptSpecimen',roundId:a.roundId,identityChecked:identity,labelChecked:label,condition:condition==='ACCEPTABLE'?'ACCEPTABLE':'REJECTED',criteriaReference:code,reason:note}:type==="urgent"?{action:"setUrgent",attemptId:a.attemptId,urgent:!a.urgent,reason:note}:type==="hold"?{action:"setHold",attemptId:a.attemptId,hold:!a.hold,reason:note}
    :type==="repeat"?{action:"orderRepeat",attemptId:a.attemptId,level,reasonCode:code,note}:type==="redraw"?{action:"orderRedraw",caseId:row.caseId,reasonCode:code,note}:type==="cancelRedraw"?{action:"cancelRedraw",caseId:row.caseId,reason:note}
    :type==="recover"?{action:"recoverLnHalos",roundId:row.roundId,reason:note}:{action:"receiveRedraw",roundId:row.roundId,identityChecked:identity,labelChecked:label,condition,...(condition==="PROBLEM_NOTED"?{conditionNote:note}:{}),collectionDate:date};
   const r=await labApi<Record<string,unknown>>("/api/p4/worklist",body);
@@ -140,18 +140,19 @@ function ActionDialog({type,row,onClose,onDone}:{type:string;row:Attempt|Expecte
   else{await onDone(type==="repeat"?`สั่งตรวจซ้ำแล้ว — Attempt #${String(r.attemptNumber)} ${r.printedSampleId?String(r.printedSampleId):"(รูปแบบ Printed Sample ID รอ OD-03)"}`:type==="redraw"?`สั่งเก็บตัวอย่างใหม่แล้ว — รอบที่ ${String(r.newRoundNumber)} รอรับใน NIPT`:"บันทึกแล้ว");onClose();}
  }catch(e){setError(failureText(e));}finally{setBusy(false);}}
  const needsNote=type!=="receive"||condition==="PROBLEM_NOTED";
- const valid=(!needsNote||note.trim().length>=8)&&(!["repeat","redraw"].includes(type)||code)&&(type!=="receive"||(identity&&label&&date));
- return <Dialog title={titles[type]} onClose={onClose}><div className="stack">
+ const valid=(!needsNote||note.trim().length>=8)&&(!["repeat","redraw"].includes(type)||code)&&(type!=="receive"||(identity&&label&&date))&&(type!=='accept'||(identity&&label&&code.trim().length>=8));
+ return <Dialog title={type==='accept'?'ตรวจรับสิ่งส่งตรวจ':titles[type]} onClose={onClose}><div className="stack">
   <p className="mono">LN {row.hisLn} · รอบที่ {row.roundNumber}{"lnHalos" in row&&row.lnHalos?` · ${row.lnHalos}`:""}</p>
   {type==="repeat"&&<><p className="help">ใช้สิ่งส่งตรวจเดิม ไม่สร้างรอบใหม่ ไม่เกี่ยวกับ HIS — Attempt เดิมถูกแทนที่และเก็บประวัติไว้ ชื่อระดับการตรวจซ้ำรอ OD-03; Printed Sample ID สร้างได้เฉพาะรูปแบบเดิมของ Genomic-CBH (Re-Library ครั้งแรก = -2)</p>
    <fieldset><legend>ระดับการตรวจซ้ำ</legend><label className="check-label"><input type="radio" name="level" checked={level==="RE_LIBRARY"} onChange={()=>setLevel("RE_LIBRARY")}/> Re-Library</label><label className="check-label"><input type="radio" name="level" checked={level==="RE_EXTRACTION"} onChange={()=>setLevel("RE_EXTRACTION")}/> Re-extraction (พลาสมาหลอดที่ 2 — รูปแบบ ID รอ OD-03)</label></fieldset></>}
   {type==="redraw"&&<p className="help">สร้างรอบใหม่ภายใต้ HIS LN เดิม งานที่ค้างของรอบนี้ถูกหยุด ANC เห็นสถานะ “ต้องเก็บตัวอย่างใหม่” ทันที — ไม่มีการเขียนใด ๆ ไป HIS</p>}
   {(type==="repeat"||type==="redraw")&&<div><label htmlFor="code">รหัสเหตุผล</label><select id="code" value={code} onChange={e=>setCode(e.target.value)}><option value="">เลือกเหตุผล</option>{(type==="repeat"?REPEAT_REASONS:REDRAW_REASONS).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div>}
-  {type==="receive"&&!issued&&<><p className="help">บันทึกเมื่อตัวอย่างมาถึง Lab จริงเท่านั้น — LN Halos ของรอบนี้ออกจากการรับครั้งนี้ หากกดซ้ำจะได้เลขเดิม</p>
+  {type==='accept'&&<div><label htmlFor="acceptance-criteria">เอกสาร / เกณฑ์ที่ใช้ตรวจรับ</label><input id="acceptance-criteria" value={code} onChange={e=>setCode(e.target.value)}/></div>}
+  {['receive','accept'].includes(type)&&!issued&&<>{type==='receive'&&<p className="help">บันทึกเมื่อตัวอย่างมาถึง Lab จริงเท่านั้น — LN Halos ของรอบนี้ออกจากการรับครั้งนี้ หากกดซ้ำจะได้เลขเดิม</p>}
    <label className="check-label"><input type="checkbox" checked={identity} onChange={e=>setIdentity(e.target.checked)}/> ตรวจตัวตนผู้รับบริการตรงกับ HIS LN เดิมแล้ว</label>
    <label className="check-label"><input type="checkbox" checked={label} onChange={e=>setLabel(e.target.checked)}/> ตรวจฉลากหลอดตรงกับเคสและรอบแล้ว</label>
    <fieldset><legend>สภาพสิ่งส่งตรวจ (นโยบายการยอมรับรอ OD-01)</legend><label className="check-label"><input type="radio" name="cond" checked={condition==="ACCEPTABLE"} onChange={()=>setCondition("ACCEPTABLE")}/> ไม่พบปัญหา</label><label className="check-label"><input type="radio" name="cond" checked={condition==="PROBLEM_NOTED"} onChange={()=>setCondition("PROBLEM_NOTED")}/> พบปัญหา (ระบุ)</label></fieldset>
-   <div><label htmlFor="cdate">วันที่เจาะเลือดของรอบนี้</label><input id="cdate" type="date" value={date} onChange={e=>setDate(e.target.value)}/></div></>}
+   {type==='receive'&&<div><label htmlFor="cdate">วันที่เจาะเลือดของรอบนี้</label><input id="cdate" type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>}</>}
   {issued?<p className="notice success" role="status">{issued.duplicate?"รับไว้แล้วก่อนหน้า — ":""}LN Halos ของรอบนี้: <strong className="mono">{issued.lnHalos}</strong> พิมพ์ฉลากได้จากคิว “พร้อมเข้าตรวจ/ติด Gate”</p>
    :needsNote&&<div><label htmlFor="note">{type==="receive"?"รายละเอียดปัญหา":"เหตุผล"} (อย่างน้อย 8 ตัวอักษร)</label><textarea id="note" value={note} onChange={e=>setNote(e.target.value)} maxLength={500} rows={3}/></div>}
   {error&&<p className="notice" role="alert">{error}</p>}

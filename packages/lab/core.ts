@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {operationalDataEnabled} from '../security/runtime';
 import type {Queryable} from '../db/connection';
 import {appendAudit} from '../db/audit';
 import {authorize,type Principal,type Operation} from '../security/policy';
@@ -24,13 +25,13 @@ export async function assertSession(db:Queryable,user:Staff){
  if(!r.rows[0])throw new LabError('UNAUTHENTICATED',401);if(r.rows[0].signing_suspended)throw new LabError('STAFF_SESSION_SUSPENDED',423);
 }
 export async function audit(db:Queryable,user:Staff,action:string,resourceType:string,resourceId:string|undefined,details:Record<string,string|number|boolean>={}){
- await appendAudit(db,{actorId:user.id,action,resourceType,resourceId,details:{...details,synthetic:true}});
+ await appendAudit(db,{actorId:user.id,action,resourceType,resourceId,details:{...details,synthetic:!operationalDataEnabled()}});
 }
 export async function caseEvent(db:Queryable,user:Staff,caseId:string,type:string,details:Record<string,unknown>={}){
- await db.query('INSERT INTO case_event(case_id,event_type,details) VALUES($1,$2,$3)',[caseId,type,JSON.stringify({...details,actorId:user.id,synthetic:true})]);
+ await db.query('INSERT INTO case_event(case_id,event_type,details) VALUES($1,$2,$3)',[caseId,type,JSON.stringify({...details,actorId:user.id,synthetic:!operationalDataEnabled()})]);
 }
 export async function attemptEvent(db:Queryable,user:Staff,e:{attemptId:string;caseId:string;type:string;from?:string;to?:string;reason?:string|null;stage?:string|null;details?:Record<string,unknown>}){
- await db.query('INSERT INTO attempt_event(attempt_id,case_id,event_type,stage,from_state,to_state,reason,actor_id,details) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[e.attemptId,e.caseId,e.type,e.stage??null,e.from??null,e.to??null,e.reason??null,user.id,JSON.stringify({...(e.details??{}),synthetic:true})]);
+ await db.query('INSERT INTO attempt_event(attempt_id,case_id,event_type,stage,from_state,to_state,reason,actor_id,details) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[e.attemptId,e.caseId,e.type,e.stage??null,e.from??null,e.to??null,e.reason??null,user.id,JSON.stringify({...(e.details??{}),synthetic:!operationalDataEnabled()})]);
 }
 export async function setAttemptState(db:Queryable,user:Staff,a:{id:string;case_id:string;state:string},to:string,details:Record<string,unknown>={},extra:{qcFailedStage?:string}={}){
  if(a.state===to)return;
@@ -44,7 +45,7 @@ export async function pendingPolicy(db:Queryable):Promise<{policy:PendingPolicy;
 export const BATCH_TEMPLATE='SYNTHETIC-BATCH48-PC1-NC25-BLANK40-v1';
 
 export type AttemptRow={attempt_id:string;case_id:string;round_id:string;attempt_number:number;attempt_state:string;repeat_order_id:string|null;printed_sample_id:string|null;resume_decision_required:boolean;qc_failed_stage:string|null;attempt_created_at:Date;
- round_number:number;round_state:string;received_source:string|null;received_at:Date|null;analysis_started:boolean;round_collection_date:string|null;receipt_check:Record<string,unknown>|null;
+ round_number:number;round_state:string;received_source:string|null;received_at:Date|null;analysis_started:boolean;round_collection_date:string|null;receipt_check:Record<string,unknown>|null;specimen_accepted?:boolean;
  current_round_id:string;registration_origin:'ANC'|'LAB_DIRECT'|'HISTORICAL';unit_id:string|null;ln:string;ln_verification:string;ln_halos:string|null;
  repeat_state:string|null;repeat_level:RepeatLevel|null;parent_attempt_id:string|null;open_issues:number;revoked:boolean;consent_ev:string|null;request_ev:string|null;clinical_state:string|null;collection_dates:string[];
  pregnancy:'Singleton'|'Twins'|null;other_relibrary:number;previously_finalized:boolean;hold:boolean;hold_stage:string|null;urgent:boolean;urgent_reason:string|null;
@@ -62,10 +63,11 @@ export async function attemptFacts(db:Queryable,where:string,params:unknown[]):P
     UNION ALL SELECT p.created_at,CASE p.status WHEN 'Verified' THEN 'GRANTED' WHEN 'Declined' THEN 'DECLINED' ELSE 'NONE' END FROM p2_paper_review p WHERE p.round_id=a.round_id AND p.kind='CONSENT') x ORDER BY x.created_at DESC LIMIT 1) consent_ev,
   (SELECT x.ev FROM (SELECT d.created_at,'VERIFIED' ev FROM p2_document_revision d WHERE d.round_id=a.round_id AND d.kind='REQUEST'
     UNION ALL SELECT p.created_at,CASE WHEN p.status='Verified' THEN 'VERIFIED' ELSE 'NONE' END FROM p2_paper_review p WHERE p.round_id=a.round_id AND p.kind='REQUEST') x ORDER BY x.created_at DESC LIMIT 1) request_ev,
-  (SELECT s.result->>'state' FROM clinical_snapshot s WHERE s.round_id=a.round_id ORDER BY s.created_at DESC LIMIT 1) clinical_state,
+  (SELECT CASE WHEN p2_clinical_ready(a.round_id) THEN 'ClinicalPassed' WHEN s.result->>'state'='ClinicalPassed' THEN 'PendingClinicalReview' ELSE s.result->>'state' END FROM clinical_snapshot s WHERE s.round_id=a.round_id ORDER BY s.created_at DESC LIMIT 1) clinical_state,
+  (SELECT condition='ACCEPTABLE' FROM specimen_acceptance WHERE round_id=a.round_id ORDER BY created_at DESC,id DESC LIMIT 1) specimen_accepted,
   ARRAY(SELECT y.d FROM (SELECT DISTINCT ON(f.source) f.collection_date::text d FROM p2_collection_fact f WHERE f.round_id=a.round_id ORDER BY f.source,f.sequence DESC) y) collection_dates,
-  (SELECT x.pt FROM (SELECT d.created_at,d.payload->'draft'->'pregnancy'->>'type' pt FROM p2_document_revision d WHERE d.case_id=a.case_id AND d.kind='REQUEST'
-    UNION ALL SELECT p.created_at,p.panel->>'pregnancyType' FROM p2_paper_review p WHERE p.case_id=a.case_id AND p.kind='REQUEST' AND p.status='Verified') x WHERE x.pt IN ('Singleton','Twins') ORDER BY x.created_at DESC LIMIT 1) pregnancy,
+  (SELECT x.pt FROM (SELECT d.created_at,d.payload->'draft'->'pregnancy'->>'type' pt FROM p2_document_revision d WHERE d.round_id=a.round_id AND d.kind='REQUEST'
+    UNION ALL SELECT p.created_at,p.panel->>'pregnancyType' FROM p2_paper_review p WHERE p.round_id=a.round_id AND p.kind='REQUEST' AND p.status='Verified') x WHERE x.pt IN ('Singleton','Twins') ORDER BY x.created_at DESC LIMIT 1) pregnancy,
   EXISTS(SELECT 1 FROM lab_placement_snapshot ps,jsonb_array_elements(ps.payload->'slots') sl WHERE sl->>'attemptId'=a.id::text) previously_finalized,
   (SELECT count(*) FROM analytical_attempt b JOIN repeat_work_order w ON w.id=b.repeat_order_id WHERE b.round_id=a.round_id AND b.id<>a.id AND w.level='RE_LIBRARY')::int other_relibrary,
   COALESCE((SELECT e.event_type='HOLD_SET' FROM attempt_event e WHERE e.attempt_id=a.id AND e.event_type IN ('HOLD_SET','HOLD_RELEASED') ORDER BY e.sequence DESC LIMIT 1),false) hold,
@@ -86,7 +88,7 @@ export function commonFacts(r:AttemptRow):CommonFacts{
  return {isCurrentRound:r.current_round_id===r.round_id,roundNumber:r.round_number,roundState:r.round_state,receivedSource:r.received_source,analysisStarted:r.analysis_started,isRepeatChild:r.repeat_order_id!==null,previouslyFinalized:r.previously_finalized,
   openIdentityIssues:r.open_issues,lnVerifiedByPet:r.ln_verification==='VERIFIED_BY_PET',receiptIdentityAndLabel:check.identity===true&&check.label===true,
   consentRevoked:r.revoked,consentRoundEvidence:r.consent_ev==='GRANTED'?'GRANTED':r.consent_ev==='DECLINED'?'DECLINED':'NONE',requestRoundEvidence:r.request_ev==='VERIFIED'?'VERIFIED':'NONE',
-  clinicalState:r.clinical_state,collectionDates:dates};
+  clinicalState:r.clinical_state,collectionDates:dates,specimenAccepted:r.specimen_accepted===true};
 }
 export function candidatePrintedId(r:AttemptRow){
  if(r.printed_sample_id)return {status:'YES' as const,id:r.printed_sample_id};

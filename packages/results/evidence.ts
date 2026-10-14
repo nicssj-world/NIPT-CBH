@@ -1,8 +1,10 @@
 import type {Queryable} from '../db/connection';
 import {LabError} from '../lab/core';
+import {operationalWorkflow} from '../lab/operational';
+import {qc4Evidence,handoffVerified} from '../sequencing/service';
 import {storedPool} from '../sequencing/service';
 
-export type AttemptEvidence={current:boolean;reason:string|null;analysisAccepted:false;finalQcAccepted:false;poolId:string|null;dnbId:string|null;sequencingId:string|null};
+export type AttemptEvidence={current:boolean;reason:string|null;analysisAccepted:boolean;finalQcAccepted:boolean;poolId:string|null;dnbId:string|null;sequencingId:string|null};
 /** Structural currentness only. Synthetic evidence never confers clinical acceptance.
  * Caller supplies the persisted report's exact attempt, never a patient/round substitute.
  * This read does not implement a clinical mutation adapter or its concurrency protocol.
@@ -54,5 +56,10 @@ export async function attemptEvidence(db:Queryable,attemptId:string):Promise<Att
  if(!sequence)return fail('UPSTREAM_SEQUENCE_MISSING');
  result.sequencingId=sequence.id;
  if(de.some(e=>e.event_type==='SEQUENCE_HOLD'&&e.payload.sequencingId===sequence.id))return fail('UPSTREAM_SEQUENCE_HOLD');
+ if(await operationalWorkflow(db)){
+  const analysisAccepted=de.some(e=>e.event_type==='ANALYSIS_COMPLETE'&&e.payload.sequencingId===sequence.id)&&await handoffVerified(db,dnb.id)&&(await qc4Evidence(db,dnb.id,sequence.id)).ready;
+  const qc5=(await db.query<{ok:boolean}>(`SELECT EXISTS(SELECT 1 FROM result_qc5_review q JOIN result_report_version v ON v.id=q.version_id WHERE q.attempt_id=$1 AND q.sequencing_id=$2 AND v.attempt_id=$1 AND v.state IN ('Linked','ValidationBlocked','PendingCertification','CertifiedReleased') AND NOT EXISTS(SELECT 1 FROM result_report_version newer WHERE newer.round_id=v.round_id AND newer.kind=v.kind AND newer.imported_at>v.imported_at AND newer.state IN ('Linked','ValidationBlocked','PendingCertification','CertifiedReleased'))) ok`,[attemptId,sequence.id])).rows[0]?.ok===true;
+  return {...result,current:true,analysisAccepted,finalQcAccepted:analysisAccepted&&qc5};
+ }
  return {...result,current:true};
 }

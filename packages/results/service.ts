@@ -12,6 +12,8 @@ import {registerIntake} from './intake';
 import {missingRequired,type Parsed} from './parser';
 import {resultPredicates,noticePredicates,decideGate,crossFailures,type Cmp,type CrossCheck,type Purpose,type GateDecision,type GatePredicate} from './gates';
 import {attemptEvidence} from './evidence';
+import {operationalWorkflow} from '../lab/operational';
+import {digest} from '../pooling/calculation';
 
 // P5 Result Management service (Plan §11, §5.7–§5.10). Restricted synthetic: every path ends before release. Certification is
 // evaluated in the acting transaction and then answered with RELEASE_HOLD (AL-5/OD-05/OD-07); the database refuses any release.
@@ -132,7 +134,7 @@ export async function linkCandidates(db:Queryable,user:Staff,p:Parsed,s:ResultSe
 // ---------- Import confirmation ----------
 type VersionRow={id:string;intake_file_id:string;sha256:string;kind:'RESULT'|'REDRAW_NOTICE'|'UNKNOWN';template_kind:string;template_version:string;parser_version:string;parsed:Parsed;state:string;case_id:string|null;round_id:string|null;attempt_id:string|null;link_mode:string|null;supersedes_id:string|null;revision:unknown;imported_by:string;imported_at:Date;state_changed_at:Date;row_version:number};
 async function event(db:Queryable,versionId:string,from:string|null,to:string,actor:string|null,reason:string|null,details:Record<string,unknown>={}){
- await db.query('INSERT INTO result_version_event(version_id,from_state,to_state,actor_id,reason,details) VALUES($1,$2,$3,$4,$5,$6)',[versionId,from,to,actor,reason,JSON.stringify({...details,synthetic:true})]);
+ await db.query('INSERT INTO result_version_event(version_id,from_state,to_state,actor_id,reason,details) VALUES($1,$2,$3,$4,$5,$6)',[versionId,from,to,actor,reason,JSON.stringify({...details,synthetic:!await operationalWorkflow(db)})]);
 }
 /** Single place that changes a version: optimistic row_version, append-only event, DB transition guard. */
 async function move(db:Queryable,v:VersionRow,to:string,actor:string|null,reason:string|null,patch:Partial<Pick<VersionRow,'case_id'|'round_id'|'attempt_id'|'link_mode'|'supersedes_id'|'revision'>>={},details:Record<string,unknown>={}):Promise<VersionRow>{
@@ -250,7 +252,8 @@ export async function unlinkVersion(db:Queryable,user:Staff,input:unknown){
 // ---------- Gates ----------
 async function gateFor(db:Queryable,v:VersionRow,purpose:Purpose,certifierId?:string):Promise<GateDecision|null>{
  if(!v.round_id||v.kind==='UNKNOWN')return null;
- const s=await resultSettings(db),templateApproved=s.picVersion!=='unvalidated'&&!v.template_version.includes('UNAPPROVED');
+ const s=await resultSettings(db),operational=await operationalWorkflow(db),qc5=operational?(await db.query<{id:string}>('SELECT id FROM result_qc5_review WHERE version_id=$1 AND report_sha256=$2',[v.id,v.sha256])).rows[0]:null,operationalReviewed=!!qc5;
+ const templateApproved=operational?operationalReviewed:s.picVersion!=='unvalidated'&&!v.template_version.includes('UNAPPROVED');
  const x=(await db.query<{open_proposal:boolean;latest:boolean;active_release:boolean;reviewed:boolean;redraw_at:Date|null;certifier:boolean;unit_id:string|null}>(
   `SELECT EXISTS(SELECT 1 FROM result_link_event e WHERE e.version_id=$1 AND e.event='PROPOSED' AND NOT EXISTS(SELECT 1 FROM result_link_event y WHERE y.version_id=e.version_id AND y.event IN ('APPROVED','REJECTED','UNLINKED') AND y.sequence>e.sequence)) open_proposal,
    NOT EXISTS(SELECT 1 FROM result_report_version o WHERE o.round_id=$2 AND o.kind=$3 AND o.id<>$1 AND o.state IN ('LinkConflict','Linked','ValidationBlocked','PendingCertification','CertifiedReleased') AND o.imported_at>$4) latest,
@@ -279,10 +282,10 @@ async function gateFor(db:Queryable,v:VersionRow,purpose:Purpose,certifierId?:st
   linked:!!v.link_mode&&['Linked','ValidationBlocked','PendingCertification','CertifiedReleased'].includes(v.state),linkMode:v.link_mode as 'MANUAL_REVIEWED'|null,openProposal:x.open_proposal,cross,
   attemptState:a.attempt_state,attemptIsLatest:latestAttempt,hold:a.hold,qc1Accepted:y.qc1_accepted,nonMeasuredQc1:y.non_measured,batchCancelled:y.batch_cancelled||a.attempt_state==='BatchCancelled',activeSlot:a.slot_batch_id!==null,
   upstreamCurrent:evidence.current,upstreamReason:evidence.reason,analysisAccepted:evidence.analysisAccepted,finalQcAccepted:evidence.finalQcAccepted,
-  isCurrentRound:cf.isCurrentRound,roundState:cf.roundState,roundNumber:cf.roundNumber,openRepeat:y.open_repeat,openIdentityIssues:cf.openIdentityIssues,clinicalState:cf.clinicalState,consentRevoked:cf.consentRevoked,consent:cf.consentRoundEvidence,
-  pregnancy:req.pregnancy,sexPreference:req.fetalSex,sexShown:v.parsed.results.fetalSex.value!==null,versionState:v.state,latestInSeries:x.latest,activeReleaseInSeries:x.active_release,reviewedCurrent:reviewed,certifierRoleActive:x.certifier},purpose),'RG');
+  isCurrentRound:cf.isCurrentRound,roundState:cf.roundState,roundNumber:cf.roundNumber,openRepeat:y.open_repeat,openIdentityIssues:cf.openIdentityIssues,clinicalState:operational?((await db.query<{ready:boolean}>('SELECT p2_clinical_ready($1) ready',[v.round_id])).rows[0]?.ready?'Pass':'PendingClinicalReview'):cf.clinicalState,consentRevoked:cf.consentRevoked,consent:cf.consentRoundEvidence,
+  pregnancy:req.pregnancy,sexPreference:req.fetalSex,sexShown:v.parsed.results.fetalSex.value!==null,versionState:v.state,latestInSeries:x.latest,activeReleaseInSeries:x.active_release,reviewedCurrent:reviewed,certifierRoleActive:x.certifier,operationalReviewed},purpose),'RG');
 }
-async function recordGate(db:Queryable,v:VersionRow,g:GateDecision,purpose:Purpose,outcome:'BLOCKED'|'PENDING_CERTIFICATION'|'RELEASE_HOLD',actor:string|null,key:string|null){
+async function recordGate(db:Queryable,v:VersionRow,g:GateDecision,purpose:Purpose,outcome:'BLOCKED'|'PENDING_CERTIFICATION'|'RELEASE_HOLD'|'CERTIFIED_RELEASED',actor:string|null,key:string|null){
  await db.query('INSERT INTO result_gate_evaluation(version_id,gate,purpose,rule_version,predicates,eligible,outcome,actor_id,idempotency_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[v.id,g.gate,purpose,g.ruleVersion,JSON.stringify(g.predicates),g.eligible,outcome,actor,key]);
 }
 /** Validation (§5.7): Linked → PendingCertification only when every RG/RN predicate except the certifier's own passes. */
@@ -308,25 +311,59 @@ export async function recordReview(db:Queryable,user:Staff,input:unknown){
  const after=await validate(db,user,v);await audit(db,user,'RESULT_REVIEWED','RESULT_VERSION',v.id,{outcome:after.state});return {outcome:after.state};
 }
 
+/** Authorized QC5 review binds the exact immutable PDF to current accepted laboratory evidence. */
+export async function recordQc5(db:Queryable,user:Staff,input:unknown){
+ await assertSession(db,user);need(user,'qc.accept');need(user,'result.review');
+ if(!await operationalWorkflow(db))throw new LabError('OWNER_DECISIONS_HOLD',423);
+ const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,criteriaReference:reasonText,templateReviewed:z.literal(true),disclosureReviewed:z.literal(true),abnormalAcknowledged:z.boolean(),reason:reasonText}).parse(input);
+ const pre=await versionOf(db,d.versionId);if(!pre.round_id||!pre.attempt_id||pre.kind!=='RESULT')throw new LabError('QC5_LINKED_RESULT_REQUIRED',409);
+ await lockChain(db,pre.round_id,pre.attempt_id,[pre.id]);let v=await versionOf(db,pre.id,true);
+ if(v.row_version!==d.expectedRowVersion)throw new LabError('VERSION_CONFLICT',409);
+ if(!['Linked','ValidationBlocked','PendingCertification'].includes(v.state))throw new LabError('QC5_LINKED_RESULT_REQUIRED',409);
+ if(v.parsed.abnormal&&!d.abnormalAcknowledged)throw new LabError('ABNORMAL_ACK_REQUIRED',422);
+ const upstream=await attemptEvidence(db,v.attempt_id!);
+ if(!upstream.current||!upstream.analysisAccepted||!upstream.poolId||!upstream.dnbId||!upstream.sequencingId)throw new LabError('QC5_ACCEPTED_UPSTREAM_REQUIRED',409);
+ const reviewed=(await db.query('SELECT id FROM result_review WHERE version_id=$1 ORDER BY created_at DESC LIMIT 1',[v.id])).rows[0];if(!reviewed)throw new LabError('REVIEW_NOT_RECORDED',409);
+ const sourceHash=digest({report:v.sha256,attemptId:v.attempt_id,poolId:upstream.poolId,dnbId:upstream.dnbId,sequencingId:upstream.sequencingId,reviewId:reviewed.id});
+ const qc5=(await db.query<{id:string}>(`INSERT INTO result_qc5_review(version_id,attempt_id,pool_id,dnb_id,sequencing_id,report_sha256,source_sha256,review_id,criteria_reference,reason,reviewer_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,[v.id,v.attempt_id,upstream.poolId,upstream.dnbId,upstream.sequencingId,v.sha256,sourceHash,reviewed.id,d.criteriaReference,d.reason,user.id])).rows[0];
+ const a=(await db.query<{state:string}>('SELECT state FROM analytical_attempt WHERE id=$1',[v.attempt_id])).rows[0];
+ if(a.state==='InProgress')await db.query("UPDATE analytical_attempt SET state='AnalysisComplete' WHERE id=$1",[v.attempt_id]);
+ if(['InProgress','AnalysisComplete'].includes(a.state))await db.query("UPDATE analytical_attempt SET state='FinalQcAccepted' WHERE id=$1",[v.attempt_id]);
+ const gate=(await gateFor(db,v,'VALIDATION'))!;
+ if(!gate.eligible)throw new LabError('QC5_GATE_FAILED',409,{failed:gate.failed,pending:gate.pending});
+ v=await validate(db,user,v);
+ await audit(db,user,'RESULT_QC5_ACCEPTED','result_qc5_review',qc5.id,{outcome:'Accepted',ruleVersion:'AUTHORIZED_QC5_REVIEW_v1'});
+ return {id:qc5.id,outcome:v.state};
+}
+
 /** "รับรองและส่งผล" (§11.5): one transaction, lock order, RG/RN re-evaluated now. Eligible or not, nothing is released:
  *  AL-5, OD-05 and OD-07 are open, `result.certify`/`notice.release` are denied and p5_release_authorized() is false. */
 export async function certifyAttempt(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);
- const d=z.strictObject({versionId:uuid,idempotencyKey:z.string().regex(/^[A-Za-z0-9_-]{16,80}$/),abnormalAcknowledged:z.boolean(),expectedRowVersion:rowVersion}).parse(input);
+ const d=z.strictObject({versionId:uuid,idempotencyKey:z.string().regex(/^[A-Za-z0-9_-]{16,80}$/),abnormalAcknowledged:z.boolean(),expectedRowVersion:rowVersion,confirmed:z.boolean().optional()}).parse(input);
  need(user,'result.release.check');
+ const operational=await operationalWorkflow(db);if(operational){need(user,'result.certify');if(d.confirmed!==true)throw new LabError('CERTIFICATION_CONFIRMATION_REQUIRED',422);}
  await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,75432850))',[d.idempotencyKey]);
  const prior=(await db.query<{version_id:string;gate:'RG'|'RN';predicates:GatePredicate[]}>('SELECT version_id,gate,predicates FROM result_gate_evaluation WHERE idempotency_key=$1',[d.idempotencyKey])).rows[0];
- if(prior){if(prior.version_id!==d.versionId)throw new LabError('IDEMPOTENCY_KEY_REUSED',409);const g=decideGate(prior.predicates,prior.gate);return {outcome:g.eligible?'RELEASE_HOLD':'BLOCKED',replayed:true,predicates:g.predicates,failed:g.failed,pending:g.pending,waitsForP4b:g.waitsForP4b};}
+ if(prior){if(prior.version_id!==d.versionId)throw new LabError('IDEMPOTENCY_KEY_REUSED',409);const g=decideGate(prior.predicates,prior.gate);const release=operational?(await db.query<{id:string}>('SELECT id FROM result_release WHERE version_id=$1',[prior.version_id])).rows[0]:null;return {outcome:release?'CertifiedReleased':g.eligible?'RELEASE_HOLD':'BLOCKED',releaseId:release?.id,replayed:true,predicates:g.predicates,failed:g.failed,pending:g.pending,waitsForP4b:g.waitsForP4b};}
  const pre=await versionOf(db,d.versionId);if(!pre.round_id)throw new LabError('VALIDATION_REQUIRES_LINKED',409);
  await lockChain(db,pre.round_id,pre.attempt_id,[pre.id]);let v=await versionOf(db,pre.id,true);
  if(v.row_version!==d.expectedRowVersion)throw new LabError('VERSION_CONFLICT',409);
  if(v.parsed.abnormal&&!d.abnormalAcknowledged)throw new LabError('ABNORMAL_ACK_REQUIRED',422);
  const g=(await gateFor(db,v,'CERTIFY_ATTEMPT',user.id))!;
- const outcome=g.eligible?'RELEASE_HOLD':'BLOCKED';
+ const outcome=g.eligible?(operational?'CERTIFIED_RELEASED':'RELEASE_HOLD'):'BLOCKED';
  await recordGate(db,v,g,'CERTIFY_ATTEMPT',outcome,user.id,d.idempotencyKey);
  if(!g.eligible&&v.state==='PendingCertification')v=await move(db,v,'ValidationBlocked',user.id,g.failed[0]??g.pending[0]??null);
+ let releaseId:string|undefined;
+ if(outcome==='CERTIFIED_RELEASED'){
+  if(v.kind!=='RESULT'||!v.attempt_id)throw new LabError('RESULT_RELEASE_REQUIRED',409);
+  v=await move(db,v,'CertifiedReleased',user.id,'AUTHORIZED_SESSION_CERTIFICATION');
+  const release=(await db.query<{id:string}>("INSERT INTO result_release(version_id,case_id,round_id,kind,channel,certified_by,synthetic) VALUES($1,$2,$3,$4,'NIPT_ANC_VIEW',$5,false) RETURNING id",[v.id,v.case_id,v.round_id,v.kind,user.id])).rows[0];releaseId=release.id;
+  await db.query("INSERT INTO result_release_completed(release_id,version_id,actor_id) VALUES($1,$2,$3)",[release.id,v.id,user.id]);
+  await db.query("INSERT INTO job_outbox(kind,payload,idempotency_key) VALUES('result_release_completed',$1,$2)",[JSON.stringify({releaseId:release.id}),'release:'+release.id]);
+ }
  await audit(db,user,'RESULT_CERTIFY_ATTEMPT','RESULT_VERSION',v.id,{outcome});
- return {outcome,replayed:false,predicates:g.predicates,failed:g.failed,pending:g.pending,waitsForP4b:g.waitsForP4b};
+ return {outcome:outcome==='CERTIFIED_RELEASED'?'CertifiedReleased':outcome,releaseId,replayed:false,predicates:g.predicates,failed:g.failed,pending:g.pending,waitsForP4b:g.waitsForP4b};
 }
 /** Void. Before release it withdraws an import that will never be linked; after release it needs a release, which AL-5 holds. */
 export async function voidVersion(db:Queryable,user:Staff,input:unknown){
@@ -357,7 +394,7 @@ export async function versionDetail(db:Queryable,user:Staff,id:string){
  const proposal=await openProposal(db,v.id);
  const target=v.round_id?(await db.query<{round_number:number;ln:string;ln_halos:string|null;printed_sample_id:string|null;attempt_number:number|null;attempt_state:string|null;current:boolean}>('SELECT r.round_number,l.ln,n.ln_halos,a.printed_sample_id,a.attempt_number,a.state attempt_state,c.current_round_id=r.id current FROM specimen_round r JOIN nipt_case c ON c.id=r.case_id JOIN case_ln l ON l.id=r.case_ln_id LEFT JOIN specimen_lab_number n ON n.round_id=r.id LEFT JOIN analytical_attempt a ON a.id=$2 WHERE r.id=$1',[v.round_id,v.attempt_id])).rows[0]:null;
  const conflicts=await versionNameConflicts(db,v);
- return {nameConflicts:conflicts,version:{id:v.id,kind:v.kind,templateKind:v.template_kind,templateVersion:v.template_version,parserVersion:v.parser_version,state:v.state,rowVersion:v.row_version,sha256:v.sha256,importedAt:v.imported_at,caseId:v.case_id,roundId:v.round_id,attemptId:v.attempt_id,linkMode:v.link_mode,supersedesId:v.supersedes_id,revision:v.revision},
+ return {operational:await operationalWorkflow(db),nameConflicts:conflicts,version:{id:v.id,kind:v.kind,templateKind:v.template_kind,templateVersion:v.template_version,parserVersion:v.parser_version,state:v.state,rowVersion:v.row_version,sha256:v.sha256,importedAt:v.imported_at,caseId:v.case_id,roundId:v.round_id,attemptId:v.attempt_id,linkMode:v.link_mode,supersedesId:v.supersedes_id,revision:v.revision},
   parsed:v.parsed,summary:summary(v.parsed),intake:{...intake,size:Number(intake.byte_size)},target,proposal,
   candidates:v.state==='Unlinked'&&v.kind!=='UNKNOWN'?await linkCandidates(db,user,v.parsed,s):[],
   gate:v.round_id?await gateFor(db,v,'VALIDATION'):null,events:events.rows,links:links.rows,gates:gates.rows,reviews:reviews.rows,

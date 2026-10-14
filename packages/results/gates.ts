@@ -22,6 +22,7 @@ export type ResultFacts={
  pregnancy:'Singleton'|'Twins'|null;sexPreference:string|null;sexShown:boolean;
  versionState:string;latestInSeries:boolean;activeReleaseInSeries:boolean;reviewedCurrent:boolean;
  certifierRoleActive:boolean;
+ operationalReviewed?:boolean;
 };
 export type NoticeFacts={
  templateApproved:boolean;linked:boolean;openProposal:boolean;cross:CrossCheck;redrawForRound:boolean;redrawRequestedAt:Date|null;importedAt:Date;
@@ -56,12 +57,12 @@ export function resultPredicates(f:ResultFacts,purpose:Purpose):GatePredicate[]{
  out.push(['Pass','AcknowledgedConditions'].includes(f.clinicalState??'')?p('RG-09','PASS','CLINICAL_GATE_PASS'):f.clinicalState==='PendingClinicalReview'?p('RG-09','PENDING','CLINICAL_RULES_NOT_APPROVED',{governance:'OD-08'}):p('RG-09','FAIL',f.clinicalState?`CLINICAL_${f.clinicalState.replace(/[^A-Za-z]/g,'_').toUpperCase()}`:'CLINICAL_NOT_ASSESSED'));
  out.push(f.consentRevoked?p('RG-10','FAIL','CONSENT_REVOKED'):f.consent==='GRANTED'?p('RG-10','PASS','CONSENT_GRANTED'):f.consent==='DECLINED'?p('RG-10','FAIL','CONSENT_DECLINED'):f.roundNumber>=2?p('RG-10','PENDING','REDRAW_CONSENT_APPLICABILITY',{governance:'OD-16'}):p('RG-10','FAIL','CONSENT_NOT_GRANTED'));
  // RG-11 proposed OD-09 rule: a singleton report that shows fetal sex is blocked unless the recorded wish is "Want".
- out.push(f.templateKind==='TWIN'?p('RG-11','PENDING','TWIN_Y_CHROMOSOME_DISCLOSURE_RULE',{governance:'OD-09'})
-  :!f.sexShown?p('RG-11','PASS','SEX_NOT_SHOWN'):f.sexPreference==='Want'?p('RG-11','PENDING','DISCLOSURE_RULE_PROPOSED_ONLY',{governance:'OD-09'})
+ out.push(f.templateKind==='TWIN'&&f.operationalReviewed?p('RG-11','PASS','TWIN_DISCLOSURE_REVIEWED'):f.templateKind==='TWIN'?p('RG-11','PENDING','TWIN_Y_CHROMOSOME_DISCLOSURE_RULE',{governance:'OD-09'})
+  :!f.sexShown?p('RG-11','PASS','SEX_NOT_SHOWN'):f.sexPreference==='Want'&&f.operationalReviewed?p('RG-11','PASS','DISCLOSURE_REVIEWED'):f.sexPreference==='Want'?p('RG-11','PENDING','DISCLOSURE_RULE_PROPOSED_ONLY',{governance:'OD-09'})
   :f.sexPreference==='DoNotWant'?p('RG-11','FAIL','SEX_SHOWN_BUT_NOT_WANTED'):p('RG-11','FAIL','SEX_PREFERENCE_NOT_RECORDED'));
  out.push(!f.latestInSeries?p('RG-12','FAIL','NOT_LATEST_VERSION'):f.activeReleaseInSeries?p('RG-12','FAIL','ACTIVE_RELEASE_EXISTS'):!f.reviewedCurrent?p('RG-12','FAIL','REVIEW_NOT_RECORDED')
   :!OPEN_STATES.includes(f.versionState)?p('RG-12','FAIL',`VERSION_${f.versionState.toUpperCase()}`):p('RG-12','PASS','LATEST_REVIEWED_VERSION'));
- if(purpose==='CERTIFY_ATTEMPT')out.push(!f.certifierRoleActive?p('RG-13','FAIL','CERTIFIER_ROLE_NOT_ACTIVE'):p('RG-13','PENDING','CONFIRMATION_METHOD_AND_GOVERNANCE_SIGNOFF',{governance:'OD-05'}));
+ if(purpose==='CERTIFY_ATTEMPT')out.push(!f.certifierRoleActive?p('RG-13','FAIL','CERTIFIER_ROLE_NOT_ACTIVE'):f.operationalReviewed?p('RG-13','PASS','AUTHORIZED_SESSION_CONFIRMATION'):p('RG-13','PENDING','CONFIRMATION_METHOD_AND_GOVERNANCE_SIGNOFF',{governance:'OD-05'}));
  return out;
 }
 

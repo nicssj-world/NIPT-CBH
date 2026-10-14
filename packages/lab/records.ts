@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {operationalWorkflow} from './operational';
 import {createHash} from 'node:crypto';
 import type {Queryable} from '../db/connection';
 import type {FileStore} from '../storage';
@@ -151,12 +152,14 @@ export async function verifyExecution(db:Queryable,user:Staff,input:unknown){
 /** Stage QC1 (§5.6, §12.5): human decision on a Verified value, always stamped UNAPPROVED_OD31 while OD-31 is open. */
 export async function decideStageQc1(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'qc.accept');
- const d=z.strictObject({attemptId:uuid,decision:z.enum(['Accepted','Failed','Remeasure','Hold']),reason:reasonText}).parse(input);
+ const d=z.strictObject({attemptId:uuid,decision:z.enum(['Accepted','Failed','Remeasure','Hold']),reason:reasonText,criteriaReference:reasonText.optional()}).parse(input);
+ const operational=await operationalWorkflow(db),criteriaStatus=operational?'REVIEWED_OPERATIONAL':'UNAPPROVED_OD31';
+ if(operational&&!d.criteriaReference)throw new LabError('QC1_CRITERIA_REFERENCE_REQUIRED',422);
  const a=(await db.query<{id:string;case_id:string;state:string;repeat_order_id:string|null}>('SELECT id,case_id,state,repeat_order_id FROM analytical_attempt WHERE id=$1 FOR UPDATE',[d.attemptId])).rows[0];
  if(!a)throw new LabError('NOT_FOUND',404);if(a.state!=='InProgress')throw new LabError('STAGE_QC_REQUIRES_IN_PROGRESS',409);
  const o=(await db.query<{id:string;value:{value:string};batch_id:string;slot_number:number}>("SELECT o.id,o.value,o.batch_id,o.slot_number FROM lab_observation o JOIN lab_slot_assignment x ON x.batch_id=o.batch_id AND x.slot_number=o.slot_number AND x.removed_at IS NULL WHERE x.attempt_id=$1 AND o.field_id='F3-03' AND o.status='Verified' ORDER BY o.sequence DESC LIMIT 1",[a.id])).rows[0];
  if(!o)throw new LabError('STAGE_QC_REQUIRES_VERIFIED_VALUE',409);
- const id=(await db.query<{id:string}>("INSERT INTO attempt_stage_qc(attempt_id,stage,decision,observation_id,criteria_status,criteria_consulted,reason,decided_by) VALUES($1,'QC1',$2,$3,'UNAPPROVED_OD31',$4,$5,$6) RETURNING id",[a.id,d.decision,o.id,QC1_CRITERIA.map(c=>c.code),d.reason,user.id])).rows[0].id;
+ const id=(await db.query<{id:string}>("INSERT INTO attempt_stage_qc(attempt_id,stage,decision,observation_id,criteria_status,criteria_consulted,reason,decided_by) VALUES($1,'QC1',$2,$3,$4,$5,$6,$7) RETURNING id",[a.id,d.decision,o.id,criteriaStatus,operational?[d.criteriaReference!]:QC1_CRITERIA.map(c=>c.code),d.reason,user.id])).rows[0].id;
  const hold=(await db.query<{e:string}>("SELECT event_type e FROM attempt_event WHERE attempt_id=$1 AND event_type IN ('HOLD_SET','HOLD_RELEASED') ORDER BY sequence DESC LIMIT 1",[a.id])).rows[0]?.e==='HOLD_SET';
  if(d.decision==='Failed'){
   await setAttemptState(db,user,a,'QcFailed',{stageQcId:id},{qcFailedStage:'QC1'});
@@ -164,9 +167,9 @@ export async function decideStageQc1(db:Queryable,user:Staff,input:unknown){
  }else if((d.decision==='Remeasure'||d.decision==='Hold')&&!hold)await attemptEvent(db,user,{attemptId:a.id,caseId:a.case_id,type:'HOLD_SET',stage:'QC1',reason:d.reason});
  else if(d.decision==='Accepted'&&hold)await attemptEvent(db,user,{attemptId:a.id,caseId:a.case_id,type:'HOLD_RELEASED',stage:'QC1',reason:d.reason});
  await db.query('UPDATE lab_batch SET version=version+1 WHERE id=$1',[o.batch_id]);
- await caseEvent(db,user,a.case_id,'LAB_STAGE_QC1_DECIDED',{decision:d.decision,criteria:'UNAPPROVED_OD31'});
- await audit(db,user,'LAB_STAGE_QC1_DECIDED','attempt_stage_qc',id,{outcome:d.decision,ruleVersion:'UNAPPROVED_OD31'});
- return {id,decision:d.decision,criteriaStatus:'UNAPPROVED_OD31',candidates:qc1Candidates(o.value.value,'PATIENT')};
+ await caseEvent(db,user,a.case_id,'LAB_STAGE_QC1_DECIDED',{decision:d.decision,criteria:criteriaStatus});
+ await audit(db,user,'LAB_STAGE_QC1_DECIDED','attempt_stage_qc',id,{outcome:d.decision,ruleVersion:criteriaStatus});
+ return {id,decision:d.decision,criteriaStatus,candidates:qc1Candidates(o.value.value,'PATIENT')};
 }
 
 type QcStatus='MEASURED'|'AWAITING_DECISION'|'NOT_PERFORMED'|'EXCLUDED'|'STOPPED'|'REQUIRED_PENDING'|'NOT_APPLICABLE';
