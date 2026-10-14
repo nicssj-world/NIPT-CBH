@@ -17,6 +17,6 @@ BACKUP_KEY_FILE=./data/keys/backup.key
 # Remote PostgreSQL requires sslmode=verify-full; provision its trusted CA certificate.
 
 # Exact owner-locked XLSX, on the local native Excel renderer host.
-NIPT_TASK_MASTER_PATH=./data/templates/Final New_Task_List_Edit (2).xlsx
+NIPT_TASK_MASTER_PATH=./data/templates/Final_New_Task_List_Edit_2_F52_Corrected.xlsx
 # Deployment-owned OS-account grants: INBOUND, OUTBOUND and read-only RESULTS.
 NIPT_HIS_SHARE_POLICY_FILE=./data/config/share-policy.json

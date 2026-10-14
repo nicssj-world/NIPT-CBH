@@ -15,7 +15,7 @@ export async function exportTaskPdfs(bytes:Buffer) {
     const input=path.join(temp,'task.xlsx'), output=path.join(temp,'pdf');
     await writeFile(input,bytes,{flag:'wx'});
     await run(process.env.NIPT_NATIVE_POWERSHELL??'pwsh.exe',['-NoLogo','-NoProfile','-NonInteractive','-File',path.join(process.cwd(),'packages/workbook/native-export.ps1'),'-InputWorkbook',input,'-OutputDirectory',output],{windowsHide:true,maxBuffer:1024*1024,timeout:180000});
-    const calculation=JSON.parse(await readFile(path.join(output,'native-manifest.json'),'utf8')) as {index:number;formulaCount:number;formulaErrors:{cell:string;error:string}[]}[];
+    const calculation=JSON.parse(await readFile(path.join(output,'native-manifest.json'),'utf8')) as {index:number;formulaCount:number;formulaErrors:{cell:string;error:string}[];poolingCalculation:null|{D52:number|null;F52:number;D55:number;F52Formula:string;D55Formula:string}}[];
     if(calculation.length!==6||calculation.reduce((n,s)=>n+s.formulaCount,0)!==149)throw new Error('TASK_NATIVE_FORMULA_COUNT_MISMATCH');
     const results=[];
     for(const [index,sheet] of SHEETS.entries()) {
@@ -34,7 +34,7 @@ export async function exportTaskPdfs(bytes:Buffer) {
           pages.push({page:p,width,height,fonts,textItems:content.items.length});
         }
         const native=calculation.find(s=>s.index===index+1);if(!native)throw new Error('TASK_NATIVE_CALCULATION_EVIDENCE_MISSING');
-        results.push({sheet,bytes:pdf,sha256:sha256(pdf),pageCount:document.numPages,pages,formulaCount:native.formulaCount,formulaErrors:native.formulaErrors,renderer:'Microsoft Excel' as const,goldenFidelityVerified:false as const});
+        results.push({sheet,bytes:pdf,sha256:sha256(pdf),pageCount:document.numPages,pages,formulaCount:native.formulaCount,formulaErrors:native.formulaErrors,poolingCalculation:native.poolingCalculation,renderer:'Microsoft Excel' as const,goldenFidelityVerified:false as const});
       } finally {await loading.destroy();}
     }
     return results;

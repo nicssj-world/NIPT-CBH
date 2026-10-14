@@ -1,6 +1,6 @@
 import {readArchive, sha256, writeArchive, xmlDecode, xmlEscape} from './archive';
 
-export const MASTER_SHA256 = '2747a9f6c6da9231996bd9d0a23b1da3100d910209d440643c70158f7fe20722';
+export const MASTER_SHA256 = '2f8aef50243c89eae6a4e9115d65fbf9239754a1bd9ce330205378f3a9b3aacf';
 export const SHEETS = ['Ext. & Prep. Task List 1','Ext. & Prep. Task List 2','Ext. & Prep. Task List 3','QC measurements','Pooling Table','Seq Task-G50'] as const;
 export type Binding = {key: string; sheet: string; cell: string; dataType: 'text'|'number'|'checkbox'; source: string; requiredCondition: string; defaultBehavior: 'master-value'; mapping: string; editable: true; rendering?:'append'};
 export type InventoryCell = {sheet: string; cell: string; classification: 'editable'|'calculated'|'static'|'unmapped-blank'; text: string; formula: string|null; binding: Binding|null};

@@ -5,8 +5,9 @@ import {csrf} from '../p2/shared';
 import {labApi} from './lab-api';
 import type {workbookWorkspace} from '../../../packages/workbook/service';
 import type {Binding} from '../../../packages/workbook/master';
+import {poolDilutionReady,POOL_DILUTION_NOTICE} from '../../../packages/workbook/dilution';
 type Data=Awaited<ReturnType<typeof workbookWorkspace>>;
-const label=(field:Binding,text:string)=>field.dataType==='checkbox'?text.replace('☐','').trim():field.key.endsWith('.date')?'วันที่ปฏิบัติงาน':field.key.endsWith('.operator')?'ผู้ปฏิบัติงาน':field.key.endsWith('.run')?'หมายเลข Run':field.key.endsWith('.printedSampleId')?'รหัสตัวอย่าง / Control':field.key.endsWith('.extractionLotExp')?'Extraction LOT / EXP':field.key.endsWith('.libraryLotExp')?'Library LOT / EXP':field.key.endsWith('.libraryQc')?'ความเข้มข้น Library (ng/µL)':field.key.endsWith('.extractionQc')?'ความเข้มข้น Extraction (ng/µL)':field.key.endsWith('.transferChecked')?'ยืนยันรหัสบนหลอดตรงใบงาน':field.key.includes('standard1')?'ค่าที่วัด Standard 1':field.key.includes('standard2Concentration')?'ความเข้มข้น Standard 2':field.key.includes('standard2')?'ค่าที่วัด Standard 2':field.key==='seq.dnbId'?'DNB ID':field.key==='seq.instrument'?'หมายเลขเครื่อง Sequencer':field.key==='seq.barcodeType'?'ชนิด Barcode':field.key==='seq.negativePressureKpa'?'Negative Pressure (kPa)':field.key==='seq.driveMemoryTb'?'พื้นที่ Drive (TB)':text||field.source;
+const label=(field:Binding,text:string)=>field.dataType==='checkbox'?text.replace('☐','').trim():field.key.endsWith('.date')?'วันที่ปฏิบัติงาน':field.key.endsWith('.operator')?'ผู้ปฏิบัติงาน':field.key.endsWith('.run')?'หมายเลข Run':field.key.endsWith('.printedSampleId')?'รหัสตัวอย่าง / Control':field.key.endsWith('.extractionLotExp')?'Extraction LOT / EXP':field.key.endsWith('.libraryLotExp')?'Library LOT / EXP':field.key.endsWith('.libraryQc')?'ความเข้มข้น Library (ng/µL)':field.key.endsWith('.extractionQc')?'ความเข้มข้น Extraction (ng/µL)':field.key.endsWith('.transferChecked')?'ยืนยันรหัสบนหลอดตรงใบงาน':field.key.includes('standard1')?'ค่าที่วัด Standard 1':field.key.includes('standard2Concentration')?'ความเข้มข้น Standard 2':field.key.includes('standard2')?'ค่าที่วัด Standard 2':field.key==='pool.dilutionC1'?'ความเข้มข้นก่อนเจือจาง (ng/µL)':field.key==='seq.dnbId'?'DNB ID':field.key==='seq.instrument'?'หมายเลขเครื่อง Sequencer':field.key==='seq.barcodeType'?'ชนิด Barcode':field.key==='seq.negativePressureKpa'?'Negative Pressure (kPa)':field.key==='seq.driveMemoryTb'?'พื้นที่ Drive (TB)':text||field.source;
 export function WorkbookEditor({batchId,canWrite}:{batchId:string;canWrite:boolean}) {
   const [data,setData]=useState<Data|null>(null),[values,setValues]=useState<Record<string,unknown>>({}),[message,setMessage]=useState(''),[busy,setBusy]=useState(false),[preview,setPreview]=useState<string|null>(null),[sheet,setSheet]=useState('Ext. & Prep. Task List 1');
   const api=`/api/workbook/batches/${batchId}`;
@@ -25,7 +26,8 @@ export function WorkbookEditor({batchId,canWrite}:{batchId:string;canWrite:boole
     {message&&<p role="status">{message}</p>}
     {data&&<>
       <p>Draft ฉบับ {data.draft?.revision??0} · สูตร Excel {data.matrix.formulaCount} สูตร</p>
-      {data.sourceStale&&<p role="alert">ข้อมูล Lab เปลี่ยนหลังบันทึก Draft กรุณาตรวจค่าและบันทึกฉบับใหม่ก่อนออกเอกสาร</p>}
+      {!poolDilutionReady(values)&&<p role="alert" id="pool-dilution-notice">{POOL_DILUTION_NOTICE}</p>}
+      {data.sourceStale&&<p role="alert">ข้อมูล Lab หรือ Excel Master เปลี่ยนหลังบันทึก Draft กรุณาตรวจค่าและบันทึกฉบับใหม่ก่อนออกเอกสาร</p>}
       <p>รหัสตัวอย่างและค่าที่มีบันทึกใน Lab อ่านจากข้อมูลต้นทาง ช่องอื่นบันทึกเป็น Draft ของใบงาน</p>
       {[...new Set(data.matrix.bindings.map(f=>f.sheet))].map(name=><details key={name}><summary>{name}</summary><div className="form-grid">{data.matrix.bindings.filter(f=>f.sheet===name).map(field=>{
         const value=values[field.key],automatic=field.key in data.automaticValues||/^slot\.\d+\.printedSampleId$/.test(field.key)||/^task\.\d+\.run$/.test(field.key);

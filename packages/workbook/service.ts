@@ -52,7 +52,7 @@ async function latest(db:Queryable,batchId:string){return (await db.query<Revisi
 export async function workbookWorkspace(db:Queryable,user:Staff,batchId:string,deps:WorkbookDeps) {
   const batch=await access(db,user,uuid.parse(batchId)),current=await source(db,batchId),draft=await latest(db,batchId);
   const exports=(await db.query(`SELECT e.id,e.format,e.sheet,e.file_sha256,e.manifest,e.created_by,e.created_at,r.revision FROM task_workbook_export e JOIN task_workbook_revision r ON r.id=e.revision_id WHERE r.batch_id=$1 ORDER BY e.created_at DESC`,[batchId])).rows;
-  return {batchId,version:batch.version,masterSha256:MASTER_SHA256,matrix:inspectTaskMaster(deps.master),draft,sourceSha256:current.sha256,sourceStale:!!draft&&draft.source_sha256!==current.sha256,automaticValues:current.values,values:{...(draft?.values??{}),...current.values},exports};
+  return {batchId,version:batch.version,masterSha256:MASTER_SHA256,matrix:inspectTaskMaster(deps.master),draft,sourceSha256:current.sha256,sourceStale:!!draft&&(draft.source_sha256!==current.sha256||draft.master_sha256!==MASTER_SHA256),automaticValues:current.values,values:{...(draft?.values??{}),...current.values},exports};
 }
 export async function saveWorkbookDraft(db:Queryable,user:Staff,input:unknown,deps:WorkbookDeps) {
   const d=z.strictObject({batchId:uuid,expectedVersion:z.number().int().min(0),expectedRevision:z.number().int().min(0),values:z.record(z.string(),z.unknown())}).parse(input);
@@ -68,7 +68,7 @@ export async function saveWorkbookDraft(db:Queryable,user:Staff,input:unknown,de
 export async function exportWorkbook(db:Queryable,user:Staff,input:unknown,deps:WorkbookDeps) {
   const d=z.strictObject({batchId:uuid,revision:z.number().int().positive(),format:z.enum(['XLSX','PDF']),sheet:z.enum(SHEETS).optional()}).parse(input);
   await access(db,user,d.batchId,true);const draft=await latest(db,d.batchId);if(!draft||draft.revision!==d.revision)throw new LabError('TASK_CURRENT_DRAFT_REQUIRED',409);
-  const current=await source(db,d.batchId);if(current.sha256!==draft.source_sha256)throw new LabError('TASK_SOURCE_CHANGED_REBIND_REQUIRED',409);
+  const current=await source(db,d.batchId);if(current.sha256!==draft.source_sha256||draft.master_sha256!==MASTER_SHA256)throw new LabError('TASK_SOURCE_CHANGED_REBIND_REQUIRED',409);
   const generated=generateTaskWorkbook(deps.master,draft.values);
   let bytes=generated.bytes,manifest:Record<string,unknown>={masterSha256:MASTER_SHA256,sourceSha256:current.sha256,revision:d.revision,xlsxSha256:generated.sha256,formulaCount:149,calculation:'native Excel recalculation required'};
   if(d.format==='PDF') {

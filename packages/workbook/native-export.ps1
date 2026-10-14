@@ -43,7 +43,9 @@ try {
       if($cell.HasFormula){$formulaCount++;if($cell.Text -match '^#(REF!|DIV/0!|VALUE!|N/A|NAME\?|NUM!|NULL!)$'){$formulaErrors+=@{cell=$cell.Address();error=$cell.Text}}}
       [Runtime.InteropServices.Marshal]::FinalReleaseComObject($cell)|Out-Null
     }
-    $manifest+=@{index=$index;sheet=$sheet.Name;file=$target;formulaCount=$formulaCount;formulaErrors=$formulaErrors;paperSize=$sheet.PageSetup.PaperSize;zoom=$sheet.PageSetup.Zoom;fitToPagesWide=$sheet.PageSetup.FitToPagesWide;fitToPagesTall=$sheet.PageSetup.FitToPagesTall;printArea=$sheet.PageSetup.PrintArea}
+    $poolingCalculation=$null
+    if($index -eq 5){$poolingCalculation=@{D52=$sheet.Range('D52').Value2;F52=$sheet.Range('F52').Value2;D55=$sheet.Range('D55').Value2;F52Formula=$sheet.Range('F52').Formula;D55Formula=$sheet.Range('D55').Formula}}
+    $manifest+=@{index=$index;sheet=$sheet.Name;file=$target;formulaCount=$formulaCount;formulaErrors=$formulaErrors;poolingCalculation=$poolingCalculation;paperSize=$sheet.PageSetup.PaperSize;zoom=$sheet.PageSetup.Zoom;fitToPagesWide=$sheet.PageSetup.FitToPagesWide;fitToPagesTall=$sheet.PageSetup.FitToPagesTall;printArea=$sheet.PageSetup.PrintArea}
     [Runtime.InteropServices.Marshal]::FinalReleaseComObject($sheet)|Out-Null
   }
   $manifest|ConvertTo-Json -Depth 4|Set-Content -LiteralPath ([IO.Path]::Combine($destination,'native-manifest.json')) -Encoding utf8
