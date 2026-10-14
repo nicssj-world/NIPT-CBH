@@ -8,12 +8,8 @@ export const HEADERS = Object.freeze([
   '*Sample ID', '*Lane ID', '*DNB ID\n(20 characters limited)', '*Barcode ID',
   'Sub-Library Conc. (ng/μl)',
 ] as const);
-/** Observed D2:D48, not a physical-position conversion algorithm. */
-export const BARCODE_ORDER: readonly number[] = Object.freeze([
-  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
-  14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
-  31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48,
-]);
+import {BARCODE_ORDER} from './barcodes';
+export {BARCODE_ORDER} from './barcodes';
 
 const opaque = z.string().min(1).refine(v => v.trim().length > 0 && !/[\u0000-\u001f\u007f]/.test(v), 'INVALID_OPAQUE_TEXT');
 const revision = z.number().int().positive();
