@@ -12,7 +12,7 @@ CREATE TABLE ln_halos_monthly_sequence(
   sequence_month date PRIMARY KEY CHECK (extract(day FROM sequence_month)=1),
   last_value integer NOT NULL CHECK (last_value BETWEEN 0 AND 999)
 );
-REVOKE ALL ON ln_halos_monthly_sequence FROM PUBLIC,app_rw,worker_rw,report_ro;
+REVOKE ALL ON ln_halos_monthly_sequence FROM PUBLIC;
 
 -- Migration to a running synthetic instance must not reset the counter to 001.
 -- Count all allocated daily numbers, including retired/deleted numbers.
@@ -51,5 +51,6 @@ BEGIN
   RETURN code;
 END $$;
 
-REVOKE ALL ON FUNCTION p4_ensure_ln_halos(uuid,text) FROM PUBLIC,worker_rw,report_ro;
-GRANT EXECUTE ON FUNCTION p4_ensure_ln_halos(uuid,text) TO app_rw;
+REVOKE ALL ON FUNCTION p4_ensure_ln_halos(uuid,text) FROM PUBLIC;
+-- Existing app_rw EXECUTE privilege is preserved on REPLACE; fresh DB role setup
+-- runs packages/db/roles.sql after migrations, so do not refer to roles here.
