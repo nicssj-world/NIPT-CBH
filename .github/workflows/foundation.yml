@@ -44,6 +44,8 @@ jobs:
       - run: npx tsx tools/seed.ts
       - run: npm run simulator
       - run: npm run guard
+      - name: Signed deployment target and recovery contracts
+        run: node --test tests/deploy/*.node.mjs
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test

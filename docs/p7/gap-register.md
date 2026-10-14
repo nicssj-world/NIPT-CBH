@@ -30,3 +30,7 @@ Technical and clinical acceptance are separate. Final candidate counts/SHAs belo
 |AL7/P8 / acceptance|Staff/manual/clinical/operational evidence and cutover decision absent|Execute approved UAT/ACR/training/DR, Q-I6/Q-I7/Q-I11 and signed validation/cutover. P8 Pilot is NOT READY|
 
 Additional legacy capabilities (user-admin UX/first-run setup,TAT/overdue policy,notification recipients/internal email,capacity/backup schedules/daily report recipients) remain PARTIAL/HOLD in their existing phase/settings matrices. Their detailed operational/SoD/retention/recipient policies are not approved here; this validation does not invent them or label them complete. Network/runtime server binding remains deployment configuration, with actual LAN cutover evidence pending. No legacy archive re-audit, Production migration or deployment was performed.
+
+## P8 continuation — 2026-10-14
+
+P7 PR #8 and post-merge CI passed; [P8 delivery](../p8/delivery.md) and [P8 gap register](../p8/gap-register.md) track operational preparation and remaining dependencies. Owner selects OD-26(c) as the design baseline; actual cutoff/anchor, approved frozen list, governed in-flight exception and cutover authority remain HOLD. This supersedes only the earlier pending design-choice chronology, not clinical eligibility or AL-7 acceptance. The development chain still has5 HIGH findings; Production audit remains0.
