@@ -15,7 +15,9 @@ const settingsSchema=z.strictObject({
   version:id,resDirectory:directory,pdfDirectory:directory,backupDirectory:directory,
   retryDelaysMs:z.array(z.number().int().positive().max(86400000)).max(10),
   confirmationTimeoutMs:z.number().int().positive().max(86400000),
+  connection:z.strictObject({revisionId:z.uuid(),resPath:z.string().min(1).max(500),pdfPath:z.string().min(1).max(500),backupPath:z.string().min(1).max(500),secretRef:z.uuid().nullable()}).optional(),
 }).superRefine((s,ctx)=>{
+  if(s.connection&&s.version!=='SYNTHETIC-SETTINGS-'+s.connection.revisionId)ctx.addIssue({code:'custom',message:'CONFIGURATION_VERSION_MISMATCH'});
   const paths=[s.resDirectory,s.pdfDirectory,s.backupDirectory];
   if(paths.some((a,i)=>paths.some((b,j)=>i!==j&&(a===b||a.startsWith(b+'/')))))ctx.addIssue({code:'custom',message:'OVERLAPPING_PATHS'});
 });
@@ -69,7 +71,7 @@ export function freezeSyntheticTransfer(draft:SyntheticDraft,sequence:number):Re
     resName:res.filename,pdfName:pdfFilename(draft.input.order.hn,draft.input.order.ln,sequence,draft.profile.pdfTemplate),okName:res.filename.replace(/\.res$/,'.ok'),
     resHash:digest(res.bytes),pdfHash:digest(draft.pdf),resHex:res.bytes.toString('hex'),pdfHex:draft.pdf.toString('hex'),
     profileVersion:draft.profile.version,profileHash:digest(canonical(draft.profile)),settingsVersion:settings.version,settingsHash:digest(canonical(settings)),
-    resDestinationId:digest(settings.resDirectory),pdfDestinationId:digest(settings.pdfDirectory),
+    resDestinationId:digest(settings.connection?.resPath??settings.resDirectory),pdfDestinationId:digest(settings.connection?.pdfPath??settings.pdfDirectory),
     retryDelaysMs:Object.freeze([...settings.retryDelaysMs]),confirmationTimeoutMs:settings.confirmationTimeoutMs,
   };
   return Object.freeze({...payload,fingerprint:digest(canonical(payload))});
@@ -113,7 +115,7 @@ const eventSchema=z.discriminatedUnion('type',[
   z.strictObject({type:z.literal('CONFIRM'),evidence:evidenceSchema}),z.strictObject({type:z.literal('RETRY')}),
   z.strictObject({type:z.literal('WRITE_STARTED'),stage:z.enum(['PDF','RES','BACKUP','OK'])}),
   z.strictObject({type:z.literal('UNEXPECTED_OK')}),
-  z.strictObject({type:z.literal('FAILURE'),stage:z.enum(['PDF','RES','BACKUP','OK']),code:z.enum(['IO_ERROR','HASH_MISMATCH','COLLISION','BACKUP_FAILED'])}),
+  z.strictObject({type:z.literal('FAILURE'),stage:z.enum(['PDF','RES','BACKUP','OK']),code:z.enum(['IO_ERROR','HASH_MISMATCH','COLLISION','BACKUP_FAILED']),accessCode:z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/).optional()}),
 ]);
 export type TransferEvent=z.infer<typeof eventSchema>;
 const gateSchema=z.strictObject({epoch:integer,fixtureEligible:z.boolean(),consentValid:z.boolean(),settingsVersion:id});

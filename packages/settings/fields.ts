@@ -21,9 +21,9 @@ export const SETTING_FORMS:Record<SettingKey,SettingForm>={
   {name:"absoluteHours",label:"อายุ Session สูงสุด",help:"ล็อกตาม Baseline §13",kind:"locked",unit:"ชั่วโมง",lockedBy:"LOCKED Baseline"},
   {name:"lockoutAttempts",label:"ใส่รหัสผิดได้",help:"ล็อกตาม Baseline §13",kind:"locked",unit:"ครั้ง",lockedBy:"LOCKED Baseline"},
   {name:"lockoutMinutes",label:"ระยะล็อกบัญชี",help:"ล็อกตาม Baseline §13",kind:"locked",unit:"นาที",lockedBy:"LOCKED Baseline"}]},
- his_inbound:{key:"his_inbound",title:"HIS ขาเข้า (.pet)",summary:"โฟลเดอร์ใบสั่งจาก HIS แบบอ่านอย่างเดียว — ตัวจำลองเท่านั้นจนกว่า AL-3",phase:"P3",fields:[
+ his_inbound:{key:"his_inbound",title:"HIS ขาเข้า (.pet)",summary:"โฟลเดอร์ใบสั่งแบบอ่านอย่างเดียว — Share ทดสอบที่ IT อนุญาต ข้อมูลผู้ป่วยจริงยัง HOLD",phase:"P3",fields:[
   {name:"enabled",label:"เปิดการสแกนอัตโนมัติ",help:"ปิดไว้เป็นค่าเริ่มต้น",kind:"boolean"},
-  {name:"basePath",label:"โฟลเดอร์ขาเข้า",help:"ข้อมูลจำลองต้องเป็น simulator/inbound — Path จริงของโรงพยาบาลรอ AL-3",kind:"path"},
+  {name:"basePath",label:"โฟลเดอร์ขาเข้า",help:"Local/UNC ที่ IT อนุญาต หรือ simulator/inbound — Worker ตรวจ Allowed Root และสิทธิ์ Service Account",kind:"path"},
   {name:"section",label:"Section",help:"ล็อกตาม LOCKED §7.1",kind:"locked",lockedBy:"LOCKED §7.1"},
   {name:"testCode",label:"รหัสการตรวจ NIPT",help:"ล็อกตาม LOCKED §7.1",kind:"locked",lockedBy:"LOCKED §7.1"},
   {name:"intervalSeconds",label:"รอบการสแกน",help:"5–3,600 วินาที",kind:"number",unit:"วินาที",min:5,max:3600},
@@ -50,9 +50,15 @@ export const SETTING_FORMS:Record<SettingKey,SettingForm>={
   {name:"postReleaseRecollection",label:"การเก็บตัวอย่างใหม่หลังออกผล",help:"ระหว่างรอ OD-17: ต้อง Void ผลเดิมก่อน",kind:"locked",lockedBy:"OD-17 HOLD"},
   {name:"noticeChannel",label:"ช่องทางหนังสือแจ้งเจาะซ้ำ",help:"ระหว่างรอ OD-07: แสดงใน NIPT เท่านั้น",kind:"locked",lockedBy:"OD-07 HOLD"},
   {name:"releaseAuthority",label:"สิทธิ์ปล่อยผลจริง",help:"HOLD จนกว่า AL-5 (OD-04 Clinical Governance, OD-05, OD-07) ผ่าน",kind:"locked",lockedBy:"AL-5 HOLD"}]},
- his_outbound:{key:"his_outbound",title:"HIS ขาออก / CFS",summary:"ส่งผลเข้า HIS — ตัวจำลองเท่านั้น งานจริงเป็นของ P6",phase:"P6 (Deferred)",fields:[
-  {name:"enabled",label:"เปิดการส่งไปตัวจำลอง",help:"Sandbox เท่านั้น",kind:"boolean"},
-  {name:"target",label:"ปลายทาง",help:"ตัวจำลองเท่านั้นจนถึง P6/AL-6",kind:"locked",lockedBy:"P6 Deferred"},
+ his_outbound:{key:"his_outbound",title:"HIS ขาออก / CFS",summary:"ส่ง Synthetic ไปยัง Share ทดสอบที่ IT อนุญาต — Clinical ยัง HOLD",phase:"P6",fields:[
+  {name:"resDestinationPath",label:"ปลายทาง RES / OK",help:"Local/UNC ใน Allowed Root สำหรับ Synthetic Test เท่านั้น",kind:"path"},
+  {name:"pdfDestinationPath",label:"ปลายทาง PDF / CFS",help:"ต้องเป็นคนละโฟลเดอร์กับ RES และ Backup",kind:"path"},
+  {name:"backupPath",label:"โฟลเดอร์สำรองไฟล์ส่ง",help:"ตรวจ PDF/RES และ Backup ก่อนสร้าง OK — ไม่เขียนทับไฟล์เดิม",kind:"path"},
+  {name:"secretRef",label:"Credential / Secret Reference",help:"UUID อ้างอิง Credential ที่ IT จัดเตรียมให้ Service Account — ไม่ใส่รหัสผ่าน",kind:"uuid-or-empty"},
+  {name:"retryDelaySeconds",label:"ระยะรอ Retry เริ่มต้น",help:"เพิ่มแบบ Exponential ตามจำนวนครั้ง สูงสุดหนึ่งวัน",kind:"number",unit:"วินาที",min:1,max:3600},
+  {name:"confirmationTimeoutSeconds",label:"ระยะรอการยืนยัน",help:"หมดเวลาเป็น UNKNOWN_TIMEOUT — ไม่ถือว่า HIS รับผลแล้ว",kind:"number",unit:"วินาที",min:1,max:86400},
+  {name:"enabled",label:"เปิด Synthetic Transfer",help:"การส่ง Clinical จริงยังปิดอยู่",kind:"boolean"},
+  {name:"target",label:"ปลายทาง",help:"Synthetic Transport เท่านั้น รวม Authorized Test Share",kind:"locked",lockedBy:"SYNTHETIC ONLY"},
   {name:"productionAuthorized",label:"อนุญาตส่งจริง",help:"ปิดถาวรใน Phase นี้",kind:"locked",lockedBy:"AL-6 HOLD"},
   {name:"resultStyle",label:"รูปแบบข้อความผลใน .res",help:"เทียบ NIPTY nipt_result_style",kind:"select",options:[{value:"full",label:"full — ระบุครบ"},{value:"short",label:"short — สั้น"},{value:"fixed",label:"fixed — ข้อความคงที่"}]},
   {name:"retryLimit",label:"จำนวนครั้งลองใหม่",help:"1–10",kind:"number",unit:"ครั้ง",min:1,max:10},

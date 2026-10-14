@@ -1,0 +1,30 @@
+"use client";
+import {useEffect,useState} from 'react';
+type Test={id:string;revision_id:string;version:string;result:null|{passed:boolean;errorCode?:string;sampleParse?:string;dayFolders?:number;pairedPetFiles?:number;backupVerified?:boolean}};
+type Transfer={id:string;configuration_version:string;state:string;attempts:number;last_code:string|null;next_retry_at:string|null;access_error:string|null};
+type History={state:string;hisConfirmed:boolean;events:{revision:number;code:string}[]};
+const errors:Record<string,string>={SHARE_PATH_NOT_FOUND:'ไม่พบ Path หรือไฟล์',SHARE_PERMISSION_DENIED:'Service Account ไม่มีสิทธิ์เข้าถึง',SHARE_FILE_ACCESS_FAILED:'อ่านหรือเขียนไฟล์ไม่ได้',SHARE_ROOT_NOT_ALLOWED:'Path อยู่นอก Allowed Root หรืออนุญาตซ้ำกัน',SHARE_SERVICE_ACCOUNT_MISMATCH:'บัญชีที่รัน Worker ไม่ตรงกับบัญชีที่ IT อนุญาต',SHARE_CREDENTIAL_REFERENCE_MISMATCH:'Secret Reference ไม่ตรงกับ Credential ที่ IT จัดเตรียม',SHARE_TEST_MARKER_REQUIRED:'ไม่มีเครื่องหมาย Share ทดสอบที่อนุญาต',SHARE_LINK_PROHIBITED:'พบ Link หรือ Path เปลี่ยนปลายทาง',HIS_CONFIGURATION_CHANGED:'รุ่นการตั้งค่าเปลี่ยน ต้องทดสอบหรือสร้างงานใหม่',SHARE_POLICY_REQUIRED:'ยังไม่ได้กำหนด Allowed Root บนเครื่อง Worker',P6_SANDBOX_DISABLED:'ยังไม่ได้เปิด Worker สำหรับ Synthetic Test',PATH_ALIAS:'RES / PDF / Backup ใช้ Path ซ้อนกัน'};
+export function HisSettingsStatus({settingKey,activeId,canTest,canRetry,onValidate,draftIds}:{settingKey:string;activeId?:string;canTest:boolean;canRetry:boolean;onValidate:(id:string)=>void;draftIds:string[]}){
+ const [tests,setTests]=useState<Test[]>([]),[transfers,setTransfers]=useState<Transfer[]>([]),[history,setHistory]=useState<History|null>(null),[message,setMessage]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+ async function refresh(){const r=await fetch('/api/settings/his');if(!r.ok)throw Error('โหลดสถานะ Worker ไม่สำเร็จ');const d=await r.json();setTests(d.tests);setTransfers(d.transfers);}
+ useEffect(()=>{let live=true;const run=()=>{if(live)void refresh().catch(e=>setError(e.message));};run();const timer=setInterval(run,3000);return()=>{live=false;clearInterval(timer);};},[]);
+ async function action(operation:string,id:string){setBusy(true);setError('');try{const me=await fetch('/api/me').then(r=>r.json());const r=await fetch('/api/settings/his',{method:'POST',headers:{'Content-Type':'application/json','x-csrf-token':me.csrf},body:JSON.stringify({operation,id})});const d=await r.json();if(!r.ok)throw Error(d.error);setMessage('เข้าคิว Worker แล้ว — ตรวจผลด้านล่าง การทดสอบนี้ไม่อนุญาต Clinical Integration');await refresh();}catch(e){setError(e instanceof Error?e.message:'ทำรายการไม่สำเร็จ');}finally{setBusy(false);}}
+ async function showHistory(id:string){try{const r=await fetch('/api/settings/his?history='+encodeURIComponent(id));if(!r.ok)throw Error('โหลดประวัติไม่สำเร็จ');setHistory(await r.json());}catch(e){setError(e instanceof Error?e.message:'โหลดประวัติไม่สำเร็จ');}}
+ const relevant=tests.filter(t=>t.revision_id===activeId||draftIds.includes(t.revision_id));
+ return <section className="panel" aria-label="สถานะ HIS Integration"><h2>ทดสอบการเชื่อมต่อจาก Worker</h2>
+  <p className="notice">ใช้ข้อมูล Synthetic และ Share ทดสอบที่ IT อนุญาตเท่านั้น · Clinical Publisher: HOLD · Hospital LAN Acceptance: NOT RUN</p>
+  <p className="help">บันทึกร่าง → ทดสอบร่าง → รอผล Worker → บันทึกผลทดสอบผ่าน → ผู้ตรวจอีกคนอนุมัติ → เปิดใช้ รุ่นที่เปิดใช้เท่านั้นมีผลกับ Worker</p>
+  {canTest&&activeId&&<button type="button" className="button secondary" disabled={busy} onClick={()=>action('test_active',activeId)}>Test Connection — รุ่นที่ใช้งาน</button>}
+  <div aria-live="polite">{message&&<p role="status">{message}</p>}{error&&<p role="alert">{error}</p>}</div>
+  {relevant.length?<ul className="timeline">{relevant.map(t=><li key={t.id}><strong>รุ่น {t.version}</strong> · {!t.result?'รอ Worker':t.result.passed?'ผ่านการทดสอบ Synthetic':'ทดสอบไม่ผ่าน'}
+   {t.result?.errorCode&&<p role="status">{errors[t.result.errorCode]??'ตรวจสอบ Path, Permission และไฟล์ทดสอบ'} <code>{t.result.errorCode}</code></p>}
+   {t.result?.pairedPetFiles!==undefined&&<p>Daily Folder: {t.result.dayFolders} · PET/OK: {t.result.pairedPetFiles} · Sample Parse: {t.result.sampleParse}</p>}
+   {t.result?.backupVerified&&<p>RES / PDF / OK และ Backup ตรวจสอบแล้ว · HIS Confirmed: false</p>}
+   {t.result?.passed&&draftIds.includes(t.revision_id)&&<button type="button" className="button secondary" onClick={()=>onValidate(t.revision_id)}>บันทึกผลทดสอบผ่านของร่างนี้</button>}
+  </li>)}</ul>:<p>ยังไม่มีผลทดสอบ — ต้องมี Worker ทำงานและเข้าถึง Share ที่อนุญาต</p>}
+  {settingKey==='his_outbound'&&<><h3>Transfer Status / Retry</h3><p className="help">ประวัติจาก P6 Journal เดิม · Retry รอ Backoff และตรวจรุ่น Settings ใหม่ · การสร้าง OK ไม่ใช่ HIS Confirmation</p>
+   {transfers.length?<ul className="timeline">{transfers.map(t=><li key={t.id}><code>{t.id}</code><p>{t.state} · ครั้งที่ {t.attempts} · {t.last_code??'—'}</p>{t.access_error&&<p>{errors[t.access_error]??'ตรวจสอบ File Access'} <code>{t.access_error}</code></p>}<p className="help">Configuration: {t.configuration_version}{t.next_retry_at?' · Retry หลัง '+new Date(Number(t.next_retry_at)).toLocaleString('th-TH',{timeZone:'Asia/Bangkok'}):''}</p><button type="button" className="button secondary" onClick={()=>showHistory(t.id)}>ดูประวัติ / Error</button>{t.state==='RETRY_PENDING'&&canRetry&&<button type="button" className="button secondary" disabled={busy} onClick={()=>action('retry',t.id)}>เข้าคิว Retry</button>}</li>)}</ul>:<p>ยังไม่มี Synthetic Transfer ใน Journal</p>}
+   {history&&<div role="region" aria-label="ประวัติการส่ง"><h3>{history.state} · HIS Confirmed: {String(history.hisConfirmed)}</h3><ol>{history.events.map(e=><li key={e.revision}>รุ่น {e.revision}: <code>{e.code}</code></li>)}</ol><button type="button" className="button secondary" onClick={()=>setHistory(null)}>ปิดประวัติ</button></div>}
+  </>}
+ </section>;
+}

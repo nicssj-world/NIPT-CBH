@@ -4,6 +4,7 @@ import {assertSyntheticDatabase} from '../../packages/db/connection';
 import {registerFixture,reserveFixture,loadTransfer,applyEvent,cancelFixtureTransfer,recordReconciliation,readHistory,readMonitoring} from '../../packages/p6/journal';
 import {runP6Cycle} from '../../packages/p6/worker';
 import {assertSandboxEnabled} from '../../packages/p6/sandbox';
+import {bindActiveOutboundSettings} from '../../packages/settings/his';
 import {sandboxFixture} from './fixtures';
 
 /** CLI operations, not a web/API surface. Enrollment needs the isolated fixture-writer role;
@@ -12,8 +13,8 @@ export async function sandboxCommand(pool:Pool,args:string[]){
   assertSandboxEnabled();if(args[0]==='run')return runP6Cycle(pool);const db=await pool.connect();
   try{
     const [command,id,option,actor]=args;
-    if(command==='enroll'){
-      const d=sandboxFixture(Number(id));await registerFixture(db,d,option);const row=await reserveFixture(db,d.fixtureId);return {id:row.id,state:row.model.state,syntheticOnly:true};
+    if(command==='enroll'||command==='enroll-active'){
+      const fixture=sandboxFixture(Number(id)),d=command==='enroll-active'?await bindActiveOutboundSettings(db,fixture):fixture;await registerFixture(db,d,option);const row=await reserveFixture(db,d.fixtureId);return {id:row.id,state:row.model.state,syntheticOnly:true};
     }
     if(command==='status')return readMonitoring(db);
     if(command==='history')return readHistory(db,id);
