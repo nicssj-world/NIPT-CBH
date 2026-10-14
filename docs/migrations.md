@@ -49,5 +49,8 @@ Migration070 is the additive P5H restricted synthetic Historical Backfill schema
 | --- | --- | --- |
 | 080_p7_closed_clinical_state.sql | 4e9a182a43c4ef895bf35d7b33e1fb787ca5c2bf17356976b7d31fdf4c1d4218 | Rejects unauthorized clinical acceptance state entry; no adapter bypass |
 | 081_p7_result_maintenance_evidence.sql | be8bf50b80fe209631e1bbc62623e83d0900c9f9b861bc9b8437bc92af5013a8 | Append-only query export and diagnostic reparse; no report or release mutation |
+| 082_p4_monthly_ln_halos.sql | 73e0dcd470de3c45ea36cce3e067c0788f059917d9e3507c5e2e5869dea34ad1 | Owner 2026-10-14: LN Halos NNN continuous per Bangkok month (first day resets to 001), no edits to immutable 010 |
 
 Existing 001–070 migration bytes are unchanged from ad66ab4. Ordered application and ledger checksums were verified on fresh native/PGlite databases, and all113public tables/ledger rows restored in the native DR drill. Runtime grants are reapplied separately; no Production apply or ledger repair.
+
+Migration082 is an additive correction to the P4 LN Halos issuer on current 001–081 bases. It keeps YYBYYMMDDNNN with the actual Bangkok issuance date, but changes NNN from daily to monthly allocation (001–999, no wrap). On upgraded synthetic databases it seeds the monthly allocation counter from every pre-existing daily allocation, including retired numbers. No previously issued LN Halos, placement snapshot, printed sample ID, document or historical patient record is rewritten. The existing audit-chain-before-month-counter lock order and receipt-only trigger are preserved. Current production Genomic-CBH historical renumbering is a separate migration; NIPT-CBH remains synthetic and must not ingest real patient identifiers.
