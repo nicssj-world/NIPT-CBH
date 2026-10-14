@@ -92,7 +92,7 @@ export function candidatePrintedId(r:AttemptRow){
  if(r.printed_sample_id)return {status:'YES' as const,id:r.printed_sample_id};
  if(!r.ln_halos)return {status:'OD03_FORMAT_PENDING' as const,id:null};
  if(!r.pregnancy)return {status:'PREGNANCY_UNCONFIRMED' as const,id:null};
- const id=printedSampleId({base:r.ln_halos,pregnancy:r.pregnancy,attemptNumber:r.attempt_number,repeatLevel:r.repeat_level,earlierReLibraryCount:r.other_relibrary});
+ const id=printedSampleId({base:r.ln_halos,pregnancy:r.pregnancy,attemptNumber:r.attempt_number,repeatLevel:r.repeat_level,earlierReLibraryCount:r.other_relibrary,roundNumber:r.round_number,receivedSource:r.received_source});
  return id?{status:'YES' as const,id}:{status:'OD03_FORMAT_PENDING' as const,id:null};
 }
 export function assignmentDecision(r:AttemptRow,policy:PendingPolicy){

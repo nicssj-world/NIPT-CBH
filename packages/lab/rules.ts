@@ -85,8 +85,12 @@ export function stripLabels(runLabel: string, sheet: SheetNumber) {
  * return null so the attempt cannot be finalized with an invented identifier.
  */
 export type RepeatLevel = "RE_LIBRARY" | "RE_EXTRACTION";
-export function printedSampleId(input: { base: string; pregnancy: "Singleton" | "Twins" | "Unknown" | null; attemptNumber: number; repeatLevel: RepeatLevel | null; earlierReLibraryCount: number }) {
+export function printedSampleId(input: { base: string; pregnancy: "Singleton" | "Twins" | "Unknown" | null; attemptNumber: number; repeatLevel: RepeatLevel | null; earlierReLibraryCount: number; roundNumber?:number; receivedSource?:string|null }) {
   const code = effectiveLnHalos(input.base, input.pregnancy);
+  if(input.receivedSource==='HIS_PET_RECEIPT'&&(input.roundNumber??1)>1){
+    if(input.roundNumber!==2||input.attemptNumber!==1||input.repeatLevel!==null)return null;
+    return formatRunSampleId(code,'Re-Sampling');
+  }
   if (input.attemptNumber === 1 && input.repeatLevel === null) return formatRunSampleId(code, "Normal");
   if (input.attemptNumber > 1 && input.repeatLevel === "RE_LIBRARY" && input.earlierReLibraryCount === 0) return formatRunSampleId(code, "Re-Library");
   return null;

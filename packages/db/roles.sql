@@ -37,6 +37,8 @@ GRANT SELECT ON his_order TO app_rw;
 GRANT SELECT,INSERT,UPDATE ON his_intake_issue,his_inbound_waiting TO worker_rw;
 GRANT SELECT,INSERT ON his_intake_issue_event,his_inbound_source,his_inbound_scan_run TO worker_rw;
 GRANT SELECT ON nipt_case,case_ln,specimen_round,his_order,app_user TO worker_rw;
+-- Read requested redraw lineage for PET-backed S2; worker still cannot create/edit redraw requests.
+GRANT SELECT ON redraw_request TO worker_rw;
 GRANT SELECT,INSERT ON case_event TO worker_rw;
 -- Worker matching compares the registrant's immutable P2 HN; it never writes P2 evidence. Column-scoped reads only.
 GRANT SELECT(case_id,hn) ON p2_case_identity TO worker_rw;

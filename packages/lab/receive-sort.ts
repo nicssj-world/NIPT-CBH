@@ -1,7 +1,8 @@
 // Receive Date/Time ordering — Owner Lock 2026-10-12 (NIPT_CBH_P4_Receive_Date_Sorting_Owner_Lock).
 // One semantic for every screen: the specimen round's actual receipt time.
 //  S1  = HIS `.pet` P[21] (specimen_round.received_at, which the s1_receipt_guard forces to equal his_order.his_received_at);
-//  S2+ = the NIPT local receipt time; a Repeat keeps the receipt time of its original specimen round.
+//  S2 = new HIS PET P[21] when an expected redraw is matched; legacy local receipts keep their recorded time.
+//  Repeat keeps the receipt time of its original specimen round.
 // Never registration/case creation, `.pet` ingestion, P[23] collection or O[14] order time. Missing receipt = null, sorted last
 // in both directions and never replaced by "now". Equal times fall back to immutable keys so order never flips between refreshes.
 export type SortDirection = "asc" | "desc";

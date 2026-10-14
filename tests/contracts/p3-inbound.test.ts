@@ -206,7 +206,7 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
   expect(await caseState(f.db,caseId)).toEqual(before);expect(await openIssues(f.db)).toEqual([]);
  });
 
- for(const s2Received of [false,true])it(`AT-LIN-08 resent/changed/late S1 PET while S2 is ${s2Received?'received in NIPT':'Expected'}: S2 untouched, S1 HIS time immutable`,async()=>{
+ for(const s2Received of [false,true])it(`AT-LIN-08 new PET while S2 is ${s2Received?'already received in NIPT':'Expected'}: only an expected redraw receives the new P[21]; S1 immutable`,async()=>{
   const caseId=await register(f,{ln:LN,hn:HN});
   const base={ln:LN,hn:HN,receivedAt:'20261012090000'};const first=await writePet(f.root,DAY,base);await cycle(f,{now:NOW});
   const s1=(await caseState(f.db,caseId)).rounds[0];await redrawToRound2(caseId,s2Received);const s2=await round2(caseId);
@@ -215,9 +215,9 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
   await writePet(f.root,'20261013',{...base,receivedAt:'20261013083000'},{mtime:later(7)});
   await writePet(f.root,'20261014',{...base,name:'SYNTHETIC^^นาง แก้ไข'},{mtime:later(8)});
   await cycle(f,{now:new Date('2026-10-14T05:00:00Z'),lookbackDays:5});
-  expect(await round2(caseId)).toBe(s2);
-  const after=await caseState(f.db,caseId);expect(after.rounds[0].received_at).toEqual(s1.received_at);expect(after.orders).toHaveLength(1);
-  expect((await openIssues(f.db)).map(i=>i.kind)).toEqual(['LN_REUSED_OR_CHANGED','S1_INTEGRITY_EVENT']);
+  const after=await caseState(f.db,caseId);expect(after.rounds[0].received_at).toEqual(s1.received_at);
+  if(s2Received){expect(await round2(caseId)).toBe(s2);expect(after.orders).toHaveLength(1);expect((await openIssues(f.db)).map(i=>i.kind)).toEqual(['LN_REUSED_OR_CHANGED','S1_INTEGRITY_EVENT']);}
+  else{expect(after.rounds[1]).toMatchObject({state:'ReceivedInHIS',received_source:'HIS_PET_RECEIPT'});expect(after.rounds[1].received_at?.toISOString()).toBe('2026-10-13T01:30:00.000Z');expect(after.orders).toHaveLength(2);expect((await openIssues(f.db)).map(i=>i.kind)).toEqual(['LN_REUSED_OR_CHANGED']);}
  });
 
  it('AT-LDR-02 PET first → Lab blind entry: presence only, never HIS values; match links at P[21]; mismatch → IDENTITY_MISMATCH; identifier source recorded',async()=>{

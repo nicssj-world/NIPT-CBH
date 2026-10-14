@@ -9,7 +9,7 @@ import {transactional,errorCode} from './tx';
 
 export const ISSUE_KINDS=['IDENTITY_MISMATCH','LN_REUSED_OR_CHANGED','LN_REUSED_DIFFERENT_PATIENT','UNLINKED','IDENTITY_UNVERIFIED','S1_INTEGRITY_EVENT','HISTORICAL_LN_INTAKE'] as const;
 export type IssueKind=typeof ISSUE_KINDS[number];
-export type ProcessOutcome='APPLIED_S1'|'DUPLICATE'|'SKIPPED'|IssueKind;
+export type ProcessOutcome='APPLIED_S1'|'APPLIED_REDRAW'|'DUPLICATE'|'SKIPPED'|IssueKind;
 export interface InboundDeps{store:FileStore;lookupKey:Buffer;identity?:RegistrantIdentitySource;}
 /**
  * Registration-time evaluation (D-49). Identity is never supplied by the caller: the same stored P2 registrant identity
@@ -58,7 +58,8 @@ async function collectionProvenance(db:Queryable,caseId:string,roundId:string,pe
  const declared=(await db.query<{source:string;collection_date:string}>('SELECT DISTINCT ON(source) source,collection_date::text AS collection_date FROM p2_collection_fact WHERE case_id=$1 AND round_id=$2 ORDER BY source,sequence DESC',[caseId,roundId])).rows;
  const sources=declared.filter(d=>d.collection_date!==his).map(d=>d.source).sort();
  if(!sources.length)return;
- await caseEvent(db,caseId,'COLLECTION_PROVENANCE_CONFLICT',{roundNumber:1,hisField:'specimenAt',sources});
+ const roundNumber=(await db.query<{round_number:number}>('SELECT round_number FROM specimen_round WHERE id=$1',[roundId])).rows[0].round_number;
+ await caseEvent(db,caseId,'COLLECTION_PROVENANCE_CONFLICT',{roundNumber,hisField:'specimenAt',sources});
  await appendAudit(db,{actorId,action:'COLLECTION_PROVENANCE_CONFLICT',resourceType:'nipt_case',resourceId:caseId,details:{reasonCode:'HIS_COLLECTION_DIFFERS',count:sources.length,synthetic:true}});
 }
 
@@ -88,13 +89,28 @@ export async function processInboundFile(db:Queryable,fileId:string,deps:Inbound
   // LD-10: no apply, no round, no origin change and no promotion from an intake.
   await setState(db,file.id,'HistoricalIntake',target.case_id);await openIssue(db,file,'HISTORICAL_LN_INTAKE',target.case_id);await autoClose(db,file.id,'UNLINKED','HISTORICAL_LN');return 'HISTORICAL_LN_INTAKE';
  }
- const order=(await db.query<{sha256:string;filename:string;ln:string}>('SELECT f.sha256,f.filename,$2::text AS ln FROM his_order o JOIN his_inbound_file f ON f.id=o.inbound_file_id WHERE o.case_ln_id=$1',[target.case_ln_id,file.ln])).rows[0];
+ const order=(await db.query<{sha256:string;filename:string;ln:string}>('SELECT f.sha256,f.filename,$2::text AS ln FROM his_order o JOIN his_inbound_file f ON f.id=o.inbound_file_id JOIN specimen_round r ON r.id=o.round_id WHERE o.case_ln_id=$1 ORDER BY r.round_number DESC LIMIT 1',[target.case_ln_id,file.ln])).rows[0];
  if(order){
   // §6.6 (b): S1 already received. Never re-receive, never touch later rounds.
   await autoClose(db,file.id,'UNLINKED','S1_ALREADY_RECEIVED');
   const diff=petDifferences(await readPet(deps.store,order),pet);
   if(diff.identity.length){const kind=diff.identity.includes('hn')?'LN_REUSED_DIFFERENT_PATIENT':'LN_REUSED_OR_CHANGED';await setState(db,file.id,'Conflict',target.case_id);await openIssue(db,file,kind,target.case_id,diff.identity);await caseEvent(db,target.case_id,'HIS_LN_CONFLICT',{kind,fields:diff.identity,inboundFileId:file.id});return kind;}
-  if(diff.order.length){await setState(db,file.id,'S1IntegrityEvent',target.case_id);await openIssue(db,file,'S1_INTEGRITY_EVENT',target.case_id,diff.order);await caseEvent(db,target.case_id,'S1_INTEGRITY_EVENT',{fields:diff.order,inboundFileId:file.id});return 'S1_INTEGRITY_EVENT';}
+  if(diff.order.length){
+   const round=(await db.query<{id:string;round_number:number;previous_received_at:Date}>(`SELECT r.id,r.round_number,s.received_at previous_received_at
+    FROM nipt_case c JOIN specimen_round r ON r.id=c.current_round_id JOIN redraw_request d ON d.id=r.redraw_request_id JOIN specimen_round s ON s.id=d.source_round_id
+    WHERE c.id=$1 AND r.case_ln_id=$2 AND r.state='Expected' AND r.received_at IS NULL AND d.state='Requested' FOR UPDATE OF r`,[target.case_id,target.case_ln_id])).rows[0];
+   // New receipt time, same immutable patient identity and an explicitly requested current round are all required.
+   if(round?.round_number===2 && diff.order.includes('receivedAt') && new Date(pet.receivedAt)>round.previous_received_at){
+    await db.query("UPDATE his_inbound_file SET state='Applied(Redraw)',case_id=$2,processed_at=now(),error_code=NULL WHERE id=$1",[file.id,target.case_id]);
+    await db.query('INSERT INTO his_order(case_ln_id,inbound_file_id,his_received_at,round_id) VALUES($1,$2,$3,$4)',[target.case_ln_id,file.id,pet.receivedAt,round.id]);
+    const received=await db.query("UPDATE specimen_round SET received_source='HIS_PET_RECEIPT',received_at=$2,state='ReceivedInHIS',collection_date=$3 WHERE id=$1 AND state='Expected' AND received_at IS NULL RETURNING id",[round.id,pet.receivedAt,pet.specimenAt.slice(0,10)]);
+    if(received.rows.length!==1)throw Error('REDRAW_NOT_EXPECTED');
+    await collectionProvenance(db,target.case_id,round.id,pet,context?.actorId);
+    await caseEvent(db,target.case_id,'HIS_REDRAW_RECEIVED',{roundNumber:round.round_number,inboundFileId:file.id});
+    await appendAudit(db,{actorId:context?.actorId,action:'INBOUND_PET_APPLIED',resourceType:'his_inbound_file',resourceId:file.id,details:{outcome:'APPLIED_REDRAW',count:round.round_number,synthetic:process.env.NIPT_MODE!=='operational'}});
+    return 'APPLIED_REDRAW';
+   }
+   await setState(db,file.id,'S1IntegrityEvent',target.case_id);await openIssue(db,file,'S1_INTEGRITY_EVENT',target.case_id,diff.order);await caseEvent(db,target.case_id,'S1_INTEGRITY_EVENT',{fields:diff.order,inboundFileId:file.id});return 'S1_INTEGRITY_EVENT';}
   await setState(db,file.id,'DuplicateSameContent',target.case_id);return 'DUPLICATE';
  }
  const registrant=await (deps.identity??defaultIdentitySource).forCase(db,target.case_id);

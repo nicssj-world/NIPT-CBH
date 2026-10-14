@@ -48,7 +48,6 @@ async function discoverOne(db:Queryable,store:FileStore,options:DiscoveryOptions
  const path=await sourceFile(options,rel),st=await fs.lstat(path);
  if(!st.isFile())throw Error('NOT_REGULAR_FILE');
  const mtime=st.mtime;
- if((await db.query('SELECT 1 FROM his_inbound_source WHERE source_path=$1 AND byte_size=$2 AND source_mtime=$3 AND source_id=$4 LIMIT 1',[rel,st.size,mtime,sourceId])).rows.length){counts.unchanged++;return null;}
  const source=async(hash:string,fileId:string|null,size:number)=>{await db.query('INSERT INTO his_inbound_source(source_id,source_path,sha256,inbound_file_id,byte_size,source_mtime) VALUES($6,$1,$2,$3,$4,$5) ON CONFLICT DO NOTHING',[rel,hash,fileId,size,mtime,sourceId]);};
  const pathVersion=async()=>Number((await db.query<{n:number}>('SELECT count(*)::int AS n FROM his_inbound_file WHERE source_path=$1',[rel])).rows[0].n)+1;
  const parseError=async(hash:string,size:number,code:string)=>{
@@ -59,7 +58,11 @@ async function discoverOne(db:Queryable,store:FileStore,options:DiscoveryOptions
  if(st.size>MAX_PET_BYTES)return parseError(sha256(Buffer.from(`${rel}|${st.size}|${mtime.toISOString()}`)),st.size,'FILE_TOO_LARGE');
  const bytes=await fs.readFile(path),hash=sha256(bytes);
  const existing=(await db.query<{id:string}>('SELECT id FROM his_inbound_file WHERE sha256=$1',[hash])).rows[0];
- if(existing){await source(hash,existing.id,bytes.length);counts.sameContent++;return null;}
+ if(existing){
+  // A rewritten PET can preserve both size and mtime. Only its bytes prove unchanged content.
+  const prior=(await db.query('SELECT 1 FROM his_inbound_source WHERE source_path=$1 AND sha256=$2 AND source_id=$3 AND source_mtime=$4',[rel,hash,sourceId,mtime])).rows.length>0;
+  await source(hash,existing.id,bytes.length);if(prior)counts.unchanged++;else counts.sameContent++;return null;
+ }
  const kind=classifyPet(bytes);
  if(kind==='NOT_NIPT'){counts.notNipt++;return null;}
  if(kind==='INVALID_ENCODING')return parseError(hash,bytes.length,'INVALID_ENCODING');

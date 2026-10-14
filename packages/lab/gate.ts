@@ -21,10 +21,10 @@ export type FinalizeFacts = CommonFacts & { attemptState: string; activeSlotsInT
 const p = (code: GateCode, status: Tri, reason: string, governance?: Predicate["governance"]): Predicate => ({ code, status, reason, ...(governance ? { governance } : {}) });
 
 export function commonPredicates(f: CommonFacts): Predicate[] {
-  const channelOk = (f.roundNumber === 1 && f.receivedSource === "HIS_PET_RECEIPT" && f.roundState === "ReceivedInHIS") || (f.roundNumber >= 2 && f.receivedSource === "NIPT_LOCAL_RECEIPT" && f.roundState === "ReceivedInNIPT");
+  const channelOk = (f.receivedSource === "HIS_PET_RECEIPT" && f.roundState === "ReceivedInHIS") || (f.roundNumber >= 2 && f.receivedSource === "NIPT_LOCAL_RECEIPT" && f.roundState === "ReceivedInNIPT");
   const bg01 = !f.isCurrentRound ? p("BG-01", "FAIL", "NOT_CURRENT_ROUND") : !channelOk ? p("BG-01", "FAIL", f.roundState === "RedrawRequested" ? "REDRAW_REQUESTED" : "NOT_RECEIVED")
     : f.analysisStarted && !f.isRepeatChild && !f.previouslyFinalized ? p("BG-01", "FAIL", "ANALYSIS_STARTED_REQUIRES_REPEAT_LINEAGE") : p("BG-01", "PASS", "RECEIVED_CURRENT_ROUND");
-  const bg03 = f.openIdentityIssues > 0 ? p("BG-03", "FAIL", "IDENTITY_ISSUE_OPEN") : f.roundNumber === 1 ? (f.lnVerifiedByPet ? p("BG-03", "PASS", "LN_VERIFIED_BY_PET") : p("BG-03", "FAIL", "LN_NOT_VERIFIED"))
+  const bg03 = f.openIdentityIssues > 0 ? p("BG-03", "FAIL", "IDENTITY_ISSUE_OPEN") : f.receivedSource==='HIS_PET_RECEIPT' ? (f.lnVerifiedByPet ? p("BG-03", "PASS", "LN_VERIFIED_BY_PET") : p("BG-03", "FAIL", "LN_NOT_VERIFIED"))
     : f.receiptIdentityAndLabel ? p("BG-03", "PASS", "RECEIPT_IDENTITY_AND_LABEL_CHECKED") : p("BG-03", "FAIL", "RECEIPT_CHECK_INCOMPLETE");
   const bg04 = f.consentRevoked ? p("BG-04", "FAIL", "CONSENT_REVOKED") : f.consentRoundEvidence === "GRANTED" ? p("BG-04", "PASS", "CONSENT_GRANTED")
     : f.consentRoundEvidence === "DECLINED" ? p("BG-04", "FAIL", "CONSENT_DECLINED") : f.roundNumber >= 2 ? p("BG-04", "PENDING", "REDRAW_CONSENT_APPLICABILITY", "OD-16") : p("BG-04", "FAIL", "CONSENT_NOT_GRANTED");

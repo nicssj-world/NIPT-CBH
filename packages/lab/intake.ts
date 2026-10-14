@@ -64,6 +64,7 @@ export async function receiveRedraw(db:Queryable,user:Staff,input:unknown){
  const r=await lockedRound(db,user,d.roundId);need(user,'round.receive','write',{unitId:r.unit_id??undefined,origin:r.registration_origin as 'ANC'});
  if(r.round_number<2)throw new LabError('S1_RECEIVED_IN_HIS_ONLY',409);
  if(r.received_at){const code=await lnHalosOf(db,r.id);await audit(db,user,'LAB_S2_RECEIPT_DUPLICATE','specimen_round',r.id,{outcome:'DUPLICATE'});return {duplicate:true,lnHalos:code,roundNumber:r.round_number};}
+ if(process.env.NIPT_MODE==='operational')throw new LabError('REDRAW_REQUIRES_NEW_HIS_PET',409);
  if(r.state!=='Expected'||r.current_round_id!==r.id)throw new LabError('ROUND_NOT_EXPECTED',409);
  if(d.collectionDate>bangkokToday())throw new LabError('COLLECTION_DATE_FUTURE',422);
  const previous=(await db.query<{d:string|null}>('SELECT max(collection_date)::text d FROM specimen_round WHERE case_id=$1 AND round_number<$2',[r.case_id,r.round_number])).rows[0]?.d;
