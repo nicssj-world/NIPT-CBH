@@ -46,10 +46,14 @@ describe('LN Halos issuance at actual receipt (AT-LNH-01..03, AT-LABEL-05, AT-ID
   const r=await db.query<{a:string;b:string;c:string;d:string}>(`SELECT p4_format_ln_halos(p4_bangkok_date('2026-05-31T16:59:59Z'),5) a,p4_format_ln_halos(p4_bangkok_date('2026-05-31T17:00:00Z'),1) b,p4_format_ln_halos('2026-12-31',999) c,p4_format_ln_halos(p4_bangkok_date('2026-12-31T17:00:00Z'),1) d`);
   expect(r.rows[0]).toEqual({a:formatLnHalos(5,new Date('2026-05-31T16:59:59Z')),b:'26B260601001',c:'26B261231999',d:'27B270101001'});
  });
- it('stops at 999 per day without wrapping, and the failed receipt rolls back entirely',async()=>{
+ it('Bangkok month stays constant at midnight between days and changes on first day of month',async()=>{
+  const m=await db.query<{oct:string;still_oct:string;nov:string}>(`SELECT p4_ln_halos_month('2026-10-12'::date)::text oct,p4_ln_halos_month(p4_bangkok_date('2026-10-31T16:59:59Z'))::text still_oct,p4_ln_halos_month(p4_bangkok_date('2026-10-31T17:00:00Z'))::text nov`);
+  expect(m.rows[0]).toEqual({oct:'2026-10-01',still_oct:'2026-10-01',nov:'2026-11-01'});
+ });
+ it('stops at 999 per Bangkok month without wrapping, and the failed receipt rolls back entirely',async()=>{
   const c=await run(t=>syntheticCase(t,u));
-  await db.query("INSERT INTO ln_halos_daily_sequence(sequence_date,last_value) VALUES(p4_bangkok_date(now()),999)");
-  await expect(run(t=>receiveS1(t,c))).rejects.toThrow(/LN_HALOS_DAILY_SEQUENCE_EXHAUSTED/);
+  await db.query("INSERT INTO ln_halos_monthly_sequence(sequence_month,last_value) VALUES(p4_ln_halos_month(p4_bangkok_date(now())),999)");
+  await expect(run(t=>receiveS1(t,c))).rejects.toThrow(/LN_HALOS_MONTHLY_SEQUENCE_EXHAUSTED/);
   expect((await db.query("SELECT state FROM specimen_round WHERE id=$1",[c.roundId])).rows[0]).toEqual({state:'Expected'});
  });
  it('numbers are immutable, unique, and cannot be forged by direct insert or re-issued by recovery',async()=>{
@@ -78,7 +82,7 @@ describe('LN Halos issuance at actual receipt (AT-LNH-01..03, AT-LABEL-05, AT-ID
   await db.query('SET ROLE worker_rw');
   try{
    await db.query("UPDATE specimen_round SET received_source='HIS_PET_RECEIPT',received_at=$2,state='ReceivedInHIS' WHERE id=$1",[c.roundId,at]);
-   await expect(db.query("INSERT INTO ln_halos_daily_sequence VALUES('2030-01-01',1)")).rejects.toThrow(/permission/);
+   await expect(db.query("INSERT INTO ln_halos_monthly_sequence VALUES('2030-01-01',1)")).rejects.toThrow(/permission/);
    await expect(db.query('SELECT p4_ensure_ln_halos($1,$2)',[c.roundId,'RECEIPT_RECOVERY'])).rejects.toThrow(/permission/);
   }finally{await db.query('RESET ROLE');}
   expect(await lnHalos(c.roundId)).toMatch(LN_HALOS_PATTERN);

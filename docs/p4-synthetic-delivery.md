@@ -35,7 +35,7 @@
 
 ### B. LN Halos + ฉลากหลอด (Owner Lock — สำคัญมาก)
 - **ออกเลขเมื่อรับสิ่งส่งตรวจจริงเท่านั้น** ผ่าน DB trigger (SECURITY DEFINER) บน `specimen_round.received_at`: S1 = HIS PET receipt (P3 worker หรือการเชื่อมตอนลงทะเบียน), S2+ = NIPT local receipt; การลงทะเบียน ANC/Lab **ไม่ออกเลข**
-- รูปแบบ `YYBYYMMDDNNN` วันที่ Asia/Bangkok, ลำดับ 001–999 ต่อวัน, เกิน 999 → หยุดและ Rollback ทั้งการรับ (ไม่วนเลข); Unique + Immutable; Web/Worker role เขียนเลขเองไม่ได้
+- รูปแบบ `YYBYYMMDDNNN` วันที่ Asia/Bangkok, ลำดับ 001–999 ต่อเดือนปฏิทินตามเวลาไทย (เริ่ม 001 เมื่อขึ้นเดือนใหม่), เกิน 999 → หยุดและ Rollback ทั้งการรับ (ไม่วนเลข); Unique + Immutable; Web/Worker role เขียนเลขเองไม่ได้
 - Duplicate/Retry: รับซ้ำได้เลขเดิม (`duplicate=true`); Reprint ไม่ออกเลขใหม่; HIS LN คงเดิมไม่ถูกแทน
 - รอบที่รับก่อนมี Migration 010 ออกเลขได้เฉพาะผ่าน `RECEIPT_RECOVERY` (เหตุผล + Audit) ด้วย Issuer เดียวกัน
 - ฉลาก: HTML **byte-identical กับ `buildTubeLabelsHtml` ของ Genomic-CBH** (ทดสอบเทียบกับ Source legacy ที่ Vendor ไว้ใน `tests/fixtures/genomic-cbh/` ด้วย 300 ชุดสุ่ม) — 60 × 20 มม./ดวง, 2 ช่อง 30 × 20 มม., เส้นประคั่น, `@page { size: 60mm 20mm; margin: 0; }`, Courier New 7pt/6pt/5pt; 1 ตัวอย่าง = 4 ดวง/8 ช่อง `(BASE,BASE)(BASE,BASE)(BASE,BASE-1)(BASE-2,BASE-3)`; บรรทัด 1 LN Halos, บรรทัด 2 `LN: <HIS LN>` (คงเลขศูนย์นำหน้า), บรรทัด 3 ชื่อ (เฉพาะเมื่อเลือก, เฉพาะชื่อจำลองที่ผู้ใช้มีสิทธิ์เห็น); **ไม่มี Barcode/QR**
@@ -79,7 +79,7 @@
 
 **Policy ของ Gate ที่ยังรอการตัดสิน:** Predicate เป็น 3 ค่า (PASS/FAIL/PENDING) — OD-01 (การยอมรับตัวอย่าง), OD-08 (Clinical Gate), OD-16 (Consent/Request กับรอบเจาะซ้ำ) เป็น PENDING เสมอ ค่าเริ่มต้น `HOLD` จึงจัดเข้า Batch ไม่ได้; `PROCEED_SYNTHETIC_LABELLED` (ต้องผู้เสนอ + ผู้อนุมัติคนละคน) ให้ Synthetic workflow เดินต่อได้โดยบันทึกป้ายใน Snapshot/ใบงาน — FAIL จริงไม่ผ่านทุกกรณี และไม่ใช่การรับรองทางคลินิก
 
-**ข้อบกพร่องที่พบและแก้ระหว่าง Session:** (1) Deadlock ระหว่าง Lock ลำดับเลขรายวันกับ Lock ของ Audit chain (พบจาก Native P3 smoke) → Issuer ล็อก Audit chain ก่อนเสมอ; (2) Action ที่อ้าง Row ของตัวเอง (ทวนสอบ/ยืนยัน Disposition/ตัดสิน QC) ถูก Schema ปฏิเสธเพราะมี `expectedVersion` → แก้ที่ Route; (3) Dialog พิมพ์ฉลากหลายรายการเสียรายการหลัง Reload → Snapshot รายการตอนเปิด Dialog; (4) Gate BG-01 ปฏิเสธ Attempt ที่ Finalize ไว้แล้วตอน Re-finalize หลัง Amendment → แยก “เคย Finalize ใน Snapshot” จาก Attempt ใหม่ที่ไม่มี Lineage
+**ข้อบกพร่องที่พบและแก้ระหว่าง Session:** (1) Deadlock ระหว่าง Lock ลำดับเลข (เดิมรายวัน; Migration 082 เปลี่ยนเป็นรายเดือน)กับ Lock ของ Audit chain (พบจาก Native P3 smoke) → Issuer ล็อก Audit chain ก่อนเสมอ; (2) Action ที่อ้าง Row ของตัวเอง (ทวนสอบ/ยืนยัน Disposition/ตัดสิน QC) ถูก Schema ปฏิเสธเพราะมี `expectedVersion` → แก้ที่ Route; (3) Dialog พิมพ์ฉลากหลายรายการเสียรายการหลัง Reload → Snapshot รายการตอนเปิด Dialog; (4) Gate BG-01 ปฏิเสธ Attempt ที่ Finalize ไว้แล้วตอน Re-finalize หลัง Amendment → แยก “เคย Finalize ใน Snapshot” จาก Attempt ใหม่ที่ไม่มี Lineage
 
 ## 5. Tests
 
@@ -131,3 +131,12 @@ node --env-file=.env.local --import tsx apps/renderer/main.ts   # Renderer (ใ�
 npm run build; npx next start -H 127.0.0.1 -p 3400
 ```
 ผู้ใช้จำลอง: `synthetic.lab` (คิว/Batch/ฉลาก/บันทึก), `synthetic.certifier` (ทวนสอบ/ตัดสิน QC1/Redraw/Amendment), `synthetic.approver` (อนุมัติ Setting), `synthetic.anc`, `synthetic.auditor` — ต้องเปิด Policy `PROCEED_SYNTHETIC_LABELLED` ผ่านหน้า Settings (ผู้รับรองเสนอ, Clinical approver อนุมัติ) ก่อนจึงจะจัด Batch แบบจำลองได้
+
+## 9. Owner Lock เพิ่มเติม 2026-10-14: Monthly LN Halos
+
+- กติกาของ LN Halos `YYBYYMMDDNNN`: วันในรหัสเป็นวันที่ออกเลขตามเวลาไทย (ไม่เปลี่ยน); `NNN` เป็นลำดับต่อเนื่องภายในเดือนปฏิทิน (ไม่รีเซ็ตเมื่อเปลี่ยนวัน), และเริ่ม 001 ทุกวันที่ 1 ของเดือนใหม่
+- ตัวอย่างสังเคราะห์: `26B261012010` → `26B261014011` → `26B261031042` → `26B261101001`; หากถึง 999 ในเดือนเดียวกันให้ปฏิเสธการรับที่กำลังออกเลขและ Rollback ไม่วนเลข
+- Source authority: Owner 2026-10-14 และ Genomic-CBH monthly numbering migration. Genomic production correction is separate from NIPT-CBH synthetic database; do not import historical patient identifiers into this repository
+- Forward migration `082_p4_monthly_ln_halos.sql` replaces the issuer function only, keeps `010` immutable, seeds a new monthly counter from every prior daily allocation including retired numbers, and does not alter existing immutable LN Halos / Printed Sample ID / Snapshot / Issued PDF
+- Receipt-only S1/S2+ issuance, concurrency, transaction lock order, duplicate-idempotency, HIS LN retention, label composition and HALOS Sample ID bindings remain unchanged
+- Tests include month boundary, 999-per-month rollback, native concurrency and formatted-ID regression; hardware print verification remains an independent task
