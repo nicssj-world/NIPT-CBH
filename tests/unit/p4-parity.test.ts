@@ -14,6 +14,12 @@ describe("Genomic-CBH identifier parity (vendored legacy oracle @44ce3f4)",()=>{
   for(const bad of [0,1000,1.5,-1,Number.NaN])expect(()=>lab.formatLnHalos(bad)).toThrow();
   expect(lab.LN_HALOS_PATTERN.test("26B261012001")).toBe(true);
  });
+ it("monthly continuation changes NNN only, retaining the legacy YYBYYMMDD rendering",()=>{
+  expect(lab.formatLnHalos(10,new Date("2026-10-12T00:00:00+07:00"))).toBe("26B261012010");
+  expect(lab.formatLnHalos(11,new Date("2026-10-14T00:00:00+07:00"))).toBe("26B261014011");
+  expect(lab.formatLnHalos(42,new Date("2026-10-31T23:59:59+07:00"))).toBe("26B261031042");
+  expect(lab.formatLnHalos(1,new Date("2026-11-01T00:00:00+07:00"))).toBe("26B261101001");
+ });
  it("LN Halos is byte-identical to legacy for any sequence and instant (AT-IDPAR-08)",()=>{
   fc.assert(fc.property(fc.integer({min:1,max:999}),fc.date({min:new Date("2000-01-01T00:00:00Z"),max:new Date("2098-12-31T00:00:00Z"),noInvalidDate:true}),(n,d)=>lab.formatLnHalos(n,d)===legacy.formatLnHalos(n,d)),{numRuns:500});
  });
