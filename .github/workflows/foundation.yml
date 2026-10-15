@@ -20,6 +20,8 @@ jobs:
       DATABASE_URL: postgresql://nipt_ci:synthetic-ci-only@127.0.0.1:5432/nipt_synthetic_ci
       NIPT_E2E_AUDIT_DATABASE_URL: postgresql://nipt_ci:synthetic-ci-only@127.0.0.1:5432/nipt_synthetic_ci
       NIPT_TEST_DATABASE_URL: postgresql://nipt_ci:synthetic-ci-only@127.0.0.1:5432/nipt_synthetic_test_ci
+      NIPT_P6_NATIVE_URL: postgresql://nipt_ci:synthetic-ci-only@127.0.0.1:5432/nipt_p6_synthetic_ci
+      NIPT_P7_NATIVE_URL: postgresql://nipt_ci:synthetic-ci-only@127.0.0.1:5432/nipt_synthetic_ci
       APP_ORIGIN: http://127.0.0.1:3000
       FILE_STORE_ROOT: ./data/files
       SIMULATOR_ROOT: ./data/simulator
@@ -37,7 +39,7 @@ jobs:
       - run: npx tsx tools/init-dev.ts
       - name: Separate native concurrency fixtures from visual/browser fixtures
         run: |
-          node --input-type=module -e 'import {Pool} from "pg"; const p=new Pool({connectionString:process.env.DATABASE_URL}); await p.query("CREATE DATABASE nipt_synthetic_test_ci"); await p.end();'
+          node --input-type=module -e 'import {Pool} from "pg"; const p=new Pool({connectionString:process.env.DATABASE_URL}); await p.query("CREATE DATABASE nipt_synthetic_test_ci"); await p.query("CREATE DATABASE nipt_p6_synthetic_ci"); await p.end();'
           DATABASE_URL="$NIPT_TEST_DATABASE_URL" npx tsx tools/prepare-db.ts
           DATABASE_URL="$NIPT_TEST_DATABASE_URL" npx tsx tools/seed.ts
       - run: npx tsx tools/prepare-db.ts

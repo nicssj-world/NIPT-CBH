@@ -48,7 +48,8 @@ describe.skipIf(!enabled)('P6 native PostgreSQL 17: isolated sandbox only',()=>{
     for(const p of [app,worker]){
       await expect(session(p,db=>registerFixture(db,sandboxFixture(999),sandboxId))).rejects.toThrow(/permission denied/);
       await expect(readClinicalOutboundCandidate(p,'00000000-0000-4000-8000-000000000001')).rejects.toThrow('P6_CLINICAL_RELEASE_HOLD_AL5');
-      expect((await p.query("SELECT has_table_privilege(current_user,'result_release','INSERT') allowed")).rows[0].allowed).toBe(false);
+      expect((await p.query("SELECT has_table_privilege(current_user,'result_release','INSERT') allowed")).rows[0].allowed).toBe(p===app);
+      await expect(p.query("INSERT INTO result_release(version_id,case_id,round_id,kind,channel,certified_by) VALUES(gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),'RESULT','NIPT_ANC_VIEW',gen_random_uuid())")).rejects.toThrow(p===app?'RELEASE_HOLD_AL5':'permission denied');
     }
     expect((await owner.query('SELECT p5_release_authorized() allowed')).rows[0].allowed).toBe(false);expect((await owner.query('SELECT count(*)::int n FROM result_release')).rows[0].n).toBe(0);
   });
