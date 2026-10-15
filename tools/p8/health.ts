@@ -9,6 +9,7 @@ import {assertRuntimeDatabase} from '../../packages/db/connection';
 import {verifyAuditChain} from '../../packages/db/audit';
 import {readActiveSettings} from '../../packages/settings/service';
 import {SETTINGS} from '../../packages/settings/catalog';
+import {migrationChecksumMatches} from '../migration-checksums';
 export type LedgerEntry={name:string;checksum:string};
 export async function readP6Signals(db:Queryable){
  const row=(await db.query<{pending:string;unresolved:string;worker_error:boolean}>(`SELECT
@@ -19,7 +20,7 @@ export async function readP6Signals(db:Queryable){
 }
 export function rolesAreRestricted(rows:{name:string;elevated:boolean;releaseInsert:boolean;auditMutation:boolean}[],expected=['app_rw','worker_rw','nipt_web','nipt_worker'],releaseGuarded=false){return rows.length===expected.length&&expected.every(name=>rows.some(r=>r.name===name&&r.elevated===false&&(r.releaseInsert===false||releaseGuarded&&[expected[0],expected[2]].includes(r.name))&&r.auditMutation===false));}
 export interface HealthSignals {now:Date;workerLockHeld:boolean;heartbeatAt:Date|null;lastSuccessAt:Date|null;workerError:boolean;inboundEnabled:boolean;backlog:number;unresolvedReconciliation:number;orphanReceipts:number;releaseRows:number;clinicalAuthority:boolean;auditValid:boolean;migrationsMatch:boolean;rolesRestricted:boolean;p6Pending:number;p6Unresolved:number;p6WorkerError:boolean;}
-export function compareLedger(files:LedgerEntry[],ledger:LedgerEntry[]){return files.length>0&&files.length===ledger.length&&new Set(ledger.map(r=>r.name)).size===ledger.length&&files.every(f=>ledger.some(r=>r.name===f.name&&r.checksum===f.checksum));}
+export function compareLedger(files:LedgerEntry[],ledger:LedgerEntry[]){return files.length>0&&files.length===ledger.length&&new Set(ledger.map(r=>r.name)).size===ledger.length&&files.every(f=>ledger.some(r=>r.name===f.name&&migrationChecksumMatches(f.name,f.checksum,r.checksum)));}
 export type HealthContext={mode?:'synthetic'|'operational';quarantined?:boolean;probes?:{web:boolean;renderer:boolean;fileStorage:boolean;backup:string;backupAgeSeconds?:number|null}};
 export function summarizeHealth(s:HealthSignals,context:HealthContext={}){
  const operational=context.mode==='operational';

@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import {migrate} from '../migrate';
 import {registerCase} from '../../packages/db/registration';
 import {FileStore} from '../../packages/storage';
+import {operatorHealth} from '../p8/health';
 const bin=process.env.NIPT_OPERATIONAL_TEST_PG_BIN;if(!bin)throw Error('EXISTING_POSTGRES_BIN_REQUIRED');
 const base=await fs.mkdtemp(path.resolve('.local/final-native-')),pgdata=path.join(base,'pgdata');
 const port=await new Promise<number>(resolve=>{const s=net.createServer();s.listen(0,'127.0.0.1',()=>{const p=(s.address() as net.AddressInfo).port;s.close(()=>resolve(p));});});
@@ -19,6 +20,7 @@ const pg=(name:string,args:string[])=>execFileSync(path.join(bin,name+(process.p
 const url=(name:string)=>`postgresql://nipt_test_owner@127.0.0.1:${port}/${name}`;
 pg('initdb',['-D',pgdata,'-U','nipt_test_owner','-A','trust','--no-locale','-E','UTF8']);pg('pg_ctl',['-D',pgdata,'-l',path.join(base,'postgres.log'),'-o',`-p ${port} -h 127.0.0.1`,'-w','start']);
 const admin=new Pool({connectionString:url('postgres')}),events:string[]=[];
+let operationalChecksumUpgrade:Record<string,unknown>|null=null;
 const lookup=path.join(base,'lookup.key'),backupKey=path.join(base,'backup.key');await fs.writeFile(lookup,randomBytes(32));await fs.writeFile(backupKey,randomBytes(32));
 const webPassword=path.join(base,'web-password'),workerPassword=path.join(base,'worker-password');await fs.writeFile(webPassword,randomBytes(24).toString('hex'));await fs.writeFile(workerPassword,randomBytes(24).toString('hex'));
 const env={...process.env,NIPT_MODE:'synthetic',PG_BIN:bin,DATABASE_URL:url('nipt_synthetic_test_final'),NIPT_TEST_DATABASE_URL:url('nipt_synthetic_test_final'),NIPT_P6_NATIVE_URL:url('nipt_p6_synthetic_final'),NIPT_P7_NATIVE_URL:url('nipt_synthetic_test_final'),FILE_STORE_ROOT:path.join(base,'files'),SIMULATOR_ROOT:path.join(base,'simulator'),IDENTITY_LOOKUP_KEY_FILE:lookup,BACKUP_KEY_FILE:backupKey,SYNTHETIC_SEED_PASSWORD:randomBytes(24).toString('hex'),WEB_DB_PASSWORD_FILE:webPassword,WORKER_DB_PASSWORD_FILE:workerPassword};
@@ -26,6 +28,24 @@ async function run(name:string,args:string[],overrides:Partial<NodeJS.ProcessEnv
 try{
  await admin.query('CREATE DATABASE nipt_synthetic_test_final');await admin.query('CREATE DATABASE nipt_p6_synthetic_final');
  await run('prepare',['--import','tsx','tools/prepare-db.ts']);await run('seed',['--import','tsx','tools/seed.ts']);
+ const baseline=process.env.NIPT_OPERATIONAL_BASELINE_WORKTREE;
+ if(baseline&&!process.argv.includes('--focused-p3')){
+  const baselineHead=execFileSync('git',['-C',baseline,'rev-parse','HEAD'],{encoding:'utf8'}).trim();assert.equal(baselineHead,'dd547e7b80c106bb0173202ec9bef7283b481ad8');assert.equal(execFileSync('git',['-C',baseline,'status','--porcelain'],{encoding:'utf8'}).trim(),'');
+  const historicalDirectory=path.join(baseline,'db/migrations'),names=(await fs.readdir('db/migrations')).filter(n=>n.endsWith('.sql')).sort(),differences=[];
+  assert.deepEqual((await fs.readdir(historicalDirectory)).filter(n=>n.endsWith('.sql')).sort(),names);
+  for(const name of names){const old=await fs.readFile(path.join(historicalDirectory,name)),current=await fs.readFile(path.join('db/migrations',name));assert.equal(old.toString().replace(/\r\n/g,'\n'),current.toString());if(!old.equals(current))differences.push({name,historical:createHash('sha256').update(old).digest('hex'),canonical:createHash('sha256').update(current).digest('hex')});}
+  assert.deepEqual(differences.map(d=>d.name),['084_operational_runtime.sql','086_operational_lab_results.sql','088_p2_operational_clinical_review.sql','092_native_controlled_documents.sql','094_owner_three_sheet_master.sql']);
+  await admin.query('CREATE DATABASE nipt_synthetic_operational_checksum_upgrade');const historical=new Pool({connectionString:url('nipt_synthetic_operational_checksum_upgrade')});
+  try{
+   await migrate(historical,historicalDirectory);
+   const client=await historical.connect();try{await client.query('BEGIN');await registerCase(client,{ln:'990000000778',identityKey:'b'.repeat(64),origin:'ANC',idempotencyKey:'LOCAL_HISTORICAL_OPERATIONAL_CHECKSUM_UPGRADE'});await client.query('COMMIT');}finally{client.release();}
+   const snapshot=async()=>({ledger:(await historical.query('SELECT * FROM schema_migration ORDER BY name')).rows,cases:(await historical.query('SELECT * FROM nipt_case ORDER BY id')).rows,rounds:(await historical.query('SELECT * FROM specimen_round ORDER BY id')).rows,audit:(await historical.query('SELECT * FROM audit_chain ORDER BY sequence')).rows});const before=await snapshot();
+   for(const difference of differences)assert.equal(before.ledger.find(row=>row.name===difference.name)?.checksum,difference.historical);
+   await migrate(historical);await migrate(historical);assert.deepEqual(await snapshot(),before);
+   const health=await operatorHealth(historical);assert.equal(health.migrationsMatch,true);assert.equal(health.auditValid,true);
+   operationalChecksumUpgrade={baseline,baselineHead,differences,ledgerRows:before.ledger.length,ledgerAndExistingCaseRoundAuditUnchanged:true,reappliedTwice:true,migrationsMatch:health.migrationsMatch,auditValid:health.auditValid};events.push('ACTUAL_OPERATIONAL_BASELINE_CHECKSUM_UPGRADE_NO_LEDGER_CASE_ROUND_AUDIT_REWRITE');
+  }finally{await historical.end();}
+ }
  if(!process.argv.includes('--focused-p3')){
  // A populated P8-era database, with unchanged historical migration bytes.
  const old=path.join(base,'p8-migrations');await fs.mkdir(old);const names=execFileSync('git',['ls-tree','--name-only','7967cd5:db/migrations'],{encoding:'utf8'}).trim().split('\n');
@@ -42,5 +62,5 @@ try{
  }finally{await upgraded.end();}
  }
  if(!process.argv.includes('--focused-upgrade'))await run('native-tests',['node_modules/vitest/vitest.mjs','run',...(process.argv.includes('--focused-p3')?['tests/contracts/p3-native.test.ts']:['tests/contracts','tests/db/concurrency.test.ts'])]);events.push('NATIVE_TESTS_EXECUTED');
- await fs.writeFile(path.join(base,'evidence.json'),JSON.stringify({head:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),timestamp:new Date().toISOString(),events},null,2));process.stdout.write(base+'\n');
+ await fs.writeFile(path.join(base,'evidence.json'),JSON.stringify({head:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),timestamp:new Date().toISOString(),operationalChecksumUpgrade,events},null,2));process.stdout.write(base+'\n');
 }finally{await admin.end();pg('pg_ctl',['-D',pgdata,'-m','immediate','-w','stop']);}
