@@ -22,3 +22,24 @@ NIPT_TASK_MASTER_PATH=./data/templates/NIPT_CBH_Final_Combined_Master_2026-10-15
 RENDERER_TOKEN_FILE=./data/keys/renderer-token
 # Deployment-owned OS-account grants: INBOUND, OUTBOUND and read-only RESULTS.
 NIPT_HIS_SHARE_POLICY_FILE=./data/config/share-policy.json
+
+# Operational recovery (run as the designated recovery identity, using the database owner URL).
+# NIPT_BACKUP_POLICY_FILE points to IT-owned JSON: version, serviceAccount,
+# sourceDatabase, absolute backupRoot/restoreRoot, restoreDatabasePrefix
+# (nipt_operational_restore_), outboundRoots [{root: absolute path}].
+# Include every current and historical frozen P6 RES/PDF/backup destination.
+NIPT_BACKUP_POLICY_FILE=./data/config/backup-policy.json
+# Stop Web writers and Worker before setting BACKUP_SOURCE_QUIESCENT=yes.
+# node deploy/scripts/backup.mjs <policy-contained-backup-directory>
+# Restore requires a NEW empty database with deployment roles already provisioned:
+# RESTORE_TO_NEW_OPERATIONAL_DATABASE=yes and RESTORE_DATABASE_URL=<new owner URL>
+# node deploy/scripts/restore.mjs <backup-base-directory> <new restore-directory>
+# Restored runtime stays quarantined. Validate receipt/assets, then explicit cutover:
+# RESTORE_SOURCE_FENCED=yes node deploy/scripts/restore.mjs activate-restored <restore-directory>
+# Activation persistently fences the source before enabling the verified target.
+# Use restored files/ and master/owner-master.xlsx, retain frozen outbound paths.
+# Recovery creates private per-service-account directories; provision key/share ACLs separately.
+# Set NIPT_LAST_BACKUP_PATH and optional NIPT_BACKUP_MAX_AGE_SECONDS for health.
+# npx tsx tools/p8/health.ts
+NIPT_WEB_DB_ROLE=nipt_app
+NIPT_WORKER_DB_ROLE=nipt_worker

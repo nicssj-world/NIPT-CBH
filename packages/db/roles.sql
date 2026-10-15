@@ -92,3 +92,5 @@ GRANT SELECT ON historical_record,historical_verification TO worker_rw;
 GRANT SELECT,INSERT ON result_query_export_evidence,result_reparse_evidence TO app_rw;
 REVOKE UPDATE,DELETE,TRUNCATE ON result_query_export_evidence,result_reparse_evidence FROM app_rw;
 GRANT SELECT ON result_query_export_evidence,result_reparse_evidence TO report_ro;
+
+GRANT EXECUTE ON FUNCTION nipt_runtime_quarantined() TO app_rw,worker_rw,report_ro;

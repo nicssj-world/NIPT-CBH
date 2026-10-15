@@ -26,6 +26,7 @@ export async function assertDatabaseMode(db: Queryable): Promise<void> {
  const operational=runtimeMode()==="operational";
  const row=(await db.query<{operational:boolean}>("SELECT nipt_operational_enabled() AS operational")).rows[0];
  if(!row||row.operational!==operational)throw Error("RUNTIME_DATABASE_MODE_MISMATCH");
+ if(operational&&(await db.query<{quarantined:boolean}>("SELECT nipt_runtime_quarantined() quarantined")).rows[0]?.quarantined!==false)throw Error("RESTORED_RUNTIME_QUARANTINED");
 }
-export async function withTransaction<T>(fn:(client:PoolClient)=>Promise<T>):Promise<T> { const client=await pool().connect(); try { await client.query("BEGIN"); await assertDatabaseMode(client); const result=await fn(client); await client.query("COMMIT"); return result; } catch(error) { await client.query("ROLLBACK"); throw error; } finally {client.release();} }
+export async function withTransaction<T>(fn:(client:PoolClient)=>Promise<T>):Promise<T> { const client=await pool().connect(); try { await client.query("BEGIN"); if(runtimeMode()==="operational")await client.query("SELECT pg_advisory_xact_lock_shared(75432804)"); await assertDatabaseMode(client); const result=await fn(client); await client.query("COMMIT"); return result; } catch(error) { await client.query("ROLLBACK"); throw error; } finally {client.release();} }
 
