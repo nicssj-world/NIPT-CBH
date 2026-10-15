@@ -1,4 +1,4 @@
-import {operationalRestore,activateRestored} from './operational-backup.mjs';
+import {operationalRestore,activateRestored,restoreQueueAccess} from './operational-backup.mjs';
 import {execFileSync} from 'node:child_process';
 import {createDecipheriv} from 'node:crypto';
 import * as fs from 'node:fs/promises';
@@ -51,7 +51,8 @@ try{
  const pgRestore=path.join(process.env.PG_BIN??'',process.platform==='win32'?'pg_restore.exe':'pg_restore'),dump=path.join(stage,'database.dump');
  const listing=execFileSync(pgRestore,['--list',dump],{encoding:'utf8'});
  if(meta.format==='NIPT_SYNTHETIC_BACKUP_V1'&&/\bp6_[a-z0-9_]+\b/.test(listing))throw Error('P6_BACKUP_COVERAGE_UNPROVEN');
- execFileSync(pgRestore,['--single-transaction','--exit-on-error','--no-owner','--no-acl','--dbname',url.pathname.slice(1),dump],{env:{...process.env,PGHOST:url.hostname,PGPORT:url.port||'5432',PGUSER:decodeURIComponent(url.username),PGPASSWORD:decodeURIComponent(url.password),PGDATABASE:url.pathname.slice(1)},stdio:['ignore','ignore','pipe']});
+ execFileSync(pgRestore,['--single-transaction','--exit-on-error','--no-owner','--dbname',url.pathname.slice(1),dump],{env:{...process.env,PGHOST:url.hostname,PGPORT:url.port||'5432',PGUSER:decodeURIComponent(url.username),PGPASSWORD:decodeURIComponent(url.password),PGDATABASE:url.pathname.slice(1)},stdio:['ignore','ignore','pipe']});
+ await restoreQueueAccess(db);
  if(manifest&&canonical(await p6Coverage(db))!==canonical(manifest.p6))throw Error('RESTORED_P6_JOURNAL_MISMATCH');
  await checkedPath(destination,{missing:true,fresh:true});await fs.mkdir(destination);await extract(regular.filter(e=>e.path.startsWith('files/')).map(e=>({...e,path:e.path.slice(6)})),destination);
  if(manifest?.p6.sandboxIds.length){await checkedPath(p6Destination,{missing:true,fresh:true});await fs.mkdir(p6Destination,{recursive:true});await extract(regular.filter(e=>e.path.startsWith('p6-sandbox/')).map(e=>({...e,path:e.path.slice(11)})),p6Destination);}

@@ -5,3 +5,5 @@ export function validatePolicyTarget(policy:unknown,identity:string,database:str
 export function operationalBackup(output:string,env?:NodeJS.ProcessEnv):Promise<{backupBase:string;format:string;fileCount:number;createdAt:string;manifestSha256:string}>;
 export function operationalRestore(base:string,destination:string,env?:NodeJS.ProcessEnv):Promise<Record<string,unknown>>;
 export function activateRestored(destination:string,env?:NodeJS.ProcessEnv):Promise<Record<string,unknown>>;
+
+export function restoreQueueAccess(db:{query(sql:string):Promise<unknown>}):Promise<void>;
