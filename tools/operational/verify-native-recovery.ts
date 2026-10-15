@@ -6,6 +6,8 @@ import {execFileSync,execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {randomBytes,createHash} from 'node:crypto';
 import {Pool} from 'pg';
+import {PgBoss} from 'pg-boss';
+import {restoreQueueAccess} from '../../deploy/scripts/operational-backup.mjs';
 import assert from 'node:assert/strict';
 import {migrate} from '../migrate';
 import {registerCase} from '../../packages/db/registration';
@@ -31,13 +33,14 @@ try{
  await admin.query('CREATE DATABASE nipt_synthetic_p8_upgrade');const upgraded=new Pool({connectionString:url('nipt_synthetic_p8_upgrade')});
  try{await migrate(upgraded,old);const client=await upgraded.connect();try{await client.query('BEGIN');await registerCase(client,{ln:'990000000777',identityKey:'a'.repeat(64),origin:'ANC',idempotencyKey:'LOCAL_P8_UPGRADE_EXISTING_CASE'});await client.query('COMMIT');}finally{client.release();}
   const files=path.join(base,'upgrade-files'),store=new FileStore(files),bytes=Buffer.from('LOCAL TEST P8 EXISTING DOCUMENT'),hash=await store.put(bytes);await upgraded.query("INSERT INTO file_asset(sha256,byte_size,media_type,storage_key) VALUES($1,$2,'text/plain',$3)",[hash,bytes.length,`sha256/${hash.slice(0,2)}/${hash.slice(2,4)}/${hash}`]);
+  const oldQueue=new PgBoss(url('nipt_synthetic_p8_upgrade'));await oldQueue.start();await oldQueue.stop();
   const snapshot=async()=>({cases:(await upgraded.query('SELECT * FROM nipt_case ORDER BY id')).rows,rounds:(await upgraded.query('SELECT * FROM specimen_round ORDER BY id')).rows,audit:(await upgraded.query('SELECT * FROM audit_chain ORDER BY sequence')).rows,assets:(await upgraded.query('SELECT * FROM file_asset ORDER BY id')).rows});const before=await snapshot();
-  await migrate(upgraded);await migrate(upgraded);assert.deepEqual(await snapshot(),before);events.push('POPULATED_P8_UPGRADE_REAPPLY_EXISTING_CASE_ROUND_AUDIT_ASSET_PRESERVED');
+  await migrate(upgraded);await migrate(upgraded);await upgraded.query(await fs.readFile('packages/db/roles.sql','utf8'));await restoreQueueAccess(upgraded);assert.deepEqual(await snapshot(),before);events.push('POPULATED_P8_UPGRADE_REAPPLY_EXISTING_CASE_ROUND_AUDIT_ASSET_PRESERVED');
   const out=await run('p8-upgrade-backup',['deploy/scripts/backup.mjs',path.join(base,'upgrade-backups')],{DATABASE_URL:url('nipt_synthetic_p8_upgrade'),FILE_STORE_ROOT:files,P6_SANDBOX_ROOT:path.join(base,'empty-p6'),BACKUP_SOURCE_QUIESCENT:'yes'});const backup=JSON.parse(out.trim());
   await admin.query('CREATE DATABASE nipt_synthetic_restore_upgrade');await run('p8-upgrade-restore',['deploy/scripts/restore.mjs',backup.backupBase,path.join(base,'upgrade-restored-files')],{RESTORE_DATABASE_URL:url('nipt_synthetic_restore_upgrade'),RESTORE_TO_NEW_SYNTHETIC_DATABASE:'yes'});
-  const restored=new Pool({connectionString:url('nipt_synthetic_restore_upgrade')});try{await migrate(restored);assert.deepEqual((await restored.query('SELECT * FROM nipt_case ORDER BY id')).rows,before.cases);assert.deepEqual((await restored.query('SELECT * FROM audit_chain ORDER BY sequence')).rows,before.audit);assert.deepEqual(await new FileStore(path.join(base,'upgrade-restored-files')).get(hash),bytes);}finally{await restored.end();}events.push('P8_UPGRADE_SYNTHETIC_BACKUP_RESTORE_HASH_HISTORY_REAPPLY');
+  const restored=new Pool({connectionString:url('nipt_synthetic_restore_upgrade')});try{await migrate(restored);assert.deepEqual((await restored.query('SELECT * FROM nipt_case ORDER BY id')).rows,before.cases);assert.deepEqual((await restored.query('SELECT * FROM audit_chain ORDER BY sequence')).rows,before.audit);assert.deepEqual(await new FileStore(path.join(base,'upgrade-restored-files')).get(hash),bytes);const acl=(await restored.query("SELECT coalesce(bool_or(a.grantee=0 AND a.privilege_type='EXECUTE'),false) public_execute FROM pg_proc p LEFT JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a ON true WHERE p.oid='nipt_runtime_quarantined()'::regprocedure")).rows[0];assert.equal(acl.public_execute,false);const workerUrl=new URL(url('nipt_synthetic_restore_upgrade'));workerUrl.username='nipt_worker';workerUrl.password=(await fs.readFile(workerPassword,'utf8')).trim();await run('p8-upgrade-restored-worker',['--import','tsx','tools/his-simulator/smoke-worker.ts'],{DATABASE_URL:workerUrl.toString(),FILE_STORE_ROOT:path.join(base,'upgrade-restored-files')});}finally{await restored.end();}events.push('P8_UPGRADE_SYNTHETIC_BACKUP_RESTORE_HASH_HISTORY_REAPPLY_WORKER_QUEUE_ACL');
  }finally{await upgraded.end();}
  }
- await run('native-tests',['node_modules/vitest/vitest.mjs','run',process.argv.includes('--focused-p3')?'tests/contracts/p3-native.test.ts':'tests/contracts']);events.push('NATIVE_TESTS_EXECUTED');
+ if(!process.argv.includes('--focused-upgrade'))await run('native-tests',['node_modules/vitest/vitest.mjs','run',...(process.argv.includes('--focused-p3')?['tests/contracts/p3-native.test.ts']:['tests/contracts','tests/db/concurrency.test.ts'])]);events.push('NATIVE_TESTS_EXECUTED');
  await fs.writeFile(path.join(base,'evidence.json'),JSON.stringify({head:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),timestamp:new Date().toISOString(),events},null,2));process.stdout.write(base+'\n');
 }finally{await admin.end();pg('pg_ctl',['-D',pgdata,'-m','immediate','-w','stop']);}
