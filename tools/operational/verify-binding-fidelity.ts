@@ -6,6 +6,7 @@ import {pathToFileURL} from 'node:url';
 import {generateTaskWorkbook,inspectTaskMaster,MASTER_SHA256,SHEETS} from '../../packages/workbook/master';
 import {readArchive,sha256,xmlDecode} from '../../packages/workbook/archive';
 import {exportTaskPdfs} from '../../packages/workbook/native-pdf';
+import {CONTROL_HIGHLIGHTS} from '../../packages/workbook/control-highlights';
 
 const cellMap=(xml:string)=>new Map([...xml.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)].map(m=>[/\br="([A-Z]+\d+)"/.exec(m[1])![1],{attributes:m[1],body:m[2]??'',xml:m[0]}]));
 const withoutCache=(xml:string)=>xml.replace(/(<c\b[^>]*>)([\s\S]*?)(<\/c>)/g,(all,start,body,end)=>/<f\b/.test(body)?start+body.replace(/<v\b[^>]*>[\s\S]*?<\/v>/g,'')+end:all);
@@ -21,18 +22,26 @@ export function verifyBindingFidelity(master:Buffer) {
   assert.equal(new Set(matrix.bindings.map(b=>`${b.sheet}!${b.cell}`)).size,matrix.bindings.length,'duplicate writable cells');
   const values:Record<string,unknown>={};
   for(const [i,b] of matrix.bindings.entries())values[b.key]=b.dataType==='checkbox'?true:b.dataType==='number'?10+(i+1)/1000:`SYN-${i+1}`;
-  const output=generateTaskWorkbook(master,values),after=readArchive(output.bytes),readback=[];
+  const output=generateTaskWorkbook(master,values),after=readArchive(output.bytes),baseline=readArchive(generateTaskWorkbook(master,{}).bytes),readback=[];
   const styleBlock=(bytes:Buffer)=>/<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/.exec(bytes.toString())![1];
   const xfs=(bytes:Buffer)=>[...styleBlock(bytes).matchAll(/<xf\b[^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g)].map(m=>m[0]);
   const originalStyles=xfs(before.get('xl/styles.xml')!),fittedStyles=xfs(after.get('xl/styles.xml')!);
   assert.deepEqual(fittedStyles.slice(0,originalStyles.length),originalStyles,'original styles changed');
-  const stripStyles=(bytes:Buffer)=>bytes.toString().replace(/<cellXfs\b[^>]*>[\s\S]*?<\/cellXfs>/,'');
+  const fills=(bytes:Buffer)=>[.../<fills\b[^>]*>([\s\S]*?)<\/fills>/.exec(bytes.toString())![1].matchAll(/<fill>[\s\S]*?<\/fill>/g)].map(m=>m[0]);
+  const originalFills=fills(before.get('xl/styles.xml')!),generatedFills=fills(after.get('xl/styles.xml')!);
+  assert.deepEqual(generatedFills.slice(0,originalFills.length),originalFills,'original fills changed');
+  assert.deepEqual(generatedFills.slice(originalFills.length),CONTROL_HIGHLIGHTS.map(c=>`<fill><patternFill patternType="solid"><fgColor rgb="${c.argb}"/><bgColor indexed="64"/></patternFill></fill>`));
+  const stripStyles=(bytes:Buffer)=>bytes.toString().replace(/<cellXfs\b[^>]*>[\s\S]*?<\/cellXfs>/,'').replace(/<fills\b[^>]*>[\s\S]*?<\/fills>/,'');
   assert.equal(stripStyles(before.get('xl/styles.xml')!),stripStyles(after.get('xl/styles.xml')!),'fonts/other style definitions changed');
   const normalizeStyle=(s:string)=>s.replace(/\s+(?:applyAlignment|shrinkToFit)="[^"]*"/g,'').replace(/<alignment\s*\/>/g,'').replace(/^<xf([^>]*?)\/>$/,'<xf$1></xf>');
   for(const [name,bytes] of before)if(!output.changedParts.includes(name))assert.ok(after.get(name)!.equals(bytes),`immutable part ${name}`);
   for(const [index,sheet] of SHEETS.entries()) {
     const name=`xl/worksheets/sheet${index+1}.xml`,original=before.get(name)!.toString(),generated=after.get(name)!.toString();
     const originals=cellMap(original),derived=cellMap(generated),defs=matrix.bindings.filter(b=>b.sheet===sheet);
+    const baselineCells=cellMap(baseline.get(name)!.toString());
+    const control=CONTROL_HIGHLIGHTS.find(c=>c.sheet===index+1);
+    const isControl=(ref:string)=>!!control&&control.columns.split('').some(col=>ref===col+control.row);
+    const baseStyle=(style:string,ref:string)=>normalizeStyle(isControl(ref)?style.replace(/\s+applyFill="[^"]*"/g,'').replace(/\bfillId="\d+"/,'fillId="0"'):style);
     const merges=[...original.matchAll(/<mergeCell ref="([^"]+)"/g)].map(m=>m[1]);
     for(const b of defs) {
       const source=matrix.cells.find(c=>c.sheet===sheet&&c.cell===b.cell)!;
@@ -42,7 +51,8 @@ export function verifyBindingFidelity(master:Buffer) {
       const originalAttrs=originals.get(b.cell)!.attributes,stripAttrs=(s:string)=>s.replace(/\s+[ts]="[^"]*"/g,'');
       assert.equal(stripAttrs(cell.attributes),stripAttrs(originalAttrs),`cell attributes ${b.key}`);
       const originalStyle=Number(/\bs="(\d+)"/.exec(originalAttrs)?.[1]??0),fittedStyle=Number(/\bs="(\d+)"/.exec(cell.attributes)?.[1]??0);
-      if(b.dataType==='text'&&!b.rendering){assert.match(fittedStyles[fittedStyle],/shrinkToFit="1"/);assert.equal(normalizeStyle(fittedStyles[fittedStyle]),normalizeStyle(originalStyles[originalStyle]),`base style ${b.key}`);}
+      if(b.dataType==='text'&&!b.rendering){assert.match(fittedStyles[fittedStyle],/shrinkToFit="1"/);assert.equal(baseStyle(fittedStyles[fittedStyle],b.cell),baseStyle(originalStyles[originalStyle],b.cell),`base style ${b.key}`);}
+      else if(isControl(b.cell))assert.equal(baseStyle(fittedStyles[fittedStyle],b.cell),baseStyle(originalStyles[originalStyle],b.cell),`control base style ${b.key}`);
       else assert.equal(fittedStyle,originalStyle,`non-text style ${b.key}`);
       if(b.dataType==='number'&&!b.rendering)assert.equal(Number(/<v>([^<]+)<\/v>/.exec(cell.body)![1]),values[b.key]);
       else if(b.dataType==='checkbox')assert.equal(texts(cell.body),b.rendering==='parentheses'?source.text.replace('(  )','( ✓ )'):source.text.replace('☐','☑'),b.key);
@@ -52,14 +62,22 @@ export function verifyBindingFidelity(master:Buffer) {
         assert.equal(texts(cell.body),expected,b.key);
       } else assert.equal(texts(cell.body),values[b.key],b.key);
       // Independently populate each declared field: no cross-field or style/layout mutation.
-      const individual=readArchive(generateTaskWorkbook(master,{[b.key]:values[b.key]}).bytes).get(name)!.toString();
+      const individualParts=readArchive(generateTaskWorkbook(master,{[b.key]:values[b.key]}).bytes),individual=individualParts.get(name)!.toString();
       const individualCells=cellMap(individual);
-      for(const [ref,c] of originals)if(ref!==b.cell)assert.equal(individualCells.get(ref)!.xml,withoutCache(c.xml),`${b.key} changed ${ref}`);
+      const individualStyles=xfs(individualParts.get('xl/styles.xml')!);
+      for(const [ref,c] of baselineCells)if(ref!==b.cell){const actual=individualCells.get(ref)!.xml;
+        if(isControl(ref)){const originalCell=originals.get(ref)!;assert.equal(actual.replace(/\bs="\d+"/,''),withoutCache(originalCell.xml).replace(/\bs="\d+"/,''),`${b.key} changed control content ${ref}`);const style=Number(/\bs="(\d+)"/.exec(actual)![1]);assert.equal(baseStyle(individualStyles[style],ref),baseStyle(originalStyles[Number(/\bs="(\d+)"/.exec(originalCell.attributes)![1])],ref),`control style ${ref}`);}
+        else assert.equal(actual,withoutCache(c.xml),`${b.key} changed ${ref}`);
+      }
       const stripCells=(s:string)=>s.replace(/<c\b[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g,'');
       assert.equal(stripCells(individual),stripCells(original),`worksheet layout ${b.key}`);
       readback.push({key:b.key,sheet,cell:b.cell,value:values[b.key],type:b.dataType,uniqueSentinelReadback:true,individualLocality:true,mergedAnchor:true,originalStyleAndFontPreserved:true,filledTextShrinkToFit:b.dataType==='text'&&!b.rendering});
     }
-    for(const [ref,c] of originals)if(!defs.some(b=>b.cell===ref))assert.equal(derived.get(ref)!.xml,withoutCache(c.xml),`unbound ${sheet}!${ref}`);
+    for(const [ref,c] of originals)if(!defs.some(b=>b.cell===ref)){
+      const actual=derived.get(ref)!.xml;
+      if(isControl(ref)){assert.equal(actual.replace(/\bs="\d+"/,''),withoutCache(c.xml).replace(/\bs="\d+"/,''),`unbound control ${sheet}!${ref}`);assert.equal(baseStyle(fittedStyles[Number(/\bs="(\d+)"/.exec(actual)![1])],ref),baseStyle(originalStyles[Number(/\bs="(\d+)"/.exec(c.attributes)![1])],ref));}
+      else assert.equal(actual,withoutCache(c.xml),`unbound ${sheet}!${ref}`);
+    }
   }
   const classifiedCells=matrix.cells.map(c=>{
     const index=SHEETS.indexOf(c.sheet as typeof SHEETS[number])+1,xml=before.get(`xl/worksheets/sheet${index}.xml`)!.toString();

@@ -1,5 +1,6 @@
 import {readArchive, sha256, writeArchive, xmlDecode, xmlEscape} from './archive';
 import {textFitStyles} from './text-fit';
+import {highlightControls} from './control-highlights';
 
 export const MASTER_SHA256 = '0f94efbc240b9a38ff9be77bf0c8d92c09d82fa2fe2427b9d274cc739e5607a6';
 export const SHEETS = ['Ext. & Prep. Task List 1','Ext. & Prep. Task List 2','Ext. & Prep. Task List 3','QC measurements','Pooling Table','Seq Task-G50'] as const;
@@ -120,6 +121,7 @@ export function generateTaskWorkbook(master: Buffer, values: Record<string,unkno
     if(xml!==original) {parts.set(path,Buffer.from(xml));changedParts.push(path);}
   }
   if(fitting.finish())changedParts.push('xl/styles.xml');
+  for(const name of highlightControls(parts))if(!changedParts.includes(name))changedParts.push(name);
   if(Object.keys(values).length) {
     const path='xl/workbook.xml', original=parts.get(path)!.toString();
     const calc=/<calcPr\b([^>]*?)\/>/.exec(original);
