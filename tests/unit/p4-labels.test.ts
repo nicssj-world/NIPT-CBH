@@ -15,11 +15,11 @@ describe("P4 tube labels — Owner Lock 2026-10-12 / Genomic-CBH label-print.ts"
   expect(tubeLabelStickers("X")).toEqual([["X","X"],["X","X"],["X","X-1"],["X-2","X-3"]]);
   const codes=halves(html).map(h=>h.code);expect(codes.filter(c=>c==="26B261012001")).toHaveLength(5);for(const s of ["-1","-2","-3"])expect(codes.filter(c=>c==="26B261012001"+s)).toHaveLength(1);
  });
- it("AT-LABEL-02: print CSS is a 60×20 mm page with no margin, 30×20 mm halves and a dashed divider",()=>{
+ it("AT-LABEL-02: print CSS is a 50×20 mm page with no margin, 25×20 mm halves and a dashed divider",()=>{
   const html=buildTubeLabelsHtml([sample]);
-  expect(html).toContain("@page { size: 60mm 20mm; margin: 0; }");
-  expect(html).toContain(".sticker { width: 60mm; height: 20mm; display: flex; page-break-after: always; overflow: hidden; }");
-  expect(html).toContain(".half { position: relative; width: 30mm; height: 20mm;");
+  expect(html).toContain("@page { size: 50mm 20mm; margin: 0; }");
+  expect(html).toContain(".sticker { width: 50mm; height: 20mm; display: flex; page-break-after: always; overflow: hidden; }");
+  expect(html).toContain(".half { position: relative; width: 25mm; height: 20mm;");
   expect(html).toContain("border-left: 0.5px dashed #555");
   expect(html).toContain("font-family: 'Courier New', Courier, monospace");
   expect(html).toContain(".ln-halos { font-size: 7pt; font-weight: 900;");
@@ -35,7 +35,7 @@ describe("P4 tube labels — Owner Lock 2026-10-12 / Genomic-CBH label-print.ts"
   expect(named.match(/<div class="patient-ln">LN: 0012345678<\/div>\s*<div class="name">นางสาวจำลอง ทดสอบ<\/div>/g)).toHaveLength(8);
   for(const html2 of [html,named])expect(html2).not.toMatch(/barcode|qr|<svg|<img|<canvas|JsBarcode|data:image/i);
  });
- it("AT-LABEL-07: 4 vertical last-three-digit marks per half remain inside the original 60×20 mm sticker",()=>{
+ it("AT-LABEL-07: 4 vertical last-three-digit marks per half remain inside the original 50×20 mm sticker",()=>{
   const html=buildTubeLabelsHtml([sample]);
   expect(html.match(/class="corner-set" aria-hidden="true"/g)).toHaveLength(8);
   for(const c of ["tl","tr","bl","br"])
@@ -44,8 +44,10 @@ describe("P4 tube labels — Owner Lock 2026-10-12 / Genomic-CBH label-print.ts"
   expect(html).toContain("transform: rotate(-90deg)");
   expect(html).toContain(".left .corner.tr, .left .corner.br { right: 1.2mm; }");
   expect(html).toContain(".right .corner.tl, .right .corner.bl { left: 1.2mm; }");
-  expect(html).toContain("@page { size: 60mm 20mm; margin: 0; }");
-  expect(html).toContain("width: 30mm; height: 20mm");
+  expect(html).toContain("@page { size: 50mm 20mm; margin: 0; }");
+  expect(html).toContain("width: 25mm; height: 20mm");
+  expect(html).toContain("min-width: 0; flex: 0 0 25mm");
+  expect(html).not.toContain("60mm 20mm");
  });
  it("AT-LABEL-08: base digits don't come from label suffix or Twin D",()=>{
   const html=buildTubeLabelsHtml([{ln:"A",lnHalos:"26B261014011",patientName:null},{ln:"B",lnHalos:"26B261014042D",patientName:null}]);
