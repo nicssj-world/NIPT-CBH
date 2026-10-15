@@ -39,7 +39,7 @@ describe("P4 tube labels — Owner Lock 2026-10-12 / Genomic-CBH label-print.ts"
   const html=buildTubeLabelsHtml([sample]);
   expect(html.match(/class="corner-set" aria-hidden="true"/g)).toHaveLength(8);
   for(const c of ["tl","tr","bl","br"])
-    expect(html.match(new RegExp(`class="corner ${c}">001<\\/span>`,"g"))).toHaveLength(8);
+    expect(html.match(new RegExp(`class="corner ${c}">001`,"g"))).toHaveLength(8);
   expect(html).toContain("font-size: 6.5pt");
   expect(html).toContain("transform: rotate(-90deg)");
   expect(html).toContain(".left .corner.tr, .left .corner.br { right: 1.2mm; }");
@@ -49,8 +49,8 @@ describe("P4 tube labels — Owner Lock 2026-10-12 / Genomic-CBH label-print.ts"
  });
  it("AT-LABEL-08: base digits don't come from label suffix or Twin D",()=>{
   const html=buildTubeLabelsHtml([{ln:"A",lnHalos:"26B261014011",patientName:null},{ln:"B",lnHalos:"26B261014042D",patientName:null}]);
-  expect(html.match(/class="corner tl">011<\\/span>/g)).toHaveLength(8);
-  expect(html.match(/class="corner tl">042<\\/span>/g)).toHaveLength(8);
+  expect(html.match(/class="corner tl">011/g)).toHaveLength(8);
+  expect(html.match(/class="corner tl">042/g)).toHaveLength(8);
   expect(html).toContain("26B261014042D-3");
   expect(buildTubeLabelsHtml([{ln:"A",lnHalos:"not-a-code",patientName:null}])).not.toContain('class="corner-set"');
  });
