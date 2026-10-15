@@ -1,5 +1,5 @@
-// VERIFIED PRINT PARITY ORACLE — Genomic-CBH tube label with vertical corner sequence (2026-10-15).
-// Only type import is replaced; retain original historical fixture at label-print.ts.
+// VERIFIED PRINT PARITY ORACLE — Genomic-CBH physical 50 × 20 mm stock, corner sequence (2026-10-15).
+// Only type import replaced; keep historical source fixture at label-print.ts untouched.
 type SampleRow = { ln: string; lnHalos: string; patientName: string | null }
 
 function escapeHtml(value: string): string {
@@ -16,12 +16,12 @@ export function printBoxLabel(bkLabel: string, bcLabel: string): void {
   const backupLabel = escapeHtml(bkLabel)
   const buffyCoatLabel = escapeHtml(bcLabel)
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-    @page { size: 60mm 20mm; margin: 0; }
+    @page { size: 50mm 20mm; margin: 0; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Courier New', Courier, monospace; }
-    .sticker { width: 60mm; height: 20mm; display: flex; overflow: hidden; }
-    .half { width: 30mm; height: 20mm; display: flex; flex-direction: column; justify-content: center; gap: 1.5mm; padding: 2mm 1.5mm 2mm 8mm; }
-    .right { border-left: 0.5px dashed #555; padding-left: 5mm; }
+    .sticker { width: 50mm; height: 20mm; display: flex; overflow: hidden; }
+    .half { width: 25mm; height: 20mm; display: flex; flex-direction: column; justify-content: center; gap: 1.5mm; padding: 2mm 1mm 2mm 3mm; }
+    .right { border-left: 0.5px dashed #555; padding-left: 3mm; }
     .box { font-size: 7pt; font-weight: 900; letter-spacing: -0.02em; line-height: 1; white-space: nowrap; }
     .type { font-size: 5pt; color: #333; white-space: nowrap; }
   </style></head><body>
@@ -68,7 +68,7 @@ function sticker(leftCode: string, rightCode: string, ln: string, name: string |
   return `<div class="sticker">${half(leftCode, ln, name, false, sequence)}${half(rightCode, ln, name, true, sequence)}</div>`
 }
 
-/** Generates four 60×20 mm stickers (eight individual halves) per sample. */
+/** Generates four 50×20 mm stickers (eight individual halves) per sample. */
 export function buildTubeLabelsHtml(samples: Pick<SampleRow, 'ln' | 'lnHalos' | 'patientName'>[]): string {
   const body = samples.flatMap((sample) => {
     const code = sample.lnHalos
@@ -84,13 +84,13 @@ export function buildTubeLabelsHtml(samples: Pick<SampleRow, 'ln' | 'lnHalos' | 
   }).join('')
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-    @page { size: 60mm 20mm; margin: 0; }
+    @page { size: 50mm 20mm; margin: 0; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Courier New', Courier, monospace; }
-    .sticker { width: 60mm; height: 20mm; display: flex; page-break-after: always; overflow: hidden; }
+    .sticker { width: 50mm; height: 20mm; display: flex; page-break-after: always; overflow: hidden; }
     .sticker:last-child { page-break-after: auto; }
-    .half { position: relative; width: 30mm; height: 20mm; display: flex; flex-direction: column; justify-content: center; gap: 1mm; padding: 1.2mm 1mm 1.2mm 3mm; overflow: hidden; }
-    .right { border-left: 0.5px dashed #555; padding-left: 2.5mm; padding-right: 1mm; }
+    .half { position: relative; width: 25mm; height: 20mm; display: flex; flex-direction: column; justify-content: center; gap: 1mm; padding: 1.2mm 0.8mm 1.2mm 2.5mm; min-width: 0; flex: 0 0 25mm; overflow: hidden; }
+    .right { border-left: 0.5px dashed #555; padding-left: 2.5mm; padding-right: 0.8mm; }
     .ln-halos { font-size: 7pt; font-weight: 900; letter-spacing: -0.02em; line-height: 1; white-space: nowrap; }
     .patient-ln { font-size: 6pt; font-weight: 700; letter-spacing: -0.02em; color: #222; line-height: 1.1; white-space: nowrap; }
     .name { font-size: 5pt; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
