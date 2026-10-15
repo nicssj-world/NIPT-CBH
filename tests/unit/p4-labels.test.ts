@@ -1,6 +1,6 @@
 import {describe,it,expect} from "vitest";
 import fc from "fast-check";
-import {buildTubeLabelsHtml as legacyHtml} from "../fixtures/genomic-cbh/label-print";
+import {buildTubeLabelsHtml as currentGenomicHtml} from "../fixtures/genomic-cbh/label-print-corners-20261015";
 import {buildTubeLabelsHtml,tubeLabelStickers} from "../../packages/lab/labels";
 import {RUN_SUFFIX} from "../../packages/lab/rules";
 
@@ -19,7 +19,7 @@ describe("P4 tube labels — Owner Lock 2026-10-12 / Genomic-CBH label-print.ts"
   const html=buildTubeLabelsHtml([sample]);
   expect(html).toContain("@page { size: 60mm 20mm; margin: 0; }");
   expect(html).toContain(".sticker { width: 60mm; height: 20mm; display: flex; page-break-after: always; overflow: hidden; }");
-  expect(html).toContain(".half { width: 30mm; height: 20mm;");
+  expect(html).toContain(".half { position: relative; width: 30mm; height: 20mm;");
   expect(html).toContain("border-left: 0.5px dashed #555");
   expect(html).toContain("font-family: 'Courier New', Courier, monospace");
   expect(html).toContain(".ln-halos { font-size: 7pt; font-weight: 900;");
@@ -35,7 +35,26 @@ describe("P4 tube labels — Owner Lock 2026-10-12 / Genomic-CBH label-print.ts"
   expect(named.match(/<div class="patient-ln">LN: 0012345678<\/div>\s*<div class="name">นางสาวจำลอง ทดสอบ<\/div>/g)).toHaveLength(8);
   for(const html2 of [html,named])expect(html2).not.toMatch(/barcode|qr|<svg|<img|<canvas|JsBarcode|data:image/i);
  });
- it("AT-LABEL-04: two or more samples never mix LN or LN Halos and all text is HTML-escaped",()=>{
+ it("AT-LABEL-07: 4 vertical last-three-digit marks per half remain inside the original 60×20 mm sticker",()=>{
+  const html=buildTubeLabelsHtml([sample]);
+  expect(html.match(/class="corner-set" aria-hidden="true"/g)).toHaveLength(8);
+  for(const c of ["tl","tr","bl","br"])
+    expect(html.match(new RegExp(`class="corner ${c}">001`,"g"))).toHaveLength(8);
+  expect(html).toContain("font-size: 6.5pt");
+  expect(html).toContain("transform: rotate(-90deg)");
+  expect(html).toContain(".left .corner.tr, .left .corner.br { right: 1.2mm; }");
+  expect(html).toContain(".right .corner.tl, .right .corner.bl { left: 1.2mm; }");
+  expect(html).toContain("@page { size: 60mm 20mm; margin: 0; }");
+  expect(html).toContain("width: 30mm; height: 20mm");
+ });
+ it("AT-LABEL-08: base digits don't come from label suffix or Twin D",()=>{
+  const html=buildTubeLabelsHtml([{ln:"A",lnHalos:"26B261014011",patientName:null},{ln:"B",lnHalos:"26B261014042D",patientName:null}]);
+  expect(html.match(/class="corner tl">011/g)).toHaveLength(8);
+  expect(html.match(/class="corner tl">042/g)).toHaveLength(8);
+  expect(html).toContain("26B261014042D-3");
+  expect(buildTubeLabelsHtml([{ln:"A",lnHalos:"not-a-code",patientName:null}])).not.toContain('class="corner-set"');
+ });
+  it("AT-LABEL-04: two or more samples never mix LN or LN Halos and all text is HTML-escaped",()=>{
   const html=buildTubeLabelsHtml([sample,{ln:"0099999",lnHalos:"26B261012002",patientName:"<script>x</script>"}]);
   expect(html.match(/class="sticker"/g)).toHaveLength(8);
   const h=halves(html);
@@ -51,9 +70,9 @@ describe("P4 tube labels — Owner Lock 2026-10-12 / Genomic-CBH label-print.ts"
   expect(tubeLabelStickers("26B261012001").flat()).not.toContain("26B261012001R");
   expect(tubeLabelStickers("26B261012001").flat()).toContain("26B261012001-3");
  });
- it("is byte-identical to the legacy Genomic-CBH buildTubeLabelsHtml for any synthetic batch (1:1 parity)",()=>{
+ it("matches the approved Genomic-CBH corner-label builder byte-for-byte for any synthetic batch",()=>{
   const text=fc.string({maxLength:24});
-  fc.assert(fc.property(fc.array(fc.record({ln:text,lnHalos:text,patientName:fc.option(text,{nil:null})}),{maxLength:6}),samples=>buildTubeLabelsHtml(samples)===legacyHtml(samples)),{numRuns:300});
-  expect(buildTubeLabelsHtml([sample])).toBe(legacyHtml([sample]));
+  fc.assert(fc.property(fc.array(fc.record({ln:text,lnHalos:text,patientName:fc.option(text,{nil:null})}),{maxLength:6}),samples=>buildTubeLabelsHtml(samples)===currentGenomicHtml(samples)),{numRuns:300});
+  expect(buildTubeLabelsHtml([sample])).toBe(currentGenomicHtml([sample]));
  });
 });
