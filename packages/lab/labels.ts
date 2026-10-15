@@ -70,6 +70,5 @@ export function buildTubeLabelsHtml(samples: TubeLabelSample[]): string {
     .corner.bl, .corner.br { bottom: 2.2mm; }
     .left .corner.tr, .left .corner.br { right: 1.2mm; }
     .right .corner.tl, .right .corner.bl { left: 1.2mm; }
-
   </style></head><body>${body}</body></html>`
 }
