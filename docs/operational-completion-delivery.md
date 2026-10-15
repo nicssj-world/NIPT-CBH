@@ -81,3 +81,9 @@ The fresh complete Browser + Worker + native document journey PASS is recorded i
 Runtime/resampling commits `43148dd` and `2d10a8d` from the preceding work remain intact. Verification tools and this delivery report follow in a separate local commit. No push or merge was performed.
 
 Local software completion commit: `8523198`. The separate verification/report commit contains the positive journey harness and this updated delivery report; its SHA is available in the immediate local Git log. Both are descendants of `978bea8`. The working sources and all pre-existing uncommitted task changes were preserved and committed. No push or merge was performed.
+
+## Owner correction: 50 x 20 mm tube labels (2026-10-15)
+
+The active tube print path now uses 50 x 20 mm pages/stickers and 25 x 20 mm halves in NIPT and Genomic. This supersedes the previous 60 mm tube specification; historical fixtures remain evidence only. The separate Genomic box-label path is unchanged. Four stickers/eight halves retain the dashed cut, issued base LN Halos, HIS LN, composition suffixes and 32 vertical base-sequence marks. Long HIS LN text shrinks without dropping leading zeros. No run R/DR suffix is substituted for the issued tube-label base.
+
+Genomic local commit: `57de674602da8ac5e43d302047fad064d291304f` (6 label tests and targeted lint passed). NIPT focused checks: 9 passed, including real Chromium geometry and 16 PDF pages for normal/twin/resampling contexts. `.local/label-50mm-glSqZH` contains HTML, PDF, preview and real two-repository parity evidence. `tools/operational/verify-label-print.ts` regenerates artifacts with exact source revisions. Physical printer calibration and owner print acceptance remain NOT RUN. Operational recovery and exact final-candidate verification below are still in progress; historical completion statements above do not certify these newly changed paths.
