@@ -46,6 +46,7 @@ describe("P4 tube labels — Owner Lock 2026-10-12 / Genomic-CBH label-print.ts"
   expect(html).toContain(".right .corner.tl, .right .corner.bl { left: 1.2mm; }");
   expect(html).toContain("@page { size: 50mm 20mm; margin: 0; }");
   expect(html).toContain("width: 25mm; height: 20mm");
+  expect(html).not.toContain("60mm 20mm");
  });
  it("AT-LABEL-08: base digits don't come from label suffix or Twin D",()=>{
   const html=buildTubeLabelsHtml([{ln:"A",lnHalos:"26B261014011",patientName:null},{ln:"B",lnHalos:"26B261014042D",patientName:null}]);
