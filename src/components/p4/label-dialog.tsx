@@ -5,7 +5,7 @@ import {labApi,failureText} from "./lab-api";
 
 type Sample={roundId:string;hisLn:string;lnHalos:string|null;labelCode:string|null;roundNumber:number;printed:number};
 /**
- * Owner Lock §5 tube labels: 4 stickers (60 × 20 mm) / 8 halves per sample, LN Halos over `LN: <HIS LN>`, no barcode.
+ * Owner Lock §5 tube labels: 4 stickers (50 × 20 mm) / 8 halves per sample, LN Halos over `LN: <HIS LN>`, no barcode.
  * The preview and the printed sheet are the same server HTML; printing creates an audited job first and never issues a number.
  */
 export function LabelDialog({samples,onClose,onPrinted}:{samples:Sample[];onClose:()=>void;onPrinted?:()=>void}){
