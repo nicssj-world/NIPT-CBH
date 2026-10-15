@@ -5,7 +5,7 @@ import {labApi,failureText} from "./lab-api";
 
 type Sample={roundId:string;hisLn:string;lnHalos:string|null;labelCode:string|null;roundNumber:number;printed:number};
 /**
- * Owner Lock §5 tube labels: 4 stickers (60 × 20 mm) / 8 halves per sample, LN Halos over `LN: <HIS LN>`, no barcode.
+ * Owner Lock §5 tube labels: 4 stickers (50 × 20 mm) / 8 halves per sample, LN Halos over `LN: <HIS LN>`, no barcode.
  * The preview and the printed sheet are the same server HTML; printing creates an audited job first and never issues a number.
  */
 export function LabelDialog({samples,onClose,onPrinted}:{samples:Sample[];onClose:()=>void;onPrinted?:()=>void}){
@@ -21,7 +21,7 @@ export function LabelDialog({samples,onClose,onPrinted}:{samples:Sample[];onClos
  async function print(){setBusy(true);setError("");try{const r=await labApi<{sheetId:string;kind:string}>("/api/p4/labels",{action:"print",...body()});setMode("print");setSheet(r.sheetId);setDone(r.kind==="REPRINT"?"บันทึกการพิมพ์ซ้ำแล้ว — เลข LN Halos เดิม":"บันทึกการพิมพ์แล้ว");onPrinted?.();}catch(e){setError(failureText(e));}finally{setBusy(false);}}
  return <Dialog title={`พิมพ์ฉลากหลอด ${samples.length} ตัวอย่าง`} onClose={onClose}>
   <div className="stack">
-   <p className="help">หนึ่งตัวอย่าง = 4 ดวง (60 × 20 มม.) แบ่ง 8 ช่อง: (BASE,BASE) (BASE,BASE) (BASE,BASE-1) (BASE-2,BASE-3) — ไม่มีบาร์โค้ด/QR · การพิมพ์และพิมพ์ซ้ำไม่ออกเลขใหม่</p>
+   <p className="help">หนึ่งตัวอย่าง = 4 ดวง (50 × 20 มม.) แบ่ง 8 ช่อง: (BASE,BASE) (BASE,BASE) (BASE,BASE-1) (BASE-2,BASE-3) — ไม่มีบาร์โค้ด/QR · การพิมพ์และพิมพ์ซ้ำไม่ออกเลขใหม่</p>
    <ul className="label-list" aria-label="ตัวอย่างที่จะพิมพ์">{samples.map(s=><li key={s.roundId}><span className="mono strong">{s.labelCode??s.lnHalos??"ยังไม่มี LN Halos"}</span> · LN {s.hisLn} · รอบที่ {s.roundNumber}{s.printed>0?<span className="badge warning">เคยพิมพ์ {s.printed} ครั้ง</span>:null}</li>)}</ul>
    <label className="check-label"><input type="checkbox" checked={includeName} onChange={e=>changeName(e.target.checked)} disabled={busy||mode==="print"}/> พิมพ์ชื่อผู้รับบริการจำลองบรรทัดที่ 3 (เฉพาะที่มีสิทธิ์เห็น)</label>
    {reprint&&<div><label htmlFor="reprint-reason">เหตุผลการพิมพ์ซ้ำ (จำเป็น)</label><input id="reprint-reason" value={reason} onChange={e=>setReason(e.target.value)} maxLength={500} aria-describedby="reprint-help"/><p id="reprint-help" className="help">อย่างน้อย 8 ตัวอักษร เช่น สติ๊กเกอร์เสียหาย</p></div>}

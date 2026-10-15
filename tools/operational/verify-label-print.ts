@@ -14,7 +14,7 @@ const html=buildTubeLabelsHtml(samples);assert.equal(html,reference.buildTubeLab
 const output=await fs.mkdtemp(path.resolve('.local/label-50mm-'));
 await fs.writeFile(path.join(output,'labels.html'),html);
 const browser=await chromium.launch({headless:true});
-try{const page=await browser.newPage();await page.setContent(html);await page.emulateMedia({media:'print'});
+try{const page=await browser.newPage({viewport:{width:190,height:76},deviceScaleFactor:3});await page.setContent(html);await page.emulateMedia({media:'print'});
  await page.pdf({path:path.join(output,'labels.pdf'),preferCSSPageSize:true,printBackground:true});
  await page.screenshot({path:path.join(output,'print-preview.png'),fullPage:true});
  const pdf=await PDFDocument.load(await fs.readFile(path.join(output,'labels.pdf')));assert.equal(pdf.getPageCount(),16);
