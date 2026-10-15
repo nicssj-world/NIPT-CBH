@@ -20,10 +20,12 @@ for(const [name,args] of [['typecheck',['node_modules/next/dist/bin/next','typeg
 await Promise.all([
  run('full-regression',['node_modules/vitest/vitest.mjs','run','--reporter=default','--reporter=json','--outputFile='+path.join(root,'regression.json')],'synthetic',{NIPT_TEST_NATIVE_EXCEL:'yes'}),
  run('deployment-contracts',['--test','tests/deploy/p8-deployment.node.mjs','tests/deploy/deployment-order.node.mjs'],'synthetic'),
- run('native-upgrade-recovery',['--import','tsx','tools/operational/verify-native-recovery.ts'],'synthetic'),
  run('positive-anc-s2-recovery',['--import','tsx','tools/operational/verify-positive-journey.ts','--anc','--recovery'],'operational',{NIPT_OPERATIONAL_TEST_BUILT_WEB:'yes'}),
  run('label-render-parity',['--import','tsx','tools/operational/verify-label-print.ts'],'synthetic')
 ]);
+await run('control-highlight-native',['--import','tsx','tools/operational/verify-control-highlights.ts'],'synthetic');
+// Keep native PostgreSQL verification separate from the concurrent browser/Excel and full-suite workload.
+await run('native-upgrade-recovery',['--import','tsx','tools/operational/verify-native-recovery.ts'],'synthetic');
 if(await hash()!=='0f94efbc240b9a38ff9be77bf0c8d92c09d82fa2fe2427b9d274cc739e5607a6')throw Error('MASTER_CHANGED');
 const comparison=execFileSync('git',['merge-tree','--trivial-merge',git(['merge-base','HEAD','origin/main']),'HEAD','origin/main'],{encoding:'utf8'});await fs.writeFile(path.join(root,'integration-tree-comparison.txt'),comparison);let currentPath='';const conflicts=new Set<string>();for(const line of comparison.split('\n')){const m=/^  (?:base|our|their)\s+\d+\s+[a-f0-9]+\s+(.+)$/.exec(line);if(m)currentPath=m[1];if(line.startsWith('+<<<<<<<'))conflicts.add(currentPath);}const integrationConflicts=[...conflicts];
 const passed=results.every(r=>r.exitCode===0),report={head,branch,sourceTree,migrationsSha256,environment:'WINDOWS_LOOPBACK_DISPOSABLE_DATABASES_NATIVE_EXCEL_CHROMIUM',masterSha256:await hash(),results,passed,mergeReady:false,integrationConflicts,main:git(['rev-parse','origin/main']),externalTests:['Hospital LAN/UNC/SMB and deployed service ACL','HIS acknowledgement and HALOS hardware','Physical 50x20mm printer calibration','Owner golden visual acceptance','Clinical acceptance','Windows installer NOT STARTED'],timestamp:new Date().toISOString()};
