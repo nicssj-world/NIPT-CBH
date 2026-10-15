@@ -10,3 +10,7 @@ it('runtime template names the current combined master; loader rejects missing, 
  await expect(loadRuntimeMaster({NIPT_TASK_MASTER_PATH:'package.json'})).rejects.toThrow('TASK_MASTER_SHA256_MISMATCH');
  expect(MASTER_SHA256).toBe('0f94efbc240b9a38ff9be77bf0c8d92c09d82fa2fe2427b9d274cc739e5607a6');
 });
+it.skipIf(!process.env.NIPT_TASK_MASTER_PATH)('configured owner master loads, while the explicitly supplied obsolete master is rejected',async()=>{
+ const result=await loadRuntimeMaster({NIPT_TASK_MASTER_PATH:process.env.NIPT_TASK_MASTER_PATH});expect(result).toBeDefined();
+ if(process.env.NIPT_TEST_OLD_MASTER_PATH)await expect(loadRuntimeMaster({NIPT_TASK_MASTER_PATH:process.env.NIPT_TEST_OLD_MASTER_PATH})).rejects.toThrow('TASK_MASTER_SHA256_MISMATCH');
+});
