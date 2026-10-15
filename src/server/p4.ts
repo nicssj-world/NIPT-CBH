@@ -10,8 +10,13 @@ import {LabError} from "../../packages/lab/core";
 import {protect} from "./http";
 
 export const noStore={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"};
-export const labDeps=()=>({render:requestP4Pdf,store:new FileStore(path.resolve(/* turbopackIgnore: true */ process.env.FILE_STORE_ROOT||"data/files"))});
+export const labDeps=()=>({render:requestP4Pdf,store:new FileStore(path.resolve(/* turbopackIgnore: true */ process.env.FILE_STORE_ROOT||"data/files")),native:async(db:import('../../packages/db/connection').Queryable,user:import('../../packages/lab/core').Staff,input:import('../../packages/workbook/controlled').NativeIssueInput)=>{
+ const [{workbookDeps},{issueNativeWorkbook}]=await Promise.all([import('./workbook'),import('../../packages/workbook/controlled')]);return issueNativeWorkbook(db,user,input,await workbookDeps());
+}});
 const MESSAGES:Record<string,string>={
+ TASK_PDF_ONE_PAGE_A4_REQUIRED:"PDF ของ QC/Pooling/Seq ยังไม่ตรงข้อกำหนด 1 หน้า A4 ระบบจึงยังไม่ออกเอกสารนี้",TASK_PDF_DRIVER_COORDINATES_MISMATCH:"ขนาดหน้าจากเครื่อง Render ไม่ตรงกับ Print Settings ที่อนุมัติ กรุณาตรวจเครื่อง Render ก่อนออกเอกสาร",
+ TASK_PREWORK_ACTUALS_PRESENT:"ใบงานนี้มีค่าปฏิบัติที่บันทึกแล้ว จึงออก Pre-work ที่ต้องเว้นช่องปฏิบัติไม่ได้ กรุณาตรวจ Draft หรือออกฉบับ Completed ตามขั้นตอน โดยข้อมูลเดิมยังถูกเก็บไว้",
+ TASK_POOL_CONCENTRATION_REQUIRED:"กรอกความเข้มข้นก่อนเจือจางที่มากกว่าศูนย์ในใบงาน Master ก่อนออก Pooling ฉบับสมบูรณ์",TASK_CURRENT_POOL_REQUIRED:"Pool ที่เลือกไม่ตรงกับข้อมูลปัจจุบันของใบงาน กรุณาตรวจ Pool และ DNB ที่ใช้งาน",TASK_CURRENT_DNB_REQUIRED:"DNB ที่เลือกไม่ใช่ฉบับปัจจุบันของใบงาน",TASK_NATIVE_CONTROLLED_RENDERER_REQUIRED:"ยังไม่ได้เชื่อมการออกเอกสารกับ Excel Master ที่ล็อกไว้ จึงยังออกเอกสารฉบับปฏิบัติงานไม่ได้",
  FORBIDDEN:"ไม่มีสิทธิ์ทำรายการนี้",VERSION_CONFLICT:"มีผู้ใช้อื่นแก้ Batch นี้ก่อนหน้า กรุณาโหลดข้อมูลล่าสุดแล้วทำรายการอีกครั้ง",NOT_FOUND:"ไม่พบรายการ หรือไม่มีสิทธิ์เห็นรายการนี้",
  QUEUE_OVERRIDE_REASON_REQUIRED:"รายการที่เลือกแซงลำดับ FIFO ของตัวอย่างที่พร้อมก่อน ต้องระบุเหตุผล",CONTROL_SLOT_PROTECTED:"ตำแหน่ง Control (PC 1, NC 25, Blank 40) ย้ายหรือวางทับไม่ได้",
  PLACEMENT_LOCKED:"Sheet นี้ล็อกแผนตำแหน่งแล้ว — แก้ได้ผ่าน Controlled amendment ก่อนเริ่มปฏิบัติเท่านั้น",REASON_REQUIRED_AFTER_PLAN_CHECK:"แผนนี้ยืนยันแล้ว การเปลี่ยนต้องระบุเหตุผล",

@@ -1,8 +1,9 @@
 import {readArchive, sha256, writeArchive, xmlDecode, xmlEscape} from './archive';
+import {textFitStyles} from './text-fit';
 
-export const MASTER_SHA256 = '2f8aef50243c89eae6a4e9115d65fbf9239754a1bd9ce330205378f3a9b3aacf';
+export const MASTER_SHA256 = '0f94efbc240b9a38ff9be77bf0c8d92c09d82fa2fe2427b9d274cc739e5607a6';
 export const SHEETS = ['Ext. & Prep. Task List 1','Ext. & Prep. Task List 2','Ext. & Prep. Task List 3','QC measurements','Pooling Table','Seq Task-G50'] as const;
-export type Binding = {key: string; sheet: string; cell: string; dataType: 'text'|'number'|'checkbox'; source: string; requiredCondition: string; defaultBehavior: 'master-value'; mapping: string; editable: true; rendering?:'append'};
+export type Binding = {key: string; sheet: string; cell: string; dataType: 'text'|'number'|'checkbox'; source: string; requiredCondition: string; defaultBehavior: 'master-value'; mapping: string; editable: true; rendering?:'append'|'parentheses'|'filename'};
 export type InventoryCell = {sheet: string; cell: string; classification: 'editable'|'calculated'|'static'|'unmapped-blank'; text: string; formula: string|null; binding: Binding|null};
 const cells = (xml: string) => [...xml.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)].map(m => ({xml:m[0], attrs:m[1], body:m[2]??'', ref:/\br="([A-Z]+\d+)"/.exec(m[1])?.[1]??''}));
 const sharedStrings = (parts: Map<string,Buffer>) => [...(parts.get('xl/sharedStrings.xml')?.toString()??'').matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)].map(m=>m[1]);
@@ -35,12 +36,14 @@ function bindings(parts: Map<string,Buffer>): Binding[] {
   add(4,'D3','qc.date','text','QC operational date','QC'); add(4,'G3','qc.operator','text','QC operator','QC');
   for(let position=1;position<=48;position++) add(4,`C${position+6}`,`slot.${position}.libraryQc`,'number','library concentration ng/uL','QC','for occupied slot, including PC/NC/BLANK');
   for(const row of [19,20,21]) for(const [col,run] of [['F',1],['G',2],['H',3]] as const) add(4,`${col}${row}`,`qc.${run}.${row===19?'standard1':row===20?'standard2':'standard2Concentration'}`,'number','QC reference standard measurement','QC');
+  add(5,'C20','pool.instrumentCsvFileStem','text','operator-confirmed instrument CSV filename without extension','pool');result[result.length-1].rendering='filename';
   add(5,'C3','pool.date','text','pool operational date','pool'); add(5,'E3','pool.operator','text','pool operator','pool');
   for(const [cell,key] of [['D8','pool.standard1'],['D10','pool.standard2'],['D12','pool.standard2Concentration']] as const) {add(5,cell,key,'number','QC2 standard measurement','pool/QC');result[result.length-1].rendering='append';}
   add(5,'E14','pool.concentration','number','QC2 pool concentration','pool/QC');add(5,'D52','pool.dilutionC1','number','measured concentration before dilution','pool/QC');
   add(6,'B4','seq.date','text','sequencing operational date','sequencing'); add(6,'D4','seq.operator','text','sequencing operator','sequencing');
   add(6,'B35','seq.dnbId','text','DNB identifier','DNB','when sequencing is planned');
   add(6,'F4','seq.instrument','number','sequencer number','sequencing');add(6,'H4','seq.barcodeType','number','barcode type','sequencing');
+  add(6,'B26','seq.chipPositionedFirmly','checkbox','operator sequencing chip positioning confirmation','sequencing');result[result.length-1].rendering='parentheses';
   for(const [cell,key] of [['C18','seq.standard1'],['D18','seq.standard2'],['E18','seq.standard2Concentration'],['C22','seq.dnbConcentration'],['D22','seq.dilutedConcentration']] as const) {add(6,cell,key,'number','QC3 DNB/reference measurement','DNB/QC');result[result.length-1].rendering='append';}
   for(const [cell,key] of [['E36','seq.driveMemoryTb'],['H37','seq.negativePressureKpa'],['B42','seq.loadedDnb'],['D42','seq.q30'],['E42','seq.bic'],['G42','seq.fit']] as const) add(6,cell,key,'number','sequencing observed value','sequencing/QC');
   for(const row of [28,29,30,31]) add(6,`F${row}`,`seq.reagentConfirmation.${row}`,'text','operator reagent confirmation','sequencing');
@@ -79,19 +82,26 @@ export function validateTaskValues(master: Buffer, values: Record<string,unknown
 export function generateTaskWorkbook(master: Buffer, values: Record<string,unknown>) {
   validateTaskValues(master,values);
   const parts=lockedParts(master), defs=bindings(parts), strings=sharedStrings(parts), changedParts:string[]=[];
+  const fitting=textFitStyles(parts);
   for(let sheet=1;sheet<=6;sheet++) {
     const path=`xl/worksheets/sheet${sheet}.xml`, original=parts.get(path)!.toString();
     let xml=original;
     for(const d of defs.filter(d=>d.sheet===SHEETS[sheet-1])) {
       const value=values[d.key]; if(value===undefined||value===null)continue;
       const c=cells(xml).find(c=>c.ref===d.cell); if(!c||/<f\b/.test(c.body))throw new Error(`TASK_FIELD_PROTECTED:${d.key}`);
-      const attrs=c.attrs.replace(/\s+t="[^"]*"/g,'');
+      let attrs=c.attrs.replace(/\s+t="[^"]*"/g,'');
+      if(d.dataType==='text'&&!d.rendering&&String(value).length){const fitted=fitting.style(Number(/\bs="(\d+)"/.exec(attrs)?.[1]??0));attrs=/\bs="\d+"/.test(attrs)?attrs.replace(/\bs="\d+"/,`s="${fitted}"`):attrs+` s="${fitted}"`;}
       let body:string;
       if(d.dataType==='checkbox') {
         const index=Number(/<v>(\d+)<\/v>/.exec(c.body)?.[1]);
         const rich=/\bt="s"/.test(c.attrs)?strings[index]:/<is>([\s\S]*?)<\/is>/.exec(c.body)?.[1];
-        if(!rich||!rich.includes('☐'))throw new Error('TASK_CHECKBOX_SOURCE_INVALID');
-        body=`<is>${rich.replace('☐',value?'☑':'☐')}</is>`;
+        const placeholder=d.rendering==='parentheses'?'(  )':'☐';
+        if(!rich||!rich.includes(placeholder))throw new Error('TASK_CHECKBOX_SOURCE_INVALID');
+        body=`<is>${rich.replace(placeholder,value?(d.rendering==='parentheses'?'( ✓ )':'☑'):placeholder)}</is>`;
+      } else if(d.rendering==='filename'){
+        const index=Number(/<v>(\d+)<\/v>/.exec(c.body)?.[1]);const rich=/\bt="s"/.test(c.attrs)?strings[index]:undefined;
+        if(!rich?.includes('..เติมชื่อไฟล์........'))throw new Error('TASK_FILENAME_SOURCE_INVALID');
+        body=`<is>${rich.replace('..เติมชื่อไฟล์........',xmlEscape(String(value)))}</is>`;
       } else if(d.rendering==='append') {
         const index=Number(/<v>(\d+)<\/v>/.exec(c.body)?.[1]);
         const rich=/\bt="s"/.test(c.attrs)?strings[index]:undefined;
@@ -109,6 +119,7 @@ export function generateTaskWorkbook(master: Buffer, values: Record<string,unkno
     }
     if(xml!==original) {parts.set(path,Buffer.from(xml));changedParts.push(path);}
   }
+  if(fitting.finish())changedParts.push('xl/styles.xml');
   if(Object.keys(values).length) {
     const path='xl/workbook.xml', original=parts.get(path)!.toString();
     const calc=/<calcPr\b([^>]*?)\/>/.exec(original);

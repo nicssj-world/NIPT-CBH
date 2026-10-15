@@ -23,8 +23,9 @@ export async function reserveReleasedResult(db:Queryable,releaseId:string,store:
  return transaction(db,async()=>{
   const head=(await db.query<{ln:string}>('SELECT l.ln FROM result_release r JOIN specimen_round s ON s.id=r.round_id JOIN case_ln l ON l.id=s.case_ln_id WHERE r.id=$1',[releaseId])).rows[0];
   if(!head)throw Error('RELEASE_NOT_FOUND');await lockLn(db,head.ln);
+  // The LN transaction lock serializes reservation with P5 changes; Worker only needs release SELECT permission here.
   const r=(await db.query<{id:string;epoch:number;version_id:string;round_id:string;attempt_id:string;certified_by:string;certified_at:Date;sha256:string;parsed:Parsed;registration_origin:'ANC'|'LAB_DIRECT';round_number:number;version:number;case_ln_id:string}>(`SELECT r.id,r.epoch,r.version_id,r.round_id,r.certified_by,r.certified_at,v.attempt_id,v.sha256,v.parsed,c.registration_origin,s.round_number,s.case_ln_id,l.version
-   FROM result_release r JOIN result_report_version v ON v.id=r.version_id JOIN nipt_case c ON c.id=r.case_id JOIN specimen_round s ON s.id=r.round_id JOIN case_ln l ON l.id=s.case_ln_id WHERE r.id=$1 FOR UPDATE OF r`,[releaseId])).rows[0];
+   FROM result_release r JOIN result_report_version v ON v.id=r.version_id JOIN nipt_case c ON c.id=r.case_id JOIN specimen_round s ON s.id=r.round_id JOIN case_ln l ON l.id=s.case_ln_id WHERE r.id=$1`,[releaseId])).rows[0];
   if(!r||!await operationalReleaseEligible(db,releaseId,r.epoch))throw Error('CERTIFIED_CURRENT_RELEASE_REQUIRED');
   assertOutboundOrigin(r.registration_origin);
   const previous=(await db.query<{id:string}>('SELECT id FROM p6_transfer WHERE clinical_release_id=$1',[releaseId])).rows[0];if(previous)return loadTransfer(db,previous.id);

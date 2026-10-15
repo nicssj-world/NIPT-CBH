@@ -78,6 +78,7 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
   </section>
   {qcOpen&&<QcPanel w={w} busy={busy} act={act} userId={userId}/>}
   <section className="panel" aria-labelledby="docs-h"><h2 id="docs-h">เอกสาร (Issued original และสำเนา)</h2>
+   {w.operational&&<p className="help">สำเนามีเลขกำกับและสถานะของฉบับ โปรดตรวจเทียบทะเบียนก่อนใช้ เอกสารที่ระงับใช้หรือถูกแทนที่ต้องเรียกคืนตามขั้นตอน</p>}
    <div className="action-bar">{finalizedAny&&w.allowed.finalize&&w.batch.state!=="Cancelled"&&<button className="button secondary" type="button" disabled={busy} onClick={()=>act("issueQcPreWork",{},"ออก/ปรับ F3 Pre-work แล้ว")}>ออก F3 QC1 Pre-work</button>}
     {qcOpen&&w.allowed.qcRecord&&w.batch.state==="ExtractionLibrary"&&<button className="button" type="button" disabled={busy||!w.qc.ready} onClick={()=>act("issueQcCompleted",{},"ออก F3 Completed แล้ว")}>ออก F3 Completed</button>}</div>
    {w.documents.length===0?<p className="empty-state">ยังไม่มีเอกสารที่ออก — Draft แสดงบนจอเท่านั้นและพิมพ์ไม่ได้</p>:<div className="table-wrap"><table className="data-table"><thead><tr><th scope="col">เอกสาร</th><th scope="col">Rev</th><th scope="col">สถานะ</th><th scope="col">ออกเมื่อ / โดย</th><th scope="col">สำเนาใช้งาน</th><th scope="col">จัดการ</th></tr></thead>

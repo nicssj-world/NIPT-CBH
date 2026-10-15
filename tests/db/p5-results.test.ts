@@ -21,7 +21,7 @@ describe('P5 intake, import and immutable original (§11.1, AT-RES-01..03)',()=>
   const c=await receivedCase(f);const bytes=syntheticReportPdf(spec(c));
   const {versionId,outcome}=await importReport(f,bytes);expect(outcome).toBe('Unlinked');
   const v=(await f.db.query<{sha256:string;case_id:string|null;parser_version:string}>('SELECT sha256,case_id,parser_version FROM result_report_version WHERE id=$1',[versionId])).rows[0];
-  expect(v.case_id).toBeNull();expect(v.parser_version).toBe('P5-PARSER-1.0.0');expect(await f.store.get(v.sha256)).toEqual(bytes);
+  expect(v.case_id).toBeNull();expect(v.parser_version).toBe('P5-PARSER-1.0.1');expect(await f.store.get(v.sha256)).toEqual(bytes);
   expect((await f.db.query('SELECT count(*)::int n FROM result_link_event')).rows[0]).toEqual({n:0});
   const again=await importReport(f,bytes);expect(again.outcome).toBe('Duplicate');expect(again.versionId).toBe(versionId);
   await expect(f.db.query("UPDATE result_intake_file SET parsed='{}' WHERE id=(SELECT intake_file_id FROM result_report_version WHERE id=$1)",[versionId])).rejects.toThrow('INTAKE_EVIDENCE_IMMUTABLE');

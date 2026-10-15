@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$InputWorkbook,[Parameter(Mandatory=$true)][string]$OutputDirectory)
+param([Parameter(Mandatory=$true)][string]$InputWorkbook,[Parameter(Mandatory=$true)][string]$OutputDirectory,[string]$SheetIndices='1,2,3,4,5,6')
 $ErrorActionPreference='Stop'
 $source=[IO.Path]::GetFullPath($InputWorkbook)
 $destination=[IO.Path]::GetFullPath($OutputDirectory)
@@ -11,6 +11,8 @@ $printerName=$null
 $printerSnapshot=$null
 $exportMutex=New-Object Threading.Mutex($false,'Local\NiptCbhNativeExcelExport')
 $exportLock=$false
+$selected=@($SheetIndices.Split(',')|ForEach-Object{[int]$_})
+if($selected.Count -lt 1 -or @($selected|Where-Object{$_ -lt 1 -or $_ -gt 6}).Count){throw 'TASK_SHEET_REQUIRED'}
 try {
   $exportLock=$exportMutex.WaitOne(120000)
   if(-not $exportLock){throw 'TASK_EXCEL_EXPORT_BUSY'}
@@ -36,7 +38,9 @@ try {
     $target=[IO.Path]::Combine($destination,"sheet-$index.pdf")
     if(Test-Path -LiteralPath $target){throw 'TASK_PDF_DESTINATION_EXISTS'}
     # Honor the template's print areas, margins, fonts, scaling and page breaks.
-    $sheet.ExportAsFixedFormat(0,$target,0,$true,$false)
+    # A copied source may retain selected tabs. Excel exports the entire selected
+    # group even through Worksheet.ExportAsFixedFormat; select this sheet alone.
+    if($selected -contains $index){$sheet.Select($true);$sheet.ExportAsFixedFormat(0,$target,0,$true,$false)}
     $formulaCount=0
     $formulaErrors=@()
     foreach($cell in $sheet.UsedRange.Cells){

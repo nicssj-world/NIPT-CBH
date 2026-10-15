@@ -1,6 +1,6 @@
 import {z} from 'zod';
 import {operationalWorkflow} from './operational';
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import type {Queryable} from '../db/connection';
 import type {FileStore} from '../storage';
 import {authorize} from '../security/policy';
@@ -11,8 +11,10 @@ import {FIELDS,FIELD_INVENTORY_STATUS,fieldDef,requiredSheetFields,type FieldDef
 import {qc1Candidates,QC1_CRITERIA} from './qc';
 import {LabError,uuid,reasonText,need,assertSession,audit,caseEvent,attemptEvent,setAttemptState,DISPOSITION_REASONS,type Staff} from './core';
 import {lockBatch,sheetOf,latestSnapshot,FINALIZED,type PlacementPayload} from './batch';
+import {isNativeIssue,type NativeIssuePort} from '../workbook/controlled';
+import {labelNativeCopy} from '../workbook/controlled-copy';
 
-export type DocDeps={render:(doc:P4Document)=>Promise<Buffer>;store:FileStore};
+export type DocDeps={render:(doc:P4Document)=>Promise<Buffer>;store:FileStore;native?:NativeIssuePort};
 const no13=(v:string)=>!/\d{13}/.test(v);
 const hhmm=z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const VALUE:Record<FieldDef['kind'],z.ZodType>={
@@ -229,10 +231,13 @@ async function f3Document(db:Queryable,batchId:string,kind:'PRE_WORK'|'COMPLETED
 }
 const docCode=(runLabel:string,form:'F2'|'F3',sheet:number|null)=>`${form}-${runLabel.replace('/','-').toUpperCase()}${sheet?'-TL'+sheet:''}`;
 async function storeDocument(db:Queryable,user:Staff,deps:DocDeps,x:{batchId:string;sheetId:string|null;form:'F2'|'F3';kind:'PRE_WORK'|'COMPLETED';code:string;revision:number;doc:P4Document;supersedes:string|null}){
- const bytes=await deps.render(x.doc);if(!bytes.subarray(0,5).equals(Buffer.from('%PDF-')))throw new LabError('RENDERER_INVALID_PDF',502);
+ const operational=await operationalWorkflow(db);
+ if(operational&&!deps.native)throw new LabError('TASK_NATIVE_CONTROLLED_RENDERER_REQUIRED',409);
+ const native=operational?await deps.native!(db,user,{batchId:x.batchId,form:x.form,kind:x.kind,sheetNumber:x.doc.form==='F2'?x.doc.sheetNumber:undefined,evidence:x.doc}):null;
+ const bytes=native?.bytes??await deps.render(x.doc);if(!bytes.subarray(0,5).equals(Buffer.from('%PDF-')))throw new LabError('RENDERER_INVALID_PDF',502);
  const hash=await deps.store.put(bytes);
  const id=(await db.query<{id:string}>('INSERT INTO lab_document(batch_id,sheet_id,form,kind,revision,doc_code,snapshot,snapshot_hash,file_sha256,file_size,template_version,supersedes_id,issued_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id',
-  [x.batchId,x.sheetId,x.form,x.kind,x.revision,x.code,JSON.stringify(x.doc),contentHash(x.doc),hash,bytes.length,P4_TEMPLATE_VERSION,x.supersedes,user.id])).rows[0].id;
+  [x.batchId,x.sheetId,x.form,x.kind,x.revision,x.code,JSON.stringify(native?.snapshot??x.doc),contentHash(native?.snapshot??x.doc),hash,bytes.length,native?.templateVersion??P4_TEMPLATE_VERSION,x.supersedes,user.id])).rows[0].id;
  await audit(db,user,'LAB_DOCUMENT_ISSUED','lab_document',id,{outcome:`${x.form}_${x.kind}`,version:x.revision});
  return {id,fileSha256:hash,revision:x.revision};
 }
@@ -262,7 +267,8 @@ export async function issueQcPreWork(db:Queryable,user:Staff,input:unknown,deps:
  const {doc,included}=await f3Document(db,b.id,'PRE_WORK',{docCode:code,revision,issuedAt:new Date(),issuedBy:await displayName(db,user.id)});
  if(!included.length)throw new LabError('NO_FINALIZED_SHEET',409);
  const current=(await db.query<{id:string;file_sha256:string;revision:number;snapshot:{snapshotRevision:string}}>("SELECT id,file_sha256,revision,snapshot FROM lab_document WHERE batch_id=$1 AND form='F3' AND kind='PRE_WORK' AND status='Issued' ORDER BY revision DESC LIMIT 1",[b.id])).rows[0];
- if(current&&current.snapshot.snapshotRevision===doc.snapshotRevision)return {id:current.id,fileSha256:current.file_sha256,revision:current.revision,version:b.version,unchanged:true};
+ const currentPlacement=current&&(isNativeIssue(current.snapshot)?(current.snapshot.evidence as {snapshotRevision?:string})?.snapshotRevision:current.snapshot.snapshotRevision);
+ if(current&&currentPlacement===doc.snapshotRevision)return {id:current.id,fileSha256:current.file_sha256,revision:current.revision,version:b.version,unchanged:true};
  const r=await storeDocument(db,user,deps,{batchId:b.id,sheetId:null,form:'F3',kind:'PRE_WORK',code,revision,doc,supersedes:current?.id??null});
  if(current)await db.query("UPDATE lab_document SET status='Superseded',status_reason=$2,status_changed_by=$3,status_changed_at=now() WHERE id=$1",[current.id,`แทนที่โดย Rev ${revision} (เพิ่ม Sheet ที่ Finalize)`,user.id]);
  const version=(await db.query<{version:number}>('UPDATE lab_batch SET version=version+1 WHERE id=$1 RETURNING version',[b.id])).rows[0].version;
@@ -304,19 +310,19 @@ export async function printDocument(db:Queryable,user:Staff,input:unknown,deps:D
  if(d.kind==='WORKING_COPY'){need(user,'execution.record');if(!issued||doc.kind!=='PRE_WORK')throw new LabError('WORKING_COPY_ONLY_FROM_ISSUED_PRE_WORK',409);}
  else if(d.kind==='ORIGINAL_REPRINT'){if(issued)need(user,'worksheet.read','read');else{need(user,'document.obsolete.print');if(!d.reason)throw new LabError('REASON_REQUIRED',422);}}
  else{need(user,'worksheet.read','read');if(issued)throw new LabError('STATUS_MARK_ONLY_FOR_INACTIVE',409);}
- let bytes:Buffer,copyNumber:number|null=null;
+ let bytes:Buffer,copyNumber:number|null=null;const copyId=randomUUID();
  if(d.kind==='ORIGINAL_REPRINT')bytes=await deps.store.get(doc.file_sha256);
  else{
   if(d.kind==='WORKING_COPY')copyNumber=(await db.query<{n:number}>('SELECT COALESCE(max(copy_number),0)+1 n FROM lab_document_copy WHERE document_id=$1',[doc.id])).rows[0].n;
   const name=await displayName(db,user.id),now=new Date().toLocaleString('th-TH',{timeZone:'Asia/Bangkok',hour12:false});
   const statusText:Record<string,string>={StopUse:'ระงับใช้',Superseded:'ถูกแทนที่',Cancelled:'ยกเลิก'};
-  bytes=await deps.render({...doc.snapshot,copy:{kind:d.kind,copyNumber,originalHash:doc.file_sha256,printedBy:name,printedAt:now,status:d.kind==='STATUS_MARKED'?statusText[doc.status]:null,statusReason:d.kind==='STATUS_MARKED'?doc.status_reason:null}} as P4Document);
+  bytes=isNativeIssue(doc.snapshot)?await labelNativeCopy(await deps.store.get(doc.file_sha256),{id:copyId,kind:d.kind,number:copyNumber,status:doc.status,originalHash:doc.file_sha256,actorId:user.id,at:new Date().toISOString()}):await deps.render({...doc.snapshot,copy:{kind:d.kind,copyNumber,originalHash:doc.file_sha256,printedBy:name,printedAt:now,status:d.kind==='STATUS_MARKED'?statusText[doc.status]:null,statusReason:d.kind==='STATUS_MARKED'?doc.status_reason:null}} as P4Document);
   await deps.store.put(bytes);
  }
  const sha=createHash('sha256').update(bytes).digest('hex');
- const id=(await db.query<{id:string}>('INSERT INTO lab_document_copy(document_id,kind,copy_number,file_sha256,derived_from,actor_id,reason) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',[doc.id,d.kind,copyNumber,sha,doc.file_sha256,user.id,d.reason??null])).rows[0].id;
+ const id=(await db.query<{id:string}>('INSERT INTO lab_document_copy(id,document_id,kind,copy_number,file_sha256,derived_from,actor_id,reason) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',[copyId,doc.id,d.kind,copyNumber,sha,doc.file_sha256,user.id,d.reason??null])).rows[0].id;
  await audit(db,user,'LAB_DOCUMENT_PRINTED','lab_document_copy',id,{outcome:d.kind,count:copyNumber??0});
- return {copyId:id,bytes,sha256:sha,copyNumber,fileName:`${doc.doc_code}-rev${doc.revision}${copyNumber?`-copy${copyNumber}`:d.kind==='STATUS_MARKED'?'-status':''}.pdf`};
+ return {copyId:id,bytes,sha256:sha,copyNumber,status:doc.status,fileName:`${doc.doc_code}-rev${doc.revision}${copyNumber?`-copy${copyNumber}`:d.kind==='STATUS_MARKED'?`-status${isNativeIssue(doc.snapshot)?'-'+doc.status:''}`:''}.pdf`};
 }
 export async function readOriginal(db:Queryable,user:Staff,documentId:string,deps:Pick<DocDeps,'store'>){
  await assertSession(db,user);need(user,'worksheet.read','read');

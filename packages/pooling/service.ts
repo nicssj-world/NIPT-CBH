@@ -69,11 +69,11 @@ async function event(db:Queryable,user:Staff,poolId:string,type:string,payload:R
 }
 const common=z.strictObject({batchId:uuid,poolId:uuid,expectedVersion:z.number().int().min(0)});
 async function getPool(db:Queryable,batchId:string,id:string){const p=(await db.query<PoolRow>('SELECT * FROM p4b_pool_attempt WHERE id=$1 AND batch_id=$2',[id,batchId])).rows[0];if(!p)throw new LabError('NOT_FOUND',404);if(digest(p.payload)!==p.sha256)throw new LabError('POOL_HASH_MISMATCH',409);return p;}
-async function context(db:Queryable,user:Staff,d:z.infer<typeof common>,action:string){
+async function context(db:Queryable,user:Staff,d:z.infer<typeof common>,action:string,acceptedDocument=false){
  await assertSession(db,user);need(user,action);await lockBatch(db,d.batchId,d.expectedVersion);
  const p=await getPool(db,d.batchId,d.poolId),ev=await events(db,p.id),source=await poolingSource(db,p.batch_id,p.payload.calculation.scenario.controls);
  if(stopped(ev)||source.sourceHash!==p.source_sha256)throw new LabError('POOL_STOP_USE',409);
- if(has(ev,'ACCEPTED')&&action!=='worksheet.revise')throw new LabError('POOL_ACCEPTED_IMMUTABLE',409);
+ if(has(ev,'ACCEPTED')&&action!=='worksheet.revise'&&!acceptedDocument)throw new LabError('POOL_ACCEPTED_IMMUTABLE',409);
  return {p,ev};
 }
 async function touch(db:Queryable,id:string){return (await db.query<{version:number}>('UPDATE lab_batch SET version=version+1 WHERE id=$1 RETURNING version',[id])).rows[0].version;}
@@ -204,7 +204,7 @@ export async function workspace(db:Queryable,user:Staff,batchId:string){
  const obs=await observations(db,current.id);
  const snapshots=(await db.query<{id:string;sha256:string;payload:Record<string,unknown>}>('SELECT id,sha256,payload FROM p4b_pool_snapshot WHERE pool_id=$1',[current.id])).rows;
  const halosExports=(await db.query('SELECT e.id,e.revision,e.dnb_date,e.file_sha256,EXISTS(SELECT 1 FROM p4b_halos_verification v WHERE v.export_id=e.id) verified FROM p4b_halos_export e JOIN p4b_pool_snapshot s ON s.id=e.pool_snapshot_id WHERE s.pool_id=$1 ORDER BY e.revision DESC',[current.id])).rows;
- const documents=(await db.query<{id:string;kind:string;revision:number;file_sha256:string;issued_at:Date}>('SELECT id,kind,revision,file_sha256,issued_at FROM p4b_document WHERE pool_id=$1 ORDER BY issued_at',[current.id])).rows;
+ const documents=(await db.query<{id:string;kind:string;revision:number;file_sha256:string;issued_at:Date;nativeMaster:boolean}>(`SELECT id,kind,revision,file_sha256,issued_at,COALESCE(snapshot->>'nativeMaster'='true',false) AS "nativeMaster" FROM p4b_document WHERE pool_id=$1 ORDER BY issued_at`,[current.id])).rows;
  const copies=(await db.query('SELECT c.* FROM p4b_document_copy c JOIN p4b_document d ON d.id=c.document_id WHERE d.pool_id=$1 ORDER BY c.created_at',[current.id])).rows;
  return {batchId:b.id,runLabel:b.run_label,version:b.version,operational:await operationalWorkflow(db),holds:HOLDS,pools:pools.map(p=>({id:p.id,attemptNumber:p.attempt_number,sha256:p.sha256})),
   current:{id:current.id,revision:current.revision,sha256:current.sha256,payload,selectedSlots:current.selected_slots,seed:current.seed,

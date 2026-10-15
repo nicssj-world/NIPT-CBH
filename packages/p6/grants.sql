@@ -19,6 +19,7 @@ GRANT SELECT ON result_release TO worker_rw;
 GRANT SELECT ON result_report_version,redraw_request,p2_revocation TO worker_rw;
 GRANT INSERT ON p6_transfer TO worker_rw;
 GRANT EXECUTE ON FUNCTION p6_release_eligible(uuid,integer) TO worker_rw,app_rw;
+GRANT EXECUTE ON FUNCTION p6_lock_current_release(uuid,integer) TO worker_rw;
 
 -- Settings-bound fixture enrollment reads approved configuration; no configuration writes.
 GRANT SELECT ON settings_revision,setting_active TO p6_fixture_writer;

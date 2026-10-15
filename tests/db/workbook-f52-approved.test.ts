@@ -11,7 +11,8 @@ import {createBatch} from '../../packages/lab/batch';
 import {FileStore} from '../../packages/storage';
 import {workbookWorkspace,saveWorkbookDraft,exportWorkbook} from '../../packages/workbook/service';
 import {exportTaskPdfs} from '../../packages/workbook/native-pdf';
-const source=process.env.NIPT_TASK_MASTER_PATH??'C:/Users/User/Downloads/Final_New_Task_List_Edit_2_F52_Corrected.xlsx';
+import {MASTER_SHA256} from '../../packages/workbook/master';
+const source=process.env.NIPT_TASK_MASTER_PATH??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx';
 it.skipIf(!existsSync(source))('091 upgrades existing immutable old-master drafts without rewriting history and requires explicit rebind before new export',async()=>{
  const db=new PGlite(),dir=await mkdtemp(path.join(tmpdir(),'nipt-f52-upgrade-'));
  try{
@@ -25,7 +26,7 @@ it.skipIf(!existsSync(source))('091 upgrades existing immutable old-master draft
   await expect(tx(db,t=>exportWorkbook(t,users.staff,{batchId:batch.batchId,revision:1,format:'XLSX'},deps))).rejects.toThrow('TASK_SOURCE_CHANGED_REBIND_REQUIRED');
   await tx(db,t=>saveWorkbookDraft(t,users.staff,{batchId:batch.batchId,expectedVersion:workspace.version,expectedRevision:1,values:workspace.values},deps));
   expect((await tx(db,t=>workbookWorkspace(t,users.staff,batch.batchId,deps))).sourceStale).toBe(false);
-  expect((await db.query<{master_sha256:string}>('SELECT master_sha256 FROM task_workbook_revision WHERE batch_id=$1 ORDER BY revision',[batch.batchId])).rows.map(r=>r.master_sha256)).toEqual([old,'2f8aef50243c89eae6a4e9115d65fbf9239754a1bd9ce330205378f3a9b3aacf']);
+  expect((await db.query<{master_sha256:string}>('SELECT master_sha256 FROM task_workbook_revision WHERE batch_id=$1 ORDER BY revision',[batch.batchId])).rows.map(r=>r.master_sha256)).toEqual([old,MASTER_SHA256]);
  }finally{await db.close();await rm(dir,{recursive:true,force:true});}
 },120000);
 it.skipIf(process.env.NIPT_TEST_NATIVE_EXCEL!=='yes'||!existsSync(source))('F52 native Excel: D52 draft/save/resume matches XLSX and PDF recalculation, then rebinds changed concentration',async()=>{

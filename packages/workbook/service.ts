@@ -9,6 +9,7 @@ import {generateTaskWorkbook,inspectTaskMaster,MASTER_SHA256,validateTaskValues,
 import type {exportTaskPdfs} from './native-pdf';
 import type {DnbRow,SequenceRow,DnbObservation,DnbEvent} from '../sequencing/service';
 import type {Observation as PoolObservation} from '../pooling/service';
+import {labObservationBindings} from './lab-bindings';
 type Revision={id:string;batch_id:string;revision:number;master_sha256:string;source_sha256:string;source_snapshot:unknown;values:Record<string,unknown>;created_by:string;created_at:Date};
 export type WorkbookDeps={master:Buffer;store:Pick<FileStore,'put'|'get'>;render:typeof exportTaskPdfs};
 async function access(db:Queryable,user:Staff,batchId:string,write=false) {await assertSession(db,user);need(user,write?'execution.record':'worksheet.read',write?'write':'read');return lockBatch(db,batchId);}
@@ -26,6 +27,7 @@ async function source(db:Queryable,batchId:string) {
     for(const slot of p.payload.slots)if(slot.attemptId||slot.control)values[`slot.${slot.slot}.printedSampleId`]=slot.printedSampleId??slot.printedControlId??'';
   }
   for(const o of observations) {
+    Object.assign(values,labObservationBindings(o));
     if(o.field_id==='F3-03'&&o.slot_number&&typeof o.value.value==='string')values[`slot.${o.slot_number}.libraryQc`]=Number(o.value.value);
     if(o.field_id==='F2-11'&&o.slot_number&&o.value.before===true&&o.value.after===true)values[`slot.${o.slot_number}.transferChecked`]='✓';
     if(o.field_id==='F2-02'&&o.sheet_number&&typeof o.value.date==='string')values[`task.${o.sheet_number}.date`]=o.value.date;
@@ -35,7 +37,8 @@ async function source(db:Queryable,batchId:string) {
   const dnbs=(await db.query<DnbRow>('SELECT * FROM p4c_dnb_attempt WHERE batch_id=$1 ORDER BY attempt_number',[batchId])).rows;
   const sequencing=(await db.query<SequenceRow>('SELECT * FROM p4c_sequencing_attempt WHERE dnb_id IN (SELECT id FROM p4c_dnb_attempt WHERE batch_id=$1) ORDER BY dnb_id,attempt_number',[batchId])).rows;
   const dnb=dnbs.at(-1),dnbObservations=dnb?(await db.query<DnbObservation>(`SELECT o.* FROM p4c_dnb_observation o WHERE o.dnb_id=$1 AND NOT EXISTS(SELECT 1 FROM p4c_dnb_observation next WHERE next.supersedes_id=o.id) ORDER BY o.sequence`,[dnb.id])).rows:[];
-  const dnbEvents=dnb?(await db.query<DnbEvent>('SELECT * FROM p4c_dnb_event WHERE dnb_id=$1 ORDER BY sequence',[dnb.id])).rows:[];
+  // Document bookkeeping does not change workbook measurements and must not invalidate its own Preview.
+  const dnbEvents=dnb?(await db.query<DnbEvent>("SELECT * FROM p4c_dnb_event WHERE dnb_id=$1 AND event_type NOT IN ('PREVIEW','PRE_WORK','COMPLETED','RECALL') ORDER BY sequence",[dnb.id])).rows:[];
   if(dnb){
     values['seq.dnbId']=dnb.dnb_label;
     for(const [field,key] of [['STD1','seq.standard1'],['STD2','seq.standard2'],['QC3','seq.dnbConcentration']] as const){const o=dnbObservations.findLast(o=>o.field===field);if(o)values[key]=Number(o.value);}
@@ -73,7 +76,7 @@ export async function exportWorkbook(db:Queryable,user:Staff,input:unknown,deps:
   let bytes=generated.bytes,manifest:Record<string,unknown>={masterSha256:MASTER_SHA256,sourceSha256:current.sha256,revision:d.revision,xlsxSha256:generated.sha256,formulaCount:149,calculation:'native Excel recalculation required'};
   if(d.format==='PDF') {
     if(!d.sheet)throw new LabError('TASK_SHEET_REQUIRED',422);
-    const pdfs=await deps.render(generated.bytes),pdf=pdfs.find(p=>p.sheet===d.sheet);if(!pdf)throw new LabError('TASK_NATIVE_PDF_MISSING',500);
+    const pdfs=await deps.render(generated.bytes,[d.sheet]),pdf=pdfs.find(p=>p.sheet===d.sheet);if(!pdf)throw new LabError('TASK_NATIVE_PDF_MISSING',500);
     bytes=pdf.bytes;const {bytes:_,...evidence}=pdf;void _;manifest={...manifest,...evidence};
   }
   const fileHash=await deps.store.put(bytes);

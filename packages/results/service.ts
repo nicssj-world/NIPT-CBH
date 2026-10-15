@@ -84,13 +84,13 @@ export function summary(p:Parsed){
 
 type RoundRequest={dob:string|null;edd:string|null;pregnancy:'Singleton'|'Twins'|null;fetalSex:string|null;dates:string[]};
 async function roundRequest(db:Queryable,roundId:string):Promise<RoundRequest>{
- const r=(await db.query<{draft:{patient?:{dob?:string|null};pregnancy?:{edd?:string|null;type?:string|null;fetalSex?:string|null}}|null;panel:{pregnancyType?:string;fetalSex?:string}|null;round_date:string|null;dates:string[]}>(
-  `SELECT (SELECT d.payload->'draft' FROM p2_document_revision d WHERE d.round_id=$1 AND d.kind='REQUEST' ORDER BY d.version DESC LIMIT 1) draft,
+ const r=(await db.query<{request_mode:string|null;draft:{patient?:{dob?:string|null};pregnancy?:{edd?:string|null;type?:string|null;fetalSex?:string|null}}|null;panel:{dob?:string|null;edd?:string|null;pregnancyType?:string;fetalSex?:string}|null;round_date:string|null;dates:string[]}>(
+  `SELECT (SELECT request_mode FROM p2_workspace WHERE round_id=$1) request_mode,(SELECT d.payload->'draft' FROM p2_document_revision d WHERE d.round_id=$1 AND d.kind='REQUEST' ORDER BY d.version DESC LIMIT 1) draft,
    (SELECT p.panel FROM p2_paper_review p WHERE p.round_id=$1 AND p.kind='REQUEST' AND p.status='Verified' ORDER BY p.created_at DESC LIMIT 1) panel,
    (SELECT collection_date::text FROM specimen_round WHERE id=$1) round_date,
    ARRAY(SELECT y.d FROM (SELECT DISTINCT ON(f.source) f.collection_date::text d FROM p2_collection_fact f WHERE f.round_id=$1 ORDER BY f.source,f.sequence DESC) y) dates`,[roundId])).rows[0];
- const pt=r.draft?.pregnancy?.type??r.panel?.pregnancyType??null;
- return {dob:r.draft?.patient?.dob??null,edd:r.draft?.pregnancy?.edd??null,pregnancy:pt==='Singleton'||pt==='Twins'?pt:null,fetalSex:r.draft?.pregnancy?.fetalSex??r.panel?.fetalSex??null,dates:[...new Set([...r.dates,...(r.round_date?[r.round_date]:[])])]};
+ const paper=r.request_mode==='Paper',pt=paper?r.panel?.pregnancyType:r.draft?.pregnancy?.type??r.panel?.pregnancyType??null;
+ return {dob:paper?r.panel?.dob??null:r.draft?.patient?.dob??null,edd:paper?r.panel?.edd??null:r.draft?.pregnancy?.edd??null,pregnancy:pt==='Singleton'||pt==='Twins'?pt:null,fetalSex:paper?r.panel?.fetalSex??null:r.draft?.pregnancy?.fetalSex??r.panel?.fetalSex??null,dates:[...new Set([...r.dates,...(r.round_date?[r.round_date]:[])])]};
 }
 const cmp=(a:string|null|undefined,b:string|null|undefined):Cmp=>!a||!b?'NOT_AVAILABLE':a===b?'MATCH':'MISMATCH';
 const digits=(x:string|null|undefined)=>x?x.replace(/^0+/,''):null;

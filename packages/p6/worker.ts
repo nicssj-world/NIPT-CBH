@@ -72,8 +72,8 @@ export async function runTransfer(db:Queryable,id:string,hooks:WorkerTestHooks={
       try{
         await db.query('SELECT id FROM p6_transfer WHERE id=$1 FOR UPDATE',[id]);
         if(row.clinical_release_id){
-          await db.query('SELECT id FROM result_release WHERE id=$1 FOR UPDATE',[row.clinical_release_id]);
-          if(!await operationalReleaseEligible(db,row.clinical_release_id,row.plan.epoch))throw Error('P6_GATE_CHANGED');
+          const locked=(await db.query<{eligible:boolean}>('SELECT p6_lock_current_release($1,$2) eligible',[row.clinical_release_id,row.plan.epoch])).rows[0];
+          if(!locked?.eligible)throw Error('P6_GATE_CHANGED');
         }
         if(/^(?:SYNTHETIC|OPERATIONAL)-SETTINGS-/.test(row.plan.settingsVersion)){await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['settings:his_outbound']);const a=(await db.query<{revision_id:string}>("SELECT revision_id FROM setting_active WHERE setting_key='his_outbound'")).rows[0];if(row.plan.settingsVersion!==(row.plan.mode==='OPERATIONAL_RELEASE'?'OPERATIONAL-SETTINGS-':'SYNTHETIC-SETTINGS-')+a?.revision_id)throw Error('P6_GATE_CHANGED');}
         if(gated(await loadTransfer(db,id)))throw Error('P6_GATE_CHANGED');

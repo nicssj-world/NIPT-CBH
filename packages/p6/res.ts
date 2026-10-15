@@ -30,7 +30,7 @@ const inputSchema = z.strictObject({
   result:z.record(z.string(),text).nullable(),
 });
 export type SyntheticResInput = z.infer<typeof inputSchema>;
-const operationalOrderSchema=z.strictObject({ln:text.refine(s=>/^\d{1,24}$/.test(s),'INVALID_LN'),hn:text.refine(s=>/^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/.test(s),'INVALID_HN'),dspname:text.min(1).max(240),dob:text,sex:z.enum(['F','M','U']),specimen_date:text});
+const operationalOrderSchema=z.strictObject({ln:text.refine(s=>/^\d{1,24}$/.test(s),'INVALID_LN'),hn:text.refine(s=>/^[A-Za-z0-9][A-Za-z0-9./_-]{0,31}$/.test(s),'INVALID_HN'),dspname:text.min(1).max(240),dob:text,sex:z.enum(['F','M','U']),specimen_date:text});
 const operationalInputSchema=inputSchema.extend({order:operationalOrderSchema,certifierHisId:text.refine(s=>{const p=s.split('^');return p.length===2&&p.every(x=>x.trim().length>0&&!/[|\\~&]/.test(x));},'CERTIFIER_HIS_MAPPING_REQUIRED')});
 export const operationalProfileSchema=profileSchema.extend({syntheticOnly:z.literal(false)});
 export type OperationalResInput=z.infer<typeof operationalInputSchema>;
@@ -80,7 +80,7 @@ function strictTimestamp(value:string) {
 
 export function pdfFilename(hn:string, ln:string, sequence:number, template='N_HN__LN',operational=false) {
   text.parse(hn);
-  if(operational){if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/.test(hn)||!/^\d{1,24}$/.test(ln))throw Error('INVALID_IDENTIFIER');}
+  if(operational){if(!/^[A-Za-z0-9][A-Za-z0-9./_-]{0,31}$/.test(hn)||!/^\d{1,24}$/.test(ln))throw Error('INVALID_IDENTIFIER');}
   else if(!hn.startsWith('SYNTHETIC-')||!/^0*99000\d+$/.test(ln))throw Error('SYNTHETIC_ONLY');
   if(!Number.isSafeInteger(sequence)||sequence<1)throw Error('INVALID_SEQUENCE');
   if(!/^[A-Za-z0-9_-]+$/.test(template))throw Error('INVALID_PDF_TEMPLATE');
