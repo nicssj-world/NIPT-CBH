@@ -1,3 +1,4 @@
+import {operationalRestore,activateRestored,restoreQueueAccess} from './operational-backup.mjs';
 import {execFileSync} from 'node:child_process';
 import {createDecipheriv} from 'node:crypto';
 import * as fs from 'node:fs/promises';
@@ -6,6 +7,9 @@ import {fileURLToPath} from 'node:url';
 import {Client} from 'pg';
 import {FORMAT,canonical,sha,checkedPath,disjoint,unpack,extract,p6Coverage,MAX_ARCHIVE_BYTES,readBoundedFile} from './backup-format.mjs';
 
+if(process.env.NIPT_MODE==='operational'){
+ try{process.stdout.write(JSON.stringify(await (process.argv[2]==='activate-restored'?activateRestored(process.argv[3]):operationalRestore(process.argv[2],process.argv[3])))+'\n');}catch(e){process.stderr.write((/^[A-Z0-9_]+$/.test(e.message)?e.message:'OPERATIONAL_RECOVERY_FAILED')+'\n');process.exitCode=1;}
+}else{
 if(process.env.NIPT_MODE!=='synthetic'||process.env.RESTORE_TO_NEW_SYNTHETIC_DATABASE!=='yes')throw Error('EXPLICIT_NEW_SYNTHETIC_RESTORE_REQUIRED');
 if(!process.argv[2]||!process.argv[3])throw Error('BACKUP_BASE_AND_NEW_FILESTORE_REQUIRED');
 const base=path.resolve(process.argv[2]),destination=await checkedPath(process.argv[3],{missing:true,fresh:true});
@@ -47,9 +51,12 @@ try{
  const pgRestore=path.join(process.env.PG_BIN??'',process.platform==='win32'?'pg_restore.exe':'pg_restore'),dump=path.join(stage,'database.dump');
  const listing=execFileSync(pgRestore,['--list',dump],{encoding:'utf8'});
  if(meta.format==='NIPT_SYNTHETIC_BACKUP_V1'&&/\bp6_[a-z0-9_]+\b/.test(listing))throw Error('P6_BACKUP_COVERAGE_UNPROVEN');
- execFileSync(pgRestore,['--single-transaction','--exit-on-error','--no-owner','--no-acl','--dbname',url.pathname.slice(1),dump],{env:{...process.env,PGHOST:url.hostname,PGPORT:url.port||'5432',PGUSER:decodeURIComponent(url.username),PGPASSWORD:decodeURIComponent(url.password),PGDATABASE:url.pathname.slice(1)},stdio:['ignore','ignore','pipe']});
+ execFileSync(pgRestore,['--single-transaction','--exit-on-error','--no-owner','--dbname',url.pathname.slice(1),dump],{env:{...process.env,PGHOST:url.hostname,PGPORT:url.port||'5432',PGUSER:decodeURIComponent(url.username),PGPASSWORD:decodeURIComponent(url.password),PGDATABASE:url.pathname.slice(1)},stdio:['ignore','ignore','pipe']});
+ await restoreQueueAccess(db);
  if(manifest&&canonical(await p6Coverage(db))!==canonical(manifest.p6))throw Error('RESTORED_P6_JOURNAL_MISMATCH');
  await checkedPath(destination,{missing:true,fresh:true});await fs.mkdir(destination);await extract(regular.filter(e=>e.path.startsWith('files/')).map(e=>({...e,path:e.path.slice(6)})),destination);
  if(manifest?.p6.sandboxIds.length){await checkedPath(p6Destination,{missing:true,fresh:true});await fs.mkdir(p6Destination,{recursive:true});await extract(regular.filter(e=>e.path.startsWith('p6-sandbox/')).map(e=>({...e,path:e.path.slice(11)})),p6Destination);}
  process.stdout.write(JSON.stringify({format:meta.format,restored:true,p6Activated:false,fileCount:regular.length-1})+'\n');
 }finally{key.fill(0);await db.end().catch(()=>{});if(stage)await fs.rm(stage,{recursive:true,force:true});}
+
+}

@@ -1,0 +1,403 @@
+{
+  "source_filename": "NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx",
+  "bytes": 5380051,
+  "sha256": "0f94efbc240b9a38ff9be77bf0c8d92c09d82fa2fe2427b9d274cc739e5607a6",
+  "sheets": [
+    {
+      "index": 1,
+      "name": "Ext. & Prep. Task List 1",
+      "range": "A1:M53",
+      "sheet_xml_sha256": "ae5acc565228e87026e05df23736b089732949b0e4433ae5640629775a804b5f",
+      "formulas_count": 0,
+      "print_area": "'Ext. & Prep. Task List 1'!$A$1:$M$53",
+      "page_setup": {
+        "paperSize": "9",
+        "fitToHeight": "0",
+        "orientation": "portrait",
+        "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id": "rId1"
+      },
+      "margins": {
+        "left": "0.3",
+        "right": "0.3",
+        "top": "0.3",
+        "bottom": "0",
+        "header": "0.15",
+        "footer": "0.15"
+      },
+      "merge_count": 91,
+      "embedded_drawing_refs": 1,
+      "cached_errors": []
+    },
+    {
+      "index": 2,
+      "name": "Ext. & Prep. Task List 2",
+      "range": "A1:M53",
+      "sheet_xml_sha256": "95fe93203a0172db055461ea1d96645c1e1cbbc20efeaedf98e08c88d05d9a12",
+      "formulas_count": 0,
+      "print_area": "'Ext. & Prep. Task List 2'!$A$1:$M$53",
+      "page_setup": {
+        "paperSize": "9",
+        "fitToHeight": "0",
+        "orientation": "portrait",
+        "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id": "rId1"
+      },
+      "margins": {
+        "left": "0.3",
+        "right": "0.3",
+        "top": "0.3",
+        "bottom": "0.3",
+        "header": "0.15",
+        "footer": "0.15"
+      },
+      "merge_count": 91,
+      "embedded_drawing_refs": 1,
+      "cached_errors": []
+    },
+    {
+      "index": 3,
+      "name": "Ext. & Prep. Task List 3",
+      "range": "A1:M53",
+      "sheet_xml_sha256": "a3a378355ab55c0e72e5e6bb54bede26ebbf26e420ce2f4ce61e6d0a8e71a1b2",
+      "formulas_count": 0,
+      "print_area": "'Ext. & Prep. Task List 3'!$A$1:$M$53",
+      "page_setup": {
+        "paperSize": "9",
+        "fitToHeight": "0",
+        "orientation": "portrait",
+        "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id": "rId1"
+      },
+      "margins": {
+        "left": "0.3",
+        "right": "0.3",
+        "top": "0.3",
+        "bottom": "0.3",
+        "header": "0.15",
+        "footer": "0.15"
+      },
+      "merge_count": 92,
+      "embedded_drawing_refs": 1,
+      "cached_errors": []
+    },
+    {
+      "index": 4,
+      "name": "QC measurements",
+      "range": "A1:I55",
+      "sheet_xml_sha256": "477ac50a20c42f1fa07f64a613d85ac432620a9d4b57fde7acf98f73fa3453b1",
+      "formulas_count": 48,
+      "print_area": "'QC measurements'!$A$1:$I$54",
+      "page_setup": {
+        "paperSize": "9",
+        "scale": "69",
+        "orientation": "portrait",
+        "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id": "rId1"
+      },
+      "margins": {
+        "left": "0.69930555555555596",
+        "right": "0.69930555555555596",
+        "top": "0.75",
+        "bottom": "0.75",
+        "header": "0.3",
+        "footer": "0.3"
+      },
+      "merge_count": 33,
+      "embedded_drawing_refs": 1,
+      "cached_errors": []
+    },
+    {
+      "index": 5,
+      "name": "Pooling Table",
+      "range": "A1:G1106",
+      "sheet_xml_sha256": "8ffdeebc77627f16f83fc63fe3b51e25f1ee2f82bf493c71fae06a572238a5c0",
+      "formulas_count": 101,
+      "print_area": null,
+      "page_setup": {
+        "scale": "66",
+        "orientation": "portrait",
+        "horizontalDpi": "300",
+        "verticalDpi": "300",
+        "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id": "rId1"
+      },
+      "margins": {
+        "left": "1.089305555555556",
+        "right": "0.69930555555555596",
+        "top": "0.75",
+        "bottom": "0.75",
+        "header": "0.3",
+        "footer": "0.3"
+      },
+      "merge_count": 34,
+      "embedded_drawing_refs": 1,
+      "cached_errors": [
+        {
+          "cell": "F52",
+          "cached": "#DIV/0!"
+        },
+        {
+          "cell": "D55",
+          "cached": "#DIV/0!"
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "name": "Seq Task-G50",
+      "range": "A1:H44",
+      "sheet_xml_sha256": "eae6f9c531bfa786906319763909056018cb6279e1023ec76b52e17d117c1903",
+      "formulas_count": 0,
+      "print_area": null,
+      "page_setup": {
+        "paperSize": "9",
+        "scale": "57",
+        "orientation": "portrait",
+        "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id": "rId1"
+      },
+      "margins": {
+        "left": "0.7",
+        "right": "0.7",
+        "top": "0.75",
+        "bottom": "0.75",
+        "header": "0.3",
+        "footer": "0.3"
+      },
+      "merge_count": 55,
+      "embedded_drawing_refs": 1,
+      "cached_errors": []
+    }
+  ],
+  "fonts": [
+    "Arial Unicode MS",
+    "Calibri",
+    "TH Sarabun New",
+    "Tahoma",
+    "Tenorite",
+    "Times New Roman",
+    "宋体"
+  ],
+  "font_definitions_count": 58,
+  "cell_format_count": 521,
+  "styles_xml_sha256": "1d087ae7b796816a0b9bd2d566f93c1f9625ee258919a0bb903f2148311e53b4",
+  "formula_count": 149,
+  "media": [
+    {
+      "path": "xl/media/image1.jpeg",
+      "sha256": "8b11d74be8ee2a7388957077a61418db4f20620aa6c5f76c7f82a41fd08d745a",
+      "bytes": 8907
+    },
+    {
+      "path": "xl/media/image2.png",
+      "sha256": "d1d636ceb0a011c3076473bcbc463dc2c78438431b03c061b8ad5e67ca6ce33e",
+      "bytes": 197614
+    },
+    {
+      "path": "xl/media/image3.png",
+      "sha256": "22e1943197cccfec077f55d65b539bca372a667e779d79df302033d716872baf",
+      "bytes": 664784
+    },
+    {
+      "path": "xl/media/image4.png",
+      "sha256": "b8b96edb4bc573af7f84530d28ce3246ff043f9eaeed1a41e0d1869242ea225d",
+      "bytes": 172104
+    },
+    {
+      "path": "xl/media/image5.png",
+      "sha256": "0048c58ff4f5866b0936737d14f75e0c34df61b1bb090f75dd8892976253b1bc",
+      "bytes": 1245270
+    },
+    {
+      "path": "xl/media/image6.png",
+      "sha256": "83356e702317709c34ba6b6164a5e7bd718f906ebd52c746dc961b4ed242ec73",
+      "bytes": 70085
+    },
+    {
+      "path": "xl/media/image7.png",
+      "sha256": "70adb8cbfc7a2de36811ade0958435e29b4c78db6e1650d21a9d162549f3136c",
+      "bytes": 196950
+    },
+    {
+      "path": "xl/media/image8.png",
+      "sha256": "e5da81979651d135cb7399027201e569b8e196dc3f97e784d1e5db13e9cbb38c",
+      "bytes": 662826
+    },
+    {
+      "path": "xl/media/image9.png",
+      "sha256": "e2e5867602131e4e67008e6a46a018b06b8eb8581c7d7baf75c411cc75efe2a8",
+      "bytes": 171092
+    },
+    {
+      "path": "xl/media/image10.png",
+      "sha256": "b581acc28dc26db96c47b95ccd99b26fd764660aeffd3bb46d81b0010d5eccea",
+      "bytes": 1224298
+    },
+    {
+      "path": "xl/media/image11.png",
+      "sha256": "051109db2535224edc9d4aae99d88437b2eca0b6a4583aaea60cf8c4e3ecd04b",
+      "bytes": 670955
+    },
+    {
+      "path": "xl/media/image12.jpeg",
+      "sha256": "ec97d7cfe03c8408b677906f93769b1779fb33a01b47183bf7556dfa9f546948",
+      "bytes": 8820
+    },
+    {
+      "path": "xl/owner-approved/media/image1.jpeg",
+      "sha256": "ec97d7cfe03c8408b677906f93769b1779fb33a01b47183bf7556dfa9f546948",
+      "bytes": 8820
+    },
+    {
+      "path": "xl/owner-approved/media/image2.jpeg",
+      "sha256": "8b11d74be8ee2a7388957077a61418db4f20620aa6c5f76c7f82a41fd08d745a",
+      "bytes": 8907
+    }
+  ],
+  "reference_screenshots": [
+    {
+      "filename": "Screenshot 2026-10-14 182610.png",
+      "sha256": "c8c3d9592db925643106ac222c651ab5e204e696a4cf989873a3bbd663e3b866"
+    },
+    {
+      "filename": "Screenshot 2026-10-14 182615.png",
+      "sha256": "ef72f3a3eeab0e7776c668ac86277161ce345542d94ff071cf58d4e98a7972bd"
+    }
+  ],
+  "scope": "OWNER_APPROVED_COMPOSITION: locked Task Lists 1-3 retained; QC/Pooling/Seq imported from owner revision; deleted-sheet references restored to original 149 formulas; F52 unchanged.",
+  "approved_revision": {
+    "date": "2026-10-15",
+    "sheet": "Pooling Table",
+    "cell": "F52",
+    "old_formula": "=(D54*F54)/D53",
+    "new_formula": "=(D54*F54)/D52",
+    "editable_input_cell": "D52",
+    "dependent_formula_cell": "D55",
+    "original_sha256": "2747a9f6c6da9231996bd9d0a23b1da3100d910209d440643c70158f7fe20722",
+    "xlsx_internal_parts_changed": [
+      "xl/worksheets/sheet5.xml"
+    ],
+    "expected_formula_count": 149,
+    "note": "D52 is merge anchor of D52:D53. Preserve fonts, 6 sheets, formulas elsewhere, print settings, shapes and media unchanged."
+  },
+  "previous_f52_master_sha256": "2f8aef50243c89eae6a4e9115d65fbf9239754a1bd9ce330205378f3a9b3aacf",
+  "composition": {
+    "sha256": "0f94efbc240b9a38ff9be77bf0c8d92c09d82fa2fe2427b9d274cc739e5607a6",
+    "bytes": 5380051,
+    "lockedTaskSourceSha256": "2f8aef50243c89eae6a4e9115d65fbf9239754a1bd9ce330205378f3a9b3aacf",
+    "ownerThreeSheetSourceSha256": "f4f4126f42a36adeb58c8ed908a39a7b6f19e8cc57e05a1ceb03fa4b12e157ef",
+    "taskSheetXmlByteIdentical": true,
+    "formulaCount": 149,
+    "restoredCrossSheetReferences": [
+      "xl/worksheets/sheet4.xml!B7",
+      "xl/worksheets/sheet4.xml!B8",
+      "xl/worksheets/sheet4.xml!B9",
+      "xl/worksheets/sheet4.xml!B10",
+      "xl/worksheets/sheet4.xml!B11",
+      "xl/worksheets/sheet4.xml!B12",
+      "xl/worksheets/sheet4.xml!B13",
+      "xl/worksheets/sheet4.xml!B14",
+      "xl/worksheets/sheet4.xml!B15",
+      "xl/worksheets/sheet4.xml!B16",
+      "xl/worksheets/sheet4.xml!B17",
+      "xl/worksheets/sheet4.xml!B18",
+      "xl/worksheets/sheet4.xml!B19",
+      "xl/worksheets/sheet4.xml!B20",
+      "xl/worksheets/sheet4.xml!B21",
+      "xl/worksheets/sheet4.xml!B22",
+      "xl/worksheets/sheet4.xml!B23",
+      "xl/worksheets/sheet4.xml!B24",
+      "xl/worksheets/sheet4.xml!B25",
+      "xl/worksheets/sheet4.xml!B26",
+      "xl/worksheets/sheet4.xml!B27",
+      "xl/worksheets/sheet4.xml!B28",
+      "xl/worksheets/sheet4.xml!B29",
+      "xl/worksheets/sheet4.xml!B30",
+      "xl/worksheets/sheet4.xml!B31",
+      "xl/worksheets/sheet4.xml!B32",
+      "xl/worksheets/sheet4.xml!B33",
+      "xl/worksheets/sheet4.xml!B34",
+      "xl/worksheets/sheet4.xml!B35",
+      "xl/worksheets/sheet4.xml!B36",
+      "xl/worksheets/sheet4.xml!B37",
+      "xl/worksheets/sheet4.xml!B38",
+      "xl/worksheets/sheet4.xml!B39",
+      "xl/worksheets/sheet4.xml!B40",
+      "xl/worksheets/sheet4.xml!B41",
+      "xl/worksheets/sheet4.xml!B42",
+      "xl/worksheets/sheet4.xml!B43",
+      "xl/worksheets/sheet4.xml!B44",
+      "xl/worksheets/sheet4.xml!B45",
+      "xl/worksheets/sheet4.xml!B46",
+      "xl/worksheets/sheet4.xml!B47",
+      "xl/worksheets/sheet4.xml!B48",
+      "xl/worksheets/sheet4.xml!B49",
+      "xl/worksheets/sheet4.xml!B50",
+      "xl/worksheets/sheet4.xml!B51",
+      "xl/worksheets/sheet4.xml!B52",
+      "xl/worksheets/sheet4.xml!B53",
+      "xl/worksheets/sheet4.xml!B54",
+      "xl/worksheets/sheet5.xml!D7",
+      "xl/worksheets/sheet5.xml!E8",
+      "xl/worksheets/sheet5.xml!D9",
+      "xl/worksheets/sheet5.xml!E10",
+      "xl/worksheets/sheet5.xml!D11",
+      "xl/worksheets/sheet5.xml!E12",
+      "xl/worksheets/sheet5.xml!C13",
+      "xl/worksheets/sheet5.xml!D14",
+      "xl/worksheets/sheet5.xml!D15",
+      "xl/worksheets/sheet5.xml!D16",
+      "xl/worksheets/sheet5.xml!D17",
+      "xl/worksheets/sheet5.xml!C18",
+      "xl/worksheets/sheet5.xml!D19",
+      "xl/worksheets/sheet5.xml!D20",
+      "xl/worksheets/sheet5.xml!D21",
+      "xl/worksheets/sheet5.xml!D22",
+      "xl/worksheets/sheet5.xml!D23",
+      "xl/worksheets/sheet5.xml!D24",
+      "xl/worksheets/sheet5.xml!D25",
+      "xl/worksheets/sheet5.xml!D26",
+      "xl/worksheets/sheet5.xml!D27",
+      "xl/worksheets/sheet5.xml!D28",
+      "xl/worksheets/sheet5.xml!D29",
+      "xl/worksheets/sheet5.xml!D30",
+      "xl/worksheets/sheet5.xml!F31",
+      "xl/worksheets/sheet5.xml!G32",
+      "xl/worksheets/sheet5.xml!G33",
+      "xl/worksheets/sheet5.xml!C34",
+      "xl/worksheets/sheet5.xml!D35",
+      "xl/worksheets/sheet5.xml!D36",
+      "xl/worksheets/sheet5.xml!D37",
+      "xl/worksheets/sheet5.xml!D38",
+      "xl/worksheets/sheet5.xml!D39",
+      "xl/worksheets/sheet5.xml!C40",
+      "xl/worksheets/sheet5.xml!D41",
+      "xl/worksheets/sheet5.xml!D42",
+      "xl/worksheets/sheet5.xml!D43",
+      "xl/worksheets/sheet5.xml!D44",
+      "xl/worksheets/sheet5.xml!C45",
+      "xl/worksheets/sheet5.xml!D46",
+      "xl/worksheets/sheet5.xml!D47",
+      "xl/worksheets/sheet5.xml!D48",
+      "xl/worksheets/sheet5.xml!D49",
+      "xl/worksheets/sheet5.xml!C50",
+      "xl/worksheets/sheet5.xml!C51",
+      "xl/worksheets/sheet5.xml!G52",
+      "xl/worksheets/sheet5.xml!C53",
+      "xl/worksheets/sheet5.xml!G54"
+    ],
+    "importedParts": [
+      "xl/worksheets/sheet1.xml",
+      "xl/drawings/drawing1.xml",
+      "xl/media/image1.jpeg",
+      "xl/printerSettings/printerSettings1.bin",
+      "xl/worksheets/sheet2.xml",
+      "xl/drawings/drawing2.xml",
+      "xl/media/image2.jpeg",
+      "xl/printerSettings/printerSettings2.bin",
+      "xl/worksheets/sheet3.xml",
+      "xl/drawings/drawing3.xml",
+      "xl/printerSettings/printerSettings3.bin"
+    ]
+  },
+  "native_pdf_coordinate_zoom": {
+    "QC measurements": 69,
+    "Pooling Table": 62,
+    "Seq Task-G50": 57
+  }
+}

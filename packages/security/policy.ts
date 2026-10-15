@@ -1,3 +1,4 @@
+import {operationalDataEnabled} from './runtime';
 export const ROLES = ["ANC_NURSE", "ANC_SUPERVISOR", "LAB_STAFF", "LAB_CERTIFIER", "CLINICAL_APPROVER", "APP_ADMIN", "IT_OPERATOR", "AUDITOR", "HISTORICAL_VERIFIER"] as const;
 export type Role = typeof ROLES[number];
 export type Principal = { id: string; roles: readonly Role[]; unitIds: readonly string[]; permissions: readonly string[] };
@@ -26,8 +27,8 @@ const rows = {
   "consent.withdraw.receive": "UUYY---R-",
   "consent.withdraw.decide": "---PA--R-",
   "doctor.manage": "-P--AP-R-",
-  "case.read": "UUYY-B-R-",
-  "document.request.read": "UUYY-B---",
+  "case.read": "UUYYYB-R-",
+  "document.request.read": "UUYYYB---",
   "his.scan": "--YY-YYR-",
   "his.conflict.resolve": "--PA---R-",
   "specimen.hold": "--YY---R-",
@@ -103,7 +104,8 @@ export type Operation = "read" | "write" | "propose" | "approve";
 export function authorize(user: Principal, action: string, resource: ResourceScope = {}, operation: Operation = "write"): boolean {
   if (!(action in rows) || !user.roles.length) return false;
   // P1 runtime never enables actual outputs, signing on someone's behalf, historical processing, or certification.
-  if (["consent.sign.patient", "his.production.enable", "history.send", "result.certify", "notice.release", "redraw.after.release"].includes(action)) return false;
+  if (["consent.sign.patient", "his.production.enable", "history.send", "redraw.after.release"].includes(action)) return false;
+  if(["result.certify","notice.release"].includes(action)&&!operationalDataEnabled())return false;
   // P5H: history.promote is no longer hard-denied; only the matrix 'A' (approve) cell of HISTORICAL_VERIFIER grants it, and the service additionally
   // requires an active, approved historical_backfill + go_live_cutoff setting, so it stays inert (fail closed) until the Owner decides OD-18/OD-27.
   if (resource.origin === "HISTORICAL" && !["history.read", "audit.read"].includes(action)) return false;

@@ -17,7 +17,7 @@ export function AncResults({caseId}:{caseId:string}){
  return <section className="panel" aria-labelledby="anc-results-h">
   <h2 id="anc-results-h">ผลตรวจ NIPT</h2>
   {error&&<p className="notice" role="alert">{error}</p>}
-  {!d?<div className="skeleton" aria-busy="true" aria-label="กำลังโหลดผลตรวจ"/>:<>
+  {!d?<div className="skeleton" role="status" aria-busy="true" aria-label="กำลังโหลดผลตรวจ"/>:<>
    {current&&<div className="stack">
     <p><strong>รอบที่ {current.number}</strong> (รอบปัจจุบัน){current.collectionDate?` · เก็บตัวอย่าง ${current.collectionDate}`:""}</p>
     {current.redraw&&<p><span className="badge warning">ต้องเก็บตัวอย่างใหม่ — รอบที่ {current.number+1}</span> {current.redraw.label}</p>}

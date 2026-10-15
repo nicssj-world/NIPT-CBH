@@ -13,7 +13,8 @@ const config: NextConfig = {
       "./node_modules/@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff2",
       "./node_modules/@fontsource/noto-sans/files/noto-sans-latin-700-normal.woff2"
     ],
-    "/api/p5/results/*/reparse": ["./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"]
+    "/api/p5/results/*/reparse": ["./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"],
+    "/api/workbook/batches/*": ["./packages/workbook/native-export.ps1"]
   },
   outputFileTracingExcludes: { "*": ["./.local/**/*", "./data/**/*", "./backups/**/*", "./bundles/**/*", "./.env*", "./tests/**/*", "./playwright-report/**/*", "./test-results/**/*"] },
   async headers() {

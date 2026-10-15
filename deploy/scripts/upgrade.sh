@@ -1,7 +1,4 @@
 #!/bin/sh
 set -eu
-test "${NIPT_MODE:-}" = synthetic
-test "${BACKUP_VERIFIED:-}" = yes
-docker compose stop worker
-# The signed new bundle's migrator checks ledger drift before applying forward migrations.
-exec sh deploy/scripts/install.sh
+: "${NIPT_TRUSTED_TOOLS:?Independently provisioned trusted tools required}"
+exec node "$NIPT_TRUSTED_TOOLS/deploy/scripts/deployment.mjs" upgrade

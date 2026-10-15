@@ -7,6 +7,11 @@ import {parseReport,missingRequired,isoDate,PARSER_VERSION} from '../../packages
 const base={labNumber:'26B261010001-1',hn:'990000000123',collection:'10-Oct-2026'};
 const text=async(b:Buffer)=>{const x=await extract(b);if(x.container==='ZIP_BATCH')throw Error('batch');return x.text;};
 describe('P5 parser (Plan §11.2, §11.4; AT-RES-02/03)',()=>{
+ it('preserves the slash year and leading zeroes of an operational HN in anchored and fallback reports',async()=>{
+  const p=parseReport(await text(syntheticReportPdf({kind:'SINGLETON',...base,hn:'00007701/69'})));
+  expect(p.identifiers.hn).toMatchObject({value:'00007701/69',method:'ANCHORED'});
+  expect(parseReport('HN: 00007701/69\n').identifiers.hn).toMatchObject({value:'00007701/69',method:'FALLBACK'});
+ });
  it('singleton: anchored values, raw text, ISO dates, GA days, parser version',async()=>{
   const p=parseReport(await text(syntheticReportPdf({kind:'SINGLETON',...base})),'x.pdf');
   expect(p.templateKind).toBe('SINGLETON');expect(p.parserVersion).toBe(PARSER_VERSION);expect(p.templateVersion).toMatch(/UNAPPROVED-OD07/);

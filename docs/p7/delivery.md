@@ -51,3 +51,7 @@ The [gap register](gap-register.md) maps each remaining issue to root cause, imp
 - **Human acceptance NOT RUN/SIGNED:** staff success>=90%,0critical errors,SUS>=70; manual all-SC WCAG/NVDA ACR, physical printer/signing devices, training and signed validation/cutover. Scenarios are prepared; staff results are not invented.
 
 Ready for authorized **synthetic staff-UAT execution/preparation** using the checklist, subject to the visible technical blocker and acceptance scope. **Clinical UAT with real data and P8 Pilot are NOT READY.** No remaining independent safe implementation item is being replaced by a handoff; outstanding work depends on an upstream fix, approved policy, external systems, actual devices or human acceptance.
+
+## Authorized P7 finalization / P8 continuation — 2026-10-14
+
+The later Owner order authorized P7 push/PR/merge after CI. PR #8 merged as 7c63a2a6b557d4cac9e325a22f50319ee9241e7d with both exact-head checks and post-merge CI SUCCESS. The local-only/no-P8-authorization chronology above is superseded only by that explicit session order. P8 remains local synthetic technical preparation, with no P8 push/PR/merge or clinical deployment. See [consolidated delivery](../p8/delivery.md) and [remaining gates](../p8/gap-register.md).

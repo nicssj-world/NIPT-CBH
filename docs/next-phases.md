@@ -18,3 +18,7 @@ Owner full-legacy parity lock applies to every phase. Track every archive capabi
 ## P7 technical validation addendum — 2026-10-13
 
 P6/P5H PR #7 merged as ad66ab401b0565ed0bd88fb73096ef6f0456a1ef with required checks and post-merge CI passing. Local P7 work on feat/p7-final-validation adds clinical state/currentness hardening, result parity/diagnostics and coherent backup/restore validation. See [delivery](p7/delivery.md), [gap register](p7/gap-register.md) and [prepared Staff UAT checklist](p7/acceptance-checklist.md). P7 is not an AL-7 sign-off or P8 authorization; no P7 push/PR/merge or deployment is implied.
+
+## P8 technical preparation continuation — 2026-10-14
+
+P7 PR #8 merged as 7c63a2a6b557d4cac9e325a22f50319ee9241e7d after both exact-head CI checks; post-merge CI38440548956 succeeded. Owner authorizes P8 local branch/commits and isolated synthetic preparation only. [P8 delivery](p8/delivery.md), [gap register](p8/gap-register.md) and [operations runbook](p8/installation-operations.md) record signed installation/upgrade/rollback, recovery, cutover and prepared staff UAT. OD-26(c) is the chosen design baseline; actual cutoff/anchor/in-flight approval and AL-7 remain HOLD. No P8 push/PR/merge, clinical pilot or Production configuration is authorized.

@@ -1,0 +1,20 @@
+import {beforeAll,afterAll,afterEach,expect,it,vi} from 'vitest';
+import type {PGlite} from '@electric-sql/pglite';
+import {testDatabase,addUser} from '../helpers/database';
+import {registerP2,saveRequest,doctorAction,getCase,type Staff} from '../../packages/p2/service';
+import {emptyRequest} from '../../packages/p2/schema';
+import {configureOperational} from '../../tools/configure-operational';
+import {assertDatabaseMode} from '../../packages/db/connection';
+let db:PGlite,user:Staff,admin:Staff,unit:string;
+beforeAll(async()=>{db=await testDatabase();user=await addUser(db,'ANC_NURSE','test.anc');admin=await addUser(db,'APP_ADMIN','test.admin');unit=(await db.query<{id:string}>("INSERT INTO unit(code,name) VALUES('TEST','หน่วยทดสอบ') RETURNING id")).rows[0].id;user.unitIds=[unit];});
+afterAll(async()=>db.close());afterEach(()=>vi.unstubAllEnvs());
+it('registers real-format identifiers and typed Thai drafts only in explicitly configured operational DB',async()=>{
+ vi.stubEnv('NIPT_MODE','operational');vi.stubEnv('APP_ORIGIN','https://nipt.hospital.invalid');await expect(assertDatabaseMode(db)).rejects.toThrow('RUNTIME_DATABASE_MODE_MISMATCH');expect(await configureOperational(db)).toEqual({configured:true});await expect(assertDatabaseMode(db)).resolves.toBeUndefined();
+ const input={ln:'261014001234',hn:'0012345/69',unitId:unit,origin:'ANC',idempotencyKey:'OPERATIONAL_TEST_REGISTER'};
+ await db.query('BEGIN');const result=await registerP2(db,user,input,Buffer.alloc(32,7));await db.query('COMMIT');expect(result.outcome).toBe('CREATED');expect((await db.query('SELECT hn,synthetic FROM p2_case_identity WHERE case_id=$1',[result.caseId])).rows[0]).toEqual({hn:input.hn,synthetic:false});
+ const draft=structuredClone(emptyRequest);draft.patient.syntheticName='นางสมมติ ทดสอบ';draft.patient.address='123 ถนนทดสอบ';draft.patient.phone='0812345678';draft.patient.dob='2000-01-01';await db.query('BEGIN');await saveRequest(db,user,result.caseId!,{expectedVersion:0,draft});await db.query('COMMIT');expect((await getCase(db,user,result.caseId!)).workspace.draft.patient.syntheticName).toBe(draft.patient.syntheticName);
+ await db.query('BEGIN');expect((await registerP2(db,user,{...input,idempotencyKey:'OPERATIONAL_REPLAY'},Buffer.alloc(32,7))).outcome).toBe('OPENED');await db.query('COMMIT');await db.query('BEGIN');expect((await registerP2(db,user,{...input,hn:'different',idempotencyKey:'OPERATIONAL_CONFLICT'},Buffer.alloc(32,7))).outcome).toBe('IDENTITY_UNVERIFIED');await db.query('COMMIT');
+ const doctor=await doctorAction(db,admin,{action:'propose',doctorKey:'DR-TEST-01',name:'แพทย์ทดสอบ',unitId:unit,effectiveFrom:'2020-01-01T00:00:00Z',authorization:'เอกสารสิทธิ์ทดสอบ',vector:{width:600,height:200,strokes:[[[10,10],[80,90],[180,30]]]}});expect((await db.query('SELECT synthetic FROM p2_doctor_version WHERE id=$1',[doctor.id])).rows[0]).toEqual({synthetic:false});
+ expect(await configureOperational(db)).toEqual({configured:false});await db.query("UPDATE nipt_runtime_config SET mode='synthetic'");await expect(configureOperational(db)).rejects.toThrow('EMPTY_OPERATIONAL_DATABASE_REQUIRED');await db.query("UPDATE nipt_runtime_config SET mode='operational'");
+ await expect(db.query('INSERT INTO p2_case_identity(case_id,hn,synthetic) VALUES($1,$2,true)',[crypto.randomUUID(),'990000001'])).rejects.toThrow('RUNTIME_DATA_MODE_MISMATCH');
+});

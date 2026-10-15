@@ -1,4 +1,4 @@
-// Tube label composition — Owner Lock 2026-10-12 (§12.11 addendum) and Genomic-CBH lib/nipt/label-print.ts @44ce3f4.
+// Tube label composition — Owner Lock 2026-10-12 (§12.11 addendum) and Genomic-CBH lib/nipt/label-print.ts @57de674 (owner size correction 2026-10-15).
 // The HTML remains byte-identical to the current Genomic-CBH print layout (tested against a versioned fixture).
 // No barcode bars and no QR: each 25 × 20 mm half prints LN Halos, `LN: <HIS LN>` and optionally an authorized name.
 // The `-1/-2/-3` strings are label composition only; they are never analytical attempts or Printed Sample IDs.
@@ -24,6 +24,8 @@ function cornerSequence(lnHalos: string): string {
 }
 
 function half(lnHalos: string, ln: string, name: string | null, isRight: boolean, sequence: string): string {
+  const lnSize = Math.floor(Math.min(6, (20 * 72 / 25.4) / ((ln.length + 4) * 0.6)) * 10) / 10
+  const lnStyle = lnSize < 6 ? ` style="font-size: ${lnSize}pt"` : ''
   const corners = sequence
     ? `<div class="corner-set" aria-hidden="true">
       <span class="corner tl">${sequence}</span><span class="corner tr">${sequence}</span>
@@ -32,7 +34,7 @@ function half(lnHalos: string, ln: string, name: string | null, isRight: boolean
     : ''
   return `<div class="${isRight ? 'right' : 'left'} half">
     <div class="ln-halos">${escapeHtml(lnHalos)}</div>
-    <div class="patient-ln">LN: ${escapeHtml(ln)}</div>
+    <div class="patient-ln"${lnStyle}>LN: ${escapeHtml(ln)}</div>
     ${name ? `<div class="name">${escapeHtml(name)}</div>` : ''}
     ${corners}
   </div>`
@@ -57,9 +59,9 @@ export function buildTubeLabelsHtml(samples: TubeLabelSample[]): string {
     body { font-family: 'Courier New', Courier, monospace; }
     .sticker { width: 50mm; height: 20mm; display: flex; page-break-after: always; overflow: hidden; }
     .sticker:last-child { page-break-after: auto; }
-    .half { position: relative; width: 25mm; height: 20mm; display: flex; flex-direction: column; justify-content: center; gap: 1mm; padding: 1.2mm 0.8mm 1.2mm 2.5mm; min-width: 0; flex: 0 0 25mm; overflow: hidden; }
-    .right { border-left: 0.5px dashed #555; padding-left: 2.5mm; padding-right: 0.8mm; }
-    .ln-halos { font-size: 7pt; font-weight: 900; letter-spacing: -0.02em; line-height: 1; white-space: nowrap; }
+    .half { position: relative; width: 25mm; height: 20mm; display: flex; flex-direction: column; justify-content: center; gap: 1mm; padding: 1.2mm 1mm 1.2mm 3mm; overflow: hidden; }
+    .right { border-left: 0.5px dashed #555; padding-left: 2.5mm; padding-right: 1mm; }
+    .ln-halos { font-size: 6.5pt; font-weight: 900; letter-spacing: -0.02em; line-height: 1; white-space: nowrap; }
     .patient-ln { font-size: 6pt; font-weight: 700; letter-spacing: -0.02em; color: #222; line-height: 1.1; white-space: nowrap; }
     .name { font-size: 5pt; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     /* Physical corner inset: at least 2.7mm from the centre cut on both sides. */

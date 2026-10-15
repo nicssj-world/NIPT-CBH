@@ -6,11 +6,13 @@ import {digest} from '../pooling/calculation';
 import {getPool,poolingSource,events as poolEvents,stopped as poolStopped,type PoolRow} from '../pooling/service';
 import {buildHalosCellPlan,CONTRACT,TEMPLATE_SHA256,type HalosCellPlan} from '../halos-export/contract';
 import * as schema from './schemas';
+import {operationalWorkflow} from '../lab/operational';
+import {operationalHalos} from '../pooling/halos';
 export {HOLDS,QC3_CRITERIA,QC4_CRITERIA,common} from './schemas';
 
-export type PoolSnapshot={id:string;pool_id:string;revision:number;payload:PoolRow['payload']&{exportAllowed:false;calculationSha256?:string};sha256:string};
+export type PoolSnapshot={id:string;pool_id:string;revision:number;payload:PoolRow['payload']&{exportAllowed:boolean;calculationSha256?:string};sha256:string};
 export type DnbRow={id:string;batch_id:string;pool_snapshot_id:string;attempt_number:number;revision:number;supersedes_id:string|null;actual_date:string;
- dnb_label:string;preparation:schema.Preparation;payload:{synthetic:true;clinicalUsable:false;acceptance:'HOLD';holds:readonly string[];poolSnapshotHash:string;poolSnapshotRevision:number;qubit:ReturnType<typeof qubitCalculation>;idProvenance:Record<string,unknown>};
+ dnb_label:string;preparation:schema.Preparation;payload:{synthetic:boolean;clinicalUsable:false;acceptance:'HOLD';holds:readonly string[];poolSnapshotHash:string;poolSnapshotRevision:number;qubit:ReturnType<typeof qubitCalculation>;idProvenance:Record<string,unknown>};
  sha256:string;source_sha256:string;created_by:string;created_at:Date};
 export type DnbEvent={id:string;sequence:number;dnb_id:string;event_type:string;payload:Record<string,unknown>;actor_id:string|null;created_at:Date};
 export type DnbObservation={id:string;sequence:number;dnb_id:string;field:'STD1'|'STD2'|'QC3';value:string;unit:'ng/uL';source:string;copy_id:string|null;event_time:Date|null;
@@ -44,7 +46,7 @@ export async function storedPool(db:Queryable,batchId:string,snapshotId:string){
  const snapshot=(await db.query<PoolSnapshot>('SELECT * FROM p4b_pool_snapshot WHERE id=$1',[snapshotId])).rows[0];if(!snapshot)throw new LabError('POOL_SNAPSHOT_NOT_FOUND',404);
  const p=await getPool(db,batchId,snapshot.pool_id),ev=await poolEvents(db,p.id);
  if(digest(snapshot.payload)!==snapshot.sha256||snapshot.payload.calculationSha256!==undefined&&snapshot.payload.calculationSha256!==p.sha256)throw new LabError('POOL_SNAPSHOT_HASH_MISMATCH',409);
- if(!ev.some(e=>e.event_type==='COMPLETED')||snapshot.payload.acceptance!=='HOLD'||snapshot.payload.exportAllowed!==false)throw new LabError('COMPLETED_HOLD_POOL_REQUIRED',409);
+ if(!(snapshot.payload.acceptance==='Accepted'&&!snapshot.payload.synthetic&&snapshot.payload.exportAllowed===true&&ev.some(e=>e.event_type==='ACCEPTED'))&&(!ev.some(e=>e.event_type==='COMPLETED')||snapshot.payload.acceptance!=='HOLD'||snapshot.payload.exportAllowed!==false))throw new LabError('COMPLETED_HOLD_POOL_REQUIRED',409);
  const source=await poolingSource(db,batchId,p.payload.calculation.scenario.controls);
  if(poolStopped(ev)||ev.some(e=>e.event_type==='HOLD')||source.sourceHash!==p.source_sha256)throw new LabError('POOL_STOP_USE',409);
  if(digest(source.placements)!==digest(snapshot.payload.placements)||digest(source.members)!==digest(snapshot.payload.members))throw new LabError('PLACEMENT_OR_MEMBERS_CHANGED',409);
@@ -75,7 +77,9 @@ export async function createDnb(db:Queryable,user:Staff,input:unknown):Promise<R
  const inputHash=digest({operation:'CREATE_DNB',input:d}),oldCommand=(await db.query<{actor_id:string;input_sha256:string;result:Result}>('SELECT * FROM p4c_command WHERE request_id=$1',[d.requestId])).rows[0];
  if(oldCommand){if(oldCommand.actor_id!==user.id||oldCommand.input_sha256!==inputHash)throw new LabError('IDEMPOTENCY_CONFLICT',409);return oldCommand.result;}
  const b=await lockBatch(db,d.batchId,d.expectedVersion),pool=await storedPool(db,b.id,d.poolSnapshotId);
- if(d.purpose!=='SYNTHETIC_SIMULATION')throw new LabError('POOL_ACCEPTED_REQUIRED',423,schema.HOLDS);
+ const operational=await operationalWorkflow(db);
+ if(d.purpose==='OPERATIONAL'?(!operational||pool.snapshot.payload.acceptance!=='Accepted'||pool.snapshot.payload.synthetic):(operational||!pool.snapshot.payload.synthetic))throw new LabError('POOL_ACCEPTED_REQUIRED',423,schema.HOLDS);
+ if(operational&&(d.preparation.method!=='CONTROLLED_PROTOCOL'||!d.preparation.protocolEvidence))throw new LabError('CONTROLLED_DNB_PROTOCOL_REQUIRED',422);
  if(d.actualDate!==bangkokToday())throw new LabError('ACTUAL_DNB_DATE_REQUIRED',422);
  if(d.preparation.operatorId!==user.id)throw new LabError('ACTUAL_OPERATOR_REQUIRED',422);
  if(d.preparation.lots.some(l=>l.expiry<d.actualDate))throw new LabError('REAGENT_EXPIRED',422);
@@ -84,7 +88,7 @@ export async function createDnb(db:Queryable,user:Staff,input:unknown):Promise<R
   if(await pendingRecall(db,prior.id))throw new LabError('RECALL_PENDING',409);
   await appendEvent(db,user,prior.id,'SUPERSEDED',{reason:d.reason});}
  const n=(prior?.attempt_number??0)+1,label=`DNB${d.actualDate.replaceAll('-','')}`;
- const payload={synthetic:true as const,clinicalUsable:false as const,acceptance:'HOLD' as const,holds:schema.HOLDS,poolSnapshotHash:pool.snapshot.sha256,poolSnapshotRevision:pool.snapshot.revision,
+ const payload={synthetic:!operational,clinicalUsable:false as const,acceptance:'HOLD' as const,holds:schema.HOLDS,poolSnapshotHash:pool.snapshot.sha256,poolSnapshotRevision:pool.snapshot.revision,
   qubit:qubitCalculation(d.preparation.qubitSamples),idProvenance:{format:'DNBYYYYMMDD',actualDate:d.actualDate,dateBasis:'actual',serverRecordedAt:new Date().toISOString(),operatorId:user.id,
    attemptNumber:n,ownerHold:'OD-34_SAME_DAY_MULTIPLE_RUN_ID_UNRESOLVED'},lineage:{poolSnapshotId:pool.snapshot.id,poolId:pool.p.id,placementSnapshots:pool.snapshot.payload.placements,supersedesDnbId:prior?.id??null},preparation:d.preparation};
  const id=(await db.query<{id:string}>(`INSERT INTO p4c_dnb_attempt(batch_id,pool_snapshot_id,attempt_number,supersedes_id,purpose,actual_date,dnb_label,preparation,payload,sha256,source_sha256,reason,created_by)
@@ -96,7 +100,7 @@ async function pendingRecall(db:Queryable,dnbId:string){if(!(await db.query<{tab
  return !!(await db.query("SELECT 1 FROM p4c_document_copy c JOIN p4c_document d ON d.id=c.document_id WHERE d.dnb_id=$1 AND c.kind='WORKING_COPY' AND NOT EXISTS(SELECT 1 FROM p4c_dnb_event e WHERE e.dnb_id=$1 AND e.event_type='RECALL' AND e.payload->>'copyId'=c.id::text)",[dnbId])).rows.length;}
 export async function transition(db:Queryable,user:Staff,input:unknown){const d=schema.transitionSchema.parse(input);
  return command(db,user,d,d.transition==='STOP_USE'?'worksheet.revise':'execution.record','TRANSITION',async c=>{
-  if(d.transition==='DNB_START'&&(has(c.ev,'DNB_START')||!has(c.ev,'PRE_WORK')))throw new LabError('SYNTHETIC_PRE_WORK_REQUIRED',409);
+  if(d.transition==='DNB_START'&&(has(c.ev,'DNB_START')||!(await operationalWorkflow(db)?!!c.dnb.preparation.protocolEvidence:has(c.ev,'PRE_WORK'))))throw new LabError('SYNTHETIC_PRE_WORK_REQUIRED',409);
   if(d.transition==='DNB_START'&&(c.dnb.actual_date!==bangkokToday()||!c.dnb.preparation.preclean||!c.dnb.preparation.loadingReagentPrepared||c.dnb.preparation.lots.some(l=>l.expiry<bangkokToday())))throw new LabError('CURRENT_PREPARATION_REQUIRED',409);
   if(d.transition==='DNB_END'&&(!has(c.ev,'DNB_START')||has(c.ev,'DNB_END')))throw new LabError('DNB_NOT_IN_EXECUTION',409);
   await appendEvent(db,user,c.dnb.id,d.transition,{reason:d.reason});return {};
@@ -129,8 +133,9 @@ export async function reviewObservation(db:Queryable,user:Staff,input:unknown){c
   await audit(db,user,'DNB_OBSERVATION_REVIEWED','p4c_dnb_observation',o.id,{outcome:d.result});return {};
  });}
 export async function qc3Evidence(db:Queryable,dnbId:string){const obs=await observations(db,dnbId),qc3=obs.find(o=>o.field==='QC3'),decision=(await db.query<{id:string;decision:string;observation_id:string;actor_id:string;created_at:Date}>('SELECT * FROM p4c_qc3_decision WHERE dnb_id=$1 ORDER BY sequence DESC LIMIT 1',[dnbId])).rows[0];
- return {obs,decision:decision??null,ready:!!qc3&&['STD1','STD2','QC3'].every(f=>obs.some(o=>o.field===f&&o.review?.result==='Confirmed'&&o.event_time))&&decision?.decision==='SyntheticReviewed'&&decision.observation_id===qc3.id};}
+ return {obs,decision:decision??null,ready:!!qc3&&['STD1','STD2','QC3'].every(f=>obs.some(o=>o.field===f&&o.review?.result==='Confirmed'&&o.event_time))&&['SyntheticReviewed','Accepted'].includes(decision?.decision??'')&&decision.observation_id===qc3.id};}
 export async function decideQc3(db:Queryable,user:Staff,input:unknown){const d=schema.qc3Schema.parse(input);
+ if(d.decision==='Accepted'&&!await operationalWorkflow(db))throw new LabError('OWNER_DECISIONS_HOLD',423);
  return command(db,user,d,'qc.accept','QC3_DECISION',async c=>{
   if(c.handoffs.length)throw new LabError('HANDOFF_FROZEN_NEW_DNB_REQUIRED',409);
   const qc=c.obs.find(o=>o.field==='QC3');if(!qc||!['STD1','STD2','QC3'].every(f=>c.obs.some(o=>o.field===f&&o.review?.result==='Confirmed')))throw new LabError('QC3_VERIFIED_EVIDENCE_REQUIRED',409);
@@ -195,6 +200,7 @@ export async function verifyHandoff(db:Queryable,user:Staff,input:unknown){const
  });}
 export async function handoffVerified(db:Queryable,dnbId:string){return (await db.query<{verified:boolean}>('SELECT p4c_handoff_verified($1) verified',[dnbId])).rows[0].verified;}
 export async function createSequencing(db:Queryable,user:Staff,input:unknown){const d=schema.sequencingSchema.parse(input);
+ if((d.purpose==='OPERATIONAL')!==await operationalWorkflow(db))throw new LabError('RUNTIME_DATA_MODE_MISMATCH',423);
  return command(db,user,d,'execution.record','CREATE_SEQUENCE',async c=>{
   if(!(await qc3Evidence(db,c.dnb.id)).ready)throw new LabError('QC3_SYNTHETIC_REVIEW_REQUIRED',409);
   if(d.wash.expiry<bangkokToday()||d.wash.preparedOn>bangkokToday()||d.wash.expiry<d.wash.preparedOn)throw new LabError('WASH_REAGENT_DATES_INVALID',422);
@@ -225,12 +231,12 @@ export type Qc4Observation={id:string;sequencing_id:string;scope:'LANE'|'SAMPLE'
 export async function qc4Evidence(db:Queryable,dnbId:string,sequenceId:string){const observations=(await db.query<Qc4Observation>(`SELECT o.*,(SELECT row_to_json(r) FROM p4c_qc4_review r WHERE r.qc4_id=o.id) review FROM p4c_qc4_observation o
  WHERE sequencing_id=$1 AND NOT EXISTS(SELECT 1 FROM p4c_qc4_observation x WHERE x.supersedes_id=o.id) ORDER BY sequence`,[sequenceId])).rows;
  const h=(await db.query<HandoffRow>('SELECT * FROM p4c_handoff WHERE dnb_id=$1 ORDER BY revision DESC LIMIT 1',[dnbId])).rows[0];
- const members=h?.payload.mappedMembers??[];return {observations,ready:members.length===47&&observations.some(o=>o.scope==='LANE'&&o.review?.result==='SyntheticReviewed')&&members.every(m=>observations.some(o=>o.scope==='SAMPLE'&&o.member_key===m.memberKey&&o.review?.result==='SyntheticReviewed'))&&observations.every(o=>!!o.event_time&&o.review?.result==='SyntheticReviewed')};}
+ const operational=await operationalWorkflow(db),members=operational?(await operationalHalos(db,dnbId))?.source.members??[]:h?.payload.mappedMembers??[],accepted=operational?'Accepted':'SyntheticReviewed';return {observations,ready:members.length===47&&observations.some(o=>o.scope==='LANE'&&o.review?.result===accepted)&&members.every(m=>observations.some(o=>o.scope==='SAMPLE'&&o.member_key===m.memberKey&&o.review?.result===accepted))&&observations.every(o=>!!o.event_time&&o.review?.result===accepted)};}
 export async function recordQc4(db:Queryable,user:Staff,input:unknown){const d=schema.qc4Schema.parse(input);
  return command(db,user,d,'qc.record','RECORD_QC4',async c=>{
   if(c.sequences[0]?.id!==d.sequencingId)throw new LabError('SEQUENCE_NOT_CURRENT',409);
   if((d.scope==='SAMPLE')!==!!d.memberKey)throw new LabError('QC4_MEMBER_SCOPE',422);
-  if(d.scope==='SAMPLE'&&!c.handoffs[0]?.payload.mappedMembers.some(m=>m.memberKey===d.memberKey))throw new LabError('QC4_MEMBER_SCOPE',422);
+  if(d.scope==='SAMPLE'&&!(await operationalWorkflow(db)?(await operationalHalos(db,c.dnb.id))?.source.members:c.handoffs[0]?.payload.mappedMembers)?.some(m=>m.memberKey===d.memberKey))throw new LabError('QC4_MEMBER_SCOPE',422);
   const end=c.ev.find(e=>e.event_type==='SEQUENCE_END'&&e.payload.sequencingId===d.sequencingId);if(!end)throw new LabError('SEQUENCE_END_REQUIRED',409);
   const old=(await qc4Evidence(db,c.dnb.id,d.sequencingId)).observations.find(o=>o.scope===d.scope&&o.member_key===(d.memberKey??null));if((old?.id??undefined)!==d.supersedesId||old&&!d.reason)throw new LabError('OBSERVATION_REQUIRES_EXACT_SUPERSESSION',409);
   const time=await paperTime(db,c.dnb.id,d,end.created_at),id=(await db.query<{id:string}>(`INSERT INTO p4c_qc4_observation(sequencing_id,scope,member_key,lane,metrics,source,copy_id,event_time,event_precision,evidence_hash,supersedes_id,reason,recorded_by)
@@ -238,10 +244,11 @@ export async function recordQc4(db:Queryable,user:Staff,input:unknown){const d=s
   await audit(db,user,'DNB_QC4_RECORDED','p4c_qc4_observation',id,{outcome:'PENDING_RECONCILIATION'});return {id};
  });}
 export async function reviewQc4(db:Queryable,user:Staff,input:unknown){const d=schema.qc4ReviewSchema.parse(input);
+ if(d.result==='Accepted'&&!await operationalWorkflow(db))throw new LabError('OWNER_DECISIONS_HOLD',423);
  return command(db,user,d,'qc.accept','REVIEW_QC4',async c=>{
   const seq=c.sequences[0];if(!seq)throw new LabError('NOT_FOUND',404);const o=(await qc4Evidence(db,c.dnb.id,seq.id)).observations.find(o=>o.id===d.qc4Id);
   if(!o||o.review)throw new LabError('QC4_NOT_PENDING',409);if(o.recorded_by===user.id)throw new LabError('SECOND_PERSON_REQUIRED',403);
-  if(d.result==='SyntheticReviewed'&&!o.event_time)throw new LabError('UNKNOWN_EVENT_TIME_DISCREPANCY',409);
+  if(['SyntheticReviewed','Accepted'].includes(d.result)&&!o.event_time)throw new LabError('UNKNOWN_EVENT_TIME_DISCREPANCY',409);
   await db.query('INSERT INTO p4c_qc4_review(qc4_id,result,criteria_version,note,reviewer_id) VALUES($1,$2,$3,$4,$5)',[o.id,d.result,d.criteriaVersion,d.note,user.id]);
   if(['Hold','Failed'].includes(d.result))await appendEvent(db,user,c.dnb.id,'SEQUENCE_HOLD',{sequencingId:seq.id,reason:'QC4_'+d.result.toUpperCase(),qc4Id:o.id});
   await audit(db,user,'DNB_QC4_REVIEWED','p4c_qc4_observation',o.id,{outcome:d.result});return {};
@@ -261,18 +268,19 @@ export async function recallCopy(db:Queryable,user:Staff,input:unknown){const d=
 }
 /** Read originals/history even for Stop-use or cancelled Batches; clinical usability is always false. */
 export async function workspace(db:Queryable,user:Staff,batchId:string){await assertSession(db,user);need(user,'worksheet.read','read');
+ const operational=await operationalWorkflow(db);
  const b=(await db.query<{id:string;run_label:string;version:number;state:string}>('SELECT id,run_label,version,state FROM lab_batch WHERE id=$1 FOR UPDATE',[uuid.parse(batchId)])).rows[0];if(!b)throw new LabError('NOT_FOUND',404);
  const attempts=(await db.query<DnbRow>('SELECT *,actual_date::text FROM p4c_dnb_attempt WHERE batch_id=$1 ORDER BY attempt_number DESC',[b.id])).rows;
  const snapshots=(await db.query<{id:string;revision:number;sha256:string;pool_id:string}>('SELECT s.id,s.revision,s.sha256,s.pool_id FROM p4b_pool_snapshot s JOIN p4b_pool_attempt p ON p.id=s.pool_id WHERE p.batch_id=$1 ORDER BY s.created_at DESC',[b.id])).rows;
- const dnb=attempts[0];if(!dnb)return {batchId:b.id,runLabel:b.run_label,version:b.version,holds:schema.HOLDS,attempts:[],poolSnapshots:snapshots,current:null};
+ const dnb=attempts[0];if(!dnb)return {operational,batchId:b.id,runLabel:b.run_label,version:b.version,holds:schema.HOLDS,attempts:[],poolSnapshots:snapshots,current:null};
  const ev=await events(db,dnb.id);let stopUse=b.state==='Cancelled'||stopped(ev);try{await storedPool(db,b.id,dnb.pool_snapshot_id);}catch{stopUse=true;}
  const handoffs=(await db.query<HandoffRow>('SELECT * FROM p4c_handoff WHERE dnb_id=$1 ORDER BY revision DESC',[dnb.id])).rows;
  const sequences=(await db.query<SequenceRow>('SELECT * FROM p4c_sequencing_attempt WHERE dnb_id=$1 ORDER BY attempt_number DESC',[dnb.id])).rows;
  const currentRunEvents=ev.filter(e=>e.payload.sequencingId===sequences[0]?.id);
  const transfers=(await db.query('SELECT t.* FROM p4c_handoff_transfer t JOIN p4c_handoff h ON h.id=t.handoff_id WHERE h.dnb_id=$1 ORDER BY t.sequence',[dnb.id])).rows;
  const verifications=(await db.query('SELECT v.* FROM p4c_handoff_verification v JOIN p4c_handoff_transfer t ON t.id=v.transfer_id JOIN p4c_handoff h ON h.id=t.handoff_id WHERE h.dnb_id=$1 ORDER BY v.created_at',[dnb.id])).rows;
- return {batchId:b.id,runLabel:b.run_label,version:b.version,holds:schema.HOLDS,attempts:attempts.map(a=>({id:a.id,attemptNumber:a.attempt_number,dnbLabel:a.dnb_label,sha256:a.sha256})),poolSnapshots:snapshots,
-  current:{...dnb,events:ev,observations:await observations(db,dnb.id),qc3:await qc3Evidence(db,dnb.id),handoffs,sequences,transfers,verifications,
+ return {operational,batchId:b.id,runLabel:b.run_label,version:b.version,holds:schema.HOLDS,attempts:attempts.map(a=>({id:a.id,attemptNumber:a.attempt_number,dnbLabel:a.dnb_label,sha256:a.sha256})),poolSnapshots:snapshots,
+  current:{...dnb,operationalHalos:operational?await operationalHalos(db,dnb.id):null,events:ev,observations:await observations(db,dnb.id),qc3:await qc3Evidence(db,dnb.id),handoffs,sequences,transfers,verifications,
    qc4:sequences[0]?await qc4Evidence(db,dnb.id,sequences[0].id):null,stopUse,stability:stability(ev.find(e=>e.event_type==='DNB_END')?.created_at??null),
    handoffVerified:!stopUse&&await handoffVerified(db,dnb.id),clinicalUsable:false,acceptance:'HOLD',exportAllowed:false,
    state:stopUse?'STOP_USE':has(ev,'COMPLETED')?'SYNTHETIC_COMPLETED':has(currentRunEvents,'SEQUENCE_HOLD')?'SEQUENCE_HOLD':has(currentRunEvents,'ANALYSIS_COMPLETE')?'SYNTHETIC_ANALYSIS_COMPLETE':has(currentRunEvents,'SEQUENCE_END')?'QC4':has(currentRunEvents,'SEQUENCE_START')?'SEQUENCING':has(ev,'DNB_END')?'QC3':has(ev,'DNB_START')?'DNB_EXECUTION':has(ev,'PRE_WORK')?'PRE_WORK':'DRAFT'}};

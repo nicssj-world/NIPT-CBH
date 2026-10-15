@@ -3,7 +3,7 @@
 // unapproved until OD-07 verifies them against the hospital's synthetic PDFs. The twin layout has no NIPTY evidence (SPEC: no twin
 // case seen); its anchors are a proposed synthetic contract. Every value keeps its raw text and method; unreadable is UNREADABLE —
 // never Normal, Low Risk, Not Detected or 0.
-export const PARSER_VERSION='P5-PARSER-1.0.0';
+export const PARSER_VERSION='P5-PARSER-1.0.1';
 export const TEMPLATE_VERSIONS={SINGLETON:'SYNTHETIC-BGI-SINGLETON-v1-UNAPPROVED-OD07',TWIN:'SYNTHETIC-TWIN-PROPOSED-v1-UNAPPROVED-OD07',REDRAW_NOTICE:'SYNTHETIC-REDRAW-NOTICE-v1-UNAPPROVED-OD07',UNKNOWN:'UNKNOWN'} as const;
 export type TemplateKind=keyof typeof TEMPLATE_VERSIONS;
 export type Method='ANCHORED'|'FALLBACK'|'UNREADABLE'|'NOT_APPLICABLE';
@@ -16,7 +16,7 @@ export type Parsed={templateKind:TemplateKind;templateVersion:string;parserVersi
 const RISK='(Low Risk|High Risk)',DETECT='(Not Detected|Detected)';
 const RE={
  labLn:/Lab No\.\s*\(LN\):\s*([A-Za-z0-9-]+)/,labLnNotice:/\(LN:\s*([A-Za-z0-9-]+)/,
- hnAnchored:/Lab No\.\s*\(LN\):\s*\S+[\s\S]{0,60}?HN:\s*(\d+)/,hn:/HN:\s*(\d+)/,
+ hnAnchored:/Lab No\.\s*\(LN\):\s*\S+[\s\S]{0,60}?HN:\s*(\d+(?:\/\d+)?)(?=\s|$)/,hn:/HN:\s*(\d+(?:\/\d+)?)(?=\s|$)/,
  name:/Patient Name:\s*(.+?)\s*(?:Gestational Age:|\n|$)/,ga:/Gestational Age:\s*(\d{1,2})\s*Weeks?\s*(\d)\s*Day\(s\)/i,
  dob:/DOB:\s*(\d{1,2}-[A-Za-z]{3}-\d{4})/,collection:/Sample Collection Date:\s*([\w-]+)/,received:/Sample Received Date:\s*([\w-]+)/,reported:/Reported Date:\s*([\w-]+)/,
  trisomy:new RegExp(`TRISOMY\\s*21\\s*TRISOMY\\s*18\\s*TRISOMY\\s*13\\s*Fetal\\s*Gender[\\s\\S]{0,80}?${RISK}\\s+${RISK}\\s+${RISK}(?:\\s+(Male|Female))?`),

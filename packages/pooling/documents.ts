@@ -6,11 +6,15 @@ import {LabError,need,assertSession,uuid,reasonText,audit,type Staff} from '../l
 import {digest} from './calculation';
 import {context,common,event,events,has,stopped,touch,getPool,observations,poolingSource,QC2_CRITERIA,type PoolRow} from './service';
 import type {F4Document} from '../pdf/f4';
-export type F4Deps={store:FileStore;render:(d:F4Document)=>Promise<Buffer>};
+import {operationalWorkflow} from '../lab/operational';
+import {isNativeIssue,type NativeIssuePort} from '../workbook/controlled';
+import {labelNativeCopy} from '../workbook/controlled-copy';
+export type F4Deps={store:FileStore;render:(d:F4Document)=>Promise<Buffer>;native?:NativeIssuePort};
 const evidence=(o:Awaited<ReturnType<typeof observations>>[number])=>`${o.field}${o.slot?' '+o.slot:''}: ${o.value.checked?'✓':o.value.value+' '+o.value.unit} | Source ${o.source} / Copy ${o.copy_id??'—'} / Event ${o.event_time?new Date(o.event_time).toISOString():'NOT_RECORDED'} (${o.event_precision}) / Recorded ${new Date(o.recorded_at).toISOString()} by ${o.recorded_by} / Verified ${o.review?.reviewer_id??'—'} at ${o.review?new Date(o.review.created_at).toISOString():'—'}`;
 export async function issueSyntheticDocument(db:Queryable,user:Staff,input:unknown,deps:F4Deps,previewOnly=false){
- const d=common.extend({kind:z.enum(['PRE_WORK','COMPLETED']),purpose:z.literal('SYNTHETIC_SIMULATION')}).parse(input);
- const {p,ev}=await context(db,user,d,'execution.record');
+ const d=common.extend({kind:z.enum(['PRE_WORK','COMPLETED']),purpose:z.enum(['SYNTHETIC_SIMULATION','OPERATIONAL'])}).parse(input);
+ const operational=await operationalWorkflow(db);if((d.purpose==='OPERATIONAL')!==operational)throw new LabError('DOCUMENT_MODE_MISMATCH',409);
+ const {p,ev}=await context(db,user,d,'execution.record',operational&&d.kind==='COMPLETED');
  if(!has(ev,'CROSSCHECK_PASS')||has(ev,'CROSSCHECK_FAIL')||has(ev,'HOLD'))throw new LabError('CROSSCHECK_PASS_REQUIRED',409);
  if(!previewOnly&&(await db.query('SELECT 1 FROM p4b_document WHERE pool_id=$1 AND kind=$2',[p.id,d.kind])).rows.length)throw new LabError('DOCUMENT_ALREADY_ISSUED',409);
  const obs=await observations(db,p.id);
@@ -20,11 +24,19 @@ export async function issueSyntheticDocument(db:Queryable,user:Staff,input:unkno
   decision=(await db.query<Record<string,unknown>>('SELECT * FROM p4b_qc2_decision WHERE pool_id=$1 ORDER BY sequence DESC LIMIT 1',[p.id])).rows[0];
   if(!has(ev,'END')||!p.payload.members.every(m=>obs.some(o=>o.field==='TRANSFER'&&o.slot===m.slot&&o.review?.result==='Confirmed'))||
    !['BUFFER','QC2','STD1','STD2'].every(f=>obs.some(o=>o.field===f&&o.review?.result==='Confirmed'))||obs.some(o=>o.review?.result!=='Confirmed')||
-   decision?.decision!=='SyntheticReviewed'||decision.observation_id!==obs.find(o=>o.field==='QC2')?.id||decision.criteria_version!==QC2_CRITERIA)throw new LabError('POOL_COMPLETION_EVIDENCE_INCOMPLETE',409);
+   decision?.decision!==(operational?'Accepted':'SyntheticReviewed')||decision.observation_id!==obs.find(o=>o.field==='QC2')?.id||!operational&&decision.criteria_version!==QC2_CRITERIA)throw new LabError('POOL_COMPLETION_EVIDENCE_INCOMPLETE',409);
  }
  const id=randomUUID(),at=new Date().toISOString(),name=(await db.query<{display_name:string}>('SELECT display_name FROM app_user WHERE id=$1',[user.id])).rows[0].display_name;
  const evidenceHash=digest({poolHash:p.sha256,kind:d.kind,observations:obs,decision:decision??null});
- if(!previewOnly&&!ev.some(e=>e.event_type==='PREVIEW'&&e.actor_id===user.id&&e.payload.evidenceHash===evidenceHash))throw new LabError('CURRENT_PREVIEW_REQUIRED',409);
+ if(!operational&&!previewOnly&&!ev.some(e=>e.event_type==='PREVIEW'&&e.actor_id===user.id&&e.payload.evidenceHash===evidenceHash))throw new LabError('CURRENT_PREVIEW_REQUIRED',409);
+ if(operational){
+  if(!deps.native)throw new LabError('TASK_NATIVE_CONTROLLED_RENDERER_REQUIRED',409);
+  const artifact=await deps.native(db,user,{batchId:p.batch_id,poolId:p.id,form:'F4',kind:d.kind,evidence:{poolHash:p.sha256,observations:obs,decision:decision??null}});
+  const nativeEvidenceHash=digest({evidenceHash,valuesSha256:artifact.snapshot.valuesSha256,sourceSha256:artifact.snapshot.sourceSha256,masterSha256:artifact.snapshot.masterSha256});artifact.snapshot.evidenceHash=nativeEvidenceHash;
+  if(previewOnly){await event(db,user,p.id,'PREVIEW',{kind:d.kind,evidenceHash:nativeEvidenceHash,sha256:sha256(artifact.bytes)});return {bytes:artifact.bytes,version:await touch(db,p.batch_id)};}
+  if(!ev.some(e=>e.event_type==='PREVIEW'&&e.actor_id===user.id&&e.payload.evidenceHash===nativeEvidenceHash))throw new LabError('CURRENT_PREVIEW_REQUIRED',409);
+  const hash=await deps.store.put(artifact.bytes);await db.query('INSERT INTO p4b_document(id,pool_id,kind,snapshot,file_sha256,issued_by,issued_at) VALUES($1,$2,$3,$4,$5,$6,$7)',[id,p.id,d.kind,JSON.stringify(artifact.snapshot),hash,user.id,at]);await event(db,user,p.id,d.kind,{documentId:id,sha256:hash,purpose:d.purpose});return {id,fileSha256:hash,version:await touch(db,p.batch_id)};
+ }
  const doc:F4Document={form:'F4',synthetic:true,clinicalUsable:false,kind:d.kind,preview:previewOnly,templateVersion:'SYNTHETIC-F4-v1',fieldInventory:'SEED_UNVERIFIED',docId:id,poolId:p.id,batchId:p.batch_id,runLabel:p.payload.runLabel,tubeLabel:p.payload.tubeLabel,
   attempt:p.attempt_number,revision:1,issuedBy:name,issuedAt:at,formulaVersion:p.payload.calculation.formulaVersion,poolHash:p.sha256,holds:[...p.payload.holds],plannedBuffer:p.payload.calculation.plannedBuffer,
   rows:p.payload.members.map(m=>({slot:m.slot,plate:m.plate,kind:m.kind,printedId:m.printedSampleId??m.printedControlId??'',lnHalos:m.lnHalos??'',concentration:m.qc1.value,
@@ -49,8 +61,8 @@ async function docContext(db:Queryable,user:Staff,id:string){
  return {doc,p,ev,inactive:stopped(ev)||source.sourceHash!==p.source_sha256};
 }
 export async function readF4(db:Queryable,user:Staff,id:string,deps:F4Deps){
- const {doc,inactive}=await docContext(db,user,id);await audit(db,user,'POOL_DOCUMENT_VIEWED','p4b_document',doc.id,{outcome:inactive?'STOP_USE':'SYNTHETIC_HOLD'});
- return {bytes:await deps.store.get(doc.file_sha256),sha256:doc.file_sha256,status:inactive?'STOP_USE':'SYNTHETIC_HOLD'};
+ const {doc,inactive}=await docContext(db,user,id);const status=inactive?'STOP_USE':isNativeIssue(doc.snapshot)?'ISSUED':'SYNTHETIC_HOLD';await audit(db,user,'POOL_DOCUMENT_VIEWED','p4b_document',doc.id,{outcome:status});
+ return {bytes:await deps.store.get(doc.file_sha256),sha256:doc.file_sha256,status};
 }
 export async function printF4(db:Queryable,user:Staff,input:unknown,deps:F4Deps){
  const d=z.strictObject({documentId:uuid,kind:z.enum(['ORIGINAL_REPRINT','WORKING_COPY','STATUS_MARKED']),reason:reasonText}).parse(input);
@@ -59,11 +71,12 @@ export async function printF4(db:Queryable,user:Staff,input:unknown,deps:F4Deps)
  if(d.kind==='STATUS_MARKED'&&!inactive)throw new LabError('STATUS_MARK_ONLY_FOR_INACTIVE',409);
  if(d.kind==='ORIGINAL_REPRINT'&&inactive)need(user,'document.obsolete.print');
  const number=(await db.query<{n:number}>('SELECT COALESCE(max(copy_number),0)+1 n FROM p4b_document_copy WHERE document_id=$1',[doc.id])).rows[0].n;
- const bytes=d.kind==='ORIGINAL_REPRINT'?await deps.store.get(doc.file_sha256):await deps.render({...doc.snapshot,copy:{kind:d.kind,number,originalHash:doc.file_sha256,actor:user.id,at:new Date().toISOString(),status:inactive?'STOP_USE':'SYNTHETIC_HOLD',reason:d.reason}});
+ const copyId=randomUUID();
+ const bytes=d.kind==='ORIGINAL_REPRINT'?await deps.store.get(doc.file_sha256):isNativeIssue(doc.snapshot)?await labelNativeCopy(await deps.store.get(doc.file_sha256),{id:copyId,kind:d.kind,number,status:inactive?'STOP_USE':'Issued',originalHash:doc.file_sha256,actorId:user.id,at:new Date().toISOString()}):await deps.render({...doc.snapshot,copy:{kind:d.kind,number,originalHash:doc.file_sha256,actor:user.id,at:new Date().toISOString(),status:inactive?'STOP_USE':'SYNTHETIC_HOLD',reason:d.reason}});
  const hash=await deps.store.put(bytes);
- const copy=(await db.query<{id:string}>('INSERT INTO p4b_document_copy(document_id,copy_number,kind,file_sha256,derived_from,reason,actor_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',[doc.id,number,d.kind,hash,doc.file_sha256,d.reason,user.id])).rows[0];
+ const copy=(await db.query<{id:string}>('INSERT INTO p4b_document_copy(id,document_id,copy_number,kind,file_sha256,derived_from,reason,actor_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',[copyId,doc.id,number,d.kind,hash,doc.file_sha256,d.reason,user.id])).rows[0];
  await audit(db,user,'POOL_DOCUMENT_PRINTED','p4b_document_copy',copy.id,{outcome:d.kind,count:number});
- return {id:copy.id,sha256:hash,bytes,version:await touch(db,p.batch_id)};
+ return {id:copy.id,sha256:hash,bytes,status:inactive?'STOP_USE':isNativeIssue(doc.snapshot)?'ISSUED':'SYNTHETIC_HOLD',fileName:`F4-${doc.id}-${d.kind}-copy${number}-${inactive?'STOP_USE':'ISSUED'}.pdf`,version:await touch(db,p.batch_id)};
 }
 export async function recallF4(db:Queryable,user:Staff,input:unknown){
  const d=common.extend({copyId:uuid,reason:reasonText}).parse(input);await assertSession(db,user);need(user,'document.recall');

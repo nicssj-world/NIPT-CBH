@@ -7,8 +7,13 @@ import {freezeSyntheticTransfer,initialTransfer,reserveSyntheticTransfer,advance
 
 const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
 const identifier=z.string().regex(/^SYNTHETIC-[A-Za-z0-9_-]+$/).max(100);
-export interface TransferRow {id:string;fixture_id:string;sandbox_id:string;plan:SyntheticTransfer;model:TransferModel;gate:SyntheticGate;revision:number;}
-type StoredDraft=Omit<SyntheticDraft,'pdf'> & {pdfHex:string};
+export interface TransferRow {id:string;fixture_id:string|null;clinical_release_id:string|null;release_draft?:StoredDraft|null;sandbox_id:string;plan:SyntheticTransfer;model:TransferModel;gate:SyntheticGate;revision:number;}
+export type StoredDraft=Omit<SyntheticDraft,'pdf'> & {pdfHex:string};
+export async function loadTransferDraft(db:Queryable,row:TransferRow):Promise<SyntheticDraft>{
+ if(row.fixture_id)return loadFixtureDraft(db,row.fixture_id);
+ if(!row.release_draft||!row.clinical_release_id)throw Error('RELEASE_DRAFT_REQUIRED');
+ const {pdfHex,...rest}=row.release_draft;return {...rest,pdf:Buffer.from(pdfHex,'hex')};
+}
 export async function loadFixtureDraft(db:Queryable,fixtureId:string):Promise<SyntheticDraft>{
   const r=(await db.query<{draft:StoredDraft}>('SELECT draft FROM p6_fixture WHERE id=$1',[fixtureId])).rows[0];
   if(!r)throw Error('REGISTERED_FIXTURE_REQUIRED');const {pdfHex,...rest}=r.draft;return {...rest,pdf:Buffer.from(pdfHex,'hex')};
@@ -33,12 +38,12 @@ export async function registerFixture(db:Queryable,draft:SyntheticDraft,sandboxI
 
 export async function loadTransfer(db:Queryable,id:string):Promise<TransferRow>{
   z.uuid().parse(id);
-  const row=(await db.query<TransferRow>('SELECT t.id,t.fixture_id,t.plan,t.model,t.gate,t.revision,f.sandbox_id FROM p6_transfer t JOIN p6_fixture f ON f.id=t.fixture_id WHERE t.id=$1',[id])).rows[0];
+  const row=(await db.query<TransferRow>('SELECT t.id,t.fixture_id,t.clinical_release_id,t.release_draft,t.plan,t.model,t.gate,t.revision,t.sandbox_id FROM p6_transfer t WHERE t.id=$1',[id])).rows[0];
   if(!row)throw Error('P6_TRANSFER_NOT_FOUND');return row;
 }
 async function record(db:Queryable,row:TransferRow,code:string,event:Record<string,unknown>){
   await db.query('INSERT INTO p6_transfer_event(transfer_id,revision,code,event) VALUES($1,$2,$3,$4)',[row.id,row.revision,code,event]);
-  await appendAudit(db,{action:'P6_'+code,resourceType:'p6_transfer',resourceId:row.id,details:{synthetic:true,outcome:row.model.state}});
+  await appendAudit(db,{action:'P6_'+code,resourceType:'p6_transfer',resourceId:row.id,details:{synthetic:row.plan.mode==='CONTRACT_ONLY',outcome:row.model.state}});
 }
 
 export async function reserveFixture(db:Queryable,fixtureId:string,now=Date.now()):Promise<TransferRow>{

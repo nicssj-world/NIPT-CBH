@@ -66,8 +66,8 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('native P5: idempotent certificat
   expect(after.failed!.some(x=>x.startsWith('RG-05:'))).toBe(true);
   expect((await owner.query('SELECT count(*)::int n FROM result_release')).rows[0]).toEqual({n:0});
 
-  // 5. Role boundaries: the web role cannot insert a release; the worker role cannot create versions or links.
-  await expect(a1.query("INSERT INTO result_release(version_id,case_id,round_id,kind,channel,certified_by) VALUES($1,$2,$3,'RESULT','NIPT_ANC_VIEW',$4)",[versionId,c.caseId,c.roundId,u.certifier.id])).rejects.toThrow(/permission denied/);
+  // 5. Role boundaries: the web role cannot bypass the Synthetic AL5 release trigger; the worker role cannot create versions or links.
+  await expect(a1.query("INSERT INTO result_release(version_id,case_id,round_id,kind,channel,certified_by) VALUES($1,$2,$3,'RESULT','NIPT_ANC_VIEW',$4)",[versionId,c.caseId,c.roundId,u.certifier.id])).rejects.toThrow('RELEASE_HOLD_AL5');
   await expect(w1.query("INSERT INTO result_link_event(version_id,event,round_id,case_id,reason,actor_id) VALUES($1,'PROPOSED',$2,$3,'จำลอง worker เสนอ',$4)",[versionId,c.roundId,c.caseId,u.staff.id])).rejects.toThrow(/permission denied/);
   await expect(w1.query("UPDATE result_report_version SET state='Voided' WHERE id=$1",[versionId])).rejects.toThrow(/permission denied/);
  }finally{for(const c of clients)await c.end();await owner.end();await rm(base,{recursive:true,force:true});}

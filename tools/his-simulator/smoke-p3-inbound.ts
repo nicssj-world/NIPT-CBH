@@ -66,7 +66,7 @@ try{
  const test=await job('synthetic_inbound_test',{});if(test.passed!==true)throw Error('CONNECTION_TEST_FAILED');
  await rename(path.join(root,'.nipt-synthetic-root'),path.join(root,'.offline'));
  const outageJob=(await admin.query<{id:string}>("INSERT INTO job_outbox(kind,payload,idempotency_key) VALUES('synthetic_scan',$1,$2) RETURNING id",[JSON.stringify({trigger:'MANUAL'}),`p3-native-${randomUUID()}`])).rows[0].id;await w.cycle();
- let outage=false;for(let i=0;i<100&&!outage;i++){outage=(await admin.query("SELECT 1 FROM his_inbound_scan_run WHERE outcome='SHARE_UNAVAILABLE' AND finished_at>now()-interval '2 minutes'")).rows.length>0&&(await admin.query("SELECT details FROM worker_heartbeat WHERE worker_id='synthetic-worker'")).rows[0]?.details.lastError==='INBOUND_SHARE_UNAVAILABLE';if(!outage)await sleep(200);}
+ let outage=false;for(let i=0;i<100&&!outage;i++){outage=(await admin.query("SELECT 1 FROM his_inbound_scan_run WHERE outcome='SHARE_UNAVAILABLE' AND finished_at>now()-interval '2 minutes'")).rows.length>0&&(await admin.query("SELECT details FROM worker_heartbeat WHERE worker_id='synthetic-worker'")).rows[0]?.details.lastError==='SHARE_PATH_NOT_FOUND';if(!outage)await sleep(200);}
  if(!outage)throw Error('SHARE_OUTAGE_NOT_VISIBLE');
  await rename(path.join(root,'.offline'),path.join(root,'.nipt-synthetic-root'));
  await admin.query("UPDATE job_outbox SET state='Cancelled',cancel_epoch=cancel_epoch+1 WHERE id=$1",[outageJob]);

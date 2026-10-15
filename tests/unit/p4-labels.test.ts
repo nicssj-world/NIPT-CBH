@@ -5,7 +5,7 @@ import {buildTubeLabelsHtml,tubeLabelStickers} from "../../packages/lab/labels";
 import {RUN_SUFFIX} from "../../packages/lab/rules";
 
 const sample={ln:"0012345678",lnHalos:"26B261012001",patientName:null};
-const halves=(html:string)=>[...html.matchAll(/<div class="(left|right) half">\s*<div class="ln-halos">([^<]*)<\/div>\s*<div class="patient-ln">LN: ([^<]*)<\/div>/g)].map(m=>({side:m[1],code:m[2],ln:m[3]}));
+const halves=(html:string)=>[...html.matchAll(/<div class="(left|right) half">\s*<div class="ln-halos">([^<]*)<\/div>\s*<div class="patient-ln"(?: style="[^"]*")?>LN: ([^<]*)<\/div>/g)].map(m=>({side:m[1],code:m[2],ln:m[3]}));
 
 describe("P4 tube labels — Owner Lock 2026-10-12 / Genomic-CBH label-print.ts",()=>{
  it("AT-LABEL-01: one sample = 4 stickers / 8 halves in exact order (BASE,BASE)(BASE,BASE)(BASE,BASE-1)(BASE-2,BASE-3)",()=>{
@@ -22,7 +22,7 @@ describe("P4 tube labels — Owner Lock 2026-10-12 / Genomic-CBH label-print.ts"
   expect(html).toContain(".half { position: relative; width: 25mm; height: 20mm;");
   expect(html).toContain("border-left: 0.5px dashed #555");
   expect(html).toContain("font-family: 'Courier New', Courier, monospace");
-  expect(html).toContain(".ln-halos { font-size: 7pt; font-weight: 900;");
+  expect(html).toContain(".ln-halos { font-size: 6.5pt; font-weight: 900;");
   expect(html).toContain(".patient-ln { font-size: 6pt; font-weight: 700;");
   expect(html).toContain(".name { font-size: 5pt;");
  });
@@ -32,7 +32,7 @@ describe("P4 tube labels — Owner Lock 2026-10-12 / Genomic-CBH label-print.ts"
   expect(html.match(/LN: 0012345678/g)).toHaveLength(8);
   expect(html).not.toMatch(/class="name"/);
   const named=buildTubeLabelsHtml([{...sample,patientName:"นางสาวจำลอง ทดสอบ"}]);
-  expect(named.match(/<div class="patient-ln">LN: 0012345678<\/div>\s*<div class="name">นางสาวจำลอง ทดสอบ<\/div>/g)).toHaveLength(8);
+  expect(named.match(/<div class="patient-ln"(?: style="[^"]*")?>LN: 0012345678<\/div>\s*<div class="name">นางสาวจำลอง ทดสอบ<\/div>/g)).toHaveLength(8);
   for(const html2 of [html,named])expect(html2).not.toMatch(/barcode|qr|<svg|<img|<canvas|JsBarcode|data:image/i);
  });
  it("AT-LABEL-07: 4 vertical last-three-digit marks per half remain inside the original 50×20 mm sticker",()=>{
@@ -46,7 +46,6 @@ describe("P4 tube labels — Owner Lock 2026-10-12 / Genomic-CBH label-print.ts"
   expect(html).toContain(".right .corner.tl, .right .corner.bl { left: 1.2mm; }");
   expect(html).toContain("@page { size: 50mm 20mm; margin: 0; }");
   expect(html).toContain("width: 25mm; height: 20mm");
-  expect(html).toContain("min-width: 0; flex: 0 0 25mm");
   expect(html).not.toContain("60mm 20mm");
  });
  it("AT-LABEL-08: base digits don't come from label suffix or Twin D",()=>{

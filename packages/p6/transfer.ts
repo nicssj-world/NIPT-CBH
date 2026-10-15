@@ -3,11 +3,11 @@
 import {createHash} from 'node:crypto';
 import {z} from 'zod';
 import {timestamp} from '../integrations/res';
-import {pdfFilename, serializeSyntheticRes, type ResProfile, type SyntheticResInput} from './res';
+import {pdfFilename, serializeSyntheticRes,serializeOperationalRes, type ResProfile, type OperationalResInput} from './res';
 
 const digest=(b:Buffer|string)=>createHash('sha256').update(b).digest('hex');
 const canonical=(value:unknown):string=>JSON.stringify(value,(_key,v)=>v&&typeof v==='object'&&!Array.isArray(v)?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b,'en'))):v);
-const id=z.string().regex(/^SYNTHETIC-[A-Za-z0-9_-]+$/).max(100);
+const id=z.string().regex(/^[A-Za-z0-9_-]+$/).max(100);
 const integer=z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const sha=z.string().regex(/^[a-f0-9]{64}$/);
 const directory=z.string().max(200).regex(/^simulator\/p6\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/);
@@ -15,19 +15,23 @@ const settingsSchema=z.strictObject({
   version:id,resDirectory:directory,pdfDirectory:directory,backupDirectory:directory,
   retryDelaysMs:z.array(z.number().int().positive().max(86400000)).max(10),
   confirmationTimeoutMs:z.number().int().positive().max(86400000),
+  connection:z.strictObject({revisionId:z.uuid(),resPath:z.string().min(1).max(500),pdfPath:z.string().min(1).max(500),backupPath:z.string().min(1).max(500),secretRef:z.uuid().nullable()}).optional(),
 }).superRefine((s,ctx)=>{
+  if(s.connection&&!['SYNTHETIC-SETTINGS-'+s.connection.revisionId,'OPERATIONAL-SETTINGS-'+s.connection.revisionId].includes(s.version))ctx.addIssue({code:'custom',message:'CONFIGURATION_VERSION_MISMATCH'});
   const paths=[s.resDirectory,s.pdfDirectory,s.backupDirectory];
   if(paths.some((a,i)=>paths.some((b,j)=>i!==j&&(a===b||a.startsWith(b+'/')))))ctx.addIssue({code:'custom',message:'OVERLAPPING_PATHS'});
 });
 export function validateSyntheticPaths(settings:unknown){return settingsSchema.parse(settings);}
 export interface SyntheticDraft {
+  mode?:'OPERATIONAL_RELEASE';
   fixtureId:string;reportVersionId:string;roundId:string;attemptId:string;
   origin:'ANC'|'LAB_DIRECT';lnGeneration:number;roundNumber:number;epoch:number;
-  input:SyntheticResInput;profile:ResProfile;pdf:Buffer;
+  input:OperationalResInput;profile:ResProfile;pdf:Buffer;
   settings:z.infer<typeof settingsSchema>;
   round2Policy?:'CURRENT_ROUND'|'ORIGINAL_ORDER';roundSpecimenAt?:string;originalSpecimenAt?:string;
 }
 const draftSchema=z.strictObject({
+  mode:z.literal('OPERATIONAL_RELEASE').optional(),
   fixtureId:id,reportVersionId:id,roundId:id,attemptId:id,origin:z.enum(['ANC','LAB_DIRECT']),
   lnGeneration:integer.refine(n=>n>0),roundNumber:integer.refine(n=>n>0),epoch:integer,
   input:z.unknown(),profile:z.unknown(),pdf:z.instanceof(Buffer),settings:settingsSchema,
@@ -36,7 +40,7 @@ const draftSchema=z.strictObject({
 
 /** Hex strings deliberately avoid mutable Buffers in a frozen payload. No released DB row is fabricated. */
 export interface SyntheticTransfer {
-  readonly mode:'CONTRACT_ONLY'; readonly fixtureId:string;readonly reportVersionId:string;
+  readonly mode:'CONTRACT_ONLY'|'OPERATIONAL_RELEASE'; readonly fixtureId:string;readonly reportVersionId:string;
   readonly roundId:string;readonly attemptId:string;readonly origin:'ANC'|'LAB_DIRECT';
   readonly ln:string;readonly lnGeneration:number;readonly roundNumber:number;readonly sequence:number;readonly epoch:number;
   readonly resName:string;readonly pdfName:string;readonly okName:string;
@@ -53,7 +57,9 @@ export function freezeSyntheticTransfer(draft:SyntheticDraft,sequence:number):Re
   if(!draft.pdf.subarray(0,5).equals(Buffer.from('%PDF-'))||draft.pdf.length>20_000_000)throw Error('INVALID_SYNTHETIC_PDF');
   if(draft.input?.result?.result_type?.trim()==='redraw_notice')throw Error('NOTICE_CHANNEL_HOLD_OD07');
   // Signature check is a contract precondition only; PDF validity/PIC/immutable asset evidence stays P5.
-  const res=serializeSyntheticRes(draft.input,draft.profile);
+  const operational=draft.mode==='OPERATIONAL_RELEASE';
+  if(operational&&!settings.connection)throw Error('OPERATIONAL_DESTINATIONS_REQUIRED');
+  const res=operational?serializeOperationalRes(draft.input,draft.profile):serializeSyntheticRes(draft.input as Parameters<typeof serializeSyntheticRes>[0],draft.profile);
   if(!draft.profile.cfsText.trim())throw Error('CFS_TEXT_REQUIRED');
   if(!draft.input.order.specimen_date)throw Error('SPECIMEN_EVIDENCE_REQUIRED');
   if(draft.roundNumber>=2){
@@ -63,13 +69,13 @@ export function freezeSyntheticTransfer(draft:SyntheticDraft,sequence:number):Re
     if(!date||timestamp(date)!==timestamp(draft.input.order.specimen_date))throw Error('ROUND2_SPECIMEN_MISMATCH');
   }
   const payload={
-    mode:'CONTRACT_ONLY' as const,fixtureId:draft.fixtureId,reportVersionId:draft.reportVersionId,
+    mode:operational?'OPERATIONAL_RELEASE' as const:'CONTRACT_ONLY' as const,fixtureId:draft.fixtureId,reportVersionId:draft.reportVersionId,
     roundId:draft.roundId,attemptId:draft.attemptId,origin:draft.origin,
     ln:draft.input.order.ln,lnGeneration:draft.lnGeneration,roundNumber:draft.roundNumber,sequence,epoch:draft.epoch,
-    resName:res.filename,pdfName:pdfFilename(draft.input.order.hn,draft.input.order.ln,sequence,draft.profile.pdfTemplate),okName:res.filename.replace(/\.res$/,'.ok'),
+    resName:res.filename,pdfName:pdfFilename(draft.input.order.hn,draft.input.order.ln,sequence,draft.profile.pdfTemplate,operational),okName:res.filename.replace(/\.res$/,'.ok'),
     resHash:digest(res.bytes),pdfHash:digest(draft.pdf),resHex:res.bytes.toString('hex'),pdfHex:draft.pdf.toString('hex'),
     profileVersion:draft.profile.version,profileHash:digest(canonical(draft.profile)),settingsVersion:settings.version,settingsHash:digest(canonical(settings)),
-    resDestinationId:digest(settings.resDirectory),pdfDestinationId:digest(settings.pdfDirectory),
+    resDestinationId:digest(settings.connection?.resPath??settings.resDirectory),pdfDestinationId:digest(settings.connection?.pdfPath??settings.pdfDirectory),
     retryDelaysMs:Object.freeze([...settings.retryDelaysMs]),confirmationTimeoutMs:settings.confirmationTimeoutMs,
   };
   return Object.freeze({...payload,fingerprint:digest(canonical(payload))});
@@ -77,7 +83,7 @@ export function freezeSyntheticTransfer(draft:SyntheticDraft,sequence:number):Re
 
 function checkPlan(plan:SyntheticTransfer){
   const {fingerprint,...payload}=plan;
-  if(plan.mode!=='CONTRACT_ONLY'||digest(canonical(payload))!==fingerprint||digest(Buffer.from(plan.resHex,'hex'))!==plan.resHash||digest(Buffer.from(plan.pdfHex,'hex'))!==plan.pdfHash)throw Error('FROZEN_CONTRACT_CHANGED');
+  if(!['CONTRACT_ONLY','OPERATIONAL_RELEASE'].includes(plan.mode)||digest(canonical(payload))!==fingerprint||digest(Buffer.from(plan.resHex,'hex'))!==plan.resHash||digest(Buffer.from(plan.pdfHex,'hex'))!==plan.pdfHash)throw Error('FROZEN_CONTRACT_CHANGED');
 }
 
 /** Pure reservation decision over a supplied snapshot. Real atomic lock/unique DB reservation is
@@ -113,7 +119,7 @@ const eventSchema=z.discriminatedUnion('type',[
   z.strictObject({type:z.literal('CONFIRM'),evidence:evidenceSchema}),z.strictObject({type:z.literal('RETRY')}),
   z.strictObject({type:z.literal('WRITE_STARTED'),stage:z.enum(['PDF','RES','BACKUP','OK'])}),
   z.strictObject({type:z.literal('UNEXPECTED_OK')}),
-  z.strictObject({type:z.literal('FAILURE'),stage:z.enum(['PDF','RES','BACKUP','OK']),code:z.enum(['IO_ERROR','HASH_MISMATCH','COLLISION','BACKUP_FAILED'])}),
+  z.strictObject({type:z.literal('FAILURE'),stage:z.enum(['PDF','RES','BACKUP','OK']),code:z.enum(['IO_ERROR','HASH_MISMATCH','COLLISION','BACKUP_FAILED']),accessCode:z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/).optional()}),
 ]);
 export type TransferEvent=z.infer<typeof eventSchema>;
 const gateSchema=z.strictObject({epoch:integer,fixtureEligible:z.boolean(),consentValid:z.boolean(),settingsVersion:id});
@@ -178,6 +184,7 @@ export function advanceTransfer(model:TransferModel,event:TransferEvent,gate:Syn
     return finish({state:'UNKNOWN_TIMEOUT',reconciliationRequired:true});
   }
   if(event.type==='CONFIRM'&&waiting.includes(model.state)){
+    if(p.mode==='OPERATIONAL_RELEASE')throw Error('HIS_ACK_NOT_IMPLEMENTED');
     const e=event.evidence;
     if(e.transferId!==p.fixtureId||e.resHash!==p.resHash||e.pdfHash!==p.pdfHash||model.awaitingAt===undefined||e.observedAt<model.awaitingAt||e.observedAt>now)throw Error('EVIDENCE_MISMATCH');
     return finish({state:'SYNTHETIC_CONFIRMED',reconciliationRequired:false,evidence:Object.freeze({...e})});

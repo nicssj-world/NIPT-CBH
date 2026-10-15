@@ -1,9 +1,11 @@
 import {createHash} from 'node:crypto';
+import {operationalDataEnabled} from '../security/runtime';
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {z} from 'zod';
 import {validateSyntheticPaths,initialTransfer,type SyntheticDraft,type SyntheticTransfer} from './transfer';
+import {openAuthorizedDirectory,isWithinShareRoot} from '../integrations/authorized-share';
 
 export type Artifact='PDF'|'RES'|'BACKUP'|'OK';
 export type FilePoint='BEFORE_WRITE'|'AFTER_TEMP_SYNC'|'BEFORE_PUBLISH'|'AFTER_LINK'|'AFTER_PUBLISH'|'AFTER_VERIFY';
@@ -13,7 +15,7 @@ const projectRoot=fileURLToPath(new URL('../../',import.meta.url));
 const hash=(b:Buffer)=>createHash('sha256').update(b).digest('hex');
 const canon=(s:string)=>process.platform==='win32'?s.toLowerCase():s;
 const marker=Buffer.from('NIPT_P6_SYNTHETIC_ONLY_V1\n');
-export function assertSandboxEnabled(){if(process.env.NIPT_MODE!=='synthetic'||process.env.NIPT_P6_SANDBOX_ENABLED!=='yes')throw Error('P6_SANDBOX_DISABLED');}
+export function assertSandboxEnabled(){if(operationalDataEnabled())return;if(process.env.NIPT_MODE!=='synthetic'||process.env.NIPT_P6_SANDBOX_ENABLED!=='yes')throw Error('P6_SANDBOX_DISABLED');}
 function safeRelative(relative:string){
   if(!relative||relative.includes('\\')||!relative.split('/').every(p=>/^[A-Za-z0-9_.-]+$/.test(p)&&p!=='.'&&p!=='..'&&!p.endsWith('.')&&!/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(p)))throw Error('UNSAFE_SANDBOX_PATH');
 }
@@ -43,21 +45,25 @@ async function checked(absolute:string,createDirectories=false,leafFile=false,ow
 }
 
 export async function openSandbox(id:string,settings:SyntheticDraft['settings'],hook?:FileHook,fence?:OkPublicationFence){
-  assertSandboxEnabled();z.string().regex(/^SYNTHETIC-[A-Za-z0-9_-]+$/).max(100).parse(id);
+  assertSandboxEnabled();z.string().regex(operationalDataEnabled()?/^[A-Za-z0-9_-]+$/:/^SYNTHETIC-[A-Za-z0-9_-]+$/).max(100).parse(id);
   const config=validateSyntheticPaths(settings),dirs=[config.resDirectory,config.pdfDirectory,config.backupDirectory].map(s=>s.toLowerCase());
+  if(operationalDataEnabled()&&!config.connection)throw Error('OPERATIONAL_DESTINATIONS_REQUIRED');
   if(dirs.some((a,i)=>dirs.some((b,j)=>i!==j&&(a===b||a.startsWith(b+'/')))))throw Error('PATH_ALIAS');
-  const root=path.resolve(projectRoot,'.local','p6-sandbox',id);
-  await checked(root,true);
+  const root=config.connection?.backupPath??path.resolve(projectRoot,'.local','p6-sandbox',id);
+  const authorized=config.connection?await Promise.all([config.connection.resPath,config.connection.pdfPath,config.connection.backupPath].map(p=>openAuthorizedDirectory(p,'OUTBOUND',config.connection!.secretRef))):undefined;
+  if(authorized){const bases=authorized.map(d=>d.base);if(bases.some((a,i)=>bases.some((b,j)=>i!==j&&isWithinShareRoot(b,a))))throw Error('PATH_ALIAS');}
+  else await checked(root,true);
   const target=async(relative:string,create=false,ownedTwin=false)=>{
     assertSandboxEnabled();safeRelative(relative);
+    if(authorized){const prefixes=[config.resDirectory,config.pdfDirectory,config.backupDirectory];const index=prefixes.findIndex(p=>relative.startsWith(p+'/'));if(index<0)throw Error('UNSAFE_SANDBOX_PATH');return authorized[index].file(relative.slice(prefixes[index].length+1),create,ownedTwin);}
     const absolute=path.resolve(root,...relative.split('/'));
     if(!absolute.startsWith(root+path.sep))throw Error('UNSAFE_SANDBOX_PATH');
     return checked(absolute,create,true,ownedTwin);
   };
-  const mark=await target('.p6-synthetic-root');
-  try{await fs.writeFile(mark,marker,{flag:'wx',mode:0o600});}catch(e){if((e as NodeJS.ErrnoException).code!=='EEXIST')throw e;}
-  if(!(await fs.readFile(await target('.p6-synthetic-root'))).equals(marker))throw Error('SANDBOX_MARKER_REQUIRED');
-  const prepare=async()=>{for(const d of [config.pdfDirectory,config.resDirectory,config.backupDirectory,'stage'])await checked(path.join(root,...d.split('/')),true);};
+  if(!authorized){const mark=await target('.p6-synthetic-root');
+   try{await fs.writeFile(mark,marker,{flag:'wx',mode:0o600});}catch(e){if((e as NodeJS.ErrnoException).code!=='EEXIST')throw e;}
+   if(!(await fs.readFile(await target('.p6-synthetic-root'))).equals(marker))throw Error('SANDBOX_MARKER_REQUIRED');}
+  const prepare=async()=>{if(authorized){for(const d of authorized)await d.assert();}else for(const d of [config.pdfDirectory,config.resDirectory,config.backupDirectory,'stage'])await checked(path.join(root,...d.split('/')),true);};
   await prepare();
   const read=async(relative:string)=>fs.readFile(await target(relative));
   const verify=async(relative:string,expected:Buffer)=>{
@@ -67,7 +73,7 @@ export async function openSandbox(id:string,settings:SyntheticDraft['settings'],
     await hook?.({artifact,point:'BEFORE_WRITE'});
     // Staging identity is derived from the immutable DB-journaled fingerprint and exact destination.
     // A matching two-link twin can therefore be recovered without accepting external hardlinks.
-    const stageKey='stage/SYNTHETIC-'+fingerprint+'-'+hash(Buffer.from(relative))+'.part';
+    const stageKey=(authorized?relative.slice(0,relative.lastIndexOf('/'))+'/.nipt-stage/':'stage/')+'SYNTHETIC-'+fingerprint+'-'+hash(Buffer.from(relative))+'.part';
     const destination=await target(relative,true,true),temp=await target(stageKey,true,true);
     const status=async(p:string)=>fs.lstat(p,{bigint:true}).catch(e=>{if((e as NodeJS.ErrnoException).code==='ENOENT')return undefined;throw e;});
     const ds=await status(destination),ts=await status(temp);
@@ -102,12 +108,13 @@ export async function openSandbox(id:string,settings:SyntheticDraft['settings'],
     return {PDF:config.pdfDirectory+'/'+p.pdfName,RES:config.resDirectory+'/'+p.resName,OK:config.resDirectory+'/'+p.okName,
       backupPdf:prefix+'/'+p.pdfName,backupRes:prefix+'/'+p.resName,manifest:prefix+'/manifest.json'};
   };
-  const manifest=(p:SyntheticTransfer)=>Buffer.from(JSON.stringify({syntheticOnly:true,fingerprint:p.fingerprint,pdfHash:p.pdfHash,resHash:p.resHash,pdfName:p.pdfName,resName:p.resName})+'\n');
+  const manifest=(p:SyntheticTransfer)=>Buffer.from(JSON.stringify({syntheticOnly:p.mode==='CONTRACT_ONLY',fingerprint:p.fingerprint,pdfHash:p.pdfHash,resHash:p.resHash,pdfName:p.pdfName,resName:p.resName})+'\n');
   const backupVerified=async(p:SyntheticTransfer)=>{const n=names(p);await verify(n.backupPdf,Buffer.from(p.pdfHex,'hex'));await verify(n.backupRes,Buffer.from(p.resHex,'hex'));await verify(n.manifest,manifest(p));return true;};
   return {id,root,prepare,backupVerified,
     async read(artifact:Exclude<Artifact,'BACKUP'>,p:SyntheticTransfer){return read(names(p)[artifact]);},
     async exists(artifact:Exclude<Artifact,'BACKUP'>,p:SyntheticTransfer){try{await read(names(p)[artifact]);return true;}catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return false;throw e;}},
     async ensure(artifact:Artifact,p:SyntheticTransfer){
+      if((p.mode==='OPERATIONAL_RELEASE')!==operationalDataEnabled())throw Error('TRANSFER_RUNTIME_MODE_MISMATCH');
       const n=names(p),pdf=Buffer.from(p.pdfHex,'hex'),res=Buffer.from(p.resHex,'hex');
       if(artifact==='PDF')return atomic(n.PDF,pdf,'PDF',p.fingerprint);
       if(artifact==='RES'){await verify(n.PDF,pdf);return atomic(n.RES,res,'RES',p.fingerprint);}

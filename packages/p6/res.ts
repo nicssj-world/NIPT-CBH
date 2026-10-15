@@ -7,7 +7,7 @@ const malformedUtf16 = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[
 const text = z.string().max(4096).refine(s => !/[\r\n\0]/.test(s) && !malformedUtf16.test(s), 'INVALID_TEXT');
 const component = text.refine(s => /^[A-Za-z0-9_-]+$/.test(s), 'INVALID_COMPONENT');
 const profileSchema = z.strictObject({
-  syntheticOnly:z.literal(true), version:component, sender:component, receiver:component,
+  syntheticOnly:z.boolean(), version:component, sender:component, receiver:component,
   testCode:component, specimenCode:component, o18:component, accessionSuffix:component,
   wardId:component, wardName:text, resultFlag:component,
   style:z.enum(['full','short','fixed']), cfsText:text, maxResultCodeUnits:z.number().int().positive().max(16384),
@@ -30,6 +30,10 @@ const inputSchema = z.strictObject({
   result:z.record(z.string(),text).nullable(),
 });
 export type SyntheticResInput = z.infer<typeof inputSchema>;
+const operationalOrderSchema=z.strictObject({ln:text.refine(s=>/^\d{1,24}$/.test(s),'INVALID_LN'),hn:text.refine(s=>/^[A-Za-z0-9][A-Za-z0-9./_-]{0,31}$/.test(s),'INVALID_HN'),dspname:text.min(1).max(240),dob:text,sex:z.enum(['F','M','U']),specimen_date:text});
+const operationalInputSchema=inputSchema.extend({order:operationalOrderSchema,certifierHisId:text.refine(s=>{const p=s.split('^');return p.length===2&&p.every(x=>x.trim().length>0&&!/[|\\~&]/.test(x));},'CERTIFIER_HIS_MAPPING_REQUIRED')});
+export const operationalProfileSchema=profileSchema.extend({syntheticOnly:z.literal(false)});
+export type OperationalResInput=z.infer<typeof operationalInputSchema>;
 
 const triKeys=['t21','t18','t13'], triNames=['Trisomy 21','Trisomy 18','Trisomy 13'];
 const scaKeys=['sex_xo','sex_xxx','sex_xxy','sex_xyy'], scaNames=['45,X','47,XXX','47,XXY','47,XYY'];
@@ -74,9 +78,10 @@ function strictTimestamp(value:string) {
   return ts;
 }
 
-export function pdfFilename(hn:string, ln:string, sequence:number, template='N_HN__LN') {
+export function pdfFilename(hn:string, ln:string, sequence:number, template='N_HN__LN',operational=false) {
   text.parse(hn);
-  if(!hn.startsWith('SYNTHETIC-')||!/^0*99000\d+$/.test(ln))throw Error('SYNTHETIC_ONLY');
+  if(operational){if(!/^[A-Za-z0-9][A-Za-z0-9./_-]{0,31}$/.test(hn)||!/^\d{1,24}$/.test(ln))throw Error('INVALID_IDENTIFIER');}
+  else if(!hn.startsWith('SYNTHETIC-')||!/^0*99000\d+$/.test(ln))throw Error('SYNTHETIC_ONLY');
   if(!Number.isSafeInteger(sequence)||sequence<1)throw Error('INVALID_SEQUENCE');
   if(!/^[A-Za-z0-9_-]+$/.test(template))throw Error('INVALID_PDF_TEMPLATE');
   let t=template;
@@ -88,8 +93,14 @@ export function pdfFilename(hn:string, ln:string, sequence:number, template='N_H
 }
 
 export function serializeSyntheticRes(input:SyntheticResInput, profile:ResProfile=syntheticProfile) {
-  const x=inputSchema.parse(input), p=profileSchema.parse(profile), o=x.order;
-  pdfFilename(o.hn,o.ln,1,p.pdfTemplate); // Validate configured naming without touching any path.
+  return serializeContract(inputSchema.parse(input),profileSchema.extend({syntheticOnly:z.literal(true)}).parse(profile),false);
+}
+export function serializeOperationalRes(input:OperationalResInput,profile:ResProfile){
+  return serializeContract(operationalInputSchema.parse(input),operationalProfileSchema.parse(profile),true);
+}
+function serializeContract(x:OperationalResInput,p:ResProfile,operational:boolean){
+  const o=x.order;
+  pdfFilename(o.hn,o.ln,1,p.pdfTemplate,operational); // Validate configured naming without touching any path.
   if(!/^\d{8}$/.test(o.dob))throw Error('INVALID_DATE');
   wireDate(o.dob);
   const ts=strictTimestamp(x.generatedAt), approval=strictTimestamp(x.approvedAt);

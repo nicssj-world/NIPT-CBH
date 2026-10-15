@@ -19,7 +19,7 @@ describe('P7 approved result parity',()=>{
   const u=await session(f.u.staff),filters={dateField:'REPORTED',from:'2026-10-20',to:'2026-10-20',q:'_%',gender:'Female',qc:'PASS',pageSize:1};
   const page=await f.run(t=>queryResults(t,u,filters));expect(page.rows.map(x=>x.id)).toEqual([target.versionId]);expect(page.page.hasNext).toBe(false);
   const out=await f.run(t=>exportResultPage(t,u,filters));expect(out.rows).toEqual(page.rows);
-  for(const value of ['ชื่อ _% จำลอง','2026-10-20','Low Risk','Not Detected','12.4','PASS','P5-PARSER-1.0.0','ANCHORED','SYNTHETIC_PARSED_NOT_CERTIFIED'])expect(out.csv).toContain(value);
+  for(const value of ['ชื่อ _% จำลอง','2026-10-20','Low Risk','Not Detected','12.4','PASS','P5-PARSER-1.0.1','ANCHORED','SYNTHETIC_PARSED_NOT_CERTIFIED'])expect(out.csv).toContain(value);
   expect((await f.run(t=>queryResults(t,u,{q:'00022',gender:'Female'}))).rows).toEqual([]);
   const unknown=await f.run(t=>queryResults(t,u,{q:'00023',gender:'UNKNOWN',qc:'UNKNOWN'}));expect(unknown.rows.map(x=>x.id)).toEqual([missing.versionId]);expect(unknown.rows[0].risk).toBe('UNKNOWN');
   expect((await f.run(t=>queryResults(t,u,{dateField:'REPORTED',from:'2026-01-01',q:'00023'}))).rows).toEqual([]);
