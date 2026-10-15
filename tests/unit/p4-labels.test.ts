@@ -19,7 +19,7 @@ describe("P4 tube labels — Owner Lock 2026-10-12 / Genomic-CBH label-print.ts"
   const html=buildTubeLabelsHtml([sample]);
   expect(html).toContain("@page { size: 60mm 20mm; margin: 0; }");
   expect(html).toContain(".sticker { width: 60mm; height: 20mm; display: flex; page-break-after: always; overflow: hidden; }");
-  expect(html).toContain(".half { width: 30mm; height: 20mm;");
+  expect(html).toContain(".half { position: relative; width: 30mm; height: 20mm;");
   expect(html).toContain("border-left: 0.5px dashed #555");
   expect(html).toContain("font-family: 'Courier New', Courier, monospace");
   expect(html).toContain(".ln-halos { font-size: 7pt; font-weight: 900;");
