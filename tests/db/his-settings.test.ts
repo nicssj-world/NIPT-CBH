@@ -67,3 +67,12 @@ it('temporarily unavailable authorized destination remains retryable before any 
  try{await runTransfer(db,row.id);expect((await loadTransfer(db,row.id)).model.state).toBe('RETRY_PENDING');expect(await runTransfer(db,row.id)).toBe('BACKOFF_PENDING');}finally{await fs.rename(offline,original);}
  await new Promise(r=>setTimeout(r,1100));await runTransfer(db,row.id);const done=await loadTransfer(db,row.id);expect(done.model.state).toBe('AWAITING_CONFIRMATION');expect(done.model.attempts).toBe(2);expect((await readHistory(db,row.id)).events.some(e=>e.event.accessCode==='SHARE_PATH_NOT_FOUND')).toBe(true);
 });
+it('an active share disappearing before source open leaves a scan-run failure for health and retry',async()=>{
+ const store=new FileStore(path.join(root,'files'));await activate('his_inbound',{...SETTINGS.his_inbound.default,enabled:true,basePath:path.join(root,'in-a'),lookbackDays:1});
+ const before=Number((await db.query<{n:string}>('SELECT count(*) n FROM his_inbound_scan_run')).rows[0].n);
+ await fs.rename(path.join(root,'in-a'),path.join(root,'in-offline'));
+ try{await expect(executeInboundJob(db,'synthetic_scan',{trigger:'MANUAL'},store,key)).rejects.toThrow('SHARE_PATH_NOT_FOUND');
+ expect(Number((await db.query<{n:string}>('SELECT count(*) n FROM his_inbound_scan_run')).rows[0].n)).toBe(before+1);
+ expect((await db.query('SELECT outcome,error_code FROM his_inbound_scan_run ORDER BY finished_at DESC LIMIT 1')).rows[0]).toMatchObject({outcome:'SHARE_UNAVAILABLE',error_code:'SHARE_PATH_NOT_FOUND'});
+ }finally{await fs.rename(path.join(root,'in-offline'),path.join(root,'in-a'));}
+});

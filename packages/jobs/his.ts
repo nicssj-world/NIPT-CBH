@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import path from 'node:path';
 import type {Queryable} from '../db/connection';
 import {appendAudit} from '../db/audit';
 import type {FileStore} from '../storage';
@@ -14,8 +15,10 @@ export async function executeInboundJob(db:Queryable,kind:'synthetic_scan'|'synt
  const row=await activeHis(db,'his_inbound'),s=SETTINGS.his_inbound.schema.parse(row.value),p=scanPayloadSchema.parse(payload??{});
  if(p.configurationId&&p.configurationId!==row.id)throw Error('HIS_CONFIGURATION_CHANGED');
  if(kind==='synthetic_scan'&&!s.enabled)throw Error('SCAN_DISABLED');
- const opened=await openInboundSource(s.basePath,s.secretRef),version=()=>assertHisVersion(db,'his_inbound',row.id);
- const source={...opened,assert:async()=>{await version();await opened.assert();},file:async(relative:string)=>{await version();return opened.file(relative);}};
+ let opened:Awaited<ReturnType<typeof openInboundSource>>|undefined;
+ const version=()=>assertHisVersion(db,'his_inbound',row.id),open=async()=>opened??=await openInboundSource(s.basePath,s.secretRef);
+ // Open inside the cycle's guarded assertion so initial outages also leave scan-run evidence.
+ const source={id:s.basePath==='simulator/inbound'?'SIMULATOR':path.resolve(s.basePath),assert:async()=>{await version();await (await open()).assert();},file:async(relative:string)=>{await version();return (await open()).file(relative);}};
  const root=s.basePath==='simulator/inbound'?simulatorRoot():s.basePath;
  await appendAudit(db,{actorId:p.actorId,action:'INBOUND_CONFIGURATION_USED',resourceType:'SETTING',resourceId:row.id,details:{version:row.version,synthetic:true}});
  if(kind==='synthetic_inbound_test')return {...await testInboundConnection(root,{source,lookbackDays:s.lookbackDays}),configurationId:row.id,configurationVersion:row.version};
