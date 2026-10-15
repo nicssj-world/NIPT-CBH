@@ -57,6 +57,7 @@ try{
 
  await positiveJourney({anc:process.argv.includes('--anc'),workflowOnly:process.argv.includes('--workflow-only'),db:database,base,inbound,policy,unit,lab,certifier,reviewer,users,api,waitFor,events});
  if(process.argv.includes('--recovery'))await verifyOperationalRecovery({db:database,base,ownerUrl,env,events,waitFor,stopWriters:async()=>{await browser?.close();browser=undefined;for(const child of [...children].reverse())await stop(child);},restart:launch});
+ assert.deepEqual(browserErrors,[],'positive browser pages must have no runtime/resource errors');
  const evidence={passed:true,sourceHead:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),browserErrors,completeNativeDocumentJourney:!process.argv.includes('--workflow-only'),poolPdf:process.argv.includes('--workflow-only')?'NOT_RUN_WORKFLOW_ONLY_DIAGNOSTIC':'PASS',events,environment:'DISPOSABLE_LOOPBACK_OPERATIONAL_TEST_IDENTITIES',productionBuild:true,physicalHalosAcceptance:'NOT_RUN',hospitalLanAcceptance:'NOT_RUN',hisConfirmed:false};
  await fs.writeFile(path.join(base,'evidence.json'),JSON.stringify(evidence,null,2));process.stdout.write(JSON.stringify({...evidence,artifactDirectory:base})+'\n');
 }catch(error){await fs.writeFile(path.join(base,'failure.json'),JSON.stringify({events,browserErrors,error:error instanceof Error?error.stack:'FAILED'},null,2));throw error;}
