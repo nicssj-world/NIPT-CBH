@@ -31,7 +31,9 @@ function Save-Checkpoint([string]$Step,[string]$Result='IN_PROGRESS') {
 }
 function Set-LocalAcl {
   $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-  & icacls.exe $LocalRoot /inheritance:r /grant:r ("*{0}:(OI)(CI)F" -f $sid) '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' /T /C | Out-Null
+  & icacls.exe $LocalRoot /inheritance:r /grant:r ("*{0}:(OI)(CI)F" -f $sid) '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
+  if($LASTEXITCODE -ne 0){throw 'HOME_UAT_LOCAL_ACL_FAILED'}
+  & icacls.exe (Join-Path $LocalRoot '*') /inheritance:e /T /C | Out-Null
   if($LASTEXITCODE -ne 0){throw 'HOME_UAT_LOCAL_ACL_FAILED'}
 }
 function Initialize-LocalFiles {
@@ -239,6 +241,7 @@ function Get-HomeHealth {
   try {$logins=Test-LoginAccounts}catch{$logins=@(@{authentication='FAILED';reason='ROLE_LOGIN_CHECK_FAILED'})}
   $modeCorrect=($databaseMode -eq 'nipt_operational_home_uat|operational|true' -and $webRuntime -eq 'operational|nipt_operational_home_uat' -and $workerRuntime -eq 'operational|nipt_operational_home_uat')
   $servicesHealthy=($services.db -like 'running|healthy|*' -and $services.renderer -like 'running|healthy|*' -and $services.worker -like 'running|*' -and $services.web -like 'running|*' -and $services.proxy -like 'running|*')
+  $setupServicesHealthy=($services.migrate -eq 'exited|none|0' -and $services['fixture-seed'] -eq 'exited|none|0')
   $loginPass=($logins.Count -eq 6 -and @($logins|Where-Object authentication -ne 'PASS').Count -eq 0)
   $portsCorrect=$false
   if($publication -is [System.Collections.IDictionary]){$portsCorrect=($publication.httpsLoopbackOnly -and $publication.databaseLoopbackOnly -and $publication.otherServicePorts -eq 'NONE')}
@@ -246,7 +249,7 @@ function Get-HomeHealth {
   if($networks -is [System.Collections.IDictionary]){$networkCorrect=($networks.ingressMasqueradeDisabled -and $networks.internalNetworks.Count -eq 4 -and @($networks.internalNetworks|Where-Object{-not $_.internal}).Count -eq 0)}
   $masterCorrect=$false
   if($masterMount -is [System.Collections.IDictionary]){$masterCorrect=($masterMount.present -and $masterMount.readOnly -and $masterMount.sha256 -eq $ExpectedMaster)}
-  $ready=($servicesHealthy -and $modeCorrect -and $workerFresh -eq 'FRESH' -and $renderer -eq '200' -and $webHealth -eq 'ok|operational' -and $loginPass -and $bridgeAlive -and $masterCorrect -and $portsCorrect -and $networkCorrect)
+  $ready=($servicesHealthy -and $setupServicesHealthy -and $modeCorrect -and $workerFresh -eq 'FRESH' -and $renderer -eq '200' -and $webHealth -eq 'ok|operational' -and $loginPass -and $bridgeAlive -and $masterCorrect -and $portsCorrect -and $networkCorrect)
   return [ordered]@{
     ready=$ready;url=($Origin+'/login');runtimeMode=@{web=$webRuntime;worker=$workerRuntime;database=$databaseMode}
     services=$services;webHealth=$webHealth;workerHeartbeat=$workerFresh;rendererHealth=$renderer
