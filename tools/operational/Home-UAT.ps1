@@ -21,6 +21,7 @@ $Spool=Join-Path $LocalRoot 'excel-spool'
 $BridgeScript=Join-Path $PSScriptRoot 'native-excel-bridge.ps1'
 $ExportScript=Join-Path $RepoRoot 'packages\workbook\native-export.ps1'
 $Checkpoint=Join-Path $LocalRoot 'checkpoint.json'
+$AuthReadiness=Join-Path $LocalRoot 'auth-readiness.json'
 
 function Save-Checkpoint([string]$Step,[string]$Result='IN_PROGRESS') {
   if(-not (Test-Path -LiteralPath $LocalRoot)){return}
@@ -174,6 +175,28 @@ function Test-LoginAccounts {
   }
   return $checks
 }
+function Get-LoginReadiness {
+  $accounts=Get-Content -LiteralPath (Join-Path $Secrets 'uat-accounts.json') -Raw|ConvertFrom-Json
+  $expectedRoles=@($accounts|ForEach-Object{[string]$_.username+'|'+[string]$_.role}|Sort-Object)-join ','
+  $actualRoles=Get-DatabaseScalar "SELECT string_agg(u.username||'|'||a.role,',' ORDER BY u.username) FROM app_user u JOIN role_assignment a ON a.user_id=u.id AND a.effective_from<=now() AND (a.expires_at IS NULL OR a.expires_at>now()) WHERE u.enabled=true AND u.username IN ('uat.admin','uat.lab','uat.certifier','uat.clinical-approver','uat.auditor','uat.anc')"
+  if($actualRoles -ne $expectedRoles){throw 'HOME_UAT_ROLE_ASSIGNMENT_MISMATCH'}
+  $credentialHash=(Get-FileHash -LiteralPath (Join-Path $Secrets 'uat-accounts.json') -Algorithm SHA256).Hash.ToLower()
+  if(Test-Path -LiteralPath $AuthReadiness) {
+    try {
+      $cached=Get-Content -LiteralPath $AuthReadiness -Raw|ConvertFrom-Json
+      $verifiedAt=if($cached.verifiedAt -is [DateTime]){$cached.verifiedAt.ToUniversalTime()}else{[DateTimeOffset]::Parse([string]$cached.verifiedAt).UtcDateTime}
+      $age=([DateTime]::UtcNow-$verifiedAt).TotalHours
+      if($cached.passed -eq $true -and $cached.credentialsSha256 -eq $credentialHash -and $age -ge 0 -and $age -lt 8 -and $cached.accounts.Count -eq 6){return @($cached.accounts)}
+    } catch { }
+  }
+  $checks=Test-LoginAccounts
+  if($checks.Count -ne 6 -or @($checks|Where-Object authentication -ne 'PASS').Count -gt 0){throw 'HOME_UAT_ACCOUNT_AUTHENTICATION_FAILED'}
+  $record=@{passed=$true;credentialsSha256=$credentialHash;verifiedAt=[DateTime]::UtcNow.ToString('o');accounts=$checks}
+  $temp=$AuthReadiness+'.tmp'
+  [IO.File]::WriteAllText($temp,($record|ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
+  Move-Item -LiteralPath $temp -Destination $AuthReadiness -Force
+  return $checks
+}
 function Get-HomeHealth {
   $services=[ordered]@{}
   foreach($name in @('db','migrate','fixture-seed','renderer','worker','web','proxy')){$services[$name]=Get-ContainerState (Get-ServiceId $name)}
@@ -237,11 +260,12 @@ function Get-HomeHealth {
     $pidValue=0;[void][int]::TryParse((Get-Content -LiteralPath (Join-Path $Spool 'bridge.launcher.pid') -Raw).Trim(),[ref]$pidValue)
     $proc=Get-CimInstance Win32_Process -Filter "ProcessId=$pidValue" -ErrorAction SilentlyContinue
     $status=Get-Content -LiteralPath (Join-Path $Spool 'bridge-status.json') -Raw|ConvertFrom-Json
-    $age=([DateTime]::UtcNow-[DateTime]::Parse($status.updatedAt).ToUniversalTime()).TotalSeconds
+    $heartbeatTime=if($status.updatedAt -is [DateTime]){$status.updatedAt.ToUniversalTime()}else{[DateTimeOffset]::Parse([string]$status.updatedAt).UtcDateTime}
+    $age=([DateTime]::UtcNow-$heartbeatTime).TotalSeconds
     $bridgeAlive=($proc -and $proc.CommandLine.Contains('native-excel-bridge.ps1') -and $status.pid -eq $pidValue -and (($status.state -eq 'idle' -and $age -lt 10)-or($status.state -eq 'processing' -and $age -lt 240)))
     $bridgeState=if($bridgeAlive){$status.state.ToUpper()}else{'UNAVAILABLE'}
   }catch{}
-  try {$logins=Test-LoginAccounts}catch{$logins=@(@{authentication='FAILED';reason='ROLE_LOGIN_CHECK_FAILED'})}
+  try {$logins=Get-LoginReadiness}catch{$logins=@(@{authentication='FAILED';reason='ROLE_LOGIN_CHECK_FAILED'})}
   $modeCorrect=($databaseMode -eq 'nipt_operational_home_uat|operational|true' -and $webRuntime -eq 'operational|nipt_operational_home_uat' -and $workerRuntime -eq 'operational|nipt_operational_home_uat')
   $servicesHealthy=($services.db -like 'running|healthy|*' -and $services.renderer -like 'running|healthy|*' -and $services.worker -like 'running|*' -and $services.web -like 'running|*' -and $services.proxy -like 'running|*')
   $setupServicesHealthy=($services.migrate -eq 'exited|none|0' -and $services['fixture-seed'] -eq 'exited|none|0')
