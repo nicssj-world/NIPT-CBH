@@ -35,7 +35,7 @@ if(present.length===0) {
   'web-url':'postgresql://nipt_web:'+web+'@db:5432/nipt_operational_home_uat',
   'worker-url':'postgresql://nipt_worker:'+worker+'@db:5432/nipt_operational_home_uat',
   'web-password':web,'worker-password':worker,'uat-accounts.json':JSON.stringify(accounts,null,2),
-  'renderer-token':random(),'identity-lookup.key':randomBytes(32).toString('hex'),
+  'renderer-token':random(),'identity-lookup.key':randomBytes(32),
   'integration-public.pem':publicKey,'integration-private.pem':privateKey
  };
  for(const [name,value] of Object.entries(values))await writeFile(path.join(secretRoot,name),value,{flag:'wx'});
@@ -51,6 +51,7 @@ if(present.length===0) {
   await writeFile(path.join(root,'credentials.txt'),credentialLines.join('\r\n'),{flag:'wx'});
  }
 }
+if((await readFile(path.join(secretRoot,'identity-lookup.key')).then(bytes=>bytes.length))!==32)throw Error('LOCAL_UAT_IDENTITY_LOOKUP_KEY_INVALID');
 const policyFile=path.join(root,'integration/share-policy.json');
 try{await access(policyFile);}catch(error){
  if(error.code!=='ENOENT')throw error;
