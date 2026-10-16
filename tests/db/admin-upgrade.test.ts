@@ -1,0 +1,20 @@
+import {PGlite} from '@electric-sql/pglite';
+import {it,expect} from 'vitest';
+import {mkdtemp,readdir,copyFile,rm} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {migrate} from '../../tools/migrate';
+import {hashPassword} from '../../packages/security/password';
+import {bootstrapAdministrators} from '../../packages/admin/bootstrap';
+import {proposeSetting,validateSetting,activateSetting} from '../../packages/settings/service';
+import {SETTINGS} from '../../packages/settings/catalog';
+import type {Principal} from '../../packages/security/policy';
+it('upgrades populated 095 without losing credentials/scopes/audit, and reapply preserves ledger',async()=>{
+ const db=new PGlite(),dir=await mkdtemp(join(tmpdir(),'nipt-admin-upgrade-'));try{for(const f of await readdir('db/migrations'))if(f.endsWith('.sql')&&Number(f.slice(0,3))<=95)await copyFile(join('db/migrations',f),join(dir,f));await migrate(db,dir);const hash=await hashPassword('Upgrade-test-12345');await db.query("INSERT INTO app_user(username,display_name,password_hash) VALUES('old.admin','เดิม',$1)",[hash]);const before=(await db.query<{id:string}>('SELECT id,username,password_hash,enabled FROM app_user')).rows;
+ const oldId=before[0].id;const unit=(await db.query<{id:string}>("INSERT INTO unit(code,name) VALUES('OLD','หน่วยเดิม') RETURNING id")).rows[0].id;
+ await db.query("INSERT INTO role_assignment(user_id,role) VALUES($1,'APP_ADMIN')",[oldId]);await db.query('INSERT INTO user_unit_scope(user_id,unit_id) VALUES($1,$2)',[oldId,unit]);await db.query("INSERT INTO user_permission(user_id,permission,approved_by) VALUES($1,'ANC_VIEW_ALL_UNITS',$1)",[oldId]);
+ const principal:Principal={id:oldId,roles:['APP_ADMIN'],unitIds:[unit],permissions:['ANC_VIEW_ALL_UNITS']};await db.query('BEGIN');const revision=await proposeSetting(db,principal,'general',SETTINGS.general.default,'UPGRADE_TEST');await validateSetting(db,principal,revision,async()=>true);await activateSetting(db,principal,revision);await db.query('COMMIT');await db.query("INSERT INTO nipt_case(registration_origin,identity_key) VALUES('ANC',$1)",['a'.repeat(64)]);
+ const tableNames=['role_assignment','user_unit_scope','user_permission','settings_revision','setting_active','audit_chain','nipt_case'];const snapshots=[];for(const name of tableNames)snapshots.push((await db.query('SELECT * FROM '+name)).rows);const ledgerBefore=(await db.query('SELECT * FROM schema_migration ORDER BY name')).rows;
+ await migrate(db);for(const [index,name] of tableNames.entries())expect((await db.query('SELECT * FROM '+name)).rows).toEqual(snapshots[index]);expect((await db.query("SELECT * FROM schema_migration WHERE name<'096' ORDER BY name")).rows).toEqual(ledgerBefore);expect((await db.query('SELECT id,username,password_hash,enabled FROM app_user')).rows).toEqual(before);expect((await db.query('SELECT version,must_change_password,last_login_at FROM app_user')).rows[0]).toEqual({version:1,must_change_password:false,last_login_at:null});const ledger=(await db.query('SELECT * FROM schema_migration ORDER BY name')).rows;await migrate(db);expect((await db.query('SELECT * FROM schema_migration ORDER BY name')).rows).toEqual(ledger);await expect(bootstrapAdministrators(db,{})).rejects.toThrow();}finally{await db.close();await rm(dir,{recursive:true,force:true});}
+});
+it('fresh installation bootstrap is atomic, empty-only and distinct; both initial identities must rotate',async()=>{const db=new PGlite();try{await migrate(db);const account={username:'first.admin',displayName:'ผู้ดูแล',password:'First-admin-123456'};await expect(bootstrapAdministrators(db,{admin:account,checker:account})).rejects.toThrow('DISTINCT');await db.query('BEGIN');await bootstrapAdministrators(db,{admin:account,checker:{...account,username:'first.checker'}});await db.query('COMMIT');expect((await db.query('SELECT must_change_password FROM app_user')).rows).toEqual([{must_change_password:true},{must_change_password:true}]);await expect(bootstrapAdministrators(db,{admin:account,checker:{...account,username:'another'}})).rejects.toThrow('EMPTY');}finally{await db.close();}});

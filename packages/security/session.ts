@@ -28,7 +28,7 @@ export async function authenticate(db: Queryable, username: string, password: st
     await db.query("UPDATE app_user SET failed_count=$2,locked_until=$3 WHERE id=$1", [user.id, count, count >= 5 ? new Date(now.getTime() + LOCKOUT_MS) : null]);
     return null;
   }
-  await db.query("UPDATE app_user SET failed_count=0,locked_until=NULL WHERE id=$1", [user.id]);
+  await db.query("UPDATE app_user SET failed_count=0,locked_until=NULL,last_login_at=$2 WHERE id=$1", [user.id,now]);
   const sessionToken = token(), csrf = token();
   await db.query("INSERT INTO app_session(user_id,token_hash,csrf_hash,created_at,last_seen_at,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,$4,$4,$5,$6)", [user.id, digest(sessionToken), digest(csrf), now, new Date(now.getTime() + IDLE_MS), new Date(now.getTime() + ABSOLUTE_MS)]);
   return { userId: user.id, token: sessionToken, csrf };
@@ -42,10 +42,10 @@ export async function throttleLogin(db: Queryable, clientKey: string, now = new 
   return result.rows[0].attempts <= 20;
 }
 
-export async function readSession(db: Queryable, raw: string, now = new Date(), allowSigningSuspended = false): Promise<(Principal & { sessionId: string; csrfHash: string; signingSuspended:boolean }) | null> {
+export async function readSession(db: Queryable, raw: string, now = new Date(), allowSigningSuspended = false): Promise<(Principal & { sessionId: string; csrfHash: string; signingSuspended:boolean;mustChangePassword:boolean }) | null> {
   if (!/^[\w-]{43}$/.test(raw)) return null;
-  const row = await db.query<{ id: string; user_id: string; csrf_hash: string; signing_suspended:boolean }>(`UPDATE app_session s SET last_seen_at=$2,idle_expires_at=LEAST($2::timestamptz+interval '30 minutes',absolute_expires_at)
-    FROM app_user u WHERE s.token_hash=$1 AND s.user_id=u.id AND u.enabled=true AND s.revoked_at IS NULL AND s.idle_expires_at>$2 AND s.absolute_expires_at>$2 AND (NOT s.signing_suspended OR $3) RETURNING s.id,s.user_id,s.csrf_hash,s.signing_suspended`, [digest(raw), now,allowSigningSuspended]);
+  const row = await db.query<{ id: string; user_id: string; csrf_hash: string; signing_suspended:boolean;must_change_password:boolean }>(`UPDATE app_session s SET last_seen_at=$2,idle_expires_at=LEAST($2::timestamptz+interval '30 minutes',absolute_expires_at)
+    FROM app_user u WHERE s.token_hash=$1 AND s.user_id=u.id AND u.enabled=true AND s.revoked_at IS NULL AND s.idle_expires_at>$2 AND s.absolute_expires_at>$2 AND (NOT s.signing_suspended OR $3) RETURNING s.id,s.user_id,s.csrf_hash,s.signing_suspended,u.must_change_password`, [digest(raw), now,allowSigningSuspended]);
   if (!row.rows[0]) return null;
   const s = row.rows[0];
   const [roles, units, permissions] = await Promise.all([
@@ -53,7 +53,7 @@ export async function readSession(db: Queryable, raw: string, now = new Date(), 
     db.query<{ unit_id: string }>("SELECT unit_id FROM user_unit_scope WHERE user_id=$1", [s.user_id]),
     db.query<{ permission: string }>("SELECT permission FROM user_permission WHERE user_id=$1", [s.user_id])
   ]);
-  return { id: s.user_id, sessionId: s.id, csrfHash: s.csrf_hash, signingSuspended:s.signing_suspended,roles: roles.rows.map(x => x.role), unitIds: units.rows.map(x => x.unit_id), permissions: permissions.rows.map(x => x.permission) };
+  return { id: s.user_id, sessionId: s.id, csrfHash: s.csrf_hash, signingSuspended:s.signing_suspended,mustChangePassword:s.must_change_password,roles: roles.rows.map(x => x.role), unitIds: units.rows.map(x => x.unit_id), permissions: permissions.rows.map(x => x.permission) };
 }
 
 export async function revokeSession(db: Queryable, raw: string): Promise<void> {

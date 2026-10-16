@@ -3,12 +3,12 @@
 // and a unit test keeps all three in step with the catalog, so a category or field cannot silently drop out.
 // Status: Implemented = configurable/enforced and consumed now · Partial = stored or simulator-only, not fully consumed ·
 // Missing = due by this phase but absent · Deferred = belongs to a later phase (P5H/P6/P7) · HOLD = waits for an Owner/IT decision.
-export type CoverageStatus="Implemented"|"Partial"|"Missing"|"Deferred"|"HOLD";
+export type CoverageStatus="Implemented"|"Partial"|"Missing"|"Deferred"|"HOLD"|"Installation-owned"|"Locked";
 export type CoverageItem={category:number;item:string;plan:string;nipty:string|null;source:string|null;status:CoverageStatus;phase:string;note:string};
 export const COVERAGE_CATEGORIES=["General","ANC / Request & Consent","ANC Doctors","User / Role / Permission","HIS Inbound","Laboratory","Result Management","HIS Outbound / CFS","Storage / NAS / Backup","Notifications / System / Audit"] as const;
 const i=(category:number,item:string,plan:string,nipty:string|null,source:string|null,status:CoverageStatus,phase:string,note:string):CoverageItem=>({category,item,plan,nipty,source,status,phase,note});
 
-export const SETTINGS_COVERAGE:CoverageItem[]=[
+export const SETTINGS_COVERAGE_BASELINE:CoverageItem[]=[
  i(1,"ชื่อระบบ","§13.2 #1",null,"general.systemName","Partial","P1","เก็บเป็น Setting ได้ แต่หน้าจอยังแสดงชื่อคงที่"),
  i(1,"โลโก้","§13.2 #1",null,null,"Missing","P1","ยังไม่มีที่อัปโหลด/แสดงโลโก้"),
  i(1,"หน่วยงาน","§13.2 #1","ward_master.csv","unit (ตาราง)","Partial","P1","มีตารางหน่วยงานแต่ยังไม่มีหน้าจัดการ"),
@@ -112,7 +112,56 @@ export const SETTINGS_COVERAGE:CoverageItem[]=[
  i(10,"ผู้รับรายงานการลงทะเบียน/บันทึกย้อนหลังรายวัน","§13.2 #10",null,null,"Deferred","P5H",""),
  i(10,"ส่ง Alert ทดสอบ","§13.2 #10",null,null,"Missing","P1","")
 ];
+// 2026-10-16 source re-audit. Numeric IDs are stable positions in the original
+// 102-item Plan matrix. Baseline is retained for a reviewable before/after diff.
+const reviewed:Record<number,Partial<CoverageItem>>={
+ 1:{status:'Implemented',note:'Active general revision is read by protected layout Sidebar; documents/provenance unchanged'},
+ 2:{status:'Installation-owned',note:'No public brand assets or upload endpoint. Approved workbook/PDF logos remain controlled source assets; installer may provision a separately approved UI asset later'},
+ 3:{status:'Implemented',source:'unit + packages/admin/service.ts + /settings/units',note:'Browser create/edit/search/pagination/Inactive; unused code correction only; all FK/pending scope references protected'},
+ 4:{status:'Locked',note:'Asia/Bangkok date format is enforced by code; not a mutable setting'},
+ 5:{status:'Locked'},6:{status:'Locked'},
+ 7:{status:'Installation-owned',note:'APP_ORIGIN, service ports, HTTPS and DB target are installation configuration'},
+ 9:{note:'Stored revision has no templateVersion consumer; editor labels NOT IMPLEMENTED/read-only. P2 uses documentTemplate(), including operational templates; DCC-controlled'},
+ 10:{note:'Global request_consent.mode has no active runtime consumer; Web/API read-only NOT IMPLEMENTED. Existing case-specific request/consent modes and OD-06 guards retained'},
+ 18:{note:'Stored version has no runtime consumer; read-only NOT IMPLEMENTED. Reuse existing versioned Doctor Registry'},
+ 19:{status:'Implemented',source:'role_assignment, user_unit_scope, user_permission + admin_access_request',note:'APP_ADMIN proposes, independent CLINICAL_APPROVER checks; no self-target; session revocation and audit; 9 existing roles'},
+ 20:{status:'Locked'},21:{status:'Locked'},22:{status:'Locked'},
+ 23:{note:'Synthetic restrictions retained. Operational baseline has source-bound reviews/release gates in 086/088/089; this Admin work grants no new clinical authority'},
+ 26:{status:'Locked'},
+ 35:{status:'Locked',note:'STAT replacement by PET is an intentional architectural lock, not an editable integration'},
+ 36:{note:'Active templateVersion is frozen as metadata in lab_batch/placement via pendingPolicy(); it does not select a runtime template. Read-only controlled metadata. Native artifacts bind master via 091/092/094'},
+ 37:{note:'Active formulaVersion is frozen as batch metadata only; calculation uses immutable FORMULA_VERSION/master inventory. Read-only metadata; no formula/pipette edits authorized'},
+ 40:{note:'Operational F2-F5 native controlled artifacts exist (092/094); F6 and DCC acceptance remain separate; no Admin template replacement'},
+ 41:{status:'Partial',note:'Native HALOS export/readback + observed import exist in 086; 47-row lock retained; physical device acceptance external'},
+ 45:{note:'Existing operational receipt/lineage/suffix guards in 084/090 retained; not configurable from Admin'},
+ 49:{note:'Operational P2 evidence/review guard in 088 exists; clinical acceptance and rule changes remain governed'},
+ 63:{note:'Actual parser/template versions are frozen per report. picVersion Setting is not parser selection; Owner/DCC approvals remain external'},
+ 71:{note:'HOLD_AL5 catalog literal is retained; operational baseline separately enforces p5_release_authorized/current reviewed evidence in 086/088/089. Admin changes do not enable release'},
+ 72:{status:'Implemented',note:'packages/historical/service.ts reads active cutoff version; maker-checker and historical-case guard remain. No default cutoff is invented'},
+ 74:{status:'Implemented',source:'HISTORICAL_VERIFIER + packages/historical/service.ts',note:'Existing separate verifier permission and independent review; owner policy/eligibility still required'},
+ 75:{status:'Implemented',source:'/historical + packages/historical/service.ts',note:'Existing drafts/promoted list/detail and evidence; reviewable software, not acceptance'},
+ 76:{status:'HOLD',note:'No ANC historical visibility policy inferred; existing denial remains'},
+ 78:{note:'SIMULATOR is the default, not a schema literal. Existing operational AUTHORIZED_SHARE path remains separately guarded'},
+ 79:{status:'Implemented',note:'Existing operational-only productionAuthorized consumer in p6 release path + runtime/DB/approved settings guards; synthetic mode cannot gain authority'},
+ 80:{status:'Implemented',source:'his_outbound.resProfile + packages/p6/res.ts',note:'Validated and frozen active RES profile; hospital mapping acceptance external'},
+ 81:{status:'Implemented',source:'his_outbound.resProfile.pdfTemplate + packages/p6/res.ts + packages/p6/transfer.ts',note:'Validated naming profile is frozen per transfer; existing files never renamed or overwritten'},
+ 83:{status:'Implemented',source:'his_outbound.resProfile + packages/p6/res.ts resultText()',note:'Frozen profile/style consumed during serialization; no clinical value invented'},
+ 84:{status:'Implemented',source:'his_outbound.resProfile.maxResultCodeUnits + packages/p6/res.ts',note:'Escaped R[3] code unit limit checked before delivery'},
+ 85:{note:'Existing operational source supports explicitly configured CURRENT_ROUND/ORIGINAL_ORDER; null stays fail closed; no mapping chosen here'},
+ 89:{status:'Installation-owned',note:'FILE_STORE_ROOT content-addressed storage; Web cannot move or replace storage roots'},
+ 90:{status:'Installation-owned',note:'Existing Operational Backup policy/service account/encryption are IT-owned; catalog SIMULATOR is not the operational backup target'},
+ 91:{status:'Installation-owned',note:'Backup scheduling is an operator/service responsibility; no web scheduler added'},
+ 92:{status:'Installation-owned',note:'retentionDays is unused legacy metadata; read-only and new proposals rejected. No automatic deletion or retention enforcement claimed'},
+ 93:{status:'Installation-owned',note:'Restore drill scheduling/acceptance operator-owned; monitoring explicitly NOT VERIFIED without authoritative telemetry'},
+ 94:{status:'Partial',source:'src/server/health.ts storageHealth()',note:'statfs measures configured File Store filesystem; fixed 1 GiB warning. Network quotas and hospital threshold acceptance are not inferred'},
+ 95:{status:'Implemented',note:'Active staleSeconds/backlogWarning now consumed by runtime-specific Health calculator; defaults only when no active revision'},
+ 96:{note:'In-app visibility uses health.read Matrix. No recipient routing/provider or external delivery; not an implemented per-role recipient configuration'},
+ 98:{status:'Installation-owned',note:'Audit chain is immutable/permanent. Service log rotation/retention is IT-owned; no web deletion'},
+ 102:{status:'Partial',source:'src/components/local-alert-test.tsx',note:'Local-only labelled browser simulation; no outbound message or backend incident fabricated'}
+};
+export const SETTINGS_COVERAGE:CoverageItem[]=SETTINGS_COVERAGE_BASELINE.map((item,n)=>({...item,...reviewed[n+1]}));
+export const COVERAGE_STATUSES=['Implemented','Partial','Missing','Deferred','HOLD','Installation-owned','Locked'] as const;
 export function coverageSummary(items=SETTINGS_COVERAGE){
- const statuses=["Implemented","Partial","Missing","Deferred","HOLD"] as const;
+ const statuses=COVERAGE_STATUSES;
  return COVERAGE_CATEGORIES.map((name,index)=>({no:index+1,name,counts:Object.fromEntries(statuses.map(s=>[s,items.filter(x=>x.category===index+1&&x.status===s).length])) as Record<CoverageStatus,number>}));
 }

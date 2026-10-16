@@ -1,0 +1,3 @@
+import {withTransaction,pool} from '../packages/db/connection';
+import {completeTargetEnrollment} from '../packages/admin/enrollment';
+try{if(process.env.NIPT_TARGET_ENROLLMENT_CONFIRMED!=='yes')throw Error('VERIFIED_TARGET_REQUIRED');await withTransaction(db=>completeTargetEnrollment(db,{requestId:process.argv[2],username:process.env.NIPT_ENROLLMENT_USERNAME,password:process.env.NIPT_ENROLLMENT_PASSWORD,targetIdentityConfirmed:true}));process.stdout.write('TARGET_ENROLLED_PASSWORD_ROTATION_REQUIRED\n');}catch{process.stderr.write('ENROLLMENT_FAILED_CHECK_APPROVAL_TARGET_IDENTITY_AND_OPERATOR_OWNER\n');process.exitCode=1;}finally{delete process.env.NIPT_ENROLLMENT_PASSWORD;if(process.env.DATABASE_URL)try{await pool().end();}catch{}}

@@ -1,4 +1,5 @@
 import {operationalBackup} from './operational-backup.mjs';
+import {publishOperationsStatus} from './operations-status.mjs';
 import {execFileSync} from 'node:child_process';
 import {createCipheriv,randomBytes} from 'node:crypto';
 import * as fs from 'node:fs/promises';
@@ -7,7 +8,7 @@ import {Client} from 'pg';
 import {FORMAT,canonical,sha,checkedPath,disjoint,inventory,pack,p6Coverage,MAX_ARCHIVE_BYTES,checkSize,readBoundedFile} from './backup-format.mjs';
 
 if(process.env.NIPT_MODE==='operational'){
- try{process.stdout.write(JSON.stringify(await (operationalBackup(process.argv[2]??process.env.BACKUP_DESTINATION)))+'\n');}catch(e){process.stderr.write((/^[A-Z0-9_]+$/.test(e.message)?e.message:'OPERATIONAL_RECOVERY_FAILED')+'\n');process.exitCode=1;}
+ try{const result=await operationalBackup(process.argv[2]??process.env.BACKUP_DESTINATION);const monitoring=await publishOperationsStatus('backup',result);process.stdout.write(JSON.stringify({...result,monitoring})+'\n');}catch(e){process.stderr.write((/^[A-Z0-9_]+$/.test(e.message)?e.message:'OPERATIONAL_RECOVERY_FAILED')+'\n');process.exitCode=1;}
 }else{
 if(process.env.NIPT_MODE!=='synthetic')throw Error('P1_SYNTHETIC_ONLY');
 if(process.env.BACKUP_SOURCE_QUIESCENT!=='yes')throw Error('QUIESCENT_SYNTHETIC_SOURCE_REQUIRED');

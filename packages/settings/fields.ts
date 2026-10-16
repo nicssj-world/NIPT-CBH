@@ -9,7 +9,7 @@ export type SettingForm={key:SettingKey;title:string;summary:string;phase:string
 
 export const SETTING_FORMS:Record<SettingKey,SettingForm>={
  general:{key:"general",title:"ทั่วไป",summary:"ชื่อระบบและเขตเวลา (เขตเวลาล็อกเป็น Asia/Bangkok)",phase:"P1",fields:[
-  {name:"systemName",label:"ชื่อระบบ",help:"แสดงบนหน้าจอและเอกสาร ความยาวไม่เกิน 80 ตัวอักษร",kind:"text",max:80},
+  {name:"systemName",label:"ชื่อระบบ",help:"Active Revision แสดงบน Sidebar เท่านั้น ไม่แก้เอกสารหรือ Clinical Provenance ความยาวไม่เกิน 80 ตัวอักษร",kind:"text",max:80},
   {name:"timezone",label:"เขตเวลา",help:"ล็อกไว้ตาม Baseline — วันที่และเวลาทั้งหมดใช้เวลาไทย",kind:"locked",lockedBy:"LOCKED Baseline"}]},
  request_consent:{key:"request_consent",title:"ANC / ใบขอส่งตรวจและความยินยอม",summary:"รุ่นแบบฟอร์มและช่องทางที่เปิดใช้",phase:"P2",fields:[
   {name:"templateVersion",label:"รุ่นแบบฟอร์ม FM-01/FM-02",help:"รุ่นจำลองจนกว่า DCC อนุมัติแบบฟอร์มจริง",kind:"text"},

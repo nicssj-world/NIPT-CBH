@@ -20,6 +20,8 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO app_rw,worker_rw;
 GRANT SELECT,INSERT,UPDATE ON app_user,app_session,login_throttle,settings_revision,setting_active TO app_rw;
 GRANT SELECT,INSERT,UPDATE,DELETE ON role_assignment,user_unit_scope,user_permission,case_unit_scope TO app_rw;
 GRANT SELECT,INSERT,UPDATE ON unit,pdf_preview_cache TO app_rw;
+GRANT SELECT,INSERT,UPDATE ON admin_access_request TO app_rw;
+GRANT SELECT ON schema_migration TO app_rw;
 GRANT INSERT ON secret_revision TO app_rw;
 GRANT SELECT(id,secret_key,key_version,created_by,created_at,tested_at,retired_at) ON secret_revision TO app_rw;
 GRANT SELECT ON worker_heartbeat,settings_revision,setting_active TO app_rw;

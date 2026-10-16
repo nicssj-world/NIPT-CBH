@@ -2,12 +2,16 @@ import type { Queryable } from "../db/connection";
 import { appendAudit } from "../db/audit";
 import { requirePermission, type Principal } from "../security/policy";
 import { settingDefinition } from "./catalog";
+import {SETTINGS} from './catalog';
 
 type Revision = { id: string; setting_key: string; risk: string; value: unknown; state: string; created_by: string; approved_by: string | null; test_passed: boolean; version: number };
 export async function proposeSetting(db: Queryable, user: Principal, key: string, value: unknown, reason: string, previousId?: string): Promise<string> {
+  if(key==='storage_backup')throw Error('INSTALLATION_OWNED_SETTING');
+  if(['request_consent','doctor_registry'].includes(key))throw Error('SETTING_RUNTIME_CONSUMER_UNAVAILABLE');
   const d = settingDefinition(key);
   const validated = d.schema.parse(value);
   requirePermission(user, d.risk === "CLINICAL" ? "settings.clinical.propose" : d.risk === "INTEGRATION" ? "settings.integration.propose" : "settings.general.change", {}, d.risk === "GENERAL" || d.risk === "SECURITY" ? "write" : "propose");
+  if(key==='laboratory'&&!previousId){const active=(await readActiveSettings(db)).laboratory??SETTINGS.laboratory.default;for(const field of ['templateVersion','formulaVersion'])if((validated as Record<string,unknown>)[field]!==((active as Record<string,unknown>)[field]??(SETTINGS.laboratory.default as Record<string,unknown>)[field]))throw Error('CONTROLLED_METADATA_READ_ONLY');}
   if (!reason.trim() || reason.length > 250) throw new Error("REASON_REQUIRED");
   await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`settings:${key}`]);
   const result = await db.query<{ id: string }>(`INSERT INTO settings_revision(setting_key,version,category,risk,value,state,created_by,reason,previous_revision_id)
@@ -38,6 +42,8 @@ export async function approveSetting(db: Queryable, user: Principal, id: string)
 export async function activateSetting(db: Queryable, user: Principal, id: string): Promise<void> {
   const r = (await db.query<Revision>("SELECT * FROM settings_revision WHERE id=$1 FOR UPDATE", [id])).rows[0];
   if (!r) throw new Error("SETTING_NOT_FOUND");
+  if(r.setting_key==='storage_backup')throw Error('INSTALLATION_OWNED_SETTING');
+  if(['request_consent','doctor_registry'].includes(r.setting_key))throw Error('SETTING_RUNTIME_CONSUMER_UNAVAILABLE');
   const regulated = ["INTEGRATION", "CLINICAL"].includes(r.risk);
   requirePermission(user, regulated ? "settings.approve" : "settings.general.change", { actorId: regulated ? r.created_by : undefined }, regulated ? "approve" : "write");
   if (!r.test_passed || (regulated && (!r.approved_by || r.approved_by === r.created_by)) || !["Validated", "Approved"].includes(r.state)) throw new Error("SETTING_APPROVAL_REQUIRED");
@@ -57,4 +63,14 @@ export async function rollbackSetting(db: Queryable, user: Principal, previousId
 export async function readActiveSettings(db: Queryable): Promise<Record<string, unknown>> {
   const result = await db.query<{ setting_key: string; value: unknown }>("SELECT r.setting_key,r.value FROM setting_active a JOIN settings_revision r ON r.id=a.revision_id");
   return Object.fromEntries(result.rows.map(r => [r.setting_key, r.value]));
+}
+
+/** The bounded history window must never hide an actual active revision. */
+export async function readSettingRevisions(db:Queryable){
+ return (await db.query(`SELECT r.id,r.setting_key,r.version,r.state,r.created_by,r.approved_by,r.created_at,r.effective_from,
+ (SELECT max(a.created_at) FROM audit_chain a WHERE a.action='SETTING_ACTIVATED' AND a.resource_id=r.id) activated_at,
+ r.test_passed,r.value,u.display_name created_name,u.username created_username
+ FROM settings_revision r JOIN app_user u ON u.id=r.created_by
+ WHERE r.id IN (SELECT revision_id FROM setting_active) OR r.id IN (SELECT id FROM settings_revision ORDER BY created_at DESC,id DESC LIMIT 100)
+ ORDER BY r.created_at DESC,r.id DESC`)).rows;
 }

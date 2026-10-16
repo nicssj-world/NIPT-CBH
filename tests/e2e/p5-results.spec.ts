@@ -151,7 +151,7 @@ for(const width of [375,768,1280])test(`P5 result workspace is accessible and re
 
 test("Settings: labelled fields instead of JSON, HOLD fields read-only, coverage of all ten categories",async({page})=>{
  await page.setViewportSize({width:1280,height:900});await login(page,"synthetic.admin");await page.goto("/settings?key=result_management");
- await expect(page.getByLabel("หมวดการตั้งค่า")).toHaveValue("result_management");
+ await expect(page.getByRole("navigation",{name:"หมวดการตั้งค่า"}).getByRole("button",{name:/การจัดการผลตรวจ/})).toHaveAttribute("aria-current","page");
  await expect(page.getByLabel("โฟลเดอร์ผล PDF (PDF Source Folder)")).toHaveValue("simulator/results");
  const hold=page.getByLabel(/สิทธิ์ปล่อยผลจริง/);await expect(hold).toHaveAttribute("readonly","");await expect(hold).toHaveValue("HOLD_AL5");
  await expect(page.getByRole("region",{name:"ตารางความครอบคลุมของหมวด"})).toContainText("path_pdfresult");

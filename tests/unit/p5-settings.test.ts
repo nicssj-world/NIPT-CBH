@@ -15,11 +15,11 @@ describe('Settings forms and coverage (Plan §13.2, P5 delivery)',()=>{
   }
  });
  it('all ten §13.2 categories are covered and every catalog key appears in the matrix',()=>{
-  expect(COVERAGE_CATEGORIES).toHaveLength(10);
+  expect(COVERAGE_CATEGORIES).toHaveLength(10);expect(SETTINGS_COVERAGE).toHaveLength(102);
   for(let n=1;n<=10;n++)expect(SETTINGS_COVERAGE.filter(x=>x.category===n).length).toBeGreaterThan(0);
   const sources=SETTINGS_COVERAGE.map(x=>x.source??'').join(' ');
   for(const key of Object.keys(SETTINGS))expect(sources).toContain(key);
-  expect(SETTINGS_COVERAGE.find(x=>x.item.startsWith('go_live_cutoff'))?.status).toBe('Deferred');
+  expect(SETTINGS_COVERAGE.find(x=>x.item.startsWith('go_live_cutoff'))?.status).toBe('Implemented');
   expect(coverageSummary().reduce((s,c)=>s+Object.values(c.counts).reduce((a,b)=>a+b,0),0)).toBe(SETTINGS_COVERAGE.length);
  });
  it('every NIPTY settings key (identical in NIPTY.zip and NIPTY_handover.zip) is mapped',()=>{

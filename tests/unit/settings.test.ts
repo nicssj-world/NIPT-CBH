@@ -2,7 +2,7 @@ import {beforeAll,afterAll,describe,it,expect} from "vitest";
 import type {PGlite} from "@electric-sql/pglite";
 import {testDatabase,addUser} from "../helpers/database";
 import {SETTINGS,settingDefinition} from "../../packages/settings/catalog";
-import {proposeSetting,validateSetting,approveSetting,activateSetting,rollbackSetting,readActiveSettings} from "../../packages/settings/service";
+import {proposeSetting,validateSetting,approveSetting,activateSetting,rollbackSetting,readActiveSettings,readSettingRevisions} from "../../packages/settings/service";
 import type {Principal} from "../../packages/security/policy";
 let db:PGlite,admin:Principal,approver:Principal;
 describe("settings lifecycle and locked architecture",()=>{
@@ -27,6 +27,15 @@ describe("settings lifecycle and locked architecture",()=>{
   expect(rollback).not.toBe(first);await validateSetting(db,admin,rollback,async()=>true);await activateSetting(db,admin,rollback);
   expect((await readActiveSettings(db)).general).toEqual(SETTINGS.general.default);
   expect((await db.query("SELECT * FROM settings_revision WHERE setting_key='general'")).rows).toHaveLength(3);
+ });
+ it('unsupported global settings and installation-owned retention cannot be edited by API/service',async()=>{
+  for(const key of ['request_consent','doctor_registry','storage_backup'] as const)await expect(proposeSetting(db,admin,key,SETTINGS[key].default,'UNSUPPORTED_TEST')).rejects.toThrow();
+  await expect(proposeSetting(db,{...approver,roles:['LAB_CERTIFIER']},'laboratory',{...SETTINGS.laboratory.default,formulaVersion:'invented'},'CONTROLLED_TEST')).rejects.toThrow('CONTROLLED_METADATA_READ_ONLY');
+ });
+ it('always includes actual Active revisions even after more than 100 newer history entries',async()=>{
+  const active=(await db.query<{revision_id:string}>("SELECT revision_id FROM setting_active WHERE setting_key='general'")).rows[0].revision_id;
+  for(let n=1;n<=101;n++)await db.query("INSERT INTO settings_revision(setting_key,version,category,risk,value,state,created_by,reason) VALUES('notifications',$1,'Notifications/System/Audit','GENERAL',$2,'Archived',$3,'HISTORY_TEST')",[n,SETTINGS.notifications.default,admin.id]);
+  const revisions=await readSettingRevisions(db);expect(revisions.some(r=>r.id===active&&r.state==='Active')).toBe(true);expect(revisions.length).toBeGreaterThan(100);
  });
  it("integration needs checker, direct DB activation fails without approval",async()=>{
   const id=await proposeSetting(db,admin,"his_inbound",SETTINGS.his_inbound.default,"SYNTHETIC_INTEGRATION");

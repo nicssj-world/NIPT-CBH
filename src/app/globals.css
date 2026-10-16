@@ -214,3 +214,14 @@ fieldset {border:0;padding:0;margin:0;}
 .p5-conflict {margin-top:var(--space-2);display:grid;gap:var(--space-1);}
 /* Links inside table cells must not rely on colour alone (WCAG 1.4.1): underline them. */
 .data-table td a:not(.button) {text-decoration:underline;text-underline-offset:3px;}
+.required{color:var(--color-danger);font-weight:700}
+.admin-nav{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:24px;padding:12px;background:var(--color-surface);border:1px solid var(--color-line);border-radius:12px}
+.settings-groups{display:grid;gap:8px;margin:12px 0}
+.settings-groups button{text-align:left;white-space:normal;display:block}
+.settings-groups button[aria-current=page]{outline:2px solid var(--color-focus)}
+.brand{overflow-wrap:anywhere}
+fieldset{min-width:0;border:1px solid var(--color-line);border-radius:8px;padding:12px}
+fieldset label{display:block;overflow-wrap:anywhere}
+.stack>label{display:grid;gap:8px}
+@media(max-width:767px){.admin-nav{gap:8px}.admin-nav a{padding:8px}.setting-layout{display:block}.setting-layout>section{margin-bottom:16px}}
+.settings-groups button .help{display:block;margin-top:4px}
