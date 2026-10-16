@@ -5,7 +5,7 @@ import {chromium,type Page} from 'playwright';
 import type {Principal} from '../../packages/security/policy';
 import {positiveJourney} from './positive-journey-steps';
 
-const root=path.resolve('.local/home-operational-uat'),base=path.join(root,'positive-journey'),inbound=path.join(root,'integration');
+const root=path.resolve('.local/home-operational-uat'),base=path.join(root,'positive-journey'),integration=path.join(root,'integration'),inbound=path.join(integration,'inbound');
 const origin='https://127.0.0.1:19444',databaseName='nipt_operational_home_uat';
 if(process.env.NIPT_MODE!=='operational'||process.env.APP_ORIGIN!==origin||process.env.NIPT_OPERATIONAL_DATABASE!==databaseName)throw Error('HOME_UAT_RUNTIME_REQUIRED');
 await mkdir(base,{recursive:true});
@@ -76,7 +76,7 @@ try {
  await Promise.all([login(pages[0],'uat.lab'),login(pages[1],'uat.certifier'),login(pages[2],'uat.clinical-approver')]);
  const cookies=await contexts[0].cookies();
  if(cookies.find(cookie=>cookie.name==='nipt_session')?.secure!==true)throw Error('HOME_UAT_SECURE_SESSION_COOKIE_REQUIRED');
- const localPolicy=path.join(inbound,'share-policy.json');
+ const localPolicy=path.join(integration,'share-policy.json');
  await positiveJourney({
   anc:false,db,base,inbound,policy:localPolicy,unit:unit.id,lab:pages[0],certifier:pages[1],reviewer:pages[2],users,api,waitFor,events,
   workerInboundRoot:'/simulator/inbound',workerOutboundRoot:'/outbound',workerServiceAccountName:'node'
