@@ -1,4 +1,4 @@
-name: nipt-home-operational-uat-20261017
+name: nipt-integrated-uat-20261017
 x-build: &app-build
   context: .
   dockerfile: Dockerfile
@@ -8,8 +8,8 @@ x-build: &app-build
 x-common: &common
   environment: &common-env
     NIPT_MODE: operational
-    NIPT_OPERATIONAL_DATABASE: nipt_operational_home_uat
-    APP_ORIGIN: https://127.0.0.1:19444
+    NIPT_OPERATIONAL_DATABASE: nipt_operational_integrated_uat
+    APP_ORIGIN: https://127.0.0.1:19446
     FILE_STORE_ROOT: /files
     SIMULATOR_ROOT: /simulator
     RENDERER_URL: http://renderer:3001
@@ -22,23 +22,23 @@ x-common: &common
 services:
   db:
     image: postgres:17-bookworm@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
-    ports: ["127.0.0.1:19445:5432"]
+    ports: ["127.0.0.1:19447:5432"]
     environment:
       POSTGRES_USER: nipt_migrator
-      POSTGRES_DB: nipt_operational_home_uat
+      POSTGRES_DB: nipt_operational_integrated_uat
       POSTGRES_PASSWORD_FILE: /run/secrets/db_password
     secrets: [db_password]
     volumes: [database:/var/lib/postgresql/data]
     networks: [data,db-ingress]
     healthcheck:
-      test: [CMD-SHELL, pg_isready -U nipt_migrator -d nipt_operational_home_uat]
+      test: [CMD-SHELL, pg_isready -U nipt_migrator -d nipt_operational_integrated_uat]
       interval: 5s
       timeout: 3s
       retries: 30
     restart: unless-stopped
   migrate:
     <<: *common
-    image: nipt-home-operational-uat-operations:20261017
+    image: nipt-integrated-uat-operations:20261017
     build:
       <<: *app-build
       target: operations
@@ -57,7 +57,7 @@ services:
     restart: "no"
   fixture-seed:
     <<: *common
-    image: nipt-home-operational-uat-operations:20261017
+    image: nipt-integrated-uat-operations:20261017
     environment:
       <<: *common-env
       NIPT_HOME_UAT_FIXTURE_ROOT: /app/.local/home-operational-uat/fixtures
@@ -76,7 +76,7 @@ services:
     restart: "no"
   renderer:
     <<: *common
-    image: nipt-home-operational-uat-renderer:20261017
+    image: nipt-integrated-uat-renderer:20261017
     build:
       <<: *app-build
       target: renderer
@@ -98,7 +98,7 @@ services:
       retries: 12
   worker:
     <<: *common
-    image: nipt-home-operational-uat-operations:20261017
+    image: nipt-integrated-uat-operations:20261017
     environment:
       <<: *common-env
       DATABASE_URL_FILE: /run/secrets/worker_url
@@ -127,7 +127,7 @@ services:
     pids_limit: 256
   web:
     <<: *common
-    image: nipt-home-operational-uat-web:20261017
+    image: nipt-integrated-uat-web:20261017
     build:
       <<: *app-build
       target: web
@@ -167,7 +167,7 @@ services:
     pids_limit: 384
   proxy:
     image: caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
-    ports: ["127.0.0.1:19444:443"]
+    ports: ["127.0.0.1:19446:443"]
     volumes:
       - type: bind
         source: tools/operational/home-uat.Caddyfile

@@ -1,7 +1,7 @@
-# NIPT-CBH Home Operational UAT Checklist
+# NIPT-CBH Integrated Operational UAT Checklist
 
 **Environment label:** TRAINING / LOCAL UAT — NOT FOR CLINICAL USE
-**URL:** `https://127.0.0.1:19444/login`
+**URL:** `https://127.0.0.1:19446/login`
 **Data:** fake local test identities only; no hospital HIS/HALOS, shared folder, instrument, or external destination is connected.
 
 ## Start and access

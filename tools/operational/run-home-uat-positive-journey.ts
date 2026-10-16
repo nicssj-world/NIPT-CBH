@@ -6,7 +6,7 @@ import type {Principal} from '../../packages/security/policy';
 import {positiveJourney} from './positive-journey-steps';
 
 const root=path.resolve('.local/home-operational-uat'),base=path.join(root,'positive-journey'),integration=path.join(root,'integration'),inbound=path.join(integration,'inbound');
-const origin='https://127.0.0.1:19444',databaseName='nipt_operational_home_uat';
+const origin='https://127.0.0.1:19446',databaseName='nipt_operational_integrated_uat';
 if(process.env.NIPT_MODE!=='operational'||process.env.APP_ORIGIN!==origin||process.env.NIPT_OPERATIONAL_DATABASE!==databaseName)throw Error('HOME_UAT_RUNTIME_REQUIRED');
 await mkdir(base,{recursive:true});
 const accountFile=process.env.NIPT_UAT_ACCOUNTS_FILE;if(!accountFile)throw Error('HOME_UAT_ACCOUNTS_REQUIRED');
@@ -15,7 +15,7 @@ const account=(username:string)=>{const value=accounts.find(row=>row.username===
 const migrationFile=process.env.NIPT_HOME_UAT_MIGRATION_URL_FILE;if(!migrationFile)throw Error('HOME_UAT_MIGRATION_URL_REQUIRED');
 const connection=new URL((await readFile(migrationFile,'utf8')).trim());
 if(connection.hostname!=='db'||decodeURIComponent(connection.pathname.slice(1))!==databaseName)throw Error('HOME_UAT_DATABASE_TARGET_MISMATCH');
-connection.hostname='127.0.0.1';connection.port='19445';
+connection.hostname='127.0.0.1';connection.port='19447';
 const db=new Pool({connectionString:connection.toString()});
 const events:string[]=[],browserErrors:string[]=[];
 let browser:Awaited<ReturnType<typeof chromium.launch>>|undefined;
@@ -69,7 +69,7 @@ try {
   page.on('console',message=>{if(message.type()==='error')browserErrors.push(message.text());});
   await page.context().route('**/*',route=>{
    const url=new URL(route.request().url());
-   if(url.hostname==='127.0.0.1'&&url.port==='19444')return route.continue();
+   if(url.hostname==='127.0.0.1'&&url.port==='19446')return route.continue();
    return route.abort();
   });
  }

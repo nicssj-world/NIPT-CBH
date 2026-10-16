@@ -26,6 +26,7 @@ COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static
 COPY --from=build --chown=node:node /app/tools/runtime-env.mjs ./tools/runtime-env.mjs
 COPY --from=build --chown=node:node /app/build-provenance.json ./build-provenance.json
+COPY --from=build --chown=node:node /app/db/migrations ./db/migrations
 USER node
 CMD ["node", "--import", "./tools/runtime-env.mjs", "server.js"]
 

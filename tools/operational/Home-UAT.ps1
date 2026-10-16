@@ -12,8 +12,8 @@ $RepoRoot=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 Set-Location -LiteralPath $RepoRoot
 $LocalRoot=Join-Path $RepoRoot '.local\home-operational-uat'
 $ComposeFile=Join-Path $PSScriptRoot 'home-uat.compose.yaml'
-$Project='nipt-home-operational-uat-20261017'
-$Origin='https://127.0.0.1:19444'
+$Project='nipt-integrated-uat-20261017'
+$Origin='https://127.0.0.1:19446'
 $ExpectedMaster='0f94efbc240b9a38ff9be77bf0c8d92c09d82fa2fe2427b9d274cc739e5607a6'
 $MasterCopy=Join-Path $LocalRoot 'master\approved-combined.xlsx'
 $Secrets=Join-Path $LocalRoot 'secrets'
@@ -25,7 +25,7 @@ $AuthReadiness=Join-Path $LocalRoot 'auth-readiness.json'
 
 function Save-Checkpoint([string]$Step,[string]$Result='IN_PROGRESS') {
   if(-not (Test-Path -LiteralPath $LocalRoot)){return}
-  $record=[ordered]@{project=$Project;branch='local/home-operational-uat-20261017';step=$Step;result=$Result;updatedAt=[DateTime]::UtcNow.ToString('o')}
+  $record=[ordered]@{project=$Project;branch='local/integrated-admin-operational-uat-20261017';step=$Step;result=$Result;updatedAt=[DateTime]::UtcNow.ToString('o')}
   $temporary=$Checkpoint+'.tmp'
   [IO.File]::WriteAllText($temporary,($record|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
   Move-Item -LiteralPath $temporary -Destination $Checkpoint -Force
@@ -59,7 +59,7 @@ function Initialize-LocalFiles {
 function Set-ComposeContract([switch]$RequireClean) {
   if($RequireClean) {
     $branch=(& git -C $RepoRoot branch --show-current).Trim()
-    if($branch -ne 'local/home-operational-uat-20261017'){throw 'HOME_UAT_BRANCH_MISMATCH'}
+    if($branch -ne 'local/integrated-admin-operational-uat-20261017'){throw 'HOME_UAT_BRANCH_MISMATCH'}
     $dirty=@(& git -C $RepoRoot status --porcelain)
     if($dirty.Count -gt 0){throw 'HOME_UAT_SOURCE_MUST_BE_COMMITTED_BEFORE_BUILD'}
   }
@@ -92,7 +92,7 @@ function Get-ContainerState([string]$Id) {
 }
 function Get-DatabaseScalar([string]$Sql) {
   $id=Get-ServiceId 'db';if(-not $id){throw 'HOME_UAT_DATABASE_NOT_RUNNING'}
-  $value=(& docker exec $id psql -U nipt_migrator -d nipt_operational_home_uat -Atqc $Sql)
+  $value=(& docker exec $id psql -U nipt_migrator -d nipt_operational_integrated_uat -Atqc $Sql)
   if($LASTEXITCODE -ne 0){throw 'HOME_UAT_DATABASE_QUERY_FAILED'}
   return (($value|Out-String).Trim())
 }
@@ -242,8 +242,8 @@ function Get-HomeHealth {
     $dbBindings=$dbObject.PSObject.Properties['5432/tcp'].Value
     $proxyPublished=(& docker port $ids.proxy '443/tcp'|Out-String).Trim()
     $dbPublished=(& docker port $ids.db '5432/tcp'|Out-String).Trim()
-    $proxyLocal=(@($proxyBindings|Where-Object{$_.HostIp -eq '127.0.0.1' -and $_.HostPort -eq '19444'}).Count -eq 1 -and $proxyPublished -eq '127.0.0.1:19444')
-    $dbLocal=(@($dbBindings|Where-Object{$_.HostIp -eq '127.0.0.1' -and $_.HostPort -eq '19445'}).Count -eq 1 -and $dbPublished -eq '127.0.0.1:19445')
+    $proxyLocal=(@($proxyBindings|Where-Object{$_.HostIp -eq '127.0.0.1' -and $_.HostPort -eq '19446'}).Count -eq 1 -and $proxyPublished -eq '127.0.0.1:19446')
+    $dbLocal=(@($dbBindings|Where-Object{$_.HostIp -eq '127.0.0.1' -and $_.HostPort -eq '19447'}).Count -eq 1 -and $dbPublished -eq '127.0.0.1:19447')
     $otherClear=$true
     foreach($serviceName in @('renderer','worker','web')) {
       $serviceId=Get-ServiceId $serviceName
@@ -268,7 +268,7 @@ function Get-HomeHealth {
     $bridgeState=if($bridgeAlive){$status.state.ToUpper()}else{'UNAVAILABLE'}
   }catch{}
   try {$logins=Get-LoginReadiness}catch{$logins=@(@{authentication='FAILED';reason='ROLE_LOGIN_CHECK_FAILED'})}
-  $modeCorrect=($databaseMode -eq 'nipt_operational_home_uat|operational|true' -and $webRuntime -eq 'operational|nipt_operational_home_uat' -and $workerRuntime -eq 'operational|nipt_operational_home_uat')
+  $modeCorrect=($databaseMode -eq 'nipt_operational_integrated_uat|operational|true' -and $webRuntime -eq 'operational|nipt_operational_integrated_uat' -and $workerRuntime -eq 'operational|nipt_operational_integrated_uat')
   $servicesHealthy=($services.db -like 'running|healthy|*' -and $services.renderer -like 'running|healthy|*' -and $services.worker -like 'running|*' -and $services.web -like 'running|*' -and $services.proxy -like 'running|*')
   $setupServicesHealthy=($services.migrate -eq 'exited|none|0' -and $services['fixture-seed'] -eq 'exited|none|0')
   $loginPass=($logins.Count -eq 6 -and @($logins|Where-Object authentication -ne 'PASS').Count -eq 0)
@@ -313,10 +313,10 @@ function Wait-HomeReadiness([int]$Seconds=300) {
 }
 function Assert-PortsAvailable {
   $ownProxy=Get-ServiceId 'proxy';$ownDb=Get-ServiceId 'db'
-  foreach($port in @(19444,19445)) {
+  foreach($port in @(19446,19447)) {
     $listeners=@(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue)
     if($listeners.Count -gt 0) {
-      $expected=if($port -eq 19444){$ownProxy}else{$ownDb}
+      $expected=if($port -eq 19446){$ownProxy}else{$ownDb}
       if(-not $expected){throw ('HOME_UAT_LOOPBACK_PORT_BUSY_'+$port)}
     }
   }
@@ -327,7 +327,7 @@ function Invoke-SeedPositiveJourney {
   if($caseCount -ne 0){throw 'HOME_UAT_PATIENT_DATA_ALREADY_EXISTS_SEED_NOT_RERUN'}
   $env:NIPT_MODE='operational'
   $env:APP_ORIGIN=$Origin
-  $env:NIPT_OPERATIONAL_DATABASE='nipt_operational_home_uat'
+  $env:NIPT_OPERATIONAL_DATABASE='nipt_operational_integrated_uat'
   $env:NIPT_UAT_ACCOUNTS_FILE=Join-Path $Secrets 'uat-accounts.json'
   $env:NIPT_HOME_UAT_MIGRATION_URL_FILE=Join-Path $Secrets 'migration-url'
   $env:NIPT_HIS_SHARE_POLICY_FILE=Join-Path $LocalRoot 'integration\share-policy.json'
@@ -335,7 +335,7 @@ function Invoke-SeedPositiveJourney {
   $env:SIMULATOR_ROOT=Join-Path $LocalRoot 'integration'
   $env:SOURCE_REVISION=$env:SOURCE_REVISION
   $migrationUrl=(Get-Content -LiteralPath (Join-Path $Secrets 'migration-url') -Raw).Trim()
-  $env:DATABASE_URL=$migrationUrl.Replace('@db:5432/','@127.0.0.1:19445/')
+  $env:DATABASE_URL=$migrationUrl.Replace('@db:5432/','@127.0.0.1:19447/')
   Save-Checkpoint 'positive-journey-started' 'IN_PROGRESS'
   & node --import tsx (Join-Path $PSScriptRoot 'run-home-uat-positive-journey.ts')
   if($LASTEXITCODE -ne 0){Save-Checkpoint 'positive-journey' 'FAILED';throw 'HOME_UAT_POSITIVE_JOURNEY_FAILED'}

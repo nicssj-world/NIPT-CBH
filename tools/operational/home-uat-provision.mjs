@@ -31,22 +31,22 @@ if(present.length===0) {
  ];
  const {publicKey,privateKey}=generateKeyPairSync('rsa',{modulusLength:3072,publicKeyEncoding:{type:'spki',format:'pem'},privateKeyEncoding:{type:'pkcs8',format:'pem'}});
  const values={
-  'db-password':db,'migration-url':'postgresql://nipt_migrator:'+db+'@db:5432/nipt_operational_home_uat',
-  'web-url':'postgresql://nipt_web:'+web+'@db:5432/nipt_operational_home_uat',
-  'worker-url':'postgresql://nipt_worker:'+worker+'@db:5432/nipt_operational_home_uat',
+  'db-password':db,'migration-url':'postgresql://nipt_migrator:'+db+'@db:5432/nipt_operational_integrated_uat',
+  'web-url':'postgresql://nipt_web:'+web+'@db:5432/nipt_operational_integrated_uat',
+  'worker-url':'postgresql://nipt_worker:'+worker+'@db:5432/nipt_operational_integrated_uat',
   'web-password':web,'worker-password':worker,'uat-accounts.json':JSON.stringify(accounts,null,2),
   'renderer-token':random(),'identity-lookup.key':randomBytes(32),
   'integration-public.pem':publicKey,'integration-private.pem':privateKey
  };
  for(const [name,value] of Object.entries(values))await writeFile(path.join(secretRoot,name),value,{flag:'wx'});
- const credentialLines=['NIPT-CBH HOME LOCAL OPERATIONAL UAT','TRAINING / LOCAL UAT — NOT FOR CLINICAL USE','URL: https://127.0.0.1:19444/login',''];
+ const credentialLines=['NIPT-CBH HOME LOCAL OPERATIONAL UAT','TRAINING / LOCAL UAT — NOT FOR CLINICAL USE','URL: https://127.0.0.1:19446/login',''];
  for(const account of accounts)credentialLines.push('Role: '+account.role,'Username: '+account.username,'Password: '+account.password,'');
  await writeFile(path.join(root,'credentials.txt'),credentialLines.join('\r\n'),{flag:'wx'});
 } else {
  try{await access(path.join(root,'credentials.txt'));}catch(error){
   if(error.code!=='ENOENT')throw error;
   const accounts=JSON.parse(await readFile(path.join(secretRoot,'uat-accounts.json'),'utf8'));
-  const credentialLines=['NIPT-CBH HOME LOCAL OPERATIONAL UAT','TRAINING / LOCAL UAT — NOT FOR CLINICAL USE','URL: https://127.0.0.1:19444/login',''];
+  const credentialLines=['NIPT-CBH HOME LOCAL OPERATIONAL UAT','TRAINING / LOCAL UAT — NOT FOR CLINICAL USE','URL: https://127.0.0.1:19446/login',''];
   for(const account of accounts)credentialLines.push('Role: '+account.role,'Username: '+account.username,'Password: '+account.password,'');
   await writeFile(path.join(root,'credentials.txt'),credentialLines.join('\r\n'),{flag:'wx'});
  }
