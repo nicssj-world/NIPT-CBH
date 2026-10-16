@@ -316,7 +316,7 @@ function Invoke-SeedPositiveJourney {
   $env:NIPT_MODE='operational'
   $env:APP_ORIGIN=$Origin
   $env:NIPT_OPERATIONAL_DATABASE='nipt_operational_home_uat'
-  $env:NIPT_HOME_UAT_ACCOUNTS_FILE=Join-Path $Secrets 'uat-accounts.json'
+  $env:NIPT_UAT_ACCOUNTS_FILE=Join-Path $Secrets 'uat-accounts.json'
   $env:NIPT_HOME_UAT_MIGRATION_URL_FILE=Join-Path $Secrets 'migration-url'
   $env:NIPT_HIS_SHARE_POLICY_FILE=Join-Path $LocalRoot 'integration\share-policy.json'
   $env:FILE_STORE_ROOT=Join-Path $LocalRoot 'files'
