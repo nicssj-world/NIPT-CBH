@@ -36,7 +36,7 @@ async function login(page:Page,username:string) {
  await page.getByLabel('ชื่อผู้ใช้',{exact:true}).fill(username);
  await page.getByLabel('รหัสผ่าน',{exact:true}).fill(account(username).password);
  await page.getByRole('button',{name:'เข้าสู่ระบบ',exact:true}).click();
- if(new URL(page.url()).pathname==='/login')throw Error('HOME_UAT_LOGIN_FAILED');
+ await page.waitForURL(url=>url.pathname!=='/login',{timeout:15000});
  if(!await page.getByText('TRAINING / LOCAL UAT — NOT FOR CLINICAL USE',{exact:true}).count())throw Error('HOME_UAT_BANNER_MISSING');
 }
 async function api(page:Page,url:string,body?:unknown) {
