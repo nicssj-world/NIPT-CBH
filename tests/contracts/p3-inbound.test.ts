@@ -256,7 +256,8 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
   await writePet(f.root,DAY,{ln:LN,hn:HN,name:'SYNTHETIC^^นาง ห้ามแสดง',dob:'19911111',receivedAt:'20261012090000',identity:'SYNTHETIC-ID-SECRET'});await cycle(f,{now:NOW});
   const lab=await addUser(f.db,'LAB_STAFF','synthetic.p3.q1'),admin=await addUser(f.db,'APP_ADMIN','synthetic.p3.q2');
   const forLab=await inboundQueue(f.db,lab),forAdmin=await inboundQueue(f.db,admin);
-  for(const q of [forLab,forAdmin]){const text=JSON.stringify(q);for(const secret of [HN,'ห้ามแสดง','1991','SECRET'])expect(text).not.toContain(secret);}
+  const noPrivateFields=(value:unknown):void=>{if(value&&typeof value==='object')for(const [key,child] of Object.entries(value)){expect(['hn','dob','dateOfBirth','patientName','name','identity','parsed','raw','payload']).not.toContain(key);noPrivateFields(child);}};
+  for(const q of [forLab,forAdmin]){const text=JSON.stringify(q);for(const secret of [HN,'ห้ามแสดง','19911111','1991-11-11','SECRET'])expect(text).not.toContain(secret);noPrivateFields(q);}
   expect(forLab.issues[0]).toMatchObject({ln:LN,kind:'IDENTITY_MISMATCH',fields:['hn']});expect(forAdmin.issues[0].ln).toBe('••••0001');expect(forAdmin.issues[0].caseId).toBeNull();
   const report=await testInboundConnection(f.root,{now:NOW});
   expect(report).toMatchObject({passed:true,dayFolders:1,petFiles:1,pairedPetFiles:1,sampleParse:'PASSED'});expect(JSON.stringify(report)).not.toContain(LN);

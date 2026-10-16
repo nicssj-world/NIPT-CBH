@@ -7,9 +7,9 @@ import {positiveJourney} from './positive-journey-steps';
 
 const patientStart=Number(process.env.NIPT_UAT_JOURNEY_START??'7701'),additional=process.env.NIPT_UAT_JOURNEY_ADDITIONAL==='yes';
 if(additional ? ![8701,8801].includes(patientStart) : patientStart!==7701)throw Error('HOME_UAT_EXPLICIT_DATASET_REQUIRED');
-if(additional&&(path.basename(process.cwd())!=='NIPT-CBH-INTEGRATED-UAT'||process.env.NIPT_UAT_JOURNEY_PROJECT!=='nipt-integrated-uat-20261017'))throw Error('INTEGRATED_ADDITIONAL_JOURNEY_TARGET_REQUIRED');
-const root=path.resolve('.local/home-operational-uat'),originalBase=path.join(root,'positive-journey'),base=additional?path.join(root,'positive-journey-'+patientStart):originalBase,integration=path.join(root,'integration'),inbound=path.join(integration,'inbound');
-const origin='https://127.0.0.1:19446',databaseName='nipt_operational_integrated_uat';
+if(additional&&(path.basename(process.cwd())!=='NIPT-CBH-INTEGRATED-UAT'||process.env.NIPT_UAT_JOURNEY_PROJECT!=='nipt-integrated-owner-uat-20261017'))throw Error('INTEGRATED_ADDITIONAL_JOURNEY_TARGET_REQUIRED');
+const root=path.resolve('.local/integrated-owner-uat'),originalBase=path.join(root,'positive-journey'),base=additional?path.join(root,'positive-journey-'+patientStart):originalBase,integration=path.join(root,'integration'),inbound=path.join(integration,'inbound');
+const origin='https://127.0.0.1:19448',databaseName='nipt_operational_integrated_owner_uat';
 if(process.env.NIPT_MODE!=='operational'||process.env.APP_ORIGIN!==origin||process.env.NIPT_OPERATIONAL_DATABASE!==databaseName)throw Error('HOME_UAT_RUNTIME_REQUIRED');
 // Never overwrite a previous additional attempt's evidence, even if it failed before registration.
 await mkdir(base,{recursive:!additional});
@@ -19,7 +19,7 @@ const account=(username:string)=>{const value=accounts.find(row=>row.username===
 const migrationFile=process.env.NIPT_HOME_UAT_MIGRATION_URL_FILE;if(!migrationFile)throw Error('HOME_UAT_MIGRATION_URL_REQUIRED');
 const connection=new URL((await readFile(migrationFile,'utf8')).trim());
 if(connection.hostname!=='db'||decodeURIComponent(connection.pathname.slice(1))!==databaseName)throw Error('HOME_UAT_DATABASE_TARGET_MISMATCH');
-connection.hostname='127.0.0.1';connection.port='19447';
+connection.hostname='127.0.0.1';connection.port='19449';
 const db=new Pool({connectionString:connection.toString()});
 const events:string[]=[],browserErrors:string[]=[];
 let browser:Awaited<ReturnType<typeof chromium.launch>>|undefined;
@@ -84,7 +84,7 @@ try {
   page.on('console',message=>{if(message.type()==='error')browserErrors.push(message.text());});
   await page.context().route('**/*',route=>{
    const url=new URL(route.request().url());
-   if(url.hostname==='127.0.0.1'&&url.port==='19446')return route.continue();
+   if(url.hostname==='127.0.0.1'&&url.port==='19448')return route.continue();
    return route.abort();
   });
  }

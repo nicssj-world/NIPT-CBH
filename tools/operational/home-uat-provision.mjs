@@ -1,9 +1,9 @@
 import {access,mkdir,readFile,writeFile} from 'node:fs/promises';
 import {createHash,generateKeyPairSync,randomBytes} from 'node:crypto';
 import path from 'node:path';
-const root=path.resolve(process.argv[2]??'.local/home-operational-uat');
+const root=path.resolve(process.argv[2]??'.local/integrated-owner-uat');
 const source=path.resolve(process.argv[3]??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx');
-const expectedRoot=path.resolve('.local/home-operational-uat');
+const expectedRoot=path.resolve('.local/integrated-owner-uat');
 if(path.relative(expectedRoot,root).startsWith('..')||path.isAbsolute(path.relative(expectedRoot,root)))throw Error('LOCAL_UAT_ROOT_REQUIRED');
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 const expectedMaster='0f94efbc240b9a38ff9be77bf0c8d92c09d82fa2fe2427b9d274cc739e5607a6';
@@ -31,22 +31,22 @@ if(present.length===0) {
  ];
  const {publicKey,privateKey}=generateKeyPairSync('rsa',{modulusLength:3072,publicKeyEncoding:{type:'spki',format:'pem'},privateKeyEncoding:{type:'pkcs8',format:'pem'}});
  const values={
-  'db-password':db,'migration-url':'postgresql://nipt_migrator:'+db+'@db:5432/nipt_operational_integrated_uat',
-  'web-url':'postgresql://nipt_web:'+web+'@db:5432/nipt_operational_integrated_uat',
-  'worker-url':'postgresql://nipt_worker:'+worker+'@db:5432/nipt_operational_integrated_uat',
+  'db-password':db,'migration-url':'postgresql://nipt_migrator:'+db+'@db:5432/nipt_operational_integrated_owner_uat',
+  'web-url':'postgresql://nipt_web:'+web+'@db:5432/nipt_operational_integrated_owner_uat',
+  'worker-url':'postgresql://nipt_worker:'+worker+'@db:5432/nipt_operational_integrated_owner_uat',
   'web-password':web,'worker-password':worker,'uat-accounts.json':JSON.stringify(accounts,null,2),
   'renderer-token':random(),'identity-lookup.key':randomBytes(32),
   'integration-public.pem':publicKey,'integration-private.pem':privateKey
  };
  for(const [name,value] of Object.entries(values))await writeFile(path.join(secretRoot,name),value,{flag:'wx'});
- const credentialLines=['NIPT-CBH HOME LOCAL OPERATIONAL UAT','TRAINING / LOCAL UAT — NOT FOR CLINICAL USE','URL: https://127.0.0.1:19446/login',''];
+ const credentialLines=['NIPT-CBH HOME LOCAL OPERATIONAL UAT','TRAINING / LOCAL UAT — NOT FOR CLINICAL USE','URL: https://127.0.0.1:19448/login',''];
  for(const account of accounts)credentialLines.push('Role: '+account.role,'Username: '+account.username,'Password: '+account.password,'');
  await writeFile(path.join(root,'credentials.txt'),credentialLines.join('\r\n'),{flag:'wx'});
 } else {
  try{await access(path.join(root,'credentials.txt'));}catch(error){
   if(error.code!=='ENOENT')throw error;
   const accounts=JSON.parse(await readFile(path.join(secretRoot,'uat-accounts.json'),'utf8'));
-  const credentialLines=['NIPT-CBH HOME LOCAL OPERATIONAL UAT','TRAINING / LOCAL UAT — NOT FOR CLINICAL USE','URL: https://127.0.0.1:19446/login',''];
+  const credentialLines=['NIPT-CBH HOME LOCAL OPERATIONAL UAT','TRAINING / LOCAL UAT — NOT FOR CLINICAL USE','URL: https://127.0.0.1:19448/login',''];
   for(const account of accounts)credentialLines.push('Role: '+account.role,'Username: '+account.username,'Password: '+account.password,'');
   await writeFile(path.join(root,'credentials.txt'),credentialLines.join('\r\n'),{flag:'wx'});
  }

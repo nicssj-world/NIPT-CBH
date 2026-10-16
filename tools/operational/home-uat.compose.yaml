@@ -1,4 +1,4 @@
-name: nipt-integrated-uat-20261017
+name: nipt-integrated-owner-uat-20261017
 x-build: &app-build
   context: .
   dockerfile: Dockerfile
@@ -8,8 +8,8 @@ x-build: &app-build
 x-common: &common
   environment: &common-env
     NIPT_MODE: operational
-    NIPT_OPERATIONAL_DATABASE: nipt_operational_integrated_uat
-    APP_ORIGIN: https://127.0.0.1:19446
+    NIPT_OPERATIONAL_DATABASE: nipt_operational_integrated_owner_uat
+    APP_ORIGIN: https://127.0.0.1:19448
     FILE_STORE_ROOT: /files
     SIMULATOR_ROOT: /simulator
     RENDERER_URL: http://renderer:3001
@@ -22,23 +22,23 @@ x-common: &common
 services:
   db:
     image: postgres:17-bookworm@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
-    ports: ["127.0.0.1:19447:5432"]
+    ports: ["127.0.0.1:19449:5432"]
     environment:
       POSTGRES_USER: nipt_migrator
-      POSTGRES_DB: nipt_operational_integrated_uat
+      POSTGRES_DB: nipt_operational_integrated_owner_uat
       POSTGRES_PASSWORD_FILE: /run/secrets/db_password
     secrets: [db_password]
     volumes: [database:/var/lib/postgresql/data]
     networks: [data,db-ingress]
     healthcheck:
-      test: [CMD-SHELL, pg_isready -U nipt_migrator -d nipt_operational_integrated_uat]
+      test: [CMD-SHELL, pg_isready -U nipt_migrator -d nipt_operational_integrated_owner_uat]
       interval: 5s
       timeout: 3s
       retries: 30
     restart: unless-stopped
   migrate:
     <<: *common
-    image: nipt-integrated-uat-operations:20261017
+    image: nipt-integrated-owner-uat-operations:20261017
     build:
       <<: *app-build
       target: operations
@@ -57,18 +57,18 @@ services:
     restart: "no"
   fixture-seed:
     <<: *common
-    image: nipt-integrated-uat-operations:20261017
+    image: nipt-integrated-owner-uat-operations:20261017
     environment:
       <<: *common-env
-      NIPT_HOME_UAT_FIXTURE_ROOT: /app/.local/home-operational-uat/fixtures
-      NIPT_HOME_UAT_SIMULATOR_ROOT: /app/.local/home-operational-uat/integration
+      NIPT_HOME_UAT_FIXTURE_ROOT: /app/.local/integrated-owner-uat/fixtures
+      NIPT_HOME_UAT_SIMULATOR_ROOT: /app/.local/integrated-owner-uat/integration
     volumes:
       - type: bind
-        source: .local/home-operational-uat/fixtures
-        target: /app/.local/home-operational-uat/fixtures
+        source: .local/integrated-owner-uat/fixtures
+        target: /app/.local/integrated-owner-uat/fixtures
       - type: bind
-        source: .local/home-operational-uat/integration
-        target: /app/.local/home-operational-uat/integration
+        source: .local/integrated-owner-uat/integration
+        target: /app/.local/integrated-owner-uat/integration
     command: [node,--import,./tools/runtime-env.mjs,--import,tsx,tools/operational/seed-home-uat-fixtures.ts]
     networks: [data]
     tmpfs: ["/tmp:rw,nosuid,size=64m"]
@@ -76,7 +76,7 @@ services:
     restart: "no"
   renderer:
     <<: *common
-    image: nipt-integrated-uat-renderer:20261017
+    image: nipt-integrated-owner-uat-renderer:20261017
     build:
       <<: *app-build
       target: renderer
@@ -98,7 +98,7 @@ services:
       retries: 12
   worker:
     <<: *common
-    image: nipt-integrated-uat-operations:20261017
+    image: nipt-integrated-owner-uat-operations:20261017
     environment:
       <<: *common-env
       DATABASE_URL_FILE: /run/secrets/worker_url
@@ -107,13 +107,13 @@ services:
     secrets: [worker_url,renderer_token,identity_lookup,integration_private]
     volumes:
       - type: bind
-        source: .local/home-operational-uat/files
+        source: .local/integrated-owner-uat/files
         target: /files
       - type: bind
-        source: .local/home-operational-uat/integration
+        source: .local/integrated-owner-uat/integration
         target: /simulator
       - type: bind
-        source: .local/home-operational-uat/positive-journey/outbound
+        source: .local/integrated-owner-uat/positive-journey/outbound
         target: /outbound
     networks: [data,render]
     depends_on:
@@ -127,7 +127,7 @@ services:
     pids_limit: 256
   web:
     <<: *common
-    image: nipt-integrated-uat-web:20261017
+    image: nipt-integrated-owner-uat-web:20261017
     build:
       <<: *app-build
       target: web
@@ -141,19 +141,19 @@ services:
     secrets: [web_url,renderer_token,integration_public,identity_lookup]
     volumes:
       - type: bind
-        source: .local/home-operational-uat/files
+        source: .local/integrated-owner-uat/files
         target: /files
       - type: bind
-        source: .local/home-operational-uat/integration
+        source: .local/integrated-owner-uat/integration
         target: /simulator
         read_only: true
       - type: bind
-        source: .local/home-operational-uat/master/approved-combined.xlsx
+        source: .local/integrated-owner-uat/master/approved-combined.xlsx
         target: /approved/master.xlsx
         read_only: true
         bind: {create_host_path: false}
       - type: bind
-        source: .local/home-operational-uat/excel-spool
+        source: .local/integrated-owner-uat/excel-spool
         target: /excel-spool
     networks: [data,render,proxy]
     depends_on:
@@ -167,7 +167,7 @@ services:
     pids_limit: 384
   proxy:
     image: caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
-    ports: ["127.0.0.1:19446:443"]
+    ports: ["127.0.0.1:19448:443"]
     volumes:
       - type: bind
         source: tools/operational/home-uat.Caddyfile
@@ -178,29 +178,29 @@ services:
     depends_on: [web]
     restart: unless-stopped
 networks:
-  data: {internal: true, ipam: {config: [{subnet: 10.237.17.0/28}]}}
-  render: {internal: true, ipam: {config: [{subnet: 10.237.17.16/28}]}}
-  proxy: {internal: true, ipam: {config: [{subnet: 10.237.17.32/28}]}}
+  data: {internal: true, ipam: {config: [{subnet: 10.237.18.0/28}]}}
+  render: {internal: true, ipam: {config: [{subnet: 10.237.18.16/28}]}}
+  proxy: {internal: true, ipam: {config: [{subnet: 10.237.18.32/28}]}}
   ingress:
-    ipam: {config: [{subnet: 10.237.17.48/28}]}
+    ipam: {config: [{subnet: 10.237.18.48/28}]}
     driver_opts:
       com.docker.network.bridge.enable_ip_masquerade: "false"
   db-ingress:
-    ipam: {config: [{subnet: 10.237.17.64/28}]}
+    ipam: {config: [{subnet: 10.237.18.64/28}]}
     driver_opts:
       com.docker.network.bridge.enable_ip_masquerade: "false"
 volumes:
   database:
   caddy:
 secrets:
-  db_password: {file: .local/home-operational-uat/secrets/db-password}
-  migration_url: {file: .local/home-operational-uat/secrets/migration-url}
-  web_url: {file: .local/home-operational-uat/secrets/web-url}
-  worker_url: {file: .local/home-operational-uat/secrets/worker-url}
-  web_password: {file: .local/home-operational-uat/secrets/web-password}
-  worker_password: {file: .local/home-operational-uat/secrets/worker-password}
-  uat_accounts: {file: .local/home-operational-uat/secrets/uat-accounts.json}
-  renderer_token: {file: .local/home-operational-uat/secrets/renderer-token}
-  identity_lookup: {file: .local/home-operational-uat/secrets/identity-lookup.key}
-  integration_public: {file: .local/home-operational-uat/secrets/integration-public.pem}
-  integration_private: {file: .local/home-operational-uat/secrets/integration-private.pem}
+  db_password: {file: .local/integrated-owner-uat/secrets/db-password}
+  migration_url: {file: .local/integrated-owner-uat/secrets/migration-url}
+  web_url: {file: .local/integrated-owner-uat/secrets/web-url}
+  worker_url: {file: .local/integrated-owner-uat/secrets/worker-url}
+  web_password: {file: .local/integrated-owner-uat/secrets/web-password}
+  worker_password: {file: .local/integrated-owner-uat/secrets/worker-password}
+  uat_accounts: {file: .local/integrated-owner-uat/secrets/uat-accounts.json}
+  renderer_token: {file: .local/integrated-owner-uat/secrets/renderer-token}
+  identity_lookup: {file: .local/integrated-owner-uat/secrets/identity-lookup.key}
+  integration_public: {file: .local/integrated-owner-uat/secrets/integration-public.pem}
+  integration_private: {file: .local/integrated-owner-uat/secrets/integration-private.pem}

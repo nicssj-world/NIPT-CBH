@@ -6,7 +6,7 @@ import path from 'node:path';
 import {chromium,expect,type BrowserContext,type Page} from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
-const origin='https://127.0.0.1:19446';
+const origin='https://127.0.0.1:19448';
 const repo=process.cwd();
 if(path.basename(repo)!=='NIPT-CBH-INTEGRATED-UAT')throw Error('INTEGRATED_WORKTREE_REQUIRED');
 const base=path.resolve('.local/integrated-admin');
@@ -55,7 +55,7 @@ async function identity(name:string,reason:string){
 }
 try{
  phase='ACCOUNT_FILE';
- const accounts=JSON.parse(await fs.readFile(path.resolve('.local/home-operational-uat/secrets/uat-accounts.json'),'utf8')) as {username:string;password:string;role:string}[];
+ const accounts=JSON.parse(await fs.readFile(path.resolve('.local/integrated-owner-uat/secrets/uat-accounts.json'),'utf8')) as {username:string;password:string;role:string}[];
  const required=[['uat.admin','APP_ADMIN'],['uat.lab','LAB_STAFF'],['uat.certifier','LAB_CERTIFIER'],['uat.clinical-approver','CLINICAL_APPROVER'],['uat.auditor','AUDITOR'],['uat.anc','ANC_NURSE']];
  if(accounts.length!==6||required.some(([name,role])=>!accounts.some(a=>a.username===name&&a.role===role&&typeof a.password==='string'&&a.password.length>=10)))throw Error('EXPECTED_SIX_ISOLATED_UAT_ACCOUNTS');
  browser=await chromium.launch({headless:true});
@@ -121,7 +121,7 @@ try{
 }finally{
  if(identityMayHaveChanged&&!restored&&admin&&originalName!==undefined){try{await identity(originalName,'Restore system identity after interrupted Combined Preview UAT '+runId);restored=true;}catch{event('GENERAL_RESTORE_FAILED');failure='GENERAL_IDENTITY_RESTORE_REQUIRED';passed=false;process.exitCode=1;}}
  await browser?.close();
- const evidence={passed,runId,sourceHead,origin,database:'nipt_operational_integrated_uat',publishedDatabasePort:19447,databaseTarget:'DECLARED_PREVIEW_TARGET_NOT_DIRECTLY_QUERIED',environment:'PERSISTENT_LOOPBACK_COMBINED_PREVIEW_BROWSER_ONLY',events,eventCount:events.length,screenshots,screenshotCount:screenshots.length,pageErrors,blockedOrigins:[...blockedOrigins],generalIdentityRestored:restored,created:{username,unitCode},failure,externalAcceptance:false};
+ const evidence={passed,runId,sourceHead,origin,database:'nipt_operational_integrated_owner_uat',publishedDatabasePort:19449,databaseTarget:'DECLARED_PREVIEW_TARGET_NOT_DIRECTLY_QUERIED',environment:'PERSISTENT_LOOPBACK_COMBINED_PREVIEW_BROWSER_ONLY',events,eventCount:events.length,screenshots,screenshotCount:screenshots.length,pageErrors,blockedOrigins:[...blockedOrigins],generalIdentityRestored:restored,created:{username,unitCode},failure,externalAcceptance:false};
  await fs.writeFile(path.join(base,runId,'evidence.json'),JSON.stringify(evidence,null,2));await fs.writeFile(path.join(base,'evidence.json'),JSON.stringify(evidence,null,2));
  process.stdout.write(JSON.stringify({passed,runId,artifact:path.join(base,'evidence.json'),eventCount:events.length,screenshotCount:screenshots.length,failure})+'\n');
 }

@@ -44,6 +44,8 @@ export async function runHisSettingsTest(db:Queryable,payload:unknown){
   }
  }catch(e){report={passed:false,errorCode:shareError(e)};}
  if(p.active)try{await assertHisVersion(db,row.setting_key,row.id);}catch{report={passed:false,errorCode:'HIS_CONFIGURATION_CHANGED'};}
- await appendAudit(db,{action:'HIS_SETTINGS_TEST_COMPLETED',resourceType:'SETTING',resourceId:row.id,details:{version:row.version,outcome:report.passed?'PASSED':'FAILED',synthetic:!operationalDataEnabled()}});
+ // Worker supplies an autocommit PoolClient. Own only this short audit
+ // transaction, after connection probes/publication transactions have finished.
+ await transaction(db,()=>appendAudit(db,{action:'HIS_SETTINGS_TEST_COMPLETED',resourceType:'SETTING',resourceId:row.id,details:{version:row.version,outcome:report.passed?'PASSED':'FAILED',synthetic:!operationalDataEnabled()}}));
  return {...report,revisionId:row.id,version:row.version,syntheticOnly:!operationalDataEnabled()};
 }

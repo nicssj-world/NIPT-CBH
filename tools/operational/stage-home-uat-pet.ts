@@ -6,7 +6,7 @@ function within(root:string,target:string) {
  const relative=path.relative(root,target);
  return relative!==''&&relative!=='..'&&!relative.startsWith('..'+path.sep)&&!path.isAbsolute(relative);
 }
-const root=path.resolve('.local/home-operational-uat');
+const root=path.resolve('.local/integrated-owner-uat');
 const fixtures=path.resolve(process.env.NIPT_HOME_UAT_FIXTURE_ROOT??path.join(root,'fixtures'));
 const simulator=path.resolve(process.env.NIPT_HOME_UAT_SIMULATOR_ROOT??path.join(root,'integration'));
 if(!within(root,fixtures)||!within(root,simulator))throw Error('LOCAL_UAT_STAGE_PATH_REQUIRED');

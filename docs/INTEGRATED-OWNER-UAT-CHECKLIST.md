@@ -1,8 +1,8 @@
 # Combined Admin + Operational Owner Manual UAT
 
-Environment: **TRAINING / LOCAL UAT — NOT FOR CLINICAL USE**. Open `https://127.0.0.1:19446/login` on this Windows machine. Certificate is local loopback; verify that exact address. Do not install a machine-wide trust certificate. Use fake records only.
+Environment: **TRAINING / LOCAL UAT — NOT FOR CLINICAL USE**. Open `https://127.0.0.1:19448/login` on this Windows machine. Certificate is local loopback; verify that exact address. Do not install a machine-wide trust certificate. Use fake records only.
 
-Worktree: `D:\Claude workspace\NIPT-CBH-INTEGRATED-UAT`. Branch: `local/integrated-admin-operational-uat-20261017`. Docker project: `nipt-integrated-uat-20261017`. Database: `nipt_operational_integrated_uat`. Credentials: this worktree's ACL-restricted `.local/home-operational-uat/credentials.txt` (fresh independent passwords). Do not use the source preview's credentials or launcher.
+Worktree: `D:\Claude workspace\NIPT-CBH-INTEGRATED-UAT`. Branch: `local/integrated-admin-operational-uat-20261017`. Docker project: `nipt-integrated-owner-uat-20261017`. Database: `nipt_operational_integrated_owner_uat`. Credentials: this worktree's ACL-restricted `.local/integrated-owner-uat/credentials.txt` (fresh independent passwords). Do not use the source preview's credentials or launcher.
 
 Automated evidence is separate from this checklist. Owner records date, role, case/record ID, expected/observed result and evidence for each item below. Leave unchecked until personally tested; a skipped or HOLD step is not acceptance.
 
