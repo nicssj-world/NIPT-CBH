@@ -201,12 +201,13 @@ function Get-HomeHealth {
   }
   try {
     $networkList=@()
-    foreach($networkName in @($Project+'_data',$Project+'_render',$Project+'_proxy',$Project+'_ingress')) {
+    foreach($networkName in @($Project+'_data',$Project+'_render',$Project+'_proxy')) {
       $internal=(& docker network inspect --format '{{.Internal}}' $networkName).Trim()
       $networkList+=@{name=$networkName;internal=($internal -eq 'true')}
     }
+    $ingressInternal=(& docker network inspect --format '{{.Internal}}' ($Project+'_ingress')).Trim()
     $masquerade=(& docker network inspect --format '{{index .Options "com.docker.network.bridge.enable_ip_masquerade"}}' ($Project+'_ingress')).Trim()
-    $networks=@{internalNetworks=$networkList;ingressMasqueradeDisabled=($masquerade -eq 'false')}
+    $networks=@{internalNetworks=$networkList;ingressInternal=($ingressInternal -eq 'true');ingressMasqueradeDisabled=($masquerade -eq 'false')}
   }catch{$networks='NOT_VERIFIED'}
   try {
     $proxyBindingRaw=& docker inspect --format '{{json .HostConfig.PortBindings}}' $ids.proxy
@@ -246,7 +247,7 @@ function Get-HomeHealth {
   $portsCorrect=$false
   if($publication -is [System.Collections.IDictionary]){$portsCorrect=($publication.httpsLoopbackOnly -and $publication.databaseLoopbackOnly -and $publication.otherServicePorts -eq 'NONE')}
   $networkCorrect=$false
-  if($networks -is [System.Collections.IDictionary]){$networkCorrect=($networks.ingressMasqueradeDisabled -and $networks.internalNetworks.Count -eq 4 -and @($networks.internalNetworks|Where-Object{-not $_.internal}).Count -eq 0)}
+  if($networks -is [System.Collections.IDictionary]){$networkCorrect=($networks.ingressInternal -eq $false -and $networks.ingressMasqueradeDisabled -and $networks.internalNetworks.Count -eq 3 -and @($networks.internalNetworks|Where-Object{-not $_.internal}).Count -eq 0)}
   $masterCorrect=$false
   if($masterMount -is [System.Collections.IDictionary]){$masterCorrect=($masterMount.present -and $masterMount.readOnly -and $masterMount.sha256 -eq $ExpectedMaster)}
   $ready=($servicesHealthy -and $setupServicesHealthy -and $modeCorrect -and $workerFresh -eq 'FRESH' -and $renderer -eq '200' -and $webHealth -eq 'ok|operational' -and $loginPass -and $bridgeAlive -and $masterCorrect -and $portsCorrect -and $networkCorrect)
