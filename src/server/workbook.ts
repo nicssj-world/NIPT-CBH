@@ -11,6 +11,7 @@ export function workbookError(error:unknown) {
   if(['TASK_MASTER_FILE_NOT_FOUND','TASK_MASTER_FILE_UNREADABLE','TASK_MASTER_LOCAL_PATH_REQUIRED'].includes(message))return NextResponse.json({code:message,error:'ไม่สามารถอ่าน Excel Master ที่กำหนดได้ กรุณาตรวจไฟล์ภายในเครื่องและสิทธิ์บริการ'},{status:409,headers:noStore});
   if(message==='TASK_MASTER_SHA256_MISMATCH')return NextResponse.json({code:message,error:'ไฟล์ Master ไม่ตรง SHA-256 ที่ Owner ล็อกไว้ กรุณาเลือกต้นฉบับที่ถูกต้อง'},{status:409,headers:noStore});
   if(message==='TASK_NATIVE_EXCEL_WINDOWS_REQUIRED')return NextResponse.json({code:message,error:'การออก PDF ต้องใช้เครื่อง Windows ที่มี Microsoft Excel และ Font ของ Master ครบ'},{status:409,headers:noStore});
+  if(['TASK_NATIVE_EXCEL_TIMEOUT','TASK_NATIVE_EXCEL_FAILED','TASK_NATIVE_EXCEL_SPOOL_INVALID'].includes(message))return NextResponse.json({code:'TASK_NATIVE_EXCEL_UNAVAILABLE',error:'เครื่อง Excel สำหรับ Local UAT ยังไม่พร้อม กรุณาตรวจสถานะ Local Excel Bridge แล้วลองใหม่'},{status:503,headers:noStore});
   return p4Error(error);
 }
 export async function workbookDeps() {

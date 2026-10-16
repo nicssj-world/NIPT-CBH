@@ -6,5 +6,6 @@ import "./globals.css";
 export const metadata:Metadata={title:{default:"NIPT CBH",template:"%s · NIPT CBH"},description:"ระบบ NIPT CBH — Foundation ข้อมูลจำลอง"};
 export const dynamic="force-dynamic";
 export default function RootLayout({children}:{children:React.ReactNode}){
- return <html lang="th"><body><a className="skip-link" href="#main-content">ข้ามไปเนื้อหาหลัก</a>{children}</body></html>;
+ const localUat=process.env.NIPT_LOCAL_UAT_BANNER==="1";
+ return <html lang="th"><body>{localUat&&<div className="local-uat-banner" role="note">TRAINING / LOCAL UAT — NOT FOR CLINICAL USE</div>}<a className="skip-link" href="#main-content">ข้ามไปเนื้อหาหลัก</a>{children}</body></html>;
 }
