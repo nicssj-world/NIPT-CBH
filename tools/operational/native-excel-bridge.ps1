@@ -15,7 +15,7 @@ foreach($directory in @($inbox,$processing,$outbox)){[IO.Directory]::CreateDirec
 function Write-JsonAtomic([string]$Path,[object]$Value,[bool]$Overwrite=$false) {
   $temp=$Path+'.tmp'
   [IO.File]::WriteAllText($temp,($Value|ConvertTo-Json -Compress -Depth 5),[Text.UTF8Encoding]::new($false))
-  if($Overwrite -and [IO.File]::Exists($Path)){[IO.File]::Replace($temp,$Path,$null)}
+  if($Overwrite -and [IO.File]::Exists($Path)){[IO.File]::Move($temp,$Path,$true)}
   else{[IO.File]::Move($temp,$Path)}
 }
 function Set-BridgeStatus([string]$State) {
