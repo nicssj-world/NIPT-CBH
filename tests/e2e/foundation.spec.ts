@@ -10,7 +10,7 @@ async function login(page:Page,username="synthetic.lab"){
 const AA_TAGS=["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"];
 for(const width of [375,768,1280,1440])test(`responsive Thai foundation at ${width}px`,async({page})=>{
  await page.setViewportSize({width,height:900});await login(page);
- for(const route of ["/","/cases","/health","/settings"]){await page.goto(route);await expect(page.locator("h1")).toBeVisible();if(route==="/settings")await expect(page.getByLabel("หมวดการตั้งค่า")).toContainText("General");
+ for(const route of ["/","/cases","/health","/settings"]){await page.goto(route);await expect(page.locator("h1")).toBeVisible();if(route==="/settings")await expect(page.getByRole("navigation",{name:"หมวดการตั้งค่า"})).toContainText("ทั่วไป");
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   const results=await new AxeBuilder({page}).withTags(AA_TAGS).analyze();expect(results.violations).toEqual([]);
  }

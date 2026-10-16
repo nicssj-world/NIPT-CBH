@@ -1,4 +1,5 @@
 import {operationalRestore,activateRestored,restoreQueueAccess} from './operational-backup.mjs';
+import {publishOperationsStatus} from './operations-status.mjs';
 import {execFileSync} from 'node:child_process';
 import {createDecipheriv} from 'node:crypto';
 import * as fs from 'node:fs/promises';
@@ -8,7 +9,7 @@ import {Client} from 'pg';
 import {FORMAT,canonical,sha,checkedPath,disjoint,unpack,extract,p6Coverage,MAX_ARCHIVE_BYTES,readBoundedFile} from './backup-format.mjs';
 
 if(process.env.NIPT_MODE==='operational'){
- try{process.stdout.write(JSON.stringify(await (process.argv[2]==='activate-restored'?activateRestored(process.argv[3]):operationalRestore(process.argv[2],process.argv[3])))+'\n');}catch(e){process.stderr.write((/^[A-Z0-9_]+$/.test(e.message)?e.message:'OPERATIONAL_RECOVERY_FAILED')+'\n');process.exitCode=1;}
+ try{const activation=process.argv[2]==='activate-restored';const result=await (activation?activateRestored(process.argv[3]):operationalRestore(process.argv[2],process.argv[3]));const monitoring=activation?undefined:await publishOperationsStatus('restore',result);process.stdout.write(JSON.stringify({...result,...(monitoring?{monitoring}:{})})+'\n');}catch(e){process.stderr.write((/^[A-Z0-9_]+$/.test(e.message)?e.message:'OPERATIONAL_RECOVERY_FAILED')+'\n');process.exitCode=1;}
 }else{
 if(process.env.NIPT_MODE!=='synthetic'||process.env.RESTORE_TO_NEW_SYNTHETIC_DATABASE!=='yes')throw Error('EXPLICIT_NEW_SYNTHETIC_RESTORE_REQUIRED');
 if(!process.argv[2]||!process.argv[3])throw Error('BACKUP_BASE_AND_NEW_FILESTORE_REQUIRED');

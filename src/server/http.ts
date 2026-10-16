@@ -12,6 +12,7 @@ export async function currentUser() {
 }
 export async function protect(request:NextRequest,action?:string,resource?:ResourceScope,operation:Operation="read") {
  const user=await currentUser();if(!user)throw new Error("UNAUTHENTICATED");
+ if(user.mustChangePassword&&!["/api/auth/password","/api/auth/logout","/api/me"].includes(request.nextUrl.pathname))throw new Error("FORBIDDEN");
  if(action) requirePermission(user,action,resource,operation);
  if(!["GET","HEAD","OPTIONS"].includes(request.method)) validateCsrf(request.headers.get("origin"),configuredOrigin().origin,request.headers.get("x-csrf-token")??"",user.csrfHash);
  return user;
@@ -20,6 +21,9 @@ export function cookieOptions() {return {httpOnly:true,secure:secureCookie(),sam
 export function apiError(error:unknown) {
  const code=error instanceof Error?error.message:"INTERNAL_ERROR";
  const status=code==="UNAUTHENTICATED"?401:code==="FORBIDDEN"||code==="CSRF_REJECTED"?403:code.startsWith("P1_")?403:400;
+ const messages:Record<string,string>={STALE_VERSION:'ข้อมูลเปลี่ยนไปแล้ว กรุณาโหลดข้อมูลใหม่ก่อนบันทึก',UNIT_CODE_IN_USE:'รหัสหน่วยงานนี้มีข้อมูลอ้างอิงแล้ว จึงเปลี่ยนไม่ได้ ใช้การแก้ชื่อหรือ Inactive แทน',INDEPENDENT_RECOVERY_REQUIRED:'บัญชีสิทธิ์สูงต้องขอกู้คืนโดยผู้ตรวจอีกคน แล้วลงทะเบียนรหัสผ่านเฉพาะเจ้าของบัญชีผ่านผู้ติดตั้ง',ACTIVE_UNIT_REQUIRED:'หน่วยงานที่เลือกต้องยังเปิดใช้งาน กรุณาโหลดรายการใหม่',SETTING_RUNTIME_CONSUMER_UNAVAILABLE:'ค่านี้ยังไม่มี Runtime Consumer จึงเป็นข้อมูลอ่านอย่างเดียว',INSTALLATION_OWNED_SETTING:'ค่านี้อยู่ในการดูแลของผู้ติดตั้ง ไม่เปลี่ยนผ่าน Web',CONTROLLED_METADATA_READ_ONLY:'ชื่อรุ่น Template/สูตรเป็น Metadata ควบคุม ไม่ใช่ช่องเปลี่ยน Template หรือการคำนวณ',CURRENT_PASSWORD_INVALID:'รหัสผ่านปัจจุบันไม่ถูกต้องหรือบัญชีถูกล็อก กรุณาตรวจข้อมูลแล้วลองภายหลัง'};
+ const databaseCode=typeof error==='object'&&error!==null&&'code' in error?error.code:undefined;
+ if(status===400&&(messages[code]||databaseCode==='55P03'))return NextResponse.json({error:messages[code]??'มี Signing Session หรือการทำงานบัญชีนี้อยู่ กรุณารอให้จบแล้วลองใหม่'},{status,headers:{'Cache-Control':'no-store'}});
  return NextResponse.json({error:status===401?"กรุณาเข้าสู่ระบบอีกครั้ง":status===403?"ไม่มีสิทธิ์ทำรายการนี้ หรือการยืนยันหมดอายุ กรุณาตรวจสิทธิ์และลองใหม่":"ทำรายการไม่สำเร็จ กรุณาตรวจข้อมูลแล้วลองอีกครั้ง"},{status,headers:{"Cache-Control":"no-store"}});
 }
 export async function readJson(request:NextRequest,maxBytes=16_384):Promise<Record<string,unknown>> {
