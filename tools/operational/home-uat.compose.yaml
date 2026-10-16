@@ -29,7 +29,7 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/db_password
     secrets: [db_password]
     volumes: [database:/var/lib/postgresql/data]
-    networks: [data,ingress]
+    networks: [data,db-ingress]
     healthcheck:
       test: [CMD-SHELL, pg_isready -U nipt_migrator -d nipt_operational_home_uat]
       interval: 5s
@@ -182,6 +182,9 @@ networks:
   render: {internal: true}
   proxy: {internal: true}
   ingress:
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+  db-ingress:
     driver_opts:
       com.docker.network.bridge.enable_ip_masquerade: "false"
 volumes:
