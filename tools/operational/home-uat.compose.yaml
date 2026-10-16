@@ -178,13 +178,15 @@ services:
     depends_on: [web]
     restart: unless-stopped
 networks:
-  data: {internal: true}
-  render: {internal: true}
-  proxy: {internal: true}
+  data: {internal: true, ipam: {config: [{subnet: 10.237.17.0/28}]}}
+  render: {internal: true, ipam: {config: [{subnet: 10.237.17.16/28}]}}
+  proxy: {internal: true, ipam: {config: [{subnet: 10.237.17.32/28}]}}
   ingress:
+    ipam: {config: [{subnet: 10.237.17.48/28}]}
     driver_opts:
       com.docker.network.bridge.enable_ip_masquerade: "false"
   db-ingress:
+    ipam: {config: [{subnet: 10.237.17.64/28}]}
     driver_opts:
       com.docker.network.bridge.enable_ip_masquerade: "false"
 volumes:

@@ -17,6 +17,8 @@ Project `nipt-integrated-uat-20261017` uses new project-scoped `database` and `c
 
 Git integration was conflict-free; both source histories and their code are retained. Candidate changes isolate the existing Home launcher/compose/provisioner/journey targets. Docker Web explicitly includes migration SQL: the authenticated Admin Health consumer needs runtime files for ledger/checksum comparison. No clinical/QC/release/security/owner guard was altered.
 
+Docker's existing default address pools were exhausted. Only this candidate's two empty, labelled partially created networks were removed; all five new networks use explicit non-overlapping `/28` subnets within `10.237.17.0/24`, checked against current Docker IPAM and Windows routes. No global Docker configuration, existing network, container or volume was pruned or restarted. The previous source-verification candidate was invalidated and its specifically verified own test process tree stopped before a final fresh run.
+
 New migrations are exactly `096_admin_settings.sql`, `097_admin_recovery.sql`, `098_admin_target_enrollment.sql`; no operational-side migration collision and no prior migration/checksum tool change. Fresh installs and populated-095 upgrades, reapply, credential/role/scope/audit/settings/case preservation and empty-install bootstrap are exercised in tests. The persistent training installation uses the existing six-role UAT provisioner, not public registration or a Web bootstrap bypass; production first-install bootstrap/enrollment remains installation-owner-only.
 
 ## Verification evidence
