@@ -29,7 +29,7 @@ services:
       POSTGRES_PASSWORD_FILE: /run/secrets/db_password
     secrets: [db_password]
     volumes: [database:/var/lib/postgresql/data]
-    networks: [data]
+    networks: [data,ingress]
     healthcheck:
       test: [CMD-SHELL, pg_isready -U nipt_migrator -d nipt_operational_home_uat]
       interval: 5s
@@ -58,9 +58,6 @@ services:
   fixture-seed:
     <<: *common
     image: nipt-home-operational-uat-operations:20261017
-    build:
-      <<: *app-build
-      target: operations
     environment:
       <<: *common-env
       NIPT_HOME_UAT_FIXTURE_ROOT: /app/.local/home-operational-uat/fixtures
@@ -102,9 +99,6 @@ services:
   worker:
     <<: *common
     image: nipt-home-operational-uat-operations:20261017
-    build:
-      <<: *app-build
-      target: operations
     environment:
       <<: *common-env
       DATABASE_URL_FILE: /run/secrets/worker_url

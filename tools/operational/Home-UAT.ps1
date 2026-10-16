@@ -201,7 +201,7 @@ function Get-HomeHealth {
   }
   try {
     $networkList=@()
-    foreach($networkName in @($Project+'_data',$Project+'_render',$Project+'_proxy')) {
+    foreach($networkName in @(($Project+'_data'),($Project+'_render'),($Project+'_proxy'))) {
       $internal=(& docker network inspect --format '{{.Internal}}' $networkName).Trim()
       $networkList+=@{name=$networkName;internal=($internal -eq 'true')}
     }
@@ -215,8 +215,10 @@ function Get-HomeHealth {
     $proxyObject=$proxyBindingRaw|ConvertFrom-Json;$dbObject=$dbBindingRaw|ConvertFrom-Json
     $proxyBindings=$proxyObject.PSObject.Properties['443/tcp'].Value
     $dbBindings=$dbObject.PSObject.Properties['5432/tcp'].Value
-    $proxyLocal=@($proxyBindings|Where-Object{$_.HostIp -eq '127.0.0.1' -and $_.HostPort -eq '19444'}).Count -eq 1
-    $dbLocal=@($dbBindings|Where-Object{$_.HostIp -eq '127.0.0.1' -and $_.HostPort -eq '19445'}).Count -eq 1
+    $proxyPublished=(& docker port $ids.proxy '443/tcp'|Out-String).Trim()
+    $dbPublished=(& docker port $ids.db '5432/tcp'|Out-String).Trim()
+    $proxyLocal=(@($proxyBindings|Where-Object{$_.HostIp -eq '127.0.0.1' -and $_.HostPort -eq '19444'}).Count -eq 1 -and $proxyPublished -eq '127.0.0.1:19444')
+    $dbLocal=(@($dbBindings|Where-Object{$_.HostIp -eq '127.0.0.1' -and $_.HostPort -eq '19445'}).Count -eq 1 -and $dbPublished -eq '127.0.0.1:19445')
     $otherClear=$true
     foreach($serviceName in @('renderer','worker','web')) {
       $serviceId=Get-ServiceId $serviceName
