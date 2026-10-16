@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [ValidateSet('Start','Stop','Restart','Health','Logs','StagePET','ListFixtures','SeedPositiveJourney')]
+  [ValidateSet('Start','Stop','Restart','Health','Logs','StagePET','ListFixtures','SeedPositiveJourney','VerifyAdditionalJourney')]
   [string]$Action='Health',
   [string]$MasterPath='C:\Users\User\Downloads\NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx',
   [string]$FixtureId='',
@@ -321,10 +321,21 @@ function Assert-PortsAvailable {
     }
   }
 }
-function Invoke-SeedPositiveJourney {
+function Invoke-SeedPositiveJourney([switch]$Additional) {
   $snapshot=Get-PersistenceSnapshot
   $caseCount=[int]($snapshot.Split('|')[0])
-  if($caseCount -ne 0){throw 'HOME_UAT_PATIENT_DATA_ALREADY_EXISTS_SEED_NOT_RERUN'}
+  if($Additional) {
+    if((Split-Path -Leaf $RepoRoot) -ne 'NIPT-CBH-INTEGRATED-UAT' -or $Project -ne 'nipt-integrated-uat-20261017' -or $Origin -ne 'https://127.0.0.1:19446'){throw 'INTEGRATED_ADDITIONAL_JOURNEY_TARGET_REQUIRED'}
+    if($caseCount -eq 0){throw 'HOME_UAT_ADDITIONAL_REQUIRES_PRESERVED_FIRST_RUN'}
+    $env:NIPT_UAT_JOURNEY_START='8701'
+    $env:NIPT_UAT_JOURNEY_ADDITIONAL='yes'
+    $env:NIPT_UAT_JOURNEY_PROJECT=$Project
+  } else {
+    if($caseCount -ne 0){throw 'HOME_UAT_PATIENT_DATA_ALREADY_EXISTS_SEED_NOT_RERUN'}
+    $env:NIPT_UAT_JOURNEY_START='7701'
+    $env:NIPT_UAT_JOURNEY_ADDITIONAL='no'
+    $env:NIPT_UAT_JOURNEY_PROJECT=$Project
+  }
   $env:NIPT_MODE='operational'
   $env:APP_ORIGIN=$Origin
   $env:NIPT_OPERATIONAL_DATABASE='nipt_operational_integrated_uat'
@@ -401,6 +412,14 @@ switch($Action) {
     Ensure-NativeBridge
     Wait-QuickHealth
     Invoke-SeedPositiveJourney
+    Get-HomeHealth|ConvertTo-Json -Depth 8
+  }
+  'VerifyAdditionalJourney' {
+    if(-not (Test-Path -LiteralPath $Secrets)){throw 'HOME_UAT_NOT_PROVISIONED'}
+    Set-ComposeContract -RequireClean
+    Ensure-NativeBridge
+    Wait-QuickHealth
+    Invoke-SeedPositiveJourney -Additional
     Get-HomeHealth|ConvertTo-Json -Depth 8
   }
 }

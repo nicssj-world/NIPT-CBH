@@ -1,14 +1,18 @@
-import {mkdir,readFile,writeFile} from 'node:fs/promises';
+import {cp,mkdir,readdir,readFile,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {Pool} from 'pg';
 import {chromium,type Page} from 'playwright';
 import type {Principal} from '../../packages/security/policy';
 import {positiveJourney} from './positive-journey-steps';
 
-const root=path.resolve('.local/home-operational-uat'),base=path.join(root,'positive-journey'),integration=path.join(root,'integration'),inbound=path.join(integration,'inbound');
+const patientStart=Number(process.env.NIPT_UAT_JOURNEY_START??'7701'),additional=process.env.NIPT_UAT_JOURNEY_ADDITIONAL==='yes';
+if(patientStart!==(additional?8701:7701))throw Error('HOME_UAT_EXPLICIT_DATASET_REQUIRED');
+if(additional&&(path.basename(process.cwd())!=='NIPT-CBH-INTEGRATED-UAT'||process.env.NIPT_UAT_JOURNEY_PROJECT!=='nipt-integrated-uat-20261017'))throw Error('INTEGRATED_ADDITIONAL_JOURNEY_TARGET_REQUIRED');
+const root=path.resolve('.local/home-operational-uat'),originalBase=path.join(root,'positive-journey'),base=additional?path.join(root,'positive-journey-8701'):originalBase,integration=path.join(root,'integration'),inbound=path.join(integration,'inbound');
 const origin='https://127.0.0.1:19446',databaseName='nipt_operational_integrated_uat';
 if(process.env.NIPT_MODE!=='operational'||process.env.APP_ORIGIN!==origin||process.env.NIPT_OPERATIONAL_DATABASE!==databaseName)throw Error('HOME_UAT_RUNTIME_REQUIRED');
-await mkdir(base,{recursive:true});
+// Never overwrite a previous additional attempt's evidence, even if it failed before registration.
+await mkdir(base,{recursive:!additional});
 const accountFile=process.env.NIPT_UAT_ACCOUNTS_FILE;if(!accountFile)throw Error('HOME_UAT_ACCOUNTS_REQUIRED');
 const accounts=JSON.parse(await readFile(accountFile,'utf8')) as {username:string;password:string}[];
 const account=(username:string)=>{const value=accounts.find(row=>row.username===username);if(!value)throw Error('HOME_UAT_ACCOUNT_MISSING');return value;};
@@ -52,6 +56,17 @@ async function api(page:Page,url:string,body?:unknown) {
 try {
  const mode=await db.query<{database:string;mode:string;enabled:boolean}>('SELECT current_database() database,mode,nipt_operational_enabled() enabled FROM nipt_runtime_config WHERE singleton=true');
  if(mode.rows[0]?.database!==databaseName||mode.rows[0]?.mode!=='operational'||mode.rows[0]?.enabled!==true)throw Error('HOME_UAT_DATABASE_MODE_MISMATCH');
+ if(!additional&&(await db.query('SELECT 1 FROM nipt_case LIMIT 1')).rowCount)throw Error('HOME_UAT_PATIENT_DATA_ALREADY_EXISTS_SEED_NOT_RERUN');
+ if(additional){
+  if(!(await db.query('SELECT 1 FROM nipt_case LIMIT 1')).rowCount)throw Error('HOME_UAT_ADDITIONAL_REQUIRES_PRESERVED_FIRST_RUN');
+  const lns=Array.from({length:45},(_,i)=>'261015'+String(patientStart+i).padStart(6,'0'));
+  if((await db.query('SELECT 1 FROM case_ln WHERE ln=ANY($1::text[]) LIMIT 1',[lns])).rowCount)throw Error('HOME_UAT_ADDITIONAL_DATASET_ALREADY_EXISTS_NOT_RERUN');
+  // Copy the first run's artifacts without moving cases, batches, inbound files or shared outbound outputs.
+  const entries=await readdir(originalBase,{withFileTypes:true});
+  const archive=path.join(originalBase,'first-run-7701-'+new Date().toISOString().replace(/\D/g,''));await mkdir(archive,{recursive:false});
+  for(const entry of entries){if(entry.name==='outbound'||entry.name.startsWith('first-run-'))continue;await cp(path.join(originalBase,entry.name),path.join(archive,entry.name),{recursive:true,preserveTimestamps:true,errorOnExist:true,force:false});}
+  events.push('FIRST_RUN_ARTIFACTS_COPIED_PRESERVING_DATABASE_AND_FILES');
+ }
  const unit=(await db.query<{id:string}>('SELECT id FROM unit WHERE code=$1',['LOCAL_UAT'])).rows[0];
  if(!unit)throw Error('HOME_UAT_TEST_UNIT_MISSING');
  const users:Record<string,Principal>={
@@ -78,19 +93,19 @@ try {
  if(cookies.find(cookie=>cookie.name==='nipt_session')?.secure!==true)throw Error('HOME_UAT_SECURE_SESSION_COOKIE_REQUIRED');
  const localPolicy=path.join(integration,'share-policy.json');
  await positiveJourney({
-  anc:false,db,base,inbound,policy:localPolicy,unit:unit.id,lab:pages[0],certifier:pages[1],reviewer:pages[2],users,api,waitFor,events,
+  anc:false,patientStart,localOutboundRoot:path.join(originalBase,'outbound'),db,base,inbound,policy:localPolicy,unit:unit.id,lab:pages[0],certifier:pages[1],reviewer:pages[2],users,api,waitFor,events,
   workerInboundRoot:'/simulator/inbound',workerOutboundRoot:'/outbound',workerServiceAccountName:'node'
  });
  if(browserErrors.length)throw Error('HOME_UAT_BROWSER_ERRORS');
  const evidence={
-  passed:true,sourceHead:process.env.SOURCE_REVISION??'local-source',runtimeMode:'operational',database:databaseName,
+  passed:true,patientStart,additional,sourceHead:process.env.SOURCE_REVISION??'local-source',runtimeMode:'operational',database:databaseName,
   events,browserErrors,interactiveRuntimeLeftRunning:true,physicalHalosAcceptance:'NOT_RUN',hospitalLanAcceptance:'NOT_RUN',
   hisConfirmed:false,artifactDirectory:base,localOnlyOutputs:true
  };
  await writeFile(path.join(base,'evidence.json'),JSON.stringify(evidence,null,2));
  process.stdout.write(JSON.stringify(evidence)+'\n');
 } catch(error) {
- await writeFile(path.join(base,'failure.json'),JSON.stringify({events,browserErrors,error:error instanceof Error?error.stack:'HOME_UAT_JOURNEY_FAILED'},null,2));
+ await writeFile(path.join(base,'failure.json'),JSON.stringify({patientStart,additional,events,browserErrors,error:error instanceof Error?error.stack:'HOME_UAT_JOURNEY_FAILED'},null,2));
  throw error;
 } finally {
  await browser?.close();
