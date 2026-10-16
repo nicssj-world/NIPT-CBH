@@ -1,6 +1,6 @@
 name: nipt-home-operational-uat-20261017
 x-build: &app-build
-  context: ../..
+  context: .
   dockerfile: Dockerfile
   args:
     SOURCE_REVISION: ${SOURCE_REVISION:?launcher must set committed source SHA}
@@ -67,10 +67,10 @@ services:
       NIPT_HOME_UAT_SIMULATOR_ROOT: /app/.local/home-operational-uat/integration
     volumes:
       - type: bind
-        source: ../../.local/home-operational-uat/fixtures
+        source: .local/home-operational-uat/fixtures
         target: /app/.local/home-operational-uat/fixtures
       - type: bind
-        source: ../../.local/home-operational-uat/integration
+        source: .local/home-operational-uat/integration
         target: /app/.local/home-operational-uat/integration
     command: [node,--import,./tools/runtime-env.mjs,--import,tsx,tools/operational/seed-home-uat-fixtures.ts]
     networks: [data]
@@ -113,13 +113,13 @@ services:
     secrets: [worker_url,renderer_token,identity_lookup,integration_private]
     volumes:
       - type: bind
-        source: ../../.local/home-operational-uat/files
+        source: .local/home-operational-uat/files
         target: /files
       - type: bind
-        source: ../../.local/home-operational-uat/integration
+        source: .local/home-operational-uat/integration
         target: /simulator
       - type: bind
-        source: ../../.local/home-operational-uat/positive-journey/outbound
+        source: .local/home-operational-uat/positive-journey/outbound
         target: /outbound
     networks: [data,render]
     depends_on:
@@ -147,19 +147,19 @@ services:
     secrets: [web_url,renderer_token,integration_public,identity_lookup]
     volumes:
       - type: bind
-        source: ../../.local/home-operational-uat/files
+        source: .local/home-operational-uat/files
         target: /files
       - type: bind
-        source: ../../.local/home-operational-uat/integration
+        source: .local/home-operational-uat/integration
         target: /simulator
         read_only: true
       - type: bind
-        source: ../../.local/home-operational-uat/master/approved-combined.xlsx
+        source: .local/home-operational-uat/master/approved-combined.xlsx
         target: /approved/master.xlsx
         read_only: true
         bind: {create_host_path: false}
       - type: bind
-        source: ../../.local/home-operational-uat/excel-spool
+        source: .local/home-operational-uat/excel-spool
         target: /excel-spool
     networks: [data,render,proxy]
     depends_on:
@@ -176,7 +176,7 @@ services:
     ports: ["127.0.0.1:19444:443"]
     volumes:
       - type: bind
-        source: ./home-uat.Caddyfile
+        source: tools/operational/home-uat.Caddyfile
         target: /etc/caddy/Caddyfile
         read_only: true
       - caddy:/data
@@ -195,14 +195,14 @@ volumes:
   database:
   caddy:
 secrets:
-  db_password: {file: ../../.local/home-operational-uat/secrets/db-password}
-  migration_url: {file: ../../.local/home-operational-uat/secrets/migration-url}
-  web_url: {file: ../../.local/home-operational-uat/secrets/web-url}
-  worker_url: {file: ../../.local/home-operational-uat/secrets/worker-url}
-  web_password: {file: ../../.local/home-operational-uat/secrets/web-password}
-  worker_password: {file: ../../.local/home-operational-uat/secrets/worker-password}
-  uat_accounts: {file: ../../.local/home-operational-uat/secrets/uat-accounts.json}
-  renderer_token: {file: ../../.local/home-operational-uat/secrets/renderer-token}
-  identity_lookup: {file: ../../.local/home-operational-uat/secrets/identity-lookup.key}
-  integration_public: {file: ../../.local/home-operational-uat/secrets/integration-public.pem}
-  integration_private: {file: ../../.local/home-operational-uat/secrets/integration-private.pem}
+  db_password: {file: .local/home-operational-uat/secrets/db-password}
+  migration_url: {file: .local/home-operational-uat/secrets/migration-url}
+  web_url: {file: .local/home-operational-uat/secrets/web-url}
+  worker_url: {file: .local/home-operational-uat/secrets/worker-url}
+  web_password: {file: .local/home-operational-uat/secrets/web-password}
+  worker_password: {file: .local/home-operational-uat/secrets/worker-password}
+  uat_accounts: {file: .local/home-operational-uat/secrets/uat-accounts.json}
+  renderer_token: {file: .local/home-operational-uat/secrets/renderer-token}
+  identity_lookup: {file: .local/home-operational-uat/secrets/identity-lookup.key}
+  integration_public: {file: .local/home-operational-uat/secrets/integration-public.pem}
+  integration_private: {file: .local/home-operational-uat/secrets/integration-private.pem}
