@@ -4,6 +4,7 @@ param(
   [string]$Action='Health',
   [string]$MasterPath='C:\Users\User\Downloads\NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx',
   [string]$FixtureId='',
+  [ValidateSet(8701,8801)][int]$JourneyStart=8701,
   [ValidateSet(1,2)][int]$Round=1
 )
 $ErrorActionPreference='Stop'
@@ -327,7 +328,7 @@ function Invoke-SeedPositiveJourney([switch]$Additional) {
   if($Additional) {
     if((Split-Path -Leaf $RepoRoot) -ne 'NIPT-CBH-INTEGRATED-UAT' -or $Project -ne 'nipt-integrated-uat-20261017' -or $Origin -ne 'https://127.0.0.1:19446'){throw 'INTEGRATED_ADDITIONAL_JOURNEY_TARGET_REQUIRED'}
     if($caseCount -eq 0){throw 'HOME_UAT_ADDITIONAL_REQUIRES_PRESERVED_FIRST_RUN'}
-    $env:NIPT_UAT_JOURNEY_START='8701'
+    $env:NIPT_UAT_JOURNEY_START=[string]$JourneyStart
     $env:NIPT_UAT_JOURNEY_ADDITIONAL='yes'
     $env:NIPT_UAT_JOURNEY_PROJECT=$Project
   } else {

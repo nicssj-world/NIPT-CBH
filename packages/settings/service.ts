@@ -3,6 +3,7 @@ import { appendAudit } from "../db/audit";
 import { requirePermission, type Principal } from "../security/policy";
 import { settingDefinition } from "./catalog";
 import {SETTINGS} from './catalog';
+import {cancelObsoleteInboundScans} from '../jobs/obsolete-scans';
 
 type Revision = { id: string; setting_key: string; risk: string; value: unknown; state: string; created_by: string; approved_by: string | null; test_passed: boolean; version: number };
 export async function proposeSetting(db: Queryable, user: Principal, key: string, value: unknown, reason: string, previousId?: string): Promise<string> {
@@ -51,6 +52,7 @@ export async function activateSetting(db: Queryable, user: Principal, id: string
   await db.query("UPDATE settings_revision SET state='Archived' WHERE setting_key=$1 AND state='Active'", [r.setting_key]);
   await db.query("INSERT INTO setting_active(setting_key,revision_id) VALUES($1,$2) ON CONFLICT(setting_key) DO UPDATE SET revision_id=excluded.revision_id", [r.setting_key, id]);
   await db.query("UPDATE settings_revision SET state='Active' WHERE id=$1", [id]);
+  if(r.setting_key==='his_inbound')await cancelObsoleteInboundScans(db,user.id);
   await appendAudit(db,{actorId:user.id,action:"SETTING_ACTIVATED",resourceType:"SETTING",resourceId:id,details:{outcome:"ACTIVE",version:r.version,synthetic:true}});
 }
 

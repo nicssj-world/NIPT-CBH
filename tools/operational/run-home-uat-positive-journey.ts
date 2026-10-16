@@ -6,9 +6,9 @@ import type {Principal} from '../../packages/security/policy';
 import {positiveJourney} from './positive-journey-steps';
 
 const patientStart=Number(process.env.NIPT_UAT_JOURNEY_START??'7701'),additional=process.env.NIPT_UAT_JOURNEY_ADDITIONAL==='yes';
-if(patientStart!==(additional?8701:7701))throw Error('HOME_UAT_EXPLICIT_DATASET_REQUIRED');
+if(additional ? ![8701,8801].includes(patientStart) : patientStart!==7701)throw Error('HOME_UAT_EXPLICIT_DATASET_REQUIRED');
 if(additional&&(path.basename(process.cwd())!=='NIPT-CBH-INTEGRATED-UAT'||process.env.NIPT_UAT_JOURNEY_PROJECT!=='nipt-integrated-uat-20261017'))throw Error('INTEGRATED_ADDITIONAL_JOURNEY_TARGET_REQUIRED');
-const root=path.resolve('.local/home-operational-uat'),originalBase=path.join(root,'positive-journey'),base=additional?path.join(root,'positive-journey-8701'):originalBase,integration=path.join(root,'integration'),inbound=path.join(integration,'inbound');
+const root=path.resolve('.local/home-operational-uat'),originalBase=path.join(root,'positive-journey'),base=additional?path.join(root,'positive-journey-'+patientStart):originalBase,integration=path.join(root,'integration'),inbound=path.join(integration,'inbound');
 const origin='https://127.0.0.1:19446',databaseName='nipt_operational_integrated_uat';
 if(process.env.NIPT_MODE!=='operational'||process.env.APP_ORIGIN!==origin||process.env.NIPT_OPERATIONAL_DATABASE!==databaseName)throw Error('HOME_UAT_RUNTIME_REQUIRED');
 // Never overwrite a previous additional attempt's evidence, even if it failed before registration.
