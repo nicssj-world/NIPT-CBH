@@ -299,6 +299,18 @@ function Wait-QuickHealth([int]$Seconds=300) {
   }
   throw 'HOME_UAT_WEB_HEALTH_TIMEOUT'
 }
+function Wait-HomeReadiness([int]$Seconds=300) {
+  $deadline=[DateTime]::UtcNow.AddSeconds($Seconds)
+  $lastHealth=$null
+  while([DateTime]::UtcNow -lt $deadline) {
+    try {
+      $lastHealth=Get-HomeHealth
+      if($lastHealth.ready){return $lastHealth}
+    }catch{}
+    Start-Sleep -Seconds 2
+  }
+  throw 'HOME_UAT_FULL_HEALTH_TIMEOUT'
+}
 function Assert-PortsAvailable {
   $ownProxy=Get-ServiceId 'proxy';$ownDb=Get-ServiceId 'db'
   foreach($port in @(19444,19445)) {
@@ -341,7 +353,7 @@ switch($Action) {
     Invoke-Compose @('up','-d','--build')
     Save-Checkpoint 'compose-started' 'PASS'
     Wait-QuickHealth
-    $health=Get-HomeHealth
+    $health=Wait-HomeReadiness
     if(-not $health.ready){Save-Checkpoint 'service-health' 'FAILED';throw 'HOME_UAT_START_NOT_READY'}
     Save-Checkpoint 'service-health' 'PASS'
     $health|ConvertTo-Json -Depth 8
@@ -357,9 +369,9 @@ switch($Action) {
     Ensure-NativeBridge
     Invoke-Compose @('restart','db','renderer','worker','web','proxy')
     Wait-QuickHealth
+    $health=Wait-HomeReadiness
     $after=Get-PersistenceSnapshot
     if($before -ne $after){throw 'HOME_UAT_RESTART_PERSISTENCE_MISMATCH'}
-    $health=Get-HomeHealth
     if(-not $health.ready){throw 'HOME_UAT_RESTART_NOT_READY'}
     Save-Checkpoint 'restart-persistence-verified' 'PASS'
     [pscustomobject]@{persistenceBefore=$before;persistenceAfter=$after;data='PRESERVED';ready=$health.ready;url=$health.url}|ConvertTo-Json
