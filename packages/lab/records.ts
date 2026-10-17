@@ -13,7 +13,7 @@ import {LabError,uuid,reasonText,need,assertSession,audit,caseEvent,attemptEvent
 import {lockBatch,sheetOf,latestSnapshot,FINALIZED,type PlacementPayload} from './batch';
 import {isNativeIssue,type NativeIssuePort} from '../workbook/controlled';
 import {labelNativeCopy} from '../workbook/controlled-copy';
-import {isoDate,bangkokIsoDay} from '../domain/thai-date';
+import {isoDate,bangkokIsoDay,displayBe} from '../domain/thai-date';
 
 export type DocDeps={render:(doc:P4Document)=>Promise<Buffer>;store:FileStore;native?:NativeIssuePort};
 const no13=(v:string)=>!/\d{13}/.test(v);
@@ -28,8 +28,8 @@ const VALUE:Record<FieldDef['kind'],z.ZodType>={
  NUMBER:z.strictObject({value:z.string().regex(/^\d{1,4}(\.\d{1,3})?$/),unit:z.literal('ng/uL')})
 };
 export function valueText(def:FieldDef,v:Record<string,unknown>){
- switch(def.kind){case 'TRANSFER':return '✓ ก่อนดูด / ✓ หลังดูด';case 'CHECK':return '✓';case 'TEXT':return String(v.text);case 'DATE':return String(v.date);
-  case 'LOT':return `${v.lot} / Exp. ${v.expiry}`;case 'TIME_RANGE':return `${v.start}–${v.end}`;case 'NUMBER':return `${v.value} ng/µL`;}
+ switch(def.kind){case 'TRANSFER':return '✓ ก่อนดูด / ✓ หลังดูด';case 'CHECK':return '✓';case 'TEXT':return String(v.text);case 'DATE':return displayBe(String(v.date));
+  case 'LOT':return `${v.lot} / Exp. ${displayBe(String(v.expiry))}`;case 'TIME_RANGE':return `${v.start}–${v.end}`;case 'NUMBER':return `${v.value} ng/µL`;}
 }
 type Obs={id:string;batch_id:string;sheet_id:string|null;slot_number:number|null;field_id:string;item:string;value:Record<string,unknown>;source:'PAPER_TRANSCRIPTION'|'DIRECT_ENTRY';event_time:Date|null;event_time_precision:string;recorded_at:Date;recorded_by:string;status:string;recorder:string;reviewer:string|null};
 async function liveObservations(db:Queryable,batchId:string){
@@ -211,7 +211,7 @@ async function f2Document(db:Queryable,batchId:string,sheetNumber:number,kind:'P
  const checklist=FIELDS.filter(f=>f.form==='F2'&&f.kind==='CHECK'&&f.required(sheetNumber)).map(f=>({key:`${f.id}${f.item?':'+f.item:''}`,label:f.label}));
  const execution=obs.filter(o=>o.field_id!=='F2-11').map(o=>{const def=fieldDef(o.field_id,o.item);return {label:def.label,value:valueText(def,o.value),source:o.source,eventTime:o.event_time_precision==='NOT_RECORDED'?'ไม่ได้บันทึกบนเอกสาร':th(o.event_time),recordedAt:th(o.recorded_at),recordedBy:o.recorder,verifiedBy:o.reviewer??''};});
  const doc:P4Document={form:'F2',kind,...meta,issuedAt:th(meta.issuedAt),runLabel:b.run_label,templateVersion:P4_TEMPLATE_VERSION,fieldInventory:FIELD_INVENTORY_STATUS,snapshotRevision:`Placement r${snap.revision} ${snap.content_hash.slice(0,12)}`,copy:null,synthetic:true,
-  sheetNumber,strips:stripLabels(b.run_label,sheetNumber as 1),controlInstruction:CONTROL_INSTRUCTION[sheetNumber],plan:{workDate:p.plan.workDate,operator:p.plan.operator??'—',extractionLot:p.plan.extractionLot??'—',libraryLot:p.plan.libraryLot??'—'},
+  sheetNumber,strips:stripLabels(b.run_label,sheetNumber as 1),controlInstruction:CONTROL_INSTRUCTION[sheetNumber],plan:{workDate:displayBe(p.plan.workDate),operator:p.plan.operator??'—',extractionLot:p.plan.extractionLot??'—',extractionExpiry:displayBe(p.plan.extractionExpiry),libraryLot:p.plan.libraryLot??'—',libraryExpiry:displayBe(p.plan.libraryExpiry)},
   rows,checklist,execution,startedAt:kind==='COMPLETED'?th(s.execution_started_at):null,pendingGovernance:p.gate.pendingAccepted};
  return {doc,snapshotRef:snap.id};
 }

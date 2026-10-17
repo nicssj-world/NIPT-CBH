@@ -30,9 +30,12 @@ export function WorkbookEditor({batchId,canWrite}:{batchId:string;canWrite:boole
       {data.sourceStale&&<p role="alert">ข้อมูล Lab หรือ Excel Master เปลี่ยนหลังบันทึก Draft กรุณาตรวจค่าและบันทึกฉบับใหม่ก่อนออกเอกสาร</p>}
       <p>รหัสตัวอย่างและค่าที่มีบันทึกใน Lab อ่านจากข้อมูลต้นทาง ช่องอื่นบันทึกเป็น Draft ของใบงาน</p>
       {[...new Set(data.matrix.bindings.map(f=>f.sheet))].map(name=><details key={name}><summary>{name}</summary><div className="form-grid">{data.matrix.bindings.filter(f=>f.sheet===name).map(field=>{
-        const value=values[field.key],automatic=field.key in data.automaticValues||/^slot\.\d+\.printedSampleId$/.test(field.key)||/^task\.\d+\.run$/.test(field.key);
+        // Task metadata (B4/B5/K5/B16/B17) is owned by the Task List, never typed here (Plan §5.1; server-enforced).
+        const taskMeta=/^task\.\d+\.(?:date|run|operator|extractionLotExp|libraryLotExp)$/.test(field.key);
+        const value=values[field.key],automatic=taskMeta||field.key in data.automaticValues||/^slot\.\d+\.printedSampleId$/.test(field.key);
         const cell=data.matrix.cells.find(c=>c.sheet===name&&c.cell===field.cell);
-        return <label key={field.key}>{label(field,cell?.text??'')} <span className="muted">({field.cell}){automatic?' · จากข้อมูล Lab':''}</span>
+        const origin=taskMeta?(field.key in data.automaticValues?' · จาก Task List (แก้ที่หน้า Task List)':' · รอ Finalize Task List — ไม่กรอกที่นี่'):automatic?' · จากข้อมูล Lab':'';
+        return <label key={field.key}>{label(field,cell?.text??'')} <span className="muted">({field.cell}){origin}</span>
           {field.dataType==='checkbox'?<input type="checkbox" checked={value===true} disabled={!canWrite||busy||automatic} onChange={e=>setValues(v=>({...v,[field.key]:e.target.checked}))}/>:<input type={field.dataType==='number'?'number':'text'} step={field.dataType==='number'?'any':undefined} value={value===null||value===undefined?'':String(value)} disabled={!canWrite||busy||automatic} onChange={e=>setValues(v=>({...v,[field.key]:e.target.value===''?null:field.dataType==='number'?Number(e.target.value):e.target.value}))}/>}
         </label>;
       })}</div></details>)}

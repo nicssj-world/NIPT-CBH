@@ -18,7 +18,7 @@ const common={docCode:short,revision:z.number().int().min(1),runLabel:z.string()
  synthetic:z.literal(true)};
 export const p4DocumentSchema=z.discriminatedUnion('form',[
  z.strictObject({form:z.literal('F2'),kind:z.enum(['PRE_WORK','COMPLETED']),...common,sheetNumber:z.number().int().min(1).max(3),strips:z.strictObject({s1:short,s2:short}),controlInstruction:text,
-  plan:z.strictObject({workDate:short,operator:short,extractionLot:short,libraryLot:short}),rows:z.array(f2Row).length(16),checklist:z.array(z.strictObject({key:short,label:text})).max(40),execution:z.array(execEntry).max(80),
+  plan:z.strictObject({workDate:short,operator:short,extractionLot:short,extractionExpiry:short,libraryLot:short,libraryExpiry:short}),rows:z.array(f2Row).length(16),checklist:z.array(z.strictObject({key:short,label:text})).max(40),execution:z.array(execEntry).max(80),
   startedAt:short.nullable(),pendingGovernance:z.array(short).max(10)}),
  z.strictObject({form:z.literal('F3'),kind:z.enum(['PRE_WORK','COMPLETED']),...common,rows:z.array(qcRow).length(48),standards:z.array(execEntry).max(4),operator:execEntry.nullable(),criteria:z.array(text).max(4),summary:short})
 ]);
@@ -42,7 +42,7 @@ export function worksheetHtml(doc:P4Document){
   const checklist=doc.checklist.map(c=>`<li>${pre?box:doc.execution.some(x=>x.label===c.label)?'✓':'☐'} ${e(c.label)}</li>`).join('');
   const exec=pre?`<table class="write"><tr><th>วันที่ปฏิบัติงานจริง</th><td></td><th>ผู้ปฏิบัติงานจริง</th><td></td></tr><tr><th>Extraction Lot / Exp. (ใช้จริง)</th><td></td><th>Library Lot / Exp. (ใช้จริง)</th><td></td></tr><tr><th>เวลาเริ่ม Script</th><td></td><th>เวลาจบ Script</th><td></td></tr></table>`
    :`<table><thead><tr><th>รายการ</th><th>ค่า</th><th>ที่มา</th><th>เวลาเหตุการณ์</th><th>เวลากรอก</th><th>ผู้กรอก / ผู้ตรวจ</th></tr></thead><tbody>${doc.execution.map(x=>`<tr><td>${e(x.label)}</td><td>${e(x.value)}</td><td>${x.source==='PAPER_TRANSCRIPTION'?'กระดาษ':'บันทึกตรง'}</td><td>${e(x.eventTime)}</td><td>${e(x.recordedAt)}</td><td>${e(x.recordedBy)} / ${e(x.verifiedBy)}</td></tr>`).join('')}</tbody></table>`;
-  body=`<p class="instruction">${e(doc.controlInstruction)}</p><div class="plan"><b>ข้อมูลที่วางแผน (ไม่ใช่ค่าที่ใช้จริง):</b> วันที่ ${e(doc.plan.workDate)} · ผู้ปฏิบัติ ${e(doc.plan.operator)} · Extraction Lot ${e(doc.plan.extractionLot)} · Library Lot ${e(doc.plan.libraryLot)}</div>
+  body=`<p class="instruction">${e(doc.controlInstruction)}</p><div class="plan"><b>ข้อมูลที่วางแผน (ไม่ใช่ค่าที่ใช้จริง):</b> วันที่ ${e(doc.plan.workDate)} · ผู้ปฏิบัติ ${e(doc.plan.operator)} · Extraction Lot ${e(doc.plan.extractionLot)} / Exp. ${e(doc.plan.extractionExpiry)} · Library Lot ${e(doc.plan.libraryLot)} / Exp. ${e(doc.plan.libraryExpiry)}</div>
    ${doc.pendingGovernance.length?`<p class="pending">ข้อมูลจำลอง: ผ่าน Gate ภายใต้นโยบายจำลองที่ยังรอการตัดสิน (${doc.pendingGovernance.map(e).join(', ')}) — ห้ามใช้ทางคลินิก</p>`:''}
    <h2>แผนผังตัวอย่าง</h2>${half(0)}${half(1)}<h2>บันทึกการปฏิบัติ${pre?' (เขียนระหว่างปฏิบัติงาน)':''}</h2>${!pre&&doc.startedAt?`<p>เริ่มปฏิบัติ (เวลาที่ Server บันทึก): ${e(doc.startedAt)}</p>`:''}${exec}<h2>Checklist ตาม WI-T-BM18</h2><ul class="checklist">${checklist}</ul>`;
  }else{

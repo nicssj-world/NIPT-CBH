@@ -16,7 +16,9 @@ it.skipIf(!existsSync(masterPath))('native workbook drafts resume, reject stale 
   try {
     const created=await tx(db,t=>createBatch(t,u.staff)),batch={id:created.batchId};
     const initial=await tx(db,t=>workbookWorkspace(t,u.staff,batch.id,deps));expect(initial.draft).toBeNull();
-    const draft=await tx(db,t=>saveWorkbookDraft(t,u.staff,{batchId:batch.id,expectedVersion:initial.version,expectedRevision:0,values:{'task.1.operator':'SYNTHETIC OPERATOR','slot.1.libraryQc':2.5}},deps));
+    // Task metadata is source-owned (Plan §5.1): typing it into a workbook draft is refused server-side.
+    await expect(tx(db,t=>saveWorkbookDraft(t,u.staff,{batchId:batch.id,expectedVersion:initial.version,expectedRevision:0,values:{'task.1.operator':'SYNTHETIC OPERATOR','slot.1.libraryQc':2.5}},deps))).rejects.toThrow('TASK_SOURCE_FIELD_READ_ONLY');
+    const draft=await tx(db,t=>saveWorkbookDraft(t,u.staff,{batchId:batch.id,expectedVersion:initial.version,expectedRevision:0,values:{'slot.1.libraryQc':2.5}},deps));
     const resumed=await tx(db,t=>workbookWorkspace(t,u.staff,batch.id,deps));expect(resumed.draft?.id).toBe(draft.id);expect(resumed.values['slot.1.libraryQc']).toBe(2.5);
     await expect(tx(db,t=>saveWorkbookDraft(t,u.staff,{batchId:batch.id,expectedVersion:initial.version,expectedRevision:0,values:{}},deps))).rejects.toThrow('TASK_DRAFT_VERSION_CONFLICT');
     await expect(tx(db,t=>saveWorkbookDraft(t,u.anc,{batchId:batch.id,expectedVersion:initial.version,expectedRevision:1,values:{}},deps))).rejects.toThrow('FORBIDDEN');

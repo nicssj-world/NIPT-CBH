@@ -5,7 +5,7 @@ const rows=Array.from({length:16},(_,i)=>{const slot=i+1;return slot===1?{slot,p
  :slot<=3?{slot,plate:`${'ABCDEFGH'[(slot-1)%8]}1`,barcode:slot,kind:'PATIENT' as const,control:null,printedId:`26B26101200${slot}-1`,lnHalos:`26B26101200${slot}`,round:'รอบที่ 1',repeat:false,transfer:null}
  :{slot,plate:`${'ABCDEFGH'[(slot-1)%8]}${Math.floor((slot-1)/8)+1}`,barcode:slot,kind:'EMPTY' as const,control:null,printedId:'',lnHalos:'',round:'',repeat:false,transfer:null};});
 const base={docCode:'F2-RUN001-2026-TL1',revision:1,runLabel:'Run001/2026',templateVersion:P4_TEMPLATE_VERSION as typeof P4_TEMPLATE_VERSION,fieldInventory:'SEED_UNVERIFIED_F4',snapshotRevision:'Placement r1 abc',issuedAt:'12/10/2569 10:00:00',issuedBy:'ผู้ใช้จำลอง lab',copy:null,synthetic:true as const};
-const pre:Extract<P4Document,{form:'F2'}>={form:'F2',kind:'PRE_WORK',...base,sheetNumber:1,strips:{s1:'Run001 S1-1/3',s2:'Run001 S2-1/3'},controlInstruction:'แบ่งตัวอย่าง 200 µL ลง Strip Plate ตามตำแหน่ง / ตำแหน่ง 1 (PC) ใส่ MilliQ',plan:{workDate:'2026-10-12',operator:'—',extractionLot:'—',libraryLot:'—'},
+const pre:Extract<P4Document,{form:'F2'}>={form:'F2',kind:'PRE_WORK',...base,sheetNumber:1,strips:{s1:'Run001 S1-1/3',s2:'Run001 S2-1/3'},controlInstruction:'แบ่งตัวอย่าง 200 µL ลง Strip Plate ตามตำแหน่ง / ตำแหน่ง 1 (PC) ใส่ MilliQ',plan:{workDate:'12/10/2569',operator:'—',extractionLot:'SYN-EXT-01',extractionExpiry:'31/12/2569',libraryLot:'SYN-LIB-01',libraryExpiry:'—'},
  rows,checklist:[{key:'F2-15',label:'เปิดเครื่อง MGISP-100 และ Pre-clean'}],execution:[],startedAt:null,pendingGovernance:['OD-08:CLINICAL_RULES_NOT_APPROVED']};
 
 it('AT-PREWORK-01/02: F2 Pre-work has positions, IDs, control code and only empty boxes — no ✓, Lot or time of execution',()=>{
@@ -13,6 +13,8 @@ it('AT-PREWORK-01/02: F2 Pre-work has positions, IDs, control code and only empt
  expect(html).toContain('26N120261012-1');expect(html).toContain('26B261012002-1');expect(html).toContain('Run001 S1-1/3');expect(html).toContain('ว่าง — ไม่มีตัวอย่าง');
  expect(html).toContain('ใบงานก่อนปฏิบัติ (Pre-work)');expect(html).not.toContain('✓ ก่อน');expect(html.match(/class="box"/g)!.length).toBeGreaterThanOrEqual(7);
  expect(html).toContain('ข้อมูลที่วางแผน (ไม่ใช่ค่าที่ใช้จริง)');expect(html).toContain('OD-08:CLINICAL_RULES_NOT_APPROVED');
+ // M1: planned expiry is on the document, dates in BE (OD-C); the control ID stays Gregorian.
+ expect(html).toContain('วันที่ 12/10/2569');expect(html).toContain('Extraction Lot SYN-EXT-01 / Exp. 31/12/2569');expect(html).toContain('Library Lot SYN-LIB-01 / Exp. —');
  expect(html).not.toMatch(/<script|<img|https?:\/\//);
 });
 it('Completed shows only recorded values with source and disposition text; working copy and status marks are derivatives',()=>{
@@ -35,4 +37,5 @@ it('renders a landscape A4 Thai PDF through Chromium without network access',asy
  expect(page.view[2]).toBeGreaterThan(841);expect(page.view[2]).toBeLessThan(844);expect(page.view[3]).toBeGreaterThan(594);expect(page.view[3]).toBeLessThan(597);
  const text=(await page.getTextContent()).items.map(x=>'str' in x?x.str:'').join(' ');
  expect(text).toContain('26B261012002-1');expect(text).toContain('F2-RUN001-2026-TL1');expect(text).toContain('SYNTHETIC');
+ expect(text).toContain('31/12/2569');expect(text).toContain('SYN-EXT-01');expect(text).toContain('26N120261012-1'); // PDF text readback, not HTML only
 },60000);

@@ -1,3 +1,12 @@
+import {formatBe} from '../domain/thai-date';
+/** Document date text: BE `dd/mm/yyyy` (OD-C). The master cells are plain text with no date formula (verified), so
+ *  this changes no formula, cell type or layout. Unparseable stored values are kept as-is rather than hidden. */
+export function documentDate(iso:string){try{return formatBe(iso);}catch{return iso;}}
+/** `LOT / dd/mm/yyyy` (BE). An expiry without a lot is shown, not dropped; both missing gives a blank cell. */
+export function lotExpiry(lot:string|null|undefined,expiry:string|null|undefined){
+ if(!lot&&!expiry)return '';
+ return `${lot||'—'} / ${expiry?documentDate(expiry):'—'}`;
+}
 /** Verified coordinates in the current locked Master, rather than the legacy field catalog's seed row numbers. */
 const checks:Record<string,string>={
  'F2-15:PRECLEAN':'A19','F2-16:LYSIS':'A22','F2-16:WASH1':'A23','F2-16:WASH2':'A24','F2-16:MILLIQ':'A25',
@@ -8,7 +17,7 @@ const checks:Record<string,string>={
 export function labObservationBindings(o:{sheet_number:number|null;field_id:string;item:string;value:Record<string,unknown>}){
  const values:Record<string,unknown>={},n=o.sheet_number;
  if(n){const cell=checks[o.field_id+':'+o.item];if(cell&&o.value.checked===true)values[`check.${n}.${cell}`]=true;
-  if(['F2-13','F2-14'].includes(o.field_id)&&typeof o.value.lot==='string'&&typeof o.value.expiry==='string')values[`task.${n}.${o.field_id==='F2-13'?'extractionLotExp':'libraryLotExp'}`]=`${o.value.lot} / ${o.value.expiry}`;
+  if(['F2-13','F2-14'].includes(o.field_id)&&typeof o.value.lot==='string'&&typeof o.value.expiry==='string')values[`task.${n}.${o.field_id==='F2-13'?'extractionLotExp':'libraryLotExp'}`]=lotExpiry(o.value.lot,o.value.expiry);
  }
  if(o.field_id==='F3-01'&&typeof o.value.text==='string')values['qc.operator']=o.value.text;
  return values;
