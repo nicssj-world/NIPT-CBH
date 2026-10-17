@@ -6,6 +6,7 @@ import {Dialog} from "../p2/shared";
 import {LabelDialog} from "./label-dialog";
 import {labApi,failureText,bkk,gateText,LabFailure} from "./lab-api";
 import {compareReceive,READY_QUEUE_DEFAULT_SORT,type SortDirection} from "../../../packages/lab/receive-sort";
+import {getSheetNumber} from "../../../packages/lab/rules";
 
 type Attempt={kind:"ATTEMPT";category:string;caseId:string;roundId:string;roundNumber:number;receivedSource:string|null;receivedAt:string|null;hisLn:string;lnHalos:string|null;labelCode:string|null;pregnancy:string|null;attemptId:string;attemptNumber:number;attemptState:string;printedSampleId:string|null;
  repeat:{level:string|null;state:string|null}|null;urgent:boolean;urgentReason:string|null;hold:{stage:string|null}|null;resumeDecisionRequired:boolean;qcFailedStage:string|null;gate:{eligible:boolean;syntheticPendingAccepted:boolean;failed:string[];pending:string[]}|null;
@@ -72,7 +73,7 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
        {a.gate&&!a.gate.eligible&&<ul className="reasons">{[...a.gate.failed,...(data.policy==="HOLD"?a.gate.pending:[])].map(r=><li key={r}>{gateText(r)}</li>)}</ul>}
        {a.gate?.syntheticPendingAccepted&&<p className="small muted">ผ่านด้วยนโยบายจำลอง: {a.gate.pending.map(gateText).join(", ")}</p>}</td>
       <td>{a.labels.prints?<span className="status good">พิมพ์แล้ว {a.labels.prints}</span>:<span className="status warning">ยังไม่พิมพ์</span>}</td>
-      <td>{a.placement?<Link href={`/lab/batches/${a.placement.batchId}`}>{a.placement.runLabel} · ตน. {a.placement.slot}</Link>:"—"}</td>
+      <td>{a.placement?<Link href={`/lab/batches/${a.placement.batchId}${a.placement.slot?`?task=${getSheetNumber(a.placement.slot)}`:""}`}>{a.placement.runLabel} · {a.placement.slot?`Task List ${getSheetNumber(a.placement.slot)} · `:""}ตน. {a.placement.slot}</Link>:"—"}</td>
       <td>{data.operational&&can.receive&&a.attemptState==='Ready'&&<button className="button small" onClick={()=>setDialog({type:'accept',row:a})}>ตรวจรับสิ่งส่งตรวจ</button>}<RowActions a={a} can={can} open={(type)=>setDialog({type,row:a})}/></td>
      </tr>)}</tbody></table></div>}
    </>}

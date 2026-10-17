@@ -1,8 +1,12 @@
 "use client";
-import {useState} from "react";
+import {useState,type KeyboardEvent} from "react";
 import Link from "next/link";
+import {useSearchParams} from "next/navigation";
 import {Dialog} from "../p2/shared";
 import {labApi,labPdf,failureText,bkk,gateText,LabFailure} from "./lab-api";
+import {stripLabels,type SheetNumber} from "../../../packages/lab/rules";
+import {displayBe} from "../../../packages/domain/thai-date";
+import {ThaiDateInput} from "../shared/thai-date-input";
 
 type Sheet={id:string;sheet_number:number;state:string;planned_work_date:string|null;planned_operator:string|null;planned_extraction_lot:string|null;planned_extraction_expiry:string|null;planned_library_lot:string|null;planned_library_expiry:string|null;placement_revision:number;plan_checked_at:string|null;execution_started_at:string|null;execution_ended_at:string|null;verified_at:string|null};
 type Slot={slot:number;sheet:number;plate:string;barcode:number;control:string|null;controlLabel:string|null;controlCode:string|null;assignment:null|{attemptId:string;roundNumber:number;hisLn:string;lnHalos:string|null;labelCode:string|null;printedSampleId:string|null;attemptState:string;repeat:boolean;urgent:boolean}};
@@ -23,18 +27,34 @@ const DOC_STATUS:Record<string,string>={Issued:"มีผล",StopUse:"ระง
 const BATCH_STATE:Record<string,string>={Draft:"ร่าง",InPreparation:"เตรียมงาน",ExtractionLibrary:"Extraction/Library เสร็จ",QC1Complete:"QC1 บันทึกครบ",Cancelled:"ยกเลิก"};
 const DISP_TEXT:Record<string,string>={MEASURED:"ทำแล้ว (ทวนสอบ)",REQUIRED_PENDING:"รอบันทึก",NOT_APPLICABLE:"ไม่มีตัวอย่าง",NOT_PERFORMED:"ไม่ได้ทำ",EXCLUDED:"ถอดออก",STOPPED:"หยุด",AWAITING_DECISION:"รอตัดสิน QC1"};
 const OUTCOME:Record<string,string>={WITHIN:"อยู่ในช่วง",BELOW_MIN:"ต่ำกว่าช่วง",ABOVE_MAX:"สูงกว่าช่วง",NOT_APPLICABLE:"ไม่ใช้กับแถวนี้"};
+/** Non-blocking server warnings (records.ts) that must be shown, never swallowed (RC7). */
+const WARNING_TEXT:Record<string,string>={LOT_EXPIRED_BEFORE_WORK_DATE_OD33:"คำเตือน: วันหมดอายุของ Lot อยู่ก่อนวันปฏิบัติงาน — ตรวจสอบก่อนใช้ (บันทึกแล้ว ไม่ได้บล็อก)"};
+/** Per-Task counts for the tab chips and context header. Controls are never counted as patients. */
+function sheetStats(slots:Slot[],n:number){
+ const own=slots.filter(s=>s.sheet===n),patientSlots=own.filter(s=>!s.control),placed=patientSlots.filter(s=>s.assignment).length;
+ return {placed,capacity:patientSlots.length,empty:patientSlots.length-placed,control:own.find(s=>s.control)??null};
+}
 
 export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string}){
- const [w,setW]=useState(initial),[sheetNo,setSheetNo]=useState(()=>initial.sheets.find(s=>s.state!=="Draft"||initial.slots.some(x=>x.sheet===s.sheet_number&&x.assignment))?.sheet_number??1);
- const [msg,setMsg]=useState<{ok:boolean;text:string;details?:unknown}|null>(null),[busy,setBusy]=useState(false),[dialog,setDialog]=useState<null|{type:string;slot?:number}>(null);
+ const requested=Number(useSearchParams().get("task"));
+ const [w,setW]=useState(initial),[sheetNo,setSheetNoState]=useState(()=>[1,2,3].includes(requested)?requested:initial.sheets.find(s=>s.state!=="Draft"||initial.slots.some(x=>x.sheet===s.sheet_number&&x.assignment))?.sheet_number??1);
+ // The selected Task is kept in the URL (?task=N) so reload/share returns to the same Task without a navigation.
+ const setSheetNo=(n:number)=>{setSheetNoState(n);const url=new URL(window.location.href);url.searchParams.set("task",String(n));window.history.replaceState(window.history.state,"",url);};
+ const [msg,setMsg]=useState<{ok:boolean;text:string;details?:unknown;warnings?:string[]}|null>(null),[busy,setBusy]=useState(false),[dialog,setDialog]=useState<null|{type:string;slot?:number}>(null);
  // Unsaved PlanForm edits belong to one Task only: switching Task never carries them over (RC1).
  const [planDirty,setPlanDirty]=useState(false),[pendingSheet,setPendingSheet]=useState<number|null>(null);
  const selectSheet=(n:number)=>{if(n===sheetNo)return;if(planDirty){setPendingSheet(n);return;}setPendingSheet(null);setSheetNo(n);};
  const discardAndSwitch=()=>{if(pendingSheet===null)return;setPlanDirty(false);setSheetNo(pendingSheet);setPendingSheet(null);};
+ // WAI-ARIA tabs: arrows/Home/End move between Task List 1–3 (roving tabindex); the unsaved-edit guard still applies.
+ const tabKeys=(e:KeyboardEvent<HTMLDivElement>)=>{
+  const target={ArrowRight:sheetNo%3+1,ArrowLeft:(sheetNo+1)%3+1,Home:1,End:3}[e.key];if(!target)return;e.preventDefault();
+  selectSheet(target);if(!planDirty)requestAnimationFrame(()=>document.getElementById(`sheet-${target}`)?.focus());
+ };
  const sheet=w.sheets[sheetNo-1],slots=w.slots.filter(s=>s.sheet===sheetNo),comp=w.completeness[sheetNo-1];
  const editable=EDITABLE.includes(sheet.state)&&w.batch.state!=="Cancelled",started=STARTED.includes(sheet.state);
  const reload=async()=>setW(await labApi<Workspace>(`/api/p4/batches/${w.batch.id}`));
- async function act(action:string,data:Record<string,unknown>={},ok="บันทึกแล้ว"){setBusy(true);setMsg(null);try{await labApi(`/api/p4/batches/${w.batch.id}`,{action,expectedVersion:w.batch.version,...data});await reload();setMsg({ok:true,text:ok});return true;}
+ async function act(action:string,data:Record<string,unknown>={},ok="บันทึกแล้ว"){setBusy(true);setMsg(null);try{const res=await labApi<{warnings?:unknown}>(`/api/p4/batches/${w.batch.id}`,{action,expectedVersion:w.batch.version,...data});await reload();
+   const warnings=Array.isArray(res?.warnings)?res.warnings.filter((x):x is string=>typeof x==="string"):[];setMsg({ok:true,text:ok,warnings});return true;}
   catch(e){setMsg({ok:false,text:failureText(e),details:e instanceof LabFailure?e.details:undefined});if(e instanceof LabFailure&&e.code==="VERSION_CONFLICT")await reload();return false;}finally{setBusy(false);}}
  async function pdf(id:string,kind:string,reason?:string){setMsg(null);try{await labPdf(`/api/p4/documents/${id}`,{kind,...(reason?{reason}:{})});await reload();}catch(e){setMsg({ok:false,text:failureText(e)});}}
  const sheetDocs=w.documents.filter(d=>d.sheet_number===sheetNo);
@@ -51,12 +71,17 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
   {w.policy==="PROCEED_SYNTHETIC_LABELLED"&&<p className="notice warning-notice" role="note">ข้อมูลจำลอง: Gate ที่ยังรอการตัดสิน (OD-01/08/16) ผ่านด้วยนโยบายจำลองและถูกระบุบนใบงาน — ไม่ใช่การรับรองทางคลินิก</p>}
   {msg&&<div className={`notice${msg.ok?" success":""}`} role={msg.ok?"status":"alert"}>{msg.text}{Array.isArray(msg.details)&&<ul>{(msg.details as {slot:number;failed:string[];pending:string[]}[]).map((d,i)=><li key={i}>ตน. {d.slot??"-"}: {[...(d.failed??[]),...(d.pending??[])].map(gateText).join(", ")}</li>)}</ul>}
    {msg.details&&!Array.isArray(msg.details)&&typeof msg.details==="object"?<pre className="details">{JSON.stringify(msg.details,null,1)}</pre>:null}</div>}
-  <div className="tabs" role="tablist" aria-label="Task List">{w.sheets.map(s=><button key={s.id} type="button" role="tab" id={`sheet-${s.sheet_number}`} aria-selected={s.sheet_number===sheetNo} aria-controls="sheet-panel" className="tab" onClick={()=>selectSheet(s.sheet_number)}>Task List {s.sheet_number} <span className="count">{STEP_TEXT[s.state]??s.state}</span></button>)}</div>
+  {msg?.warnings?.map(code=><p key={code} className="notice warning-notice" role="alert">{WARNING_TEXT[code]??`คำเตือน: ${code}`}</p>)}
+  <div className="tabs task-tabs" role="tablist" aria-label="Task List" onKeyDown={tabKeys}>{w.sheets.map(s=>{const st=sheetStats(w.slots,s.sheet_number);
+   return <button key={s.id} type="button" role="tab" id={`sheet-${s.sheet_number}`} aria-selected={s.sheet_number===sheetNo} tabIndex={s.sheet_number===sheetNo?0:-1} aria-controls="sheet-panel" className="tab" onClick={()=>selectSheet(s.sheet_number)}>
+    Task List {s.sheet_number} <span className="count">{STEP_TEXT[s.state]??s.state}</span>
+    <span className="tab-meta">ผู้ป่วย {st.placed}/{st.capacity} · ว่าง {st.empty}</span></button>;})}</div>
   {pendingSheet!==null&&<div className="notice warning-notice" role="alert">Task List {sheetNo} มีข้อมูลแผนที่ยังไม่บันทึก — บันทึกก่อน หรือทิ้งการแก้ไขเพื่อไป Task List {pendingSheet}
    <div className="row-actions"><button className="button small secondary" type="button" onClick={()=>setPendingSheet(null)}>กลับไปแก้ไข Task List {sheetNo}</button><button className="button small secondary" type="button" onClick={discardAndSwitch}>ทิ้งการแก้ไขและไป Task List {pendingSheet}</button></div></div>}
   <section id="sheet-panel" role="tabpanel" aria-labelledby={`sheet-${sheetNo}`} className="panel stack">
    <ol className="stepper" aria-label="ขั้นตอนของ Task List">{STEPS.map((s,i)=>{const idx=STEPS.indexOf(sheet.state==="Amended"?"Draft":sheet.state);return <li key={s} aria-current={s===sheet.state?"step":undefined} className={i<idx?"done":i===idx?"current":""}>{STEP_TEXT[s]}</li>;})}</ol>
    {sheet.state==="Amended"&&<p className="notice warning-notice">อยู่ระหว่าง Controlled amendment — ใบงานเดิมถูกระงับใช้ แก้แผนแล้วยืนยัน/Finalize ใหม่ (สร้าง Revision ใหม่ ของเดิมไม่ถูกแก้)</p>}
+   <TaskContext w={w} sheet={sheet} sheetNo={sheetNo}/>
    <h2>แผนผังตัวอย่าง — ตำแหน่ง {(sheetNo-1)*16+1}–{sheetNo*16}</h2>
    <div className="plate">{[0,1].map(strip=><table key={strip} className="data-table plate-table"><caption>Strip {strip===0?"S1":"S2"} (ตำแหน่ง {(sheetNo-1)*16+1+strip*8}–{(sheetNo-1)*16+8+strip*8})</caption>
     <thead><tr><th scope="col">ตน. / Plate</th><th scope="col">Barcode</th><th scope="col">Sample ID / Control</th><th scope="col">{started?"✓ ตรวจก่อน/หลังดูด":"จัดการ"}</th></tr></thead>
@@ -66,7 +91,7 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
      <td>{editable&&s.assignment&&w.allowed.draft?<div className="row-actions"><button className="button small secondary" type="button" onClick={()=>setDialog({type:"move",slot:s.slot})}>ย้าย/สลับ</button><button className="button small secondary" type="button" onClick={()=>setDialog({type:"remove",slot:s.slot})}>ถอดออก</button></div>
       :started&&(s.control||s.assignment)?<TransferCell status={transfer(s.slot)} canRecord={sheet.state==="InExecution"||sheet.state==="ExecutionRecorded"} canDispose={w.allowed.dispositionPropose} onRecord={()=>setDialog({type:"transfer",slot:s.slot})} onDispose={()=>setDialog({type:"dispose",slot:s.slot})}/>:"—"}</td></tr>)}</tbody></table>)}</div>
    {editable&&<PlanForm key={`${sheet.id}:${w.batch.version}`} sheet={sheet} disabled={busy||!w.allowed.draft} onDirty={setPlanDirty} onSave={async d=>{const ok=await act("updatePlan",{sheetNumber:sheetNo,...d},"บันทึกข้อมูลแผนแล้ว");if(ok)setPlanDirty(false);return ok;}}/>}
-   {!editable&&<dl className="plan-dl"><dt>ข้อมูลที่วางแผน</dt><dd>วันที่ {sheet.planned_work_date??"—"} · ผู้ปฏิบัติ {sheet.planned_operator??"—"} · Extraction Lot {sheet.planned_extraction_lot??"—"} · Library Lot {sheet.planned_library_lot??"—"}</dd><dt>Placement revision</dt><dd>{sheet.placement_revision} {w.snapshots.filter(x=>x.sheet_number===sheetNo).map(x=><span key={x.id} className="mono small"> r{x.revision}:{x.content_hash.slice(0,12)}</span>)}</dd>
+   {!editable&&<dl className="plan-dl"><dt>ข้อมูลที่วางแผน</dt><dd>วันที่ {displayBe(sheet.planned_work_date)} · ผู้ปฏิบัติ {sheet.planned_operator??"—"} · Extraction Lot {sheet.planned_extraction_lot??"—"} / Exp. {displayBe(sheet.planned_extraction_expiry)} · Library Lot {sheet.planned_library_lot??"—"} / Exp. {displayBe(sheet.planned_library_expiry)}</dd><dt>Placement revision</dt><dd>{sheet.placement_revision} {w.snapshots.filter(x=>x.sheet_number===sheetNo).map(x=><span key={x.id} className="mono small"> r{x.revision}:{x.content_hash.slice(0,12)}</span>)}</dd>
     {sheet.execution_started_at&&<><dt>เริ่มปฏิบัติ (เวลาที่ Server บันทึก)</dt><dd>{bkk(sheet.execution_started_at)}</dd></>}</dl>}
    <div className="action-bar">
     {(sheet.state==="Draft"||sheet.state==="Amended")&&w.allowed.finalize&&<button className="button" type="button" disabled={busy} onClick={()=>setDialog({type:"plancheck"})}>ยืนยันแผนตำแหน่ง</button>}
@@ -100,6 +125,20 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
   {dialog&&<WorkspaceDialog dialog={dialog} w={w} sheetNo={sheetNo} busy={busy} act={act} close={()=>setDialog(null)} setMsg={setMsg} reload={reload}/>}
  </>;
 }
+/** V2 "Batch context" card, per Task: run, strip labels, counts, control and plan summary in one place. */
+function TaskContext({w,sheet,sheetNo}:{w:Workspace;sheet:Sheet;sheetNo:number}){
+ const st=sheetStats(w.slots,sheetNo),strips=stripLabels(w.batch.runLabel,sheetNo as SheetNumber);
+ return <section className="task-context" aria-label={`สรุป Task List ${sheetNo}`}>
+  <dl>
+   <div><dt>Task List</dt><dd><strong>{sheetNo}</strong> · ตำแหน่ง {(sheetNo-1)*16+1}–{sheetNo*16} · {STEP_TEXT[sheet.state]??sheet.state}</dd></div>
+   <div><dt>Run</dt><dd className="mono">{w.batch.runLabel} · {strips.s1} · {strips.s2}</dd></div>
+   <div><dt>ตัวอย่างผู้ป่วย</dt><dd>{st.placed}/{st.capacity} · ว่าง {st.empty}</dd></div>
+   <div><dt>Control</dt><dd>{st.control?<><span className="badge">{st.control.controlLabel}</span> <span className="mono">{st.control.controlCode??"รอวันที่ปฏิบัติงาน"}</span></>:"—"}</dd></div>
+   <div><dt>วันที่ปฏิบัติงาน (วางแผน)</dt><dd>{displayBe(sheet.planned_work_date)} · ผู้ปฏิบัติ {sheet.planned_operator??"—"}</dd></div>
+   <div><dt>Extraction / Library Lot</dt><dd>{sheet.planned_extraction_lot??"—"} / Exp. {displayBe(sheet.planned_extraction_expiry)} · {sheet.planned_library_lot??"—"} / Exp. {displayBe(sheet.planned_library_expiry)}</dd></div>
+  </dl>
+ </section>;
+}
 function TransferCell({status,canRecord,canDispose,onRecord,onDispose}:{status:string;canRecord:boolean;canDispose:boolean;onRecord:()=>void;onDispose:()=>void}){
  return <div><span className={`status ${status==="MEASURED"?"good":status==="REQUIRED_PENDING"?"warning":"bad"}`}>{DISP_TEXT[status]??status}</span>
   {status==="REQUIRED_PENDING"&&canRecord&&<div className="row-actions"><button className="button small" type="button" onClick={onRecord}>บันทึก ✓</button>{canDispose&&<button className="button small secondary" type="button" onClick={onDispose}>ไม่ได้ดูด…</button>}</div>}</div>;
@@ -107,7 +146,11 @@ function TransferCell({status,canRecord,canDispose,onRecord,onDispose}:{status:s
 /** Mounted per Task (keyed by sheet id + batch version), so its local state can never belong to another Task. */
 function PlanForm({sheet,disabled,onSave,onDirty}:{sheet:Sheet;disabled:boolean;onSave:(d:Record<string,unknown>)=>Promise<boolean>;onDirty:(dirty:boolean)=>void}){
  const [d,setD]=useState({plannedWorkDate:sheet.planned_work_date??"",plannedOperator:sheet.planned_operator??"",plannedExtractionLot:sheet.planned_extraction_lot??"",plannedExtractionExpiry:sheet.planned_extraction_expiry??"",plannedLibraryLot:sheet.planned_library_lot??"",plannedLibraryExpiry:sheet.planned_library_expiry??""});
- const f=(k:keyof typeof d,label:string,type="text")=><div className="field"><label htmlFor={`plan-${k}`}>{label}</label><input id={`plan-${k}`} type={type} value={d[k]} onChange={e=>{setD({...d,[k]:e.target.value});onDirty(true);}} maxLength={80}/></div>;
+ const set=(k:keyof typeof d,v:string)=>{setD(p=>({...p,[k]:v}));onDirty(true);};
+ // Dates are typed and shown in BE (ThaiDateInput); the value kept here and sent to the API is ISO CE.
+ const f=(k:keyof typeof d,label:string,type="text")=><div className="field"><label htmlFor={`plan-${k}`}>{label}</label>{type==="date"
+  ?<ThaiDateInput id={`plan-${k}`} value={d[k]} onChange={v=>{if(v!==d[k])set(k,v);}}/>
+  :<input id={`plan-${k}`} type={type} value={d[k]} onChange={e=>set(k,e.target.value)} maxLength={80}/>}</div>;
  const n=(v:string)=>v.trim()?v.trim():null;
  return <fieldset className="plan-form"><legend>ข้อมูลที่วางแผน (พิมพ์แยกจากช่อง “ใช้จริง” — ไม่ใช่หลักฐานการปฏิบัติ)</legend><div className="form-grid">{f("plannedWorkDate","วันที่ปฏิบัติงานที่วางแผน (ใช้สร้างรหัส Control)","date")}{f("plannedOperator","ผู้ปฏิบัติที่วางแผน")}{f("plannedExtractionLot","Extraction Lot (ถ้าทราบ)")}{f("plannedExtractionExpiry","Extraction Exp.","date")}{f("plannedLibraryLot","Library Lot (ถ้าทราบ)")}{f("plannedLibraryExpiry","Library Exp.","date")}</div>
   <button className="button secondary" type="button" disabled={disabled||!d.plannedWorkDate} onClick={()=>onSave({plannedWorkDate:d.plannedWorkDate,plannedOperator:n(d.plannedOperator),plannedExtractionLot:n(d.plannedExtractionLot),plannedExtractionExpiry:n(d.plannedExtractionExpiry),plannedLibraryLot:n(d.plannedLibraryLot),plannedLibraryExpiry:n(d.plannedLibraryExpiry)})}>บันทึกข้อมูลแผน</button></fieldset>;

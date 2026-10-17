@@ -13,7 +13,7 @@ import {LabError,uuid,reasonText,need,assertSession,audit,caseEvent,attemptEvent
 import {lockBatch,sheetOf,latestSnapshot,FINALIZED,type PlacementPayload} from './batch';
 import {isNativeIssue,type NativeIssuePort} from '../workbook/controlled';
 import {labelNativeCopy} from '../workbook/controlled-copy';
-import {isoDate} from '../domain/thai-date';
+import {isoDate,bangkokIsoDay} from '../domain/thai-date';
 
 export type DocDeps={render:(doc:P4Document)=>Promise<Buffer>;store:FileStore;native?:NativeIssuePort};
 const no13=(v:string)=>!/\d{13}/.test(v);
@@ -81,7 +81,8 @@ export async function recordObservation(db:Queryable,user:Staff,input:unknown){
  await db.query('INSERT INTO lab_batch_event(batch_id,sheet_number,event_type,reason,actor_id,details) VALUES($1,$2,$3,$4,$5,$6)',[b.id,sheet?.sheet_number??null,d.supersedesId?'OBSERVATION_CORRECTED':'OBSERVATION_RECORDED',d.correctionReason??null,user.id,JSON.stringify({fieldId:d.fieldId,item:d.item,slot:d.slot??null,source:d.source})]);
  await audit(db,user,d.supersedesId?'LAB_OBSERVATION_CORRECTED':'LAB_OBSERVATION_RECORDED','lab_observation',id,{outcome:d.source});
  const warnings:string[]=[];
- if(def.kind==='LOT'&&String(value.expiry)<(sheet?.planned_work_date??new Date().toISOString().slice(0,10)))warnings.push('LOT_EXPIRED_BEFORE_WORK_DATE_OD33');
+ // Warning only (OD-L): compared with the Task's planned work date, else the Bangkok calendar day (never UTC).
+ if(def.kind==='LOT'&&String(value.expiry)<(sheet?.planned_work_date??bangkokIsoDay()))warnings.push('LOT_EXPIRED_BEFORE_WORK_DATE_OD33');
  const candidates=def.kind==='NUMBER'&&d.slot?qc1Candidates(String(value.value),rowKind(d.slot)):null;
  return {id,warnings,candidates};
 }
