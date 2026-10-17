@@ -8,6 +8,16 @@ P2 ใช้ขอบเขตจำลองตาม AL-2 Restricted Owner Loc
 
 **รุ่นนี้ใช้ Synthetic เท่านั้น** การออกผลจริง การรับรองผล Historical promotion และ HIS จริงถูกปิดใน Runtime ไม่ใช่แค่ซ่อนปุ่ม ไม่มี Production deployment
 
+## Owner Lock — HIS reception และการส่งผล
+
+**NIPT-CBH PET Reception and Result Delivery Workflow MUST reference `NIPTY.zip` and `NIPTY_handover.zip`.** รายละเอียด แหล่งอ้างอิง และผลตรวจกับโค้ดอยู่ที่ [docs/his-workflow-owner-lock.md](docs/his-workflow-owner-lock.md) ห้ามเปลี่ยน Workflow นี้โดยไม่ได้รับ Owner Approval
+
+- PET เกิดเมื่อเจ้าหน้าที่กดรับสิ่งส่งตรวจใน HIS ไม่ใช่เมื่อแพทย์สั่งตรวจ HIS วาง `.pet` + `.ok`
+- NIPT-CBH อ่านโฟลเดอร์ PET แบบ Read-only และไม่มีขั้นตอนรับสิ่งส่งตรวจซ้ำ ข้อมูลจาก PET (เวลารับ P[21]) เป็น Source of Truth ของการรับ การตรวจสภาพหลอด/ปฏิเสธ/พิมพ์ฉลากเป็นงาน Lab ไม่ใช่การรับรอบสอง
+- เจาะซ้ำ (S2) มาจาก PET ใหม่ของ HIS ด้วย HIS LN เดิม เป็น Specimen Round ใหม่ LN Halos ฐานเดิมต่อท้าย `R` (แฝด `DR`) — S3+ รอ Owner (OD-R2)
+- ผล PDF ฉบับสุดท้ายมาจากโปรแกรมวิเคราะห์ภายนอก NIPT-CBH ไม่วิเคราะห์หรือรับรองผลทางคลินิกซ้ำ ทำหน้าที่รับ จับคู่ ตรวจตัวตนและ Report Version ที่ถูกต้อง แล้วส่ง HIS
+- RES/PDF/OK ใช้ File Contract ที่ตรวจจาก ZIP ([docs/p6/contract-review.md](docs/p6/contract-review.md)) การ Copy ไฟล์สำเร็จไม่ใช่หลักฐานว่า HIS รับผลแล้ว
+
 ## สิ่งที่ทำได้
 
 - Local authentication ด้วย Argon2id, server-side session, lockout, CSRF และ RBAC 9 บทบาท
@@ -24,7 +34,7 @@ P2 ใช้ขอบเขตจำลองตาม AL-2 Restricted Owner Loc
 
 P4 Synthetic (Lab Workflow + Repeat/Redraw) อยู่บน Branch `feat/p4-lab-workflow-synthetic` รอ Owner ตรวจรับ — ดู [P4 Synthetic Delivery](docs/p4-synthetic-delivery.md)
 
-- P4: คิวงาน Lab (S1 จาก HIS ไม่มีการรับซ้ำ, รับเจาะซ้ำ S2+ ใน NIPT), LN Halos `YYBYYMMDDNNN` ออกเมื่อรับสิ่งส่งตรวจจริงเท่านั้น, ฉลากหลอด 4 ดวง/8 ช่องแบบเดียวกับ Genomic-CBH (ไม่มีบาร์โค้ด), เรียงตามวันที่/เวลารับ
+- P4: คิวงาน Lab (S1 จาก HIS ไม่มีการรับซ้ำ, เจาะซ้ำ S2 รับจาก PET ใหม่ของ HIS ด้วย LN เดิม — รับใน NIPT ได้เฉพาะชุดจำลอง), LN Halos `YYBYYMMDDNNN` ออกเมื่อรับสิ่งส่งตรวจจริงเท่านั้น, ฉลากหลอด 4 ดวง/8 ช่องแบบเดียวกับ Genomic-CBH (ไม่มีบาร์โค้ด), เรียงตามวันที่/เวลารับ
 - P4: Batch/Task List 1–3 (48 ตำแหน่ง, PC 1/NC 25/Blank 40), Assignment/Finalize Gate, Placement Snapshot, ใบงาน F2/F3 Pre-work/Completed PDF, บันทึกจากกระดาษพร้อมทวนสอบคนที่สอง, QC1 ที่ไม่ตัดสินด้วยเกณฑ์ที่ยังไม่รับรอง, Repeat/Redraw พร้อม Lineage
 
 Clinical Assessment ของ P2 ยังไม่สามารถให้ผลผ่านเกณฑ์จริงได้ เอกสารและลายเซ็นใช้ Synthetic เท่านั้น Clinical/DPO/DCC, UAT และหลักฐาน Accessibility ของผู้ใช้จริงยังต้องรับรองตาม [รายการค้าง](docs/p2-governance.md)
@@ -53,5 +63,6 @@ docker compose up -d --build
 - [Design system](DESIGN.md), [UX/ACR evidence](docs/accessibility.md)
 - [P4 Lab workflow synthetic delivery](docs/p4-synthetic-delivery.md)
 - [งานต่อและ Integration gates](docs/next-phases.md)
+- [HIS reception / result delivery Owner Lock](docs/his-workflow-owner-lock.md), [P0 Owner Decision Register](docs/p0-owner-decision-register.md)
 
 ไม่รวม ZIP, patient data, internal credentials, original hospital documents หรือ legacy runtime ใน Repository
