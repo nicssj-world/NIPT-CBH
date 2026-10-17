@@ -7,6 +7,7 @@ import {LabelDialog} from "./label-dialog";
 import {labApi,failureText,bkk,gateText,LabFailure} from "./lab-api";
 import {compareReceive,READY_QUEUE_DEFAULT_SORT,type SortDirection} from "../../../packages/lab/receive-sort";
 import {getSheetNumber} from "../../../packages/lab/rules";
+import {ThaiDateInput} from "../shared/thai-date-input";
 
 type Attempt={kind:"ATTEMPT";category:string;caseId:string;roundId:string;roundNumber:number;receivedSource:string|null;receivedAt:string|null;hisLn:string;lnHalos:string|null;labelCode:string|null;pregnancy:string|null;attemptId:string;attemptNumber:number;attemptState:string;printedSampleId:string|null;
  repeat:{level:string|null;state:string|null}|null;urgent:boolean;urgentReason:string|null;hold:{stage:string|null}|null;resumeDecisionRequired:boolean;qcFailedStage:string|null;gate:{eligible:boolean;syntheticPendingAccepted:boolean;failed:string[];pending:string[]}|null;
@@ -153,7 +154,7 @@ function ActionDialog({type,row,onClose,onDone}:{type:string;row:Attempt|Expecte
    <label className="check-label"><input type="checkbox" checked={identity} onChange={e=>setIdentity(e.target.checked)}/> ตรวจตัวตนผู้รับบริการตรงกับ HIS LN เดิมแล้ว</label>
    <label className="check-label"><input type="checkbox" checked={label} onChange={e=>setLabel(e.target.checked)}/> ตรวจฉลากหลอดตรงกับเคสและรอบแล้ว</label>
    <fieldset><legend>สภาพสิ่งส่งตรวจ (นโยบายการยอมรับรอ OD-01)</legend><label className="check-label"><input type="radio" name="cond" checked={condition==="ACCEPTABLE"} onChange={()=>setCondition("ACCEPTABLE")}/> ไม่พบปัญหา</label><label className="check-label"><input type="radio" name="cond" checked={condition==="PROBLEM_NOTED"} onChange={()=>setCondition("PROBLEM_NOTED")}/> พบปัญหา (ระบุ)</label></fieldset>
-   {type==='receive'&&<div><label htmlFor="cdate">วันที่เจาะเลือดของรอบนี้</label><input id="cdate" type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>}</>}
+   {type==='receive'&&<div><label htmlFor="cdate">วันที่เจาะเลือดของรอบนี้</label><ThaiDateInput id="cdate" value={date} onChange={setDate}/></div>}</>}
   {issued?<p className="notice success" role="status">{issued.duplicate?"รับไว้แล้วก่อนหน้า — ":""}LN Halos ของรอบนี้: <strong className="mono">{issued.lnHalos}</strong> พิมพ์ฉลากได้จากคิว “พร้อมเข้าตรวจ/ติด Gate”</p>
    :needsNote&&<div><label htmlFor="note">{type==="receive"?"รายละเอียดปัญหา":"เหตุผล"} (อย่างน้อย 8 ตัวอักษร)</label><textarea id="note" value={note} onChange={e=>setNote(e.target.value)} maxLength={500} rows={3}/></div>}
   {error&&<p className="notice" role="alert">{error}</p>}

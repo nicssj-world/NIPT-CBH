@@ -6,7 +6,7 @@ import {Dialog,csrf} from "../p2/shared";
 import {labApi,labPdf,failureText,bkk,gateText,LabFailure} from "./lab-api";
 import {stripLabels,type SheetNumber} from "../../../packages/lab/rules";
 import {displayBe} from "../../../packages/domain/thai-date";
-import {ThaiDateInput} from "../shared/thai-date-input";
+import {ThaiDateInput,ThaiDateTimeInput} from "../shared/thai-date-input";
 
 type Sheet={id:string;sheet_number:number;state:string;planned_work_date:string|null;planned_operator:string|null;planned_extraction_lot:string|null;planned_extraction_expiry:string|null;planned_library_lot:string|null;planned_library_expiry:string|null;placement_revision:number;plan_checked_at:string|null;execution_started_at:string|null;execution_ended_at:string|null;verified_at:string|null};
 type Slot={slot:number;sheet:number;plate:string;barcode:number;control:string|null;controlLabel:string|null;controlCode:string|null;assignment:null|{attemptId:string;roundNumber:number;hisLn:string;lnHalos:string|null;labelCode:string|null;printedSampleId:string|null;attemptState:string;repeat:boolean;urgent:boolean}};
@@ -187,15 +187,15 @@ function SourceControls({copies,value,onChange}:{copies:{id:string;label:string}
   <label className="check-label"><input type="radio" name="source" checked={value.source==="DIRECT_ENTRY"} onChange={()=>onChange({...value,source:"DIRECT_ENTRY"})}/> บันทึกตรงในระบบขณะปฏิบัติ (เวลาเหตุการณ์ = เวลา Server)</label>
   <label className="check-label"><input type="radio" name="source" checked={value.source==="PAPER_TRANSCRIPTION"} onChange={()=>onChange({...value,source:"PAPER_TRANSCRIPTION"})} disabled={!copies.length}/> ถอดจากสำเนาใช้งานกระดาษ{copies.length?"":" (ยังไม่มีสำเนาใช้งานที่ใช้ได้)"}</label>
   {value.source==="PAPER_TRANSCRIPTION"&&<div className="form-grid"><div className="field"><label htmlFor="copy">สำเนาใช้งาน</label><select id="copy" value={value.copyId} onChange={e=>onChange({...value,copyId:e.target.value})}><option value="">เลือกสำเนา</option>{copies.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}</select></div>
-   <div className="field"><label htmlFor="etime">เวลาที่เขียนบนกระดาษ</label><input id="etime" type="datetime-local" value={value.eventTime} disabled={value.notRecorded} onChange={e=>onChange({...value,eventTime:e.target.value})}/></div>
+   <div className="field"><label htmlFor="etime">เวลาที่เขียนบนกระดาษ</label><ThaiDateTimeInput id="etime" value={value.eventTime} disabled={value.notRecorded} onChange={v=>onChange({...value,eventTime:v})}/></div>
    <label className="check-label"><input type="checkbox" checked={value.notRecorded} onChange={e=>onChange({...value,notRecorded:e.target.checked})}/> ไม่ได้เขียนเวลาไว้บนเอกสาร (ไม่เติมเอง)</label></div>}
  </fieldset>;
 }
 const sourcePayload=(v:{source:string;copyId:string;eventTime:string;notRecorded:boolean})=>v.source==="DIRECT_ENTRY"?{source:"DIRECT_ENTRY"}:{source:"PAPER_TRANSCRIPTION",documentCopyId:v.copyId,...(v.notRecorded?{eventPrecision:"NOT_RECORDED"}:{eventTime:new Date(v.eventTime).toISOString(),eventPrecision:"MINUTE"})};
 function valueInput(kind:string,v:Record<string,string>,set:(v:Record<string,string>)=>void,id:string){
  if(kind==="CHECK")return <label className="check-label"><input id={id} type="checkbox" checked={v.checked==="true"} onChange={e=>set({checked:String(e.target.checked)})}/> ทำแล้ว</label>;
- if(kind==="DATE")return <input id={id} type="date" value={v.date??""} onChange={e=>set({date:e.target.value})}/>;
- if(kind==="LOT")return <div className="row"><input id={id} aria-label="Lot no." placeholder="Lot no." value={v.lot??""} onChange={e=>set({...v,lot:e.target.value})}/><input type="date" aria-label="Exp. date" value={v.expiry??""} onChange={e=>set({...v,expiry:e.target.value})}/></div>;
+ if(kind==="DATE")return <ThaiDateInput id={id} value={v.date??""} onChange={x=>set({date:x})}/>;
+ if(kind==="LOT")return <div className="row"><input id={id} aria-label="Lot no." placeholder="Lot no." value={v.lot??""} onChange={e=>set({...v,lot:e.target.value})}/><ThaiDateInput aria-label="Exp. date" value={v.expiry??""} onChange={x=>set({...v,expiry:x})}/></div>;
  if(kind==="TIME_RANGE")return <div className="row"><input id={id} type="time" aria-label="เวลาเริ่ม" value={v.start??""} onChange={e=>set({...v,start:e.target.value})}/><input type="time" aria-label="เวลาจบ" value={v.end??""} onChange={e=>set({...v,end:e.target.value})}/></div>;
  if(kind==="NUMBER")return <input id={id} inputMode="decimal" value={v.value??""} onChange={e=>set({value:e.target.value})} aria-describedby={`${id}-unit`}/>;
  return <input id={id} value={v.text??""} onChange={e=>set({text:e.target.value})} maxLength={120}/>;

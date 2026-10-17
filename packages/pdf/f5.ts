@@ -2,6 +2,7 @@ import {z} from 'zod';
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {chromium} from 'playwright';
+import {displayBeDateTime} from '../domain/thai-date';
 const short=z.string().max(200),text=z.string().max(4000);
 export const F5_FIELDS=[
  ['F5-01','DNB / DNBSEQ-G50 / Operator / Barcode type'],['F5-02','Pre-clean MGISP-100 / G50'],
@@ -38,7 +39,7 @@ export async function renderF5Pdf(input:F5Document){const d=f5Schema.parse(input
  const html=f5Html(d).replace('<style>',`<style>@font-face{font-family:Thai;src:url(data:font/woff2;base64,${font.toString('base64')})}`);
  const browser=await chromium.launch({headless:true,args:process.env.CHROMIUM_NO_SANDBOX==='true'?['--no-sandbox']:[]});
  try{const page=await browser.newPage({javaScriptEnabled:false});await page.route('**/*',r=>r.abort());await page.setContent(html);await page.evaluate(()=>document.fonts.ready);
- const footer=`<div style="font:7px Arial;width:100%;margin:0 10mm">${e(d.runLabel)} / F5 ${e(d.kind)} / ${e(d.docId)} Rev ${d.revision}<br>${e(d.templateVersion)} / FS-10-v1 / SEED_UNVERIFIED / ${e(d.issuedAt)} / ${e(d.issuedBy)} / SYNTHETIC ONLY / <span class="pageNumber"></span>/<span class="totalPages"></span>${d.copy?`<br>${e(d.copy.kind)} #${d.copy.number} / ${e(d.copy.status)} / Original SHA256 ${e(d.copy.originalHash)} / ${e(d.copy.actor)} / ${e(d.copy.at)}`:''}</div>`;
+ const footer=`<div style="font:7px Arial;width:100%;margin:0 10mm">${e(d.runLabel)} / F5 ${e(d.kind)} / ${e(d.docId)} Rev ${d.revision}<br>${e(d.templateVersion)} / FS-10-v1 / SEED_UNVERIFIED / ${e(displayBeDateTime(d.issuedAt))} / ${e(d.issuedBy)} / SYNTHETIC ONLY / <span class="pageNumber"></span>/<span class="totalPages"></span>${d.copy?`<br>${e(d.copy.kind)} #${d.copy.number} / ${e(d.copy.status)} / Original SHA256 ${e(d.copy.originalHash)} / ${e(d.copy.actor)} / ${e(d.copy.at)}`:''}</div>`;
  return await page.pdf({format:'A4',printBackground:true,displayHeaderFooter:true,headerTemplate:'<span></span>',footerTemplate:footer,margin:{top:'10mm',bottom:'23mm',left:'10mm',right:'10mm'}});
  }finally{await browser.close();}}
 export async function requestF5Pdf(input:F5Document){const doc=f5Schema.parse(input),token=process.env.RENDERER_TOKEN_FILE?(await readFile(process.env.RENDERER_TOKEN_FILE,'utf8')).trim():process.env.RENDERER_TOKEN;

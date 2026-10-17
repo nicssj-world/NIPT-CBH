@@ -1,5 +1,6 @@
 "use client";
 import {csrf} from "../p2/shared";
+import {displayBeDateTime} from "../../../packages/domain/thai-date";
 export class LabFailure extends Error{constructor(public code:string,public text:string,public details?:unknown,public status=400){super(code);}}
 /** JSON API call that keeps the server's Thai explanation and structured details (e.g. Finalize Gate failures). */
 export async function labApi<T>(path:string,body?:unknown):Promise<T>{
@@ -13,7 +14,8 @@ export async function labPdf(path:string,body:unknown){
  const url=URL.createObjectURL(await r.blob());window.open(url,"_blank","noopener");setTimeout(()=>URL.revokeObjectURL(url),60000);
 }
 export const failureText=(e:unknown)=>e instanceof LabFailure?e.text:"ทำรายการไม่สำเร็จ กรุณาลองอีกครั้ง";
-export const bkk=(v:string|Date|null|undefined)=>v?new Date(v).toLocaleString("th-TH",{timeZone:"Asia/Bangkok",dateStyle:"short",timeStyle:"short"}):"—";
+/** Asia/Bangkok date-time with a 4-digit BE year (Owner date standard), e.g. 17/10/2569 11:54. */
+export const bkk=(v:string|Date|null|undefined)=>displayBeDateTime(v);
 export const GATE_TEXT:Record<string,string>={
  NOT_CURRENT_ROUND:"ไม่ใช่รอบปัจจุบัน",NOT_RECEIVED:"ยังไม่รับสิ่งส่งตรวจ",REDRAW_REQUESTED:"สั่งเก็บตัวอย่างใหม่แล้ว",ANALYSIS_STARTED_REQUIRES_REPEAT_LINEAGE:"รอบนี้เริ่มวิเคราะห์แล้ว — ต้องสั่งตรวจซ้ำ (Repeat)",
  IDENTITY_ISSUE_OPEN:"มีปัญหาตัวตนจาก HIS ค้าง",LN_NOT_VERIFIED:"LN ยังไม่ยืนยันด้วย .pet",RECEIPT_CHECK_INCOMPLETE:"การตรวจรับรอบเจาะซ้ำไม่ครบ",CONSENT_REVOKED:"ถอนความยินยอมแล้ว",CONSENT_DECLINED:"ผู้รับบริการไม่ยินยอม",

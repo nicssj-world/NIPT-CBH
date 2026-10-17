@@ -1,6 +1,6 @@
 import {describe,it,expect} from 'vitest';
 import fc from 'fast-check';
-import {isoDate,parseBeInput,formatBe,formatBeText,formatBeDateTime,displayBe,isRealIsoDate,bangkokIsoDay} from '../../packages/domain/thai-date';
+import {isoDate,parseBeInput,parseBeDateTime,formatBeWall,formatBe,formatBeText,formatBeDateTime,displayBe,isRealIsoDate,bangkokIsoDay} from '../../packages/domain/thai-date';
 import {formatControlCode,formatPrintedControlId,formatLnHalos} from '../../packages/lab/rules';
 
 describe('Thai BE date standard (Plan Rev 3.4 §7)',()=>{
@@ -49,6 +49,15 @@ describe('Thai BE date standard (Plan Rev 3.4 §7)',()=>{
   expect(formatBeDateTime('2026-10-16T16:59:00Z')).toBe('16/10/2569 23:59');
   expect(formatBeDateTime('2026-10-16T17:00:00Z')).toBe('17/10/2569 00:00');
   expect(bangkokIsoDay(new Date('2026-12-31T17:00:00Z'))).toBe('2027-01-01');
+ });
+ it('BE date-time (Asia/Bangkok wall time, 24 h) round-trips to the wall string used by the existing instant conversion',()=>{
+  expect(parseBeDateTime('01/10/2569 10:00')).toEqual({ok:true,wall:'2026-10-01T10:00'});
+  expect(parseBeDateTime('1/10/2569 0:30')).toEqual({ok:true,wall:'2026-10-01T00:30'});
+  expect(formatBeWall('2026-10-01T00:30')).toBe('01/10/2569 00:30');expect(formatBeWall('')).toBe('');
+  expect(parseBeDateTime('01/10/2569 24:00')).toEqual({ok:false,code:'INVALID_TIME'});
+  expect(parseBeDateTime('31/02/2569 10:00')).toEqual({ok:false,code:'INVALID_DATE'});
+  expect(parseBeDateTime('01/10/2026 10:00')).toEqual({ok:false,code:'USE_BE_YEAR'});
+  expect(parseBeDateTime('01/10/2569')).toEqual({ok:false,code:'FORMAT_DT'});
  });
  it('identifiers stay Gregorian: a BE-displayed date still yields the Owner-locked CE codes',()=>{
   const parsed=parseBeInput('17/10/2569');if(!parsed.ok)throw new Error('parse');

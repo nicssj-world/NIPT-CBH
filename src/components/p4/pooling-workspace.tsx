@@ -6,6 +6,7 @@ import type {workspace} from '../../../packages/pooling/service';
 import {QC2_CRITERIA} from '../../../packages/pooling/constants';
 import {labApi,LabFailure} from './lab-api';
 import {Dialog,csrf} from '../p2/shared';
+import {ThaiDateFormField} from "../shared/thai-date-input";
 // JSON transport converts Date fields to strings; the UI always formats them through new Date.
 export type PoolingData=Awaited<ReturnType<typeof workspace>>;
 const number=(f:FormData,k:string)=>String(f.get(k)??'');
@@ -45,7 +46,7 @@ export function PoolingWorkspace({initial,userId,canWrite=true,canReview=false}:
    {canWrite&&active&&['IN_EXECUTION','QC2'].includes(c.state)&&<form aria-label="บันทึกหลักฐาน Pool" onSubmit={e=>{e.preventDefault();const f=new FormData(e.currentTarget),field=number(f,'field'),source=number(f,'source'),slot=field==='TRANSFER'?Number(number(f,'slot')):null,old=c.observations.find(o=>o.field===field&&o.slot===slot),paperTime=number(f,'paperTime');void run('record',{field,...(field==='TRANSFER'?{slot,value:{checked:true}}:{value:{value:number(f,'value'),unit:field==='BUFFER'?'uL':'ng/uL'}}),source,...(old?{supersedesId:old.id,reason:number(f,'correctionReason')}:{ }),...(source==='PAPER_TRANSCRIPTION'?{copyId:number(f,'copyId'),eventPrecision:paperTime?'MINUTE':'NOT_RECORDED',...(paperTime?{eventTime:new Date(paperTime+':00+07:00').toISOString()}:{})}:{})});}}>
     <h2>บันทึกค่าปฏิบัติจริงในแบบจำลอง</h2><div className="form-grid"><label>ฟิลด์<select name="field">{(c.state==='IN_EXECUTION'?['TRANSFER','BUFFER']:['QC2','STD1','STD2']).map(f=><option key={f}>{f}</option>)}</select></label>
     <label>ตำแหน่ง (เฉพาะ Transfer)<select name="slot">{c.payload.members.map(m=><option key={m.slot}>{m.slot}</option>)}</select></label><label>ค่าที่วัด / ปริมาตรจริง<input name="value" inputMode="decimal"/></label>
-    <label>Source<select name="source"><option>DIRECT_ENTRY</option><option>PAPER_TRANSCRIPTION</option></select></label><label>เลขสำเนา (กระดาษ)<select name="copyId"><option value="">เลือกสำเนา</option>{c.copies.filter(x=>x.kind==='WORKING_COPY').map(x=><option key={String(x.id)} value={String(x.id)}>{String(x.copy_number)} / {String(x.id)}</option>)}</select></label><label>เวลาในหลักฐานกระดาษ (กรุงเทพฯ ถ้ามี)<input type="datetime-local" name="paperTime"/></label><label>เหตุผลแก้ค่า / วัดซ้ำ (ถ้ามีค่าเดิม)<input name="correctionReason" minLength={8}/></label></div>
+    <label>Source<select name="source"><option>DIRECT_ENTRY</option><option>PAPER_TRANSCRIPTION</option></select></label><label>เลขสำเนา (กระดาษ)<select name="copyId"><option value="">เลือกสำเนา</option>{c.copies.filter(x=>x.kind==='WORKING_COPY').map(x=><option key={String(x.id)} value={String(x.id)}>{String(x.copy_number)} / {String(x.id)}</option>)}</select></label><ThaiDateFormField name="paperTime" label="เวลาในหลักฐานกระดาษ (กรุงเทพฯ ถ้ามี)" withTime/><label>เหตุผลแก้ค่า / วัดซ้ำ (ถ้ามีค่าเดิม)<input name="correctionReason" minLength={8}/></label></div>
     <p>ถ้ากระดาษไม่ระบุเวลา ให้เว้นว่าง (NOT_RECORDED) · ค่าแก้ไขไม่ทับหลักฐานเดิม และต้องทวนสอบใหม่โดยคนที่สอง</p><button className="button" disabled={busy}>บันทึกหลักฐาน</button>
    </form>}
    <h2>หลักฐานและการทวนสอบ</h2><ul>{c.observations.map(o=><li key={o.id}>{o.field} {o.slot??''}: {o.value.checked?'ทำแล้ว':o.value.value} · {o.source} · {o.review?.result??'รอทวนสอบ'}

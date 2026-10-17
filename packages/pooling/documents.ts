@@ -9,8 +9,9 @@ import type {F4Document} from '../pdf/f4';
 import {operationalWorkflow} from '../lab/operational';
 import {isNativeIssue,type NativeIssuePort} from '../workbook/controlled';
 import {labelNativeCopy} from '../workbook/controlled-copy';
+import {formatBeDateTime} from '../domain/thai-date';
 export type F4Deps={store:FileStore;render:(d:F4Document)=>Promise<Buffer>;native?:NativeIssuePort};
-const evidence=(o:Awaited<ReturnType<typeof observations>>[number])=>`${o.field}${o.slot?' '+o.slot:''}: ${o.value.checked?'✓':o.value.value+' '+o.value.unit} | Source ${o.source} / Copy ${o.copy_id??'—'} / Event ${o.event_time?new Date(o.event_time).toISOString():'NOT_RECORDED'} (${o.event_precision}) / Recorded ${new Date(o.recorded_at).toISOString()} by ${o.recorded_by} / Verified ${o.review?.reviewer_id??'—'} at ${o.review?new Date(o.review.created_at).toISOString():'—'}`;
+const evidence=(o:Awaited<ReturnType<typeof observations>>[number])=>`${o.field}${o.slot?' '+o.slot:''}: ${o.value.checked?'✓':o.value.value+' '+o.value.unit} | Source ${o.source} / Copy ${o.copy_id??'—'} / Event ${o.event_time?formatBeDateTime(o.event_time):'NOT_RECORDED'} (${o.event_precision}) / Recorded ${formatBeDateTime(o.recorded_at)} by ${o.recorded_by} / Verified ${o.review?.reviewer_id??'—'} at ${o.review?formatBeDateTime(o.review.created_at):'—'}`;
 export async function issueSyntheticDocument(db:Queryable,user:Staff,input:unknown,deps:F4Deps,previewOnly=false){
  const d=common.extend({kind:z.enum(['PRE_WORK','COMPLETED']),purpose:z.enum(['SYNTHETIC_SIMULATION','OPERATIONAL'])}).parse(input);
  const operational=await operationalWorkflow(db);if((d.purpose==='OPERATIONAL')!==operational)throw new LabError('DOCUMENT_MODE_MISMATCH',409);

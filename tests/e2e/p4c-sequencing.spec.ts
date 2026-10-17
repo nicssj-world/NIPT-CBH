@@ -54,8 +54,8 @@ test('P4c browser: stored HOLD Pool → F5 preview/original → QC3 independent 
  await expect(page.getByRole('heading',{name:'DNB / Sequencing / F5',exact:true})).toBeVisible();await expect(page.getByText(/Acceptance: HOLD/)).toBeVisible();
  for(const width of [375,768,1280,1440]){await page.setViewportSize({width,height:1000});await accessible(page);}
  const form=page.getByRole('form',{name:'สร้าง DNB จำลอง'});
- await form.getByLabel('เครื่องมือเตรียม DNB',{exact:true}).fill('SYN-DNB-BROWSER');await form.getByLabel('ชื่อน้ำยา',{exact:true}).fill('Synthetic reagent');await form.getByLabel('Lot',{exact:true}).fill('SYN-LOT');await form.getByLabel('วันหมดอายุน้ำยา',{exact:true}).fill('2099-12-31');await form.getByLabel('เหตุผล / ที่มาของแบบจำลอง').fill('จำลอง browser DNB workflow');await form.getByLabel('บันทึก Pre-clean ในแบบจำลองแล้ว').check();await form.getByLabel('บันทึกเตรียมน้ำยา Loading ในแบบจำลองแล้ว').check();
- await form.getByRole('button').click();await expect(page.getByRole('heading',{name:/Attempt 1 · DRAFT/})).toBeVisible();
+ await form.getByLabel('เครื่องมือเตรียม DNB',{exact:true}).fill('SYN-DNB-BROWSER');await form.getByLabel('ชื่อน้ำยา',{exact:true}).fill('Synthetic reagent');await form.getByLabel('Lot',{exact:true}).fill('SYN-LOT');await form.getByLabel('วันหมดอายุน้ำยา',{exact:true}).fill('31/12/2642');await form.getByLabel('เหตุผล / ที่มาของแบบจำลอง').fill('จำลอง browser DNB workflow');await form.getByLabel('บันทึก Pre-clean ในแบบจำลองแล้ว').check();await form.getByLabel('บันทึกเตรียมน้ำยา Loading ในแบบจำลองแล้ว').check();
+ await form.getByRole('button',{name:'สร้าง DNB จำลองจาก HOLD snapshot'}).click();await expect(page.getByRole('heading',{name:/Attempt 1 · DRAFT/})).toBeVisible(); // the form now also has BE calendar buttons
  await page.getByRole('button',{name:'Preview F5 Pre-work จำลอง',exact:true}).click();const dialog=page.getByRole('dialog');await expect(dialog).toBeVisible();await expect(dialog.locator('iframe')).toBeVisible();await dialog.getByRole('button',{name:'ปิด',exact:true}).click();
  await page.getByRole('button',{name:'ออก F5 Pre-work จำลอง',exact:true}).click();await expect(page.getByRole('heading',{name:/· PRE_WORK/})).toBeVisible();await page.getByRole('button',{name:'เริ่ม DNB จำลอง',exact:true}).click();await page.getByRole('button',{name:'จบ DNB จำลอง',exact:true}).click();
  const qc=page.getByRole('form',{name:'บันทึก QC3'});
@@ -81,7 +81,9 @@ test('P4c held QC4 lane allows a replacement sequencing attempt from UI with cur
  await expect(page.getByRole('heading',{name:/SEQUENCE_HOLD/})).toBeVisible();
  const form=page.getByRole('form',{name:'บันทึก Sequencing'});await expect(form).toBeVisible();
  const values:Record<string,string>={equipment:'SYN-G50',sequencing:'SYN-RUN2',cartridge:'SYN-CART2',flowcell:'SYN-FLOW2',barcode:'SYN-UNVERIFIED',from:'1',to:'48',recipe:'SYN-RECIPE',readCycles:'35',barcodeCycles:'10',assay:'SYN-NIPT',pressure:'-81',disk:'501',washLot:'SYN-WASH2',washPrepared:bangkokToday(),washExpiry:'2099-12-31'};
- for(const [name,value] of Object.entries(values))await form.locator(`input[name="${name}"]`).fill(value);
+ // Dates are typed in BE into the visible field (Owner date standard); the hidden form value stays ISO.
+  const beLabel:Record<string,string>={washPrepared:'Wash วันที่เตรียม',washExpiry:'Wash วันหมดอายุ'};
+  for(const [name,value] of Object.entries(values))if(beLabel[name]){const [y,m,d]=value.split('-');await form.getByLabel(beLabel[name],{exact:true}).fill(`${d}/${m}/${Number(y)+543}`);}else await form.locator(`input[name="${name}"]`).fill(value);
  await form.locator('input[name="preWash"]').check();await form.getByRole('button',{name:'บันทึก Sequencing จำลอง',exact:true}).click();
  await expect(page.getByText(/Run attempt 2 \/ SYN-G50 \/ SYN-RUN2/)).toBeVisible();await expect(page.getByRole('form',{name:'จบ Sequencing'})).toHaveCount(0);
  await page.getByRole('button',{name:'เริ่ม Sequencing จำลอง (ต้อง Verification MATCH)',exact:true}).click();await expect(page.getByRole('form',{name:'จบ Sequencing'})).toBeVisible();

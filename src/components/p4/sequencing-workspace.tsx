@@ -5,9 +5,11 @@ import type {sequencingWorkspace} from '../../server/p4c';
 import {QC3_CRITERIA,QC4_CRITERIA} from '../../../packages/sequencing/constants';
 import {Dialog,csrf} from '../p2/shared';
 import {labApi,LabFailure,bkk} from './lab-api';
+import {ThaiDateFormField} from "../shared/thai-date-input";
 export type SequencingData=Awaited<ReturnType<typeof sequencingWorkspace>>;
 const value=(f:FormData,k:string)=>String(f.get(k)??'');
-const Text=({name,label,type='text',required=true,defaultValue}:{name:string;label:string;type?:string;required?:boolean;defaultValue?:string})=><label>{label}<input name={name} type={type} required={required} defaultValue={defaultValue}/></label>;
+// Dates/times are typed in BE (Owner decision); the submitted FormData value keeps its ISO / wall-time format.
+const Text=({name,label,type='text',required=true,defaultValue}:{name:string;label:string;type?:string;required?:boolean;defaultValue?:string})=>type==='date'||type==='datetime-local'?<ThaiDateFormField name={name} label={label} required={required} defaultValue={defaultValue} withTime={type==='datetime-local'}/>:<label>{label}<input name={name} type={type} required={required} defaultValue={defaultValue}/></label>;
 async function jsonFile(f:FormData,key:string){const file=f.get(key);if(!(file instanceof File)||!file.size)return undefined;if(file.size>100000)throw Error('ไฟล์ใหญ่เกินกำหนด');return JSON.parse(await file.text());}
 export function SequencingWorkspace({initial,userId,today,canWrite,canReview,canVerify}:{initial:SequencingData;userId:string;today:string;canWrite:boolean;canReview:boolean;canVerify:boolean}){
  const [w,setW]=useState(initial),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[preview,setPreview]=useState<string|null>(null);

@@ -2,6 +2,7 @@ import {z} from 'zod';
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {chromium} from 'playwright';
+import {displayBeDateTime} from '../domain/thai-date';
 const short=z.string().max(160),text=z.string().max(1200);
 export const f4Schema=z.strictObject({form:z.literal('F4'),synthetic:z.literal(true),clinicalUsable:z.literal(false),
  kind:z.enum(['PRE_WORK','COMPLETED']),preview:z.boolean(),templateVersion:z.literal('SYNTHETIC-F4-v1'),fieldInventory:z.literal('SEED_UNVERIFIED'),
@@ -28,7 +29,7 @@ export async function renderF4Pdf(input:F4Document){
  const html=f4Html(d).replace('<style>',`<style>@font-face{font-family:Thai;src:url(data:font/woff2;base64,${font.toString('base64')})}`);
  const browser=await chromium.launch({headless:true,args:process.env.CHROMIUM_NO_SANDBOX==='true'?['--no-sandbox']:[]});
  try{const page=await browser.newPage({javaScriptEnabled:false});await page.route('**/*',r=>r.abort());await page.setContent(html);await page.evaluate(()=>document.fonts.ready);
-  const footer=`<div style="font:7px Arial;width:100%;margin:0 10mm">${e(d.runLabel)} · F4 ${e(d.kind)} · ${e(d.docId)} Rev 1 · Pool ${e(d.poolId)} / ${e(d.poolHash)}<br>${e(d.templateVersion)} / ${e(d.formulaVersion)} / SEED_UNVERIFIED · ${e(d.issuedAt)} / ${e(d.issuedBy)} · SYNTHETIC ONLY · <span class="pageNumber"></span>/<span class="totalPages"></span>${d.copy?`<br>${e(d.copy.kind)} #${d.copy.number} / ${e(d.copy.status)} / Original SHA256 ${e(d.copy.originalHash)} / ${e(d.copy.actor)} / ${e(d.copy.at)}`:''}</div>`;
+  const footer=`<div style="font:7px Arial;width:100%;margin:0 10mm">${e(d.runLabel)} · F4 ${e(d.kind)} · ${e(d.docId)} Rev 1 · Pool ${e(d.poolId)} / ${e(d.poolHash)}<br>${e(d.templateVersion)} / ${e(d.formulaVersion)} / SEED_UNVERIFIED · ${e(displayBeDateTime(d.issuedAt))} / ${e(d.issuedBy)} · SYNTHETIC ONLY · <span class="pageNumber"></span>/<span class="totalPages"></span>${d.copy?`<br>${e(d.copy.kind)} #${d.copy.number} / ${e(d.copy.status)} / Original SHA256 ${e(d.copy.originalHash)} / ${e(d.copy.actor)} / ${e(d.copy.at)}`:''}</div>`;
   return await page.pdf({format:'A4',printBackground:true,displayHeaderFooter:true,headerTemplate:'<span></span>',footerTemplate:footer,margin:{top:'10mm',bottom:'22mm',left:'10mm',right:'10mm'}});
  }finally{await browser.close();}
 }

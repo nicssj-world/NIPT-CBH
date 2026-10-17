@@ -3,6 +3,7 @@ import Link from "next/link";
 import {useCallback,useEffect,useState} from "react";
 import {labApi,failureText,bkk,LabFailure} from "../p4/lab-api";
 import {STATE_TEXT,STATE_TONE,KIND_TEXT,CONTAINER_TEXT,CROSS_TEXT,CMP_TEXT,CMP_TONE,GATE_NAME,TRI_TEXT,TRI_TONE,reasonText,bytes} from "./labels";
+import {ThaiDateInput} from "../shared/thai-date-input";
 
 type Field={value:string|number|null;raw:string|null;method:string};
 type Cross=Record<string,string>;
@@ -126,7 +127,7 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
        <label className="check-label"><input type="radio" name="name-review" checked={nameReview==="REVISION"} onChange={()=>{setNameReview("REVISION");setRevise(true);}}/> ฉบับแก้ไขของรายงานที่รอบนี้มีอยู่แล้ว</label></fieldset>
       :<label className="check-label"><input type="checkbox" checked={revise} onChange={e=>setRevise(e.target.checked)}/> เป็นฉบับแก้ไขของรายงานที่รอบนี้มีอยู่แล้ว</label>}
       {revise&&<fieldset className="form-grid"><legend>ข้อมูลคำขอแก้ไข</legend>
-       <div className="field"><label htmlFor="rev-date">วันที่รับเรื่อง</label><input id="rev-date" type="date" value={rev.receivedDate} onChange={e=>setRev({...rev,receivedDate:e.target.value})} required/></div>
+       <div className="field"><label htmlFor="rev-date">วันที่รับเรื่อง</label><ThaiDateInput id="rev-date" value={rev.receivedDate} onChange={v=>setRev({...rev,receivedDate:v})} required/></div>
        <div className="field"><label htmlFor="rev-by">ผู้ขอ / หน่วยงาน</label><input id="rev-by" value={rev.requestedBy} onChange={e=>setRev({...rev,requestedBy:e.target.value})} required/></div>
        <div className="field"><label htmlFor="rev-reason">เหตุผลการแก้ไข</label><input id="rev-reason" value={rev.reason} onChange={e=>setRev({...rev,reason:e.target.value})} minLength={8} required/></div></fieldset>}
       <div className="action-bar"><button className="button" disabled={!picked||!!busy||(d.nameConflicts.length>0&&!nameReview)}>{busy==="propose"?"กำลังส่ง…":"เสนอการเชื่อมโยง"}</button></div>

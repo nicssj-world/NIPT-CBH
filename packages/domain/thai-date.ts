@@ -34,6 +34,17 @@ export function parseBeInput(input:string):BeParse{
  const iso=`${String(beYear-BE_OFFSET).padStart(4,'0')}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
  return isRealIsoDate(iso)?{ok:true,iso}:{ok:false,code:'INVALID_DATE'};
 }
+const DT=/^(\d{1,2}[/.-]\d{1,2}[/.-]\d{4})\s+(\d{1,2}):(\d{2})$/;
+/** Parses `dd/mm/yyyy HH:mm` (BE, 24 h, Asia/Bangkok wall time) into the wall string `YYYY-MM-DDTHH:mm` (CE). */
+export function parseBeDateTime(input:string):{ok:true;wall:string}|{ok:false;code:'EMPTY'|'FORMAT_DT'|'FORMAT'|'USE_BE_YEAR'|'INVALID_DATE'|'INVALID_TIME'}{
+ const s=input.trim();if(!s)return {ok:false,code:'EMPTY'};
+ const m=DT.exec(s);if(!m)return {ok:false,code:'FORMAT_DT'};
+ const d=parseBeInput(m[1]);if(!d.ok)return {ok:false,code:d.code==='EMPTY'?'FORMAT_DT':d.code};
+ const h=Number(m[2]),mi=Number(m[3]);if(h>23||mi>59)return {ok:false,code:'INVALID_TIME'};
+ return {ok:true,wall:`${d.iso}T${String(h).padStart(2,'0')}:${String(mi).padStart(2,'0')}`};
+}
+/** Wall string `YYYY-MM-DDTHH:mm` (CE) → `dd/mm/yyyy HH:mm` (BE); empty for missing, raw text for unparseable stored data. */
+export function formatBeWall(wall:string){const [d,t]=wall.split('T');if(!d||!t)return '';try{return `${formatBe(d)} ${t.slice(0,5)}`;}catch{return wall;}}
 function parts(iso:string){
  if(!isRealIsoDate(iso))throw new Error('ISO_DATE_REQUIRED');
  // A BE-range ISO year would be converted a second time; refuse instead of printing e.g. 3112.

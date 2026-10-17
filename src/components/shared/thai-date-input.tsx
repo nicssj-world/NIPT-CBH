@@ -1,6 +1,6 @@
 "use client";
 import {useEffect,useId,useRef,useState,type KeyboardEvent} from "react";
-import {parseBeInput,formatBe,bangkokIsoDay,BE_OFFSET,THAI_MONTH_LONG} from "../../../packages/domain/thai-date";
+import {parseBeInput,parseBeDateTime,formatBe,formatBeWall,bangkokIsoDay,BE_OFFSET,THAI_MONTH_LONG} from "../../../packages/domain/thai-date";
 
 // Owner decision (Plan Rev 3.4 §7): every user-facing date input is Thai Buddhist Era. Native <input type=date> shows
 // the browser/OS calendar (CE in Chrome/Edge/Safari) and silently accepts 2569 as CE, so it is not used for BE fields.
@@ -15,9 +15,9 @@ const shiftMonth=(value:string,months:number)=>{const [y,m,d]=value.split("-").m
 const safeFormat=(value:string)=>{try{return value?formatBe(value):"";}catch{return value;}};
 
 export type ThaiDateInputProps={id?:string;value:string|null|undefined;onChange:(iso:string)=>void;required?:boolean;disabled?:boolean;
- "aria-describedby"?:string;"aria-invalid"?:boolean;"aria-required"?:boolean;"aria-label"?:string;name?:string};
+ "aria-describedby"?:string;"aria-invalid"?:boolean;"aria-required"?:boolean;"aria-label"?:string;name?:string;"data-field"?:string};
 
-export function ThaiDateInput({id,value,onChange,required,disabled,name,...aria}:ThaiDateInputProps){
+export function ThaiDateInput({id,value,onChange,required,disabled,name,"data-field":dataField,...aria}:ThaiDateInputProps){
  const auto=useId(),inputId=id??auto,hintId=inputId+"-be-hint",errorId=inputId+"-be-error";
  const [text,setText]=useState(()=>safeFormat(value??"")),[error,setError]=useState(""),[open,setOpen]=useState(false);
  // `seen` = the last ISO value this input emitted or received. External changes (reload, reset) replace the text;
@@ -33,7 +33,7 @@ export function ThaiDateInput({id,value,onChange,required,disabled,name,...aria}
  const describedBy=[aria["aria-describedby"],hintId,error?errorId:""].filter(Boolean).join(" ");
  return <div className="be-date">
   <div className="be-date-row">
-   <input id={inputId} name={name} type="text" inputMode="numeric" autoComplete="off" placeholder="วว/ดด/ปปปป" maxLength={10} value={text} disabled={disabled}
+   <input id={inputId} name={name} data-field={dataField} type="text" inputMode="numeric" autoComplete="off" placeholder="วว/ดด/ปปปป" maxLength={10} value={text} disabled={disabled}
     aria-label={aria["aria-label"]} aria-describedby={describedBy} aria-invalid={error?true:aria["aria-invalid"]} aria-required={required||aria["aria-required"]||undefined}
     onChange={e=>{const t=e.target.value.replace(/[^\d/.-]/g,"");setText(t);const r=parseBeInput(t);if(r.ok){setError("");emit(r.iso);}else if(seen!==""&&!t.trim())emit("");}}
     onBlur={e=>commit(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")commit((e.target as HTMLInputElement).value);}}/>
@@ -43,6 +43,44 @@ export function ThaiDateInput({id,value,onChange,required,disabled,name,...aria}
   {error&&<p id={errorId} className="field-error" role="alert">{error}</p>}
   {open&&<BeCalendar initial={seen||bangkokIsoDay()} selected={seen} onClose={()=>setOpen(false)} onPick={v=>{setText(formatBe(v));setError("");emit(v);setOpen(false);}}/>}
  </div>;
+}
+
+const formatWall=(wall:string)=>formatBeWall(wall);
+const DT_ERROR:Record<string,string>={...ERROR,FORMAT_DT:"กรอกเป็น วว/ดด/ปปปป ชช:นน เช่น 17/10/2569 09:30",INVALID_TIME:"เวลาไม่ถูกต้อง (00:00–23:59)"};
+
+/**
+ * BE date + 24 h time in one control (`วว/ดด/ปปปป ชช:นน`), Asia/Bangkok wall time. Emits the same wall string
+ * (`YYYY-MM-DDTHH:mm`, CE) that native datetime-local produced, so existing bangkokInput/bangkokInstant conversions apply.
+ */
+export function ThaiDateTimeInput({id,value,onChange,required,disabled,name,"data-field":dataField,...aria}:ThaiDateInputProps){
+ const auto=useId(),inputId=id??auto,hintId=inputId+"-be-hint",errorId=inputId+"-be-error";
+ const [text,setText]=useState(()=>formatWall(value??"")),[error,setError]=useState(""),[open,setOpen]=useState(false),[seen,setSeen]=useState(value??"");
+ if((value??"")!==seen){setSeen(value??"");setText(formatWall(value??""));setError("");}
+ const emit=(v:string)=>{setSeen(v);onChange(v);};
+ const commit=(raw:string)=>{if(!raw.trim()){setError(required?DT_ERROR.REQUIRED:"");emit("");return;}
+  const r=parseBeDateTime(raw);if(r.ok){setError("");setText(formatWall(r.wall));emit(r.wall);}else{setError(DT_ERROR[r.code]??DT_ERROR.FORMAT_DT);emit("");}};
+ const describedBy=[aria["aria-describedby"],hintId,error?errorId:""].filter(Boolean).join(" ");
+ return <div className="be-date">
+  <div className="be-date-row">
+   <input id={inputId} name={name} data-field={dataField} type="text" inputMode="numeric" autoComplete="off" placeholder="วว/ดด/ปปปป ชช:นน" maxLength={16} value={text} disabled={disabled}
+    aria-label={aria["aria-label"]} aria-describedby={describedBy} aria-invalid={error?true:aria["aria-invalid"]} aria-required={required||aria["aria-required"]||undefined}
+    onChange={e=>{const t=e.target.value.replace(/[^\d/.\-: ]/g,"");setText(t);const r=parseBeDateTime(t);if(r.ok){setError("");emit(r.wall);}else if(seen!==""&&!t.trim())emit("");}}
+    onBlur={e=>commit(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")commit((e.target as HTMLInputElement).value);}}/>
+   <button className="button secondary be-date-open" type="button" disabled={disabled} aria-label="เลือกวันที่จากปฏิทิน (พ.ศ.)" aria-haspopup="dialog" onClick={()=>setOpen(true)}>ปฏิทิน</button>
+  </div>
+  <p id={hintId} className="help small">วว/ดด/ปปปป ชช:นน (พ.ศ., เวลาไทย 24 ชม.)</p>
+  {error&&<p id={errorId} className="field-error" role="alert">{error}</p>}
+  {open&&<BeCalendar initial={seen.slice(0,10)||bangkokIsoDay()} selected={seen.slice(0,10)} onClose={()=>setOpen(false)} onPick={v=>{const time=seen.slice(11,16)||"00:00";const wall=`${v}T${time}`;setText(formatWall(wall));setError("");emit(wall);setOpen(false);}}/>}
+ </div>;
+}
+
+/**
+ * For uncontrolled forms read through FormData: shows the BE control and submits the unchanged value format under `name`
+ * (ISO date `YYYY-MM-DD`, or wall time `YYYY-MM-DDTHH:mm` with `withTime`), exactly what the native input used to submit.
+ */
+export function ThaiDateFormField({name,label,required=false,defaultValue="",withTime=false}:{name:string;label:string;required?:boolean;defaultValue?:string;withTime?:boolean}){
+ const id=useId(),[value,setValue]=useState(defaultValue),Input=withTime?ThaiDateTimeInput:ThaiDateInput;
+ return <div className="field"><label htmlFor={id}>{label}</label><Input id={id} value={value} onChange={setValue} required={required}/><input type="hidden" name={name} value={value}/></div>;
 }
 
 /** WAI-ARIA date picker dialog: grid of days, arrows/PageUp/PageDown/Home/End, Enter selects, Esc closes. BE month/year headings. */
