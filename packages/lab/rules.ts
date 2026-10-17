@@ -45,6 +45,16 @@ export function formatPrintedControlId(type: ControlType, isoDate: string) {
   return code ? `${code}-1` : "";
 }
 
+/**
+ * Owner Lock OD-R1/OD-R1a: the specimen code shown on screens and tube labels is BASE, BASED (Twins), BASER (redraw S2
+ * received via HIS PET) or BASEDR (Twins redraw) — D before R. `isResampling` comes from data (the S2 LN Halos row reuses
+ * the S1 base: specimen_lab_number.original_round_id), never from inspecting a string. Accepts only an unsuffixed base
+ * (effectiveLnHalos rejects anything else), so a suffix can never be applied twice. The stored base never changes.
+ */
+export function specimenDisplayCode(base: string, pregnancy: "Singleton" | "Twins" | "Unknown" | null, isResampling: boolean) {
+  return `${effectiveLnHalos(base, pregnancy)}${isResampling ? RUN_SUFFIX["Re-Sampling"] : ""}`;
+}
+
 /** Analytical run-type suffixes. NOT the tube-label `-1/-2/-3` composition (AT-LABEL-06). */
 export const RUN_SUFFIX = { Normal: "-1", "Re-Library": "-2", "Re-Sampling": "R" } as const;
 export type RunType = keyof typeof RUN_SUFFIX;
@@ -89,7 +99,7 @@ export function printedSampleId(input: { base: string; pregnancy: "Singleton" | 
   const code = effectiveLnHalos(input.base, input.pregnancy);
   if(input.receivedSource==='HIS_PET_RECEIPT'&&(input.roundNumber??1)>1){
     if(input.roundNumber!==2||input.attemptNumber!==1||input.repeatLevel!==null)return null;
-    return formatRunSampleId(code,'Re-Sampling');
+    return specimenDisplayCode(input.base,input.pregnancy,true); // same text as before: BASE[D]R
   }
   if (input.attemptNumber === 1 && input.repeatLevel === null) return formatRunSampleId(code, "Normal");
   if (input.attemptNumber > 1 && input.repeatLevel === "RE_LIBRARY" && input.earlierReLibraryCount === 0) return formatRunSampleId(code, "Re-Library");

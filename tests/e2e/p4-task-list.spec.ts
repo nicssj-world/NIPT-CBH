@@ -158,7 +158,8 @@ test("P0-5 / PDF acceptance: native Excel PDF per Task 1–3 carries only its ow
   await expect(page.getByRole("region",{name:`สรุป Task List ${n}`})).toContainText(p.control);
   const [download]=await Promise.all([page.waitForEvent("download",{timeout:300000}),page.getByRole("button",{name:`ดาวน์โหลด PDF Task List ${n}`}).click()]);
   await expect(page.getByRole("status")).toContainText(`สร้าง PDF ของ Task List ${n} แล้ว (สำเนาตรวจทาน — ไม่ใช่เอกสารควบคุม)`);
-  const {pages,text}=await pdfText(await download.path());
+  const saved=`.local/p0-e2e/evidence/${run.replace("/","-")}_Task-List-${n}.pdf`;await download.saveAs(saved); // kept as acceptance evidence (ignored by git)
+  const {pages,text}=await pdfText(saved);
   expect(pages,`Task ${n} page count`).toBe(2);
   for(const s of [p.be,run,p.op,`${p.lot} / ${p.expBe}`,p.control,ids[n-1].printed_sample_id])expect(text,`Task ${n} must contain ${s}`).toContain(s);
   for(const m of [1,2,3].filter(m=>m!==n))for(const s of [plan[m].op,plan[m].lot,plan[m].control])expect(text,`Task ${n} must not contain Task ${m} value ${s}`).not.toContain(s);

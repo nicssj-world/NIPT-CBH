@@ -4,7 +4,7 @@ import type {Queryable} from '../db/connection';
 import {recordPhiAccess} from '../db/phi-access';
 import {lockLn} from '../db/registration';
 import {buildTubeLabelsHtml} from './labels';
-import {effectiveLnHalos} from './rules';
+import {specimenDisplayCode} from './rules';
 import {compareReceive,READY_QUEUE_DEFAULT_SORT} from './receive-sort';
 import {LabError,uuid,reasonText,need,assertSession,audit,caseEvent,attemptEvent,setAttemptState,pendingPolicy,attemptFacts,assignmentDecision,candidatePrintedId,caseVisible,bangkokToday,
  REDRAW_REASONS,REPEAT_REASONS,REPEAT_LEVELS,type Staff,type AttemptRow} from './core';
@@ -16,7 +16,7 @@ const iso=(d:Date|null)=>d?d.toISOString():null;
 function worklistRow(r:AttemptRow,policy:'HOLD'|'PROCEED_SYNTHETIC_LABELLED'){
  const gate=r.attempt_state==='Ready'?assignmentDecision(r,policy):null;
  const category:QueueCategory=r.attempt_state==='Ready'?(gate!.eligible?'READY':'GATE_BLOCKED'):r.attempt_state==='Assigned'?'IN_BATCH':r.attempt_state==='InProgress'?'IN_PROGRESS':r.attempt_state==='QcFailed'?'QC_FAILED':['Stopped','BatchCancelled'].includes(r.attempt_state)?'NEEDS_DECISION':'OTHER';
- const code=r.ln_halos&&r.pregnancy?effectiveLnHalos(r.ln_halos,r.pregnancy):r.ln_halos;
+ const code=r.ln_halos?specimenDisplayCode(r.ln_halos,r.pregnancy,r.ln_halos_resampling):r.ln_halos; // OD-R1a: BASE[D][R]
  return {kind:'ATTEMPT' as const,category,caseId:r.case_id,roundId:r.round_id,roundNumber:r.round_number,receivedSource:r.received_source,receivedAt:iso(r.received_at),hisLn:r.ln,lnHalos:r.ln_halos,labelCode:code,pregnancy:r.pregnancy,
   attemptId:r.attempt_id,attemptNumber:r.attempt_number,attemptState:r.attempt_state,printedSampleId:candidatePrintedId(r).id,repeat:r.repeat_order_id?{level:r.repeat_level,state:r.repeat_state}:null,
   urgent:r.urgent,urgentReason:r.urgent_reason,hold:r.hold?{stage:r.hold_stage}:null,resumeDecisionRequired:r.resume_decision_required,qcFailedStage:r.qc_failed_stage,
@@ -187,7 +187,7 @@ async function bumpSheet(db:Queryable,batchId:string,slot:number){
 const labelInput=z.strictObject({roundIds:z.array(uuid).min(1).max(48).refine(v=>new Set(v).size===v.length,'DUPLICATE_ROUND'),includeName:z.boolean(),reason:reasonText.optional()});
 /** Owner Lock §5: labels come only from an already-issued LN Halos; printing/reprinting never issues or changes a number. */
 async function labelSamples(db:Queryable,user:Staff,d:z.infer<typeof labelInput>){
- const rows=(await db.query<{round_id:string;case_id:string;ln:string;ln_halos:string;round_state:string;unit_id:string|null;registration_origin:string;prints:number;name:string|null}>(`SELECT n.round_id,n.case_id,l.ln,n.ln_halos,r.state round_state,
+ const rows=(await db.query<{round_id:string;case_id:string;ln:string;ln_halos:string;resampling:boolean;round_state:string;unit_id:string|null;registration_origin:string;prints:number;name:string|null}>(`SELECT n.round_id,n.case_id,l.ln,n.ln_halos,(n.original_round_id IS NOT NULL) resampling,r.state round_state,
    (SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=n.case_id ORDER BY s.unit_id LIMIT 1) unit_id,c.registration_origin,(SELECT count(*) FROM label_print_item i WHERE i.round_id=n.round_id)::int prints,
    (SELECT w.draft->'patient'->>'syntheticName' FROM p2_workspace w JOIN specimen_round wr ON wr.id=w.round_id WHERE w.case_id=n.case_id ORDER BY wr.round_number DESC LIMIT 1) name
   FROM specimen_lab_number n JOIN specimen_round r ON r.id=n.round_id JOIN nipt_case c ON c.id=n.case_id JOIN case_ln l ON l.id=r.case_ln_id WHERE n.round_id=ANY($1::uuid[])`,[d.roundIds])).rows;
@@ -198,7 +198,8 @@ async function labelSamples(db:Queryable,user:Staff,d:z.infer<typeof labelInput>
  const unconfirmed=ordered.filter(r=>!pregnancy.get(r.round_id)).map(r=>r.round_id);
  if(unconfirmed.length)throw new LabError('PREGNANCY_TYPE_UNCONFIRMED',422,{roundIds:unconfirmed});
  // Name only on explicit request, only a synthetic name the user may already read for that case (Owner Lock §3 line 3).
- const samples=ordered.map(r=>({ln:r.ln,lnHalos:effectiveLnHalos(r.ln_halos,pregnancy.get(r.round_id)!),patientName:d.includeName&&r.name&&/^(SYNTHETIC|จำลอง|ผู้รับบริการจำลอง)/.test(r.name)?r.name:null}));
+ // Tube labels print the display code (OD-R1a): a redraw S2 shows BASE[D]R, never the S1 text.
+ const samples=ordered.map(r=>({ln:r.ln,lnHalos:specimenDisplayCode(r.ln_halos,pregnancy.get(r.round_id)!,r.resampling),patientName:d.includeName&&r.name&&/^(SYNTHETIC|จำลอง|ผู้รับบริการจำลอง)/.test(r.name)?r.name:null}));
  return {ordered,samples,html:buildTubeLabelsHtml(samples),reprint:ordered.some(r=>r.prints>0)};
 }
 export async function previewLabels(db:Queryable,user:Staff,input:unknown){

@@ -44,7 +44,7 @@ export async function pendingPolicy(db:Queryable):Promise<{policy:PendingPolicy;
 }
 export const BATCH_TEMPLATE='SYNTHETIC-BATCH48-PC1-NC25-BLANK40-v1';
 
-export type AttemptRow={attempt_id:string;case_id:string;round_id:string;attempt_number:number;attempt_state:string;repeat_order_id:string|null;printed_sample_id:string|null;resume_decision_required:boolean;qc_failed_stage:string|null;attempt_created_at:Date;
+export type AttemptRow={ln_halos_resampling:boolean;attempt_id:string;case_id:string;round_id:string;attempt_number:number;attempt_state:string;repeat_order_id:string|null;printed_sample_id:string|null;resume_decision_required:boolean;qc_failed_stage:string|null;attempt_created_at:Date;
  round_number:number;round_state:string;received_source:string|null;received_at:Date|null;analysis_started:boolean;round_collection_date:string|null;receipt_check:Record<string,unknown>|null;specimen_accepted?:boolean;
  current_round_id:string;registration_origin:'ANC'|'LAB_DIRECT'|'HISTORICAL';unit_id:string|null;ln:string;ln_verification:string;ln_halos:string|null;
  repeat_state:string|null;repeat_level:RepeatLevel|null;parent_attempt_id:string|null;open_issues:number;revoked:boolean;consent_ev:string|null;request_ev:string|null;clinical_state:string|null;collection_dates:string[];
@@ -55,7 +55,7 @@ export type AttemptRow={attempt_id:string;case_id:string;round_id:string;attempt
 export async function attemptFacts(db:Queryable,where:string,params:unknown[]):Promise<AttemptRow[]>{
  return (await db.query<AttemptRow>(`SELECT a.id attempt_id,a.case_id,a.round_id,a.attempt_number,a.state attempt_state,a.repeat_order_id,a.printed_sample_id,a.resume_decision_required,a.qc_failed_stage,a.created_at attempt_created_at,
   r.round_number,r.state round_state,r.received_source,r.received_at,r.analysis_started,r.collection_date::text round_collection_date,r.receipt_check,
-  c.current_round_id,c.registration_origin,(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=c.id ORDER BY s.unit_id LIMIT 1) unit_id,l.ln,l.verification ln_verification,n.ln_halos,
+  c.current_round_id,c.registration_origin,(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=c.id ORDER BY s.unit_id LIMIT 1) unit_id,l.ln,l.verification ln_verification,n.ln_halos,(n.original_round_id IS NOT NULL) ln_halos_resampling,
   o.state repeat_state,o.level repeat_level,o.parent_attempt_id,
   (SELECT count(*) FROM his_intake_issue i WHERE i.case_id=a.case_id AND i.state IN ('Open','Proposed'))::int open_issues,
   EXISTS(SELECT 1 FROM p2_revocation v WHERE v.case_id=a.case_id) revoked,

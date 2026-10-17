@@ -20,12 +20,28 @@ export function tubeLabelStickers(code: string): [string, string][] {
 }
 
 function cornerSequence(lnHalos: string): string {
-  return /^\d{2}B\d{6}(\d{3})D?$/.exec(lnHalos)?.[1] ?? ''
+  // The corner digits are always the base monthly NNN, also for the redraw codes BASER / BASEDR (OD-R1a).
+  return /^\d{2}B\d{6}(\d{3})D?R?$/.exec(lnHalos)?.[1] ?? ''
+}
+
+/** Usable text width of a half (25 mm minus the left half's 3 mm + 1 mm padding — the narrower half). */
+const HALF_TEXT_WIDTH_MM = 21
+const CODE_FONT_PT = 6.5
+/**
+ * OD-R1b (conditional approval): shrink only a code that would overflow its half; Courier New advances 0.6 em per
+ * character, less the -0.02 em letter-spacing. Every S1 code (≤ 15 characters) fits at 6.5 pt, so S1 output is
+ * unchanged byte-for-byte; in practice only the 16-character Twins redraw halves BASEDR-1/-2/-3 are reduced.
+ */
+export function codeFontSize(code: string): number {
+  const widthMm = code.length * (0.6 - 0.02) * CODE_FONT_PT * 25.4 / 72
+  return widthMm <= HALF_TEXT_WIDTH_MM ? CODE_FONT_PT : Math.floor(CODE_FONT_PT * HALF_TEXT_WIDTH_MM / widthMm * 10) / 10
 }
 
 function half(lnHalos: string, ln: string, name: string | null, isRight: boolean, sequence: string): string {
   const lnSize = Math.floor(Math.min(6, (20 * 72 / 25.4) / ((ln.length + 4) * 0.6)) * 10) / 10
   const lnStyle = lnSize < 6 ? ` style="font-size: ${lnSize}pt"` : ''
+  const codeSize = codeFontSize(lnHalos)
+  const codeStyle = codeSize < CODE_FONT_PT ? ` style="font-size: ${codeSize}pt"` : ''
   const corners = sequence
     ? `<div class="corner-set" aria-hidden="true">
       <span class="corner tl">${sequence}</span><span class="corner tr">${sequence}</span>
@@ -33,7 +49,7 @@ function half(lnHalos: string, ln: string, name: string | null, isRight: boolean
     </div>`
     : ''
   return `<div class="${isRight ? 'right' : 'left'} half">
-    <div class="ln-halos">${escapeHtml(lnHalos)}</div>
+    <div class="ln-halos"${codeStyle}>${escapeHtml(lnHalos)}</div>
     <div class="patient-ln"${lnStyle}>LN: ${escapeHtml(ln)}</div>
     ${name ? `<div class="name">${escapeHtml(name)}</div>` : ''}
     ${corners}

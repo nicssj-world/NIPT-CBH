@@ -1,7 +1,7 @@
 import {z} from 'zod';
 import type {Queryable} from '../db/connection';
 import {contentHash} from '../p2/service';
-import {CONTROL_LABEL,controlTypeOf,formatControlCode,formatPrintedControlId,formatRunLabel,getPlatePosition,getSheetNumber,effectiveLnHalos,type ControlType} from './rules';
+import {CONTROL_LABEL,controlTypeOf,formatControlCode,formatPrintedControlId,formatRunLabel,getPlatePosition,getSheetNumber,effectiveLnHalos,specimenDisplayCode,type ControlType} from './rules';
 import {finalizePredicates,decide,GATE_RULE_VERSION} from './gate';
 import {LabError,uuid,reasonText,need,assertSession,audit,caseEvent,attemptEvent,setAttemptState,pendingPolicy,attemptFacts,assignmentDecision,candidatePrintedId,commonFacts,fifo,caseVisible,BATCH_TEMPLATE,type Staff} from './core';
 import {isoDate} from '../domain/thai-date';
@@ -57,7 +57,7 @@ export async function batchDetail(db:Queryable,user:Staff,batchId:string){
  const bySlot=new Map(facts.map(f=>[f.slot_number!,f]));
  const slots:SlotView[]=Array.from({length:48},(_,i)=>{const slot=i+1,sheet=getSheetNumber(slot),control=controlTypeOf(slot),f=bySlot.get(slot),date=sheets[sheet-1].planned_work_date;
   return {slot,sheet,plate:getPlatePosition(slot),barcode:slot,control,controlLabel:control?CONTROL_LABEL[control]:null,controlCode:control&&date?formatPrintedControlId(control,date):null,
-   assignment:f&&caseVisible(user,f)?{attemptId:f.attempt_id,caseId:f.case_id,roundId:f.round_id,roundNumber:f.round_number,hisLn:f.ln,lnHalos:f.ln_halos,labelCode:f.ln_halos&&f.pregnancy?effectiveLnHalos(f.ln_halos,f.pregnancy):f.ln_halos,printedSampleId:f.printed_sample_id,attemptState:f.attempt_state,repeat:f.repeat_order_id!==null,urgent:f.urgent}:null};});
+   assignment:f&&caseVisible(user,f)?{attemptId:f.attempt_id,caseId:f.case_id,roundId:f.round_id,roundNumber:f.round_number,hisLn:f.ln,lnHalos:f.ln_halos,labelCode:f.ln_halos?specimenDisplayCode(f.ln_halos,f.pregnancy,f.ln_halos_resampling):f.ln_halos,printedSampleId:f.printed_sample_id,attemptState:f.attempt_state,repeat:f.repeat_order_id!==null,urgent:f.urgent}:null};});
  const documents=(await db.query('SELECT d.id,d.form,d.kind,d.revision,d.doc_code,d.status,d.status_reason,d.file_sha256,d.issued_at,u.display_name issued_by,t.sheet_number,(SELECT count(*) FROM lab_document_copy c WHERE c.document_id=d.id AND c.kind=\'WORKING_COPY\')::int working_copies,(SELECT count(*) FROM lab_document_copy c WHERE c.document_id=d.id AND c.kind=\'WORKING_COPY\' AND c.recalled_at IS NULL)::int unrecalled FROM lab_document d JOIN app_user u ON u.id=d.issued_by LEFT JOIN lab_task_sheet t ON t.id=d.sheet_id WHERE d.batch_id=$1 ORDER BY d.issued_at',[b.id])).rows;
  const events=(await db.query('SELECT e.event_type,e.sheet_number,e.reason,e.created_at,u.display_name actor FROM lab_batch_event e JOIN app_user u ON u.id=e.actor_id WHERE e.batch_id=$1 ORDER BY e.sequence DESC LIMIT 100',[b.id])).rows;
  const snapshots=(await db.query('SELECT s.id,t.sheet_number,s.revision,s.content_hash,s.created_at FROM lab_placement_snapshot s JOIN lab_task_sheet t ON t.id=s.sheet_id WHERE s.batch_id=$1 ORDER BY t.sheet_number,s.revision',[b.id])).rows;
