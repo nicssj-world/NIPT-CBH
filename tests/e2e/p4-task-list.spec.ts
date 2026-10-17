@@ -166,3 +166,26 @@ test("P0-5 / PDF acceptance: native Excel PDF per Task 1–3 carries only its ow
   expect(text,"ISO dates must not appear in the document").not.toContain(p.date);
  }
 });
+test("P0-3: choosing a sample out of FIFO order shows the reason requirement before submitting; the user-chosen insertion is recorded",async({page})=>{
+ test.setTimeout(150000);
+ const cases=await readyCases(2);
+ await page.setViewportSize({width:1440,height:1000});await login(page,"synthetic.lab");
+ await fixtureQuery("UPDATE lab_batch SET state='Cancelled',cancelled_by=(SELECT id FROM app_user WHERE username='synthetic.lab'),cancelled_at=now(),cancel_reason='SYNTHETIC e2e isolation' WHERE state='Draft'");
+ await page.goto("/lab");
+ const newest=page.getByRole("row",{name:new RegExp(cases[1].ln)});await expect(newest).toBeVisible();
+ await newest.getByRole("checkbox").check();await page.getByRole("button",{name:/เพิ่มเข้า Batch \(1\)/}).click();
+ const dialog=page.getByRole("dialog",{name:"เพิ่มตัวอย่างเข้า Batch"});
+ await dialog.getByRole("button",{name:/สร้าง\/เปิด Batch ร่าง/}).click();await expect(dialog.getByLabel("Batch")).not.toHaveValue("");
+ // The server preview (same rule as assign) says this selection overtakes FIFO.
+ {const batchId=(await fixtureQuery<{id:string}>("SELECT id FROM lab_batch WHERE state='Draft' ORDER BY created_at DESC LIMIT 1"))[0].id;const attemptId=(await fixtureQuery<{id:string}>("SELECT id FROM analytical_attempt WHERE round_id=$1",[cases[1].roundId]))[0].id;
+  const pv=await labPost(page,`/api/p4/batches/${batchId}`,{action:"previewAssign",attemptIds:[attemptId]});const body=await pv.text();expect(pv.ok(),body).toBe(true);expect(JSON.parse(body).reasonRequired,body).toBe(true);}
+ // Before any submit: the reason field and the overtaken count are already shown.
+ await expect(dialog.getByRole("note")).toContainText(/แซงลำดับ FIFO [1-9]\d* รายการที่รอก่อน — ผู้ใช้เลือกแทรกคิวได้/);
+ await expect(dialog.getByLabel("เหตุผลที่แซงลำดับ FIFO (จำเป็น)")).toBeVisible();
+ await expect(dialog.getByRole("button",{name:"ยืนยันเพิ่มเข้า Batch"})).toBeDisabled();
+ await dialog.getByLabel("เหตุผลที่แซงลำดับ FIFO (จำเป็น)").fill("จำลอง ผู้ใช้เลือกแทรกคิว");
+ await dialog.getByRole("button",{name:"ยืนยันเพิ่มเข้า Batch"}).click();
+ await expect(dialog.getByRole("status")).toContainText("จัดเข้า Batch แล้ว 1 รายการ");
+ expect(await fixtureQuery("SELECT e.reason FROM attempt_event e JOIN analytical_attempt a ON a.id=e.attempt_id WHERE a.round_id=$1 AND e.event_type='QUEUE_OVERRIDE'",[cases[1].roundId])).toEqual([{reason:"จำลอง ผู้ใช้เลือกแทรกคิว"}]);
+ await axe(page);
+});

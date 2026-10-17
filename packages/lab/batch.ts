@@ -69,6 +69,22 @@ export async function listBatches(db:Queryable,user:Staff){
   ARRAY(SELECT t.state FROM lab_task_sheet t WHERE t.batch_id=b.id ORDER BY t.sheet_number) sheet_states FROM lab_batch b ORDER BY b.created_at DESC LIMIT 100`)).rows;
 }
 
+/** The eligible FIFO queue head and the earlier eligible work a selection would overtake (single source for assign and preview). */
+async function fifoOvertaken(db:Queryable,user:Staff,attemptIds:string[],policy:Awaited<ReturnType<typeof pendingPolicy>>['policy']){
+ const queue=(await attemptFacts(db,"a.state='Ready' AND c.current_round_id=a.round_id AND c.registration_origin<>'HISTORICAL'",[])).filter(r=>caseVisible(user,r)&&assignmentDecision(r,policy).eligible).sort(fifo);
+ const chosen=new Set(attemptIds);
+ return {head:queue.slice(0,chosen.size).map(r=>r.attempt_id),overtaken:queue.slice(0,queue.findLastIndex(r=>chosen.has(r.attempt_id))+1).filter(r=>!chosen.has(r.attempt_id))};
+}
+/** Read-only (P0-3): tells the user before submitting whether a selection overtakes FIFO and so needs a recorded reason. */
+export async function previewAssignment(db:Queryable,user:Staff,input:unknown){
+ await assertSession(db,user);need(user,'batch.assign');
+ const d=z.strictObject({attemptIds:z.array(uuid).min(1).max(45).refine(v=>new Set(v).size===v.length,'DUPLICATE_ATTEMPT')}).parse(input);
+ const {policy}=await pendingPolicy(db);
+ const selected=await attemptFacts(db,'a.id=ANY($1::uuid[])',[d.attemptIds]);
+ if(selected.length!==d.attemptIds.length||selected.some(r=>!caseVisible(user,r)))throw new LabError('NOT_FOUND',404);
+ const {overtaken}=await fifoOvertaken(db,user,d.attemptIds,policy);
+ return {overtaken:overtaken.length,reasonRequired:overtaken.length>0};
+}
 /** Assignment Gate (BG-01..07 + BG-08A/09A) per attempt, in this transaction; FIFO proposal skips control slots. */
 export async function assignToBatch(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'batch.assign');
@@ -80,8 +96,7 @@ export async function assignToBatch(db:Queryable,user:Staff,input:unknown){
  const selected=await attemptFacts(db,'a.id=ANY($1::uuid[])',[d.attemptIds]);
  if(selected.length!==d.attemptIds.length||selected.some(r=>!caseVisible(user,r)))throw new LabError('NOT_FOUND',404);
  // FIFO is a proposal, not a rule — overtaking eligible earlier work needs a recorded reason (§12.9 ขั้น 3–4).
- const queue=(await attemptFacts(db,"a.state='Ready' AND c.current_round_id=a.round_id AND c.registration_origin<>'HISTORICAL'",[])).filter(r=>caseVisible(user,r)&&assignmentDecision(r,policy).eligible).sort(fifo);
- const chosen=new Set(d.attemptIds),head=queue.slice(0,chosen.size).map(r=>r.attempt_id),overtaken=queue.slice(0,queue.findLastIndex(r=>chosen.has(r.attempt_id))+1).filter(r=>!chosen.has(r.attempt_id));
+ const {head,overtaken}=await fifoOvertaken(db,user,d.attemptIds,policy);
  if(overtaken.length&&!d.queueOverrideReason)throw new LabError('QUEUE_OVERRIDE_REASON_REQUIRED',422,{overtaken:overtaken.length});
  const free=(await db.query<{slot_number:number;sheet_number:number}>(`SELECT s.slot_number,s.sheet_number FROM lab_batch_slot s JOIN lab_task_sheet t ON t.batch_id=s.batch_id AND t.sheet_number=s.sheet_number
   WHERE s.batch_id=$1 AND s.control_type IS NULL AND t.state IN ('Draft','PlanChecked','Amended') AND NOT EXISTS(SELECT 1 FROM lab_slot_assignment a WHERE a.batch_id=s.batch_id AND a.slot_number=s.slot_number AND a.removed_at IS NULL) ORDER BY s.slot_number`,[b.id])).rows;

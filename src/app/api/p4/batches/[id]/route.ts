@@ -9,11 +9,11 @@ import {batchWorkspace} from "../../../../../server/p4-data";
 export async function GET(request:NextRequest,{params}:{params:Promise<{id:string}>}){try{const user=await protect(request),{id}=await params;return NextResponse.json(await withTransaction(db=>batchWorkspace(db,user,id)),{headers:noStore});}catch(e){return p4Error(e);}}
 type Op=(db:Queryable,user:Staff,input:unknown)=>Promise<unknown>;
 const docs=(fn:(db:Queryable,user:Staff,input:unknown,deps:rec.DocDeps)=>Promise<unknown>):Op=>(db,user,input)=>fn(db,user,input,labDeps());
-const actions:Record<string,Op>={assign:batch.assignToBatch,move:batch.moveSlot,remove:batch.removeFromBatch,updatePlan:batch.updateSheetPlan,planCheck:batch.planCheck,finalize:batch.finalizeSheet,amend:batch.amendSheet,cancel:batch.cancelBatch,
+const actions:Record<string,Op>={assign:batch.assignToBatch,previewAssign:batch.previewAssignment,move:batch.moveSlot,remove:batch.removeFromBatch,updatePlan:batch.updateSheetPlan,planCheck:batch.planCheck,finalize:batch.finalizeSheet,amend:batch.amendSheet,cancel:batch.cancelBatch,
  start:batch.startExecution,end:batch.endExecution,record:rec.recordObservation,review:rec.reviewObservations,proposeDisposition:rec.proposeDisposition,confirmDisposition:rec.confirmDisposition,verify:rec.verifyExecution,decideQc:rec.decideStageQc1,
  issuePreWork:docs(rec.issuePreWork),issueQcPreWork:docs(rec.issueQcPreWork),issueCompleted:docs(rec.issueCompleted),issueQcCompleted:docs(rec.issueQcCompleted)};
 // Actions addressed by their own record ids (observation/disposition/attempt) do not take the batch id from the path.
-const OWN_ID=new Set(["review","confirmDisposition","decideQc"]);
+const OWN_ID=new Set(["review","confirmDisposition","decideQc","previewAssign"]);
 export async function POST(request:NextRequest,{params}:{params:Promise<{id:string}>}){return p4Mutation(request,"P4_BATCH",async user=>{const {id}=await params;const {action,...data}=await readJson(request,65536);
  if(typeof action!=="string"||!(action in actions))throw new Error("ACTION_NOT_ALLOWED");
  // These act on their own row (with its own lock); the batch version is not part of their contract.
