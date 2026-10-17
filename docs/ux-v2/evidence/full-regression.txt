@@ -1,0 +1,12 @@
+
+> nipt-cbh@0.1.0 test
+> vitest run
+
+
+ RUN  v5.0.3 D:/Claude workspace/NIPT-CBH-UX-V2-IMPLEMENTATION
+
+
+ Test Files  110 passed | 16 skipped (126)
+      Tests  2003 passed | 51 skipped (2054)
+   Start at  11:57:21
+   Duration  415.29s (tests 96%, import 4%, transform 1%)

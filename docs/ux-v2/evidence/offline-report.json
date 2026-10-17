@@ -1,0 +1,10 @@
+{
+  "status": "PASS",
+  "mode": "file://; non-file network blocked",
+  "images": 79,
+  "links": 68,
+  "missing": [],
+  "broken": [],
+  "errors": [],
+  "external": []
+}

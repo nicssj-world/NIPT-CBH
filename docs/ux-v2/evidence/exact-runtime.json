@@ -1,0 +1,11 @@
+{
+  "codeCommit": "606f3c30161388abf1cc051561c38ead26df485a",
+  "imageId": "sha256:3915651a6dedee074f7724f6dfe53677797253ce1c797fe30d720ac65baefe4d",
+  "labels": {
+    "org.nipt.migrations.sha256": "97050ccdc1a948119117c2b9dbefced48bb406e4989779ed87f17ece5e8519ce",
+    "org.opencontainers.image.revision": "606f3c30161388abf1cc051561c38ead26df485a"
+  },
+  "preview": "https://127.0.0.1:19518/login",
+  "syntheticOnly": true,
+  "realHisConfirmed": false
+}

@@ -1,0 +1,131 @@
+{
+  "checks": [
+    "actual synthetic operational fixtures visible",
+    "KPI sent count matches API drilldown",
+    "KPI pending count matches API drilldown",
+    "KPI released count matches API drilldown",
+    "KPI attention count matches API drilldown",
+    "all seven stages and exception share queue predicates",
+    "stage partition equals unique scoped cases",
+    "pagination unique full cohort",
+    "unknown identifier empty scoped result",
+    "foreign unit fails closed",
+    "no overflow 1440 light",
+    "no overflow 1440 dark",
+    "no overflow 768 light",
+    "no overflow 768 dark",
+    "no overflow 1024 light",
+    "no overflow 1024 dark",
+    "no overflow 375 light",
+    "no overflow 375 dark",
+    "register links to governed ANC dialog",
+    "case drilldown preserves LN identity and existing guards",
+    "AUDITOR cannot access ANC release metadata",
+    "zero browser JS errors",
+    "zero Axe violations on every dashboard theme/viewport"
+  ],
+  "screens": [
+    {
+      "width": 1440,
+      "theme": "light",
+      "file": ".local/ux-v2/anc-browser/dashboard-light-1440.png",
+      "axe": []
+    },
+    {
+      "width": 1440,
+      "theme": "dark",
+      "file": ".local/ux-v2/anc-browser/dashboard-dark-1440.png",
+      "axe": []
+    },
+    {
+      "width": 768,
+      "theme": "light",
+      "file": ".local/ux-v2/anc-browser/dashboard-light-768.png",
+      "axe": []
+    },
+    {
+      "width": 768,
+      "theme": "dark",
+      "file": ".local/ux-v2/anc-browser/dashboard-dark-768.png",
+      "axe": []
+    },
+    {
+      "width": 1024,
+      "theme": "light",
+      "file": ".local/ux-v2/anc-browser/dashboard-light-1024.png",
+      "axe": []
+    },
+    {
+      "width": 1024,
+      "theme": "dark",
+      "file": ".local/ux-v2/anc-browser/dashboard-dark-1024.png",
+      "axe": []
+    },
+    {
+      "width": 375,
+      "theme": "light",
+      "file": ".local/ux-v2/anc-browser/dashboard-light-375.png",
+      "axe": []
+    },
+    {
+      "width": 375,
+      "theme": "dark",
+      "file": ".local/ux-v2/anc-browser/dashboard-dark-375.png",
+      "axe": []
+    }
+  ],
+  "errors": [],
+  "base": {
+    "metrics": {
+      "sent": 45,
+      "pending": 45,
+      "released": 0,
+      "attention": 0
+    },
+    "total": 45,
+    "stages": [
+      {
+        "id": "documents",
+        "label": "ลงทะเบียน / รอเอกสาร",
+        "count": 0
+      },
+      {
+        "id": "expected",
+        "label": "รอรับตัวอย่าง",
+        "count": 0
+      },
+      {
+        "id": "received",
+        "label": "รับตัวอย่างแล้ว",
+        "count": 30
+      },
+      {
+        "id": "analysis",
+        "label": "อยู่ระหว่างตรวจวิเคราะห์",
+        "count": 15
+      },
+      {
+        "id": "review",
+        "label": "รอทบทวน / รับรองผล",
+        "count": 0
+      },
+      {
+        "id": "released",
+        "label": "ผลตรวจพร้อมแล้ว",
+        "count": 0
+      },
+      {
+        "id": "followup",
+        "label": "ต้องติดตามเพิ่มเติม",
+        "count": 0
+      },
+      {
+        "id": "exception",
+        "label": "ตรวจสอบข้อมูล",
+        "count": 0
+      }
+    ]
+  },
+  "synthetic": true,
+  "realHisConfirmation": false
+}

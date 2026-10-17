@@ -1,0 +1,44 @@
+[
+  {
+    "role": "APP_ADMIN",
+    "pathname": "/",
+    "secureSession": true,
+    "banner": 2,
+    "errors": []
+  },
+  {
+    "role": "LAB_STAFF",
+    "pathname": "/",
+    "secureSession": true,
+    "banner": 2,
+    "errors": []
+  },
+  {
+    "role": "LAB_CERTIFIER",
+    "pathname": "/",
+    "secureSession": true,
+    "banner": 2,
+    "errors": []
+  },
+  {
+    "role": "CLINICAL_APPROVER",
+    "pathname": "/",
+    "secureSession": true,
+    "banner": 2,
+    "errors": []
+  },
+  {
+    "role": "AUDITOR",
+    "pathname": "/",
+    "secureSession": true,
+    "banner": 2,
+    "errors": []
+  },
+  {
+    "role": "ANC_NURSE",
+    "pathname": "/",
+    "secureSession": true,
+    "banner": 2,
+    "errors": []
+  }
+]

@@ -1,0 +1,322 @@
+[
+  {
+    "role": "ANONYMOUS",
+    "route": "/login",
+    "width": 1440,
+    "theme": "light",
+    "file": "shared-login-light-1440.png",
+    "overflow": false
+  },
+  {
+    "role": "ANONYMOUS",
+    "route": "/login",
+    "width": 1440,
+    "theme": "dark",
+    "file": "shared-login-dark-1440.png",
+    "overflow": false
+  },
+  {
+    "role": "ANONYMOUS",
+    "route": "/login",
+    "width": 375,
+    "theme": "light",
+    "file": "shared-login-light-375.png",
+    "overflow": false
+  },
+  {
+    "role": "ANONYMOUS",
+    "route": "/login",
+    "width": 375,
+    "theme": "dark",
+    "file": "shared-login-dark-375.png",
+    "overflow": false
+  },
+  {
+    "role": "LAB_STAFF",
+    "route": "/lab",
+    "width": 1440,
+    "theme": "light",
+    "file": "shared-lab-light-1440.png",
+    "overflow": false
+  },
+  {
+    "role": "LAB_STAFF",
+    "route": "/lab",
+    "width": 1440,
+    "theme": "dark",
+    "file": "shared-lab-dark-1440.png",
+    "overflow": false
+  },
+  {
+    "role": "LAB_STAFF",
+    "route": "/lab",
+    "width": 375,
+    "theme": "light",
+    "file": "shared-lab-light-375.png",
+    "overflow": false
+  },
+  {
+    "role": "LAB_STAFF",
+    "route": "/lab",
+    "width": 375,
+    "theme": "dark",
+    "file": "shared-lab-dark-375.png",
+    "overflow": false
+  },
+  {
+    "role": "LAB_STAFF",
+    "route": "/lab/batches",
+    "width": 1440,
+    "theme": "light",
+    "file": "shared-lab-batches-light-1440.png",
+    "overflow": false
+  },
+  {
+    "role": "LAB_STAFF",
+    "route": "/lab/batches",
+    "width": 1440,
+    "theme": "dark",
+    "file": "shared-lab-batches-dark-1440.png",
+    "overflow": false
+  },
+  {
+    "role": "LAB_STAFF",
+    "route": "/lab/batches",
+    "width": 375,
+    "theme": "light",
+    "file": "shared-lab-batches-light-375.png",
+    "overflow": false
+  },
+  {
+    "role": "LAB_STAFF",
+    "route": "/lab/batches",
+    "width": 375,
+    "theme": "dark",
+    "file": "shared-lab-batches-dark-375.png",
+    "overflow": false
+  },
+  {
+    "role": "LAB_STAFF",
+    "route": "/results",
+    "width": 1440,
+    "theme": "light",
+    "file": "shared-results-light-1440.png",
+    "overflow": false
+  },
+  {
+    "role": "LAB_STAFF",
+    "route": "/results",
+    "width": 1440,
+    "theme": "dark",
+    "file": "shared-results-dark-1440.png",
+    "overflow": false
+  },
+  {
+    "role": "LAB_STAFF",
+    "route": "/results",
+    "width": 375,
+    "theme": "light",
+    "file": "shared-results-light-375.png",
+    "overflow": false
+  },
+  {
+    "role": "LAB_STAFF",
+    "route": "/results",
+    "width": 375,
+    "theme": "dark",
+    "file": "shared-results-dark-375.png",
+    "overflow": false
+  },
+  {
+    "role": "APP_ADMIN",
+    "route": "/settings",
+    "width": 1440,
+    "theme": "light",
+    "file": "shared-settings-light-1440.png",
+    "overflow": false
+  },
+  {
+    "role": "APP_ADMIN",
+    "route": "/settings",
+    "width": 1440,
+    "theme": "dark",
+    "file": "shared-settings-dark-1440.png",
+    "overflow": false
+  },
+  {
+    "role": "APP_ADMIN",
+    "route": "/settings",
+    "width": 375,
+    "theme": "light",
+    "file": "shared-settings-light-375.png",
+    "overflow": false
+  },
+  {
+    "role": "APP_ADMIN",
+    "route": "/settings",
+    "width": 375,
+    "theme": "dark",
+    "file": "shared-settings-dark-375.png",
+    "overflow": false
+  },
+  {
+    "role": "APP_ADMIN",
+    "route": "/settings/users",
+    "width": 1440,
+    "theme": "light",
+    "file": "shared-settings-users-light-1440.png",
+    "overflow": false
+  },
+  {
+    "role": "APP_ADMIN",
+    "route": "/settings/users",
+    "width": 1440,
+    "theme": "dark",
+    "file": "shared-settings-users-dark-1440.png",
+    "overflow": false
+  },
+  {
+    "role": "APP_ADMIN",
+    "route": "/settings/users",
+    "width": 375,
+    "theme": "light",
+    "file": "shared-settings-users-light-375.png",
+    "overflow": false
+  },
+  {
+    "role": "APP_ADMIN",
+    "route": "/settings/users",
+    "width": 375,
+    "theme": "dark",
+    "file": "shared-settings-users-dark-375.png",
+    "overflow": false
+  },
+  {
+    "role": "APP_ADMIN",
+    "route": "/health",
+    "width": 1440,
+    "theme": "light",
+    "file": "shared-health-light-1440.png",
+    "overflow": false
+  },
+  {
+    "role": "APP_ADMIN",
+    "route": "/health",
+    "width": 1440,
+    "theme": "dark",
+    "file": "shared-health-dark-1440.png",
+    "overflow": false
+  },
+  {
+    "role": "APP_ADMIN",
+    "route": "/health",
+    "width": 375,
+    "theme": "light",
+    "file": "shared-health-light-375.png",
+    "overflow": false
+  },
+  {
+    "role": "APP_ADMIN",
+    "route": "/health",
+    "width": 375,
+    "theme": "dark",
+    "file": "shared-health-dark-375.png",
+    "overflow": false
+  },
+  {
+    "role": "ANC_NURSE",
+    "route": "/cases",
+    "width": 1440,
+    "theme": "light",
+    "file": "shared-cases-light-1440.png",
+    "overflow": false
+  },
+  {
+    "role": "ANC_NURSE",
+    "route": "/cases",
+    "width": 1440,
+    "theme": "dark",
+    "file": "shared-cases-dark-1440.png",
+    "overflow": false
+  },
+  {
+    "role": "ANC_NURSE",
+    "route": "/cases",
+    "width": 375,
+    "theme": "light",
+    "file": "shared-cases-light-375.png",
+    "overflow": false
+  },
+  {
+    "role": "ANC_NURSE",
+    "route": "/cases",
+    "width": 375,
+    "theme": "dark",
+    "file": "shared-cases-dark-375.png",
+    "overflow": false
+  },
+  {
+    "role": "CLINICAL_APPROVER",
+    "route": "/doctors",
+    "width": 1440,
+    "theme": "light",
+    "file": "shared-doctors-light-1440.png",
+    "overflow": false
+  },
+  {
+    "role": "CLINICAL_APPROVER",
+    "route": "/doctors",
+    "width": 1440,
+    "theme": "dark",
+    "file": "shared-doctors-dark-1440.png",
+    "overflow": false
+  },
+  {
+    "role": "CLINICAL_APPROVER",
+    "route": "/doctors",
+    "width": 375,
+    "theme": "light",
+    "file": "shared-doctors-light-375.png",
+    "overflow": false
+  },
+  {
+    "role": "CLINICAL_APPROVER",
+    "route": "/doctors",
+    "width": 375,
+    "theme": "dark",
+    "file": "shared-doctors-dark-375.png",
+    "overflow": false
+  },
+  {
+    "role": "AUDITOR",
+    "route": "/settings/audit",
+    "width": 1440,
+    "theme": "light",
+    "file": "shared-settings-audit-light-1440.png",
+    "overflow": false
+  },
+  {
+    "role": "AUDITOR",
+    "route": "/settings/audit",
+    "width": 1440,
+    "theme": "dark",
+    "file": "shared-settings-audit-dark-1440.png",
+    "overflow": false
+  },
+  {
+    "role": "AUDITOR",
+    "route": "/settings/audit",
+    "width": 375,
+    "theme": "light",
+    "file": "shared-settings-audit-light-375.png",
+    "overflow": false
+  },
+  {
+    "role": "AUDITOR",
+    "route": "/settings/audit",
+    "width": 375,
+    "theme": "dark",
+    "file": "shared-settings-audit-dark-375.png",
+    "overflow": false
+  }
+]

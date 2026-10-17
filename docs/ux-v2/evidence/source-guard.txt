@@ -1,0 +1,5 @@
+
+> nipt-cbh@0.1.0 guard
+> tsx tools/source-guard.ts
+
+Source guard PASS: 777 files; prohibited archives, data and credential patterns absent.

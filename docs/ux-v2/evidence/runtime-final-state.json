@@ -1,0 +1,13 @@
+{
+  "database": "nipt_operational_ux_v2_local",
+  "loopbackPort": 19519,
+  "inboundEnabled": false,
+  "outboundEnabled": false,
+  "productionAuthorized": false,
+  "target": "SIMULATOR",
+  "counts": {
+    "cases": 45,
+    "registry_audit_rows": 2727
+  },
+  "realHisConfirmed": false
+}

@@ -13,7 +13,7 @@ pwsh -File tools/ux-v2/runtime.ps1 -Action Stop
 pwsh -File tools/ux-v2/runtime.ps1 -Action RebuildWeb
 ```
 
-`RebuildWeb` builds only a local Docker web image, then recreates only this project's web service. It does not make an installer or touch another runtime. HEAD records the base commit; uncommitted UI changes are included, so an image of a dirty tree is not exact-commit release evidence. The existing build contract verifies the migration inventory. Do not use `down -v` or remove `.local/ux-v2` if persistence is needed.
+`RebuildWeb` builds only a local Docker web image, then recreates only this project's web service. It does not make an installer or touch another runtime. The delivered web image is labelled with code commit 606f3c30161388abf1cc051561c38ead26df485a. The follow-up delivery commit changes reports and verification tooling only. RebuildWeb labels a future image with HEAD and includes working files; run from clean runtime source when exact-commit evidence is required. The existing build contract verifies the migration inventory. Do not use `down -v` or remove `.local/ux-v2` if persistence is needed.
 
 New credentials: `.local/ux-v2/credentials.txt`; machine-readable account list: `.local/ux-v2/secrets/uat-accounts.json`. Do not print or commit passwords. All six accounts use unique fresh passwords: administrator, laboratory staff, certifier, clinical approver, auditor, ANC nurse. Original UAT and design-audit credentials were not copied. Master workbook is a hash-verified local copy; Original Master was never modified.
 

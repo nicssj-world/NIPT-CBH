@@ -27,7 +27,7 @@ Reusable palette covers canvas/surface/raised/text/divider/control/primary/focus
 - Screenshots: `.local/ux-v2/screens/shared-*`; machine-readable measurements: `.local/ux-v2/screens/shared-checks.json` and `.local/ux-v2/shared-visual/checks.json`.
 - Side-by-side approved reference/local implementation: `.local/ux-v2/shared-visual-comparison.html`. Synthetic runtime content and the existing governed dialog differ from prototype content/composition.
 
-Final small skip-link layering, print theme reset and exact status-palette CSS were added after the first browser image and require the final coordinated rebuild. Those final CSS changes are not claimed as observed in that earlier image.
+Final coordinated exact-code rebuild and 40 refreshed shared captures were completed after the initial review. Those final captures replace the earlier screenshot files in the delivery gallery; structured evidence is under evidence/shared-captures.json.
 
 ## Original asset SHA-256
 
