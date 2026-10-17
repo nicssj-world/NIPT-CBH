@@ -46,6 +46,8 @@ it('GA ≥ 22+0 is a warning only: shown on the worklist and slot, never changes
  const placed=await run(t=>batch.assignToBatch(t,u.staff,{batchId:b.batchId,expectedVersion:0,attemptIds:[newerAttempt.id],queueOverrideReason:'จำลอง ผู้ใช้เลือกแทรกคิว'}));
  const slot=(await run(t=>batch.batchDetail(t,u.staff,b.batchId))).slots.find(s=>s.slot===placed.placed[0].slot)!;
  expect(slot.assignment?.ga).toMatchObject({weeks:22,remainder:0,warning:true});
+ // OD-K proposal (warn, never block): placement succeeded with no label printed and the slot reports it.
+ expect(slot.assignment?.labelPrints).toBe(0);
 });
 
 it('gestationalAge boundary and sources',()=>{
