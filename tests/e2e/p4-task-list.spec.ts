@@ -120,3 +120,48 @@ test("P0-2: Task tabs show per-Task counts, context card, BE dates, keyboard nav
  const link=page.getByRole("row",{name:new RegExp(cases[0].ln)}).getByRole("link",{name:/Task List 1 · ตน\. \d+/});
  await expect(link).toBeVisible();await expect(link).toHaveAttribute("href",new RegExp(`/lab/batches/${batchId}\\?task=1`));
 });
+/** Text of a downloaded PDF (pdfjs readback — the acceptance is on the PDF content, not on HTML or a screenshot). */
+async function pdfText(path:string){
+ const {getDocument}=await import("pdfjs-dist/legacy/build/pdf.mjs");
+ const pdf=await getDocument({data:new Uint8Array(readFileSync(path)),useSystemFonts:true}).promise;
+ const pages:string[]=[];for(let i=1;i<=pdf.numPages;i++){const p=await pdf.getPage(i);pages.push((await p.getTextContent()).items.map(x=>"str" in x?x.str:"").join(" "));}
+ return {pages:pdf.numPages,text:pages.join("\n")};
+}
+async function api(page:Page,batchId:string,action:string,data:Record<string,unknown>){
+ const v=(await fixtureQuery<{version:number}>("SELECT version FROM lab_batch WHERE id=$1",[batchId]))[0].version;
+ const r=await labPost(page,`/api/p4/batches/${batchId}`,{action,expectedVersion:v,...data});expect(r.ok(),`${action}: ${await r.text()}`).toBe(true);
+}
+
+test("P0-5 / PDF acceptance: native Excel PDF per Task 1–3 carries only its own metadata, BE dates and CE control IDs",async({page})=>{
+ test.setTimeout(900000);
+ const cases=await readyCases(3);
+ await page.setViewportSize({width:1440,height:1000});await login(page,"synthetic.lab");
+ const batchId=await freshBatch(page);
+ const attempts=(await fixtureQuery<{id:string}>("SELECT id FROM analytical_attempt WHERE round_id=ANY($1::uuid[]) ORDER BY (SELECT received_at FROM specimen_round r WHERE r.id=round_id)",[cases.map(c=>c.roundId)])).map(r=>r.id);
+ await api(page,batchId,"assign",{attemptIds:attempts,queueOverrideReason:"จำลอง เลือกตัวอย่างของการทดสอบ P0"});
+ // One sample per Task (moves within Draft; control slots untouched).
+ await api(page,batchId,"move",{fromSlot:3,toSlot:18});await api(page,batchId,"move",{fromSlot:4,toSlot:34});
+ const ids=await fixtureQuery<{slot_number:number;printed_sample_id:string}>("SELECT a.slot_number,t.printed_sample_id FROM lab_slot_assignment a JOIN analytical_attempt t ON t.id=a.attempt_id WHERE a.batch_id=$1 AND a.removed_at IS NULL ORDER BY a.slot_number",[batchId]);
+ expect(ids.map(r=>r.slot_number)).toEqual([2,18,34]);
+ const plan:Record<number,{date:string;be:string;op:string;lot:string;exp:string;expBe:string;control:string}>={
+  1:{date:"2026-10-17",be:"17/10/2569",op:"SYNOPTL1",lot:"SYNEXT1",exp:"2026-12-31",expBe:"31/12/2569",control:"26N120261017-1"},
+  2:{date:"2026-10-18",be:"18/10/2569",op:"SYNOPTL2",lot:"SYNEXT2",exp:"2027-01-31",expBe:"31/01/2570",control:"26N220261018-1"},
+  3:{date:"2026-10-19",be:"19/10/2569",op:"SYNOPTL3",lot:"SYNEXT3",exp:"2027-02-28",expBe:"28/02/2570",control:"26N320261019-1"}};
+ for(const n of [1,2,3]){const p=plan[n];
+  await api(page,batchId,"updatePlan",{sheetNumber:n,plannedWorkDate:p.date,plannedOperator:p.op,plannedExtractionLot:p.lot,plannedExtractionExpiry:p.exp,plannedLibraryLot:null,plannedLibraryExpiry:null});
+  await api(page,batchId,"planCheck",{sheetNumber:n,confirm:{controlsAtTemplate:true,identifiersMatch:true,noDuplicates:true}});
+  await api(page,batchId,"finalize",{sheetNumber:n});
+ }
+ const run=(await fixtureQuery<{run_label:string}>("SELECT run_label FROM lab_batch WHERE id=$1",[batchId]))[0].run_label;
+ for(const n of [1,2,3]){const p=plan[n];
+  await page.goto(`/lab/batches/${batchId}?task=${n}`);
+  await expect(page.getByRole("region",{name:`สรุป Task List ${n}`})).toContainText(p.control);
+  const [download]=await Promise.all([page.waitForEvent("download",{timeout:300000}),page.getByRole("button",{name:`ดาวน์โหลด PDF Task List ${n}`}).click()]);
+  await expect(page.getByRole("status")).toContainText(`สร้าง PDF ของ Task List ${n} แล้ว (สำเนาตรวจทาน — ไม่ใช่เอกสารควบคุม)`);
+  const {pages,text}=await pdfText(await download.path());
+  expect(pages,`Task ${n} page count`).toBe(2);
+  for(const s of [p.be,run,p.op,`${p.lot} / ${p.expBe}`,p.control,ids[n-1].printed_sample_id])expect(text,`Task ${n} must contain ${s}`).toContain(s);
+  for(const m of [1,2,3].filter(m=>m!==n))for(const s of [plan[m].op,plan[m].lot,plan[m].control])expect(text,`Task ${n} must not contain Task ${m} value ${s}`).not.toContain(s);
+  expect(text,"ISO dates must not appear in the document").not.toContain(p.date);
+ }
+});

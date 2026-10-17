@@ -2,7 +2,7 @@
 import {useState,type KeyboardEvent} from "react";
 import Link from "next/link";
 import {useSearchParams} from "next/navigation";
-import {Dialog} from "../p2/shared";
+import {Dialog,csrf} from "../p2/shared";
 import {labApi,labPdf,failureText,bkk,gateText,LabFailure} from "./lab-api";
 import {stripLabels,type SheetNumber} from "../../../packages/lab/rules";
 import {displayBe} from "../../../packages/domain/thai-date";
@@ -56,6 +56,24 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
  async function act(action:string,data:Record<string,unknown>={},ok="บันทึกแล้ว"){setBusy(true);setMsg(null);try{const res=await labApi<{warnings?:unknown}>(`/api/p4/batches/${w.batch.id}`,{action,expectedVersion:w.batch.version,...data});await reload();
    const warnings=Array.isArray(res?.warnings)?res.warnings.filter((x):x is string=>typeof x==="string"):[];setMsg({ok:true,text:ok,warnings});return true;}
   catch(e){setMsg({ok:false,text:failureText(e),details:e instanceof LabFailure?e.details:undefined});if(e instanceof LabFailure&&e.code==="VERSION_CONFLICT")await reload();return false;}finally{setBusy(false);}}
+ /** Uncontrolled per-Task PDF from the existing workbook path (P0-5): rebinds the draft from the Lab source when needed,
+  *  then renders that Task's master sheet natively. Controlled documents are still only Pre-work/Completed issue. */
+ async function taskPdf(n:number,mode:"view"|"download"){
+  setBusy(true);setMsg(null);
+  try{
+   const api=`/api/workbook/batches/${w.batch.id}`;
+   type Ws={version:number;draft:{revision:number}|null;sourceStale:boolean;values:Record<string,unknown>};
+   let ws=await labApi<Ws>(api);
+   if(!ws.draft||ws.sourceStale){await labApi(api,{action:"saveDraft",expectedVersion:ws.version,expectedRevision:ws.draft?.revision??0,values:ws.values});ws=await labApi<Ws>(api);}
+   const sheetName=`Ext. & Prep. Task List ${n}`;
+   const r=await fetch(api,{method:"POST",cache:"no-store",headers:{"content-type":"application/json","x-csrf-token":csrf()},body:JSON.stringify({action:"export",revision:ws.draft!.revision,format:"PDF",sheet:sheetName})});
+   if(!r.ok){const d=await r.json().catch(()=>({}));throw new LabFailure(d.code??"REQUEST_FAILED",d.error??"ออก PDF ไม่สำเร็จ",d.details,r.status);}
+   const url=URL.createObjectURL(await r.blob());
+   if(mode==="view")window.open(url,"_blank","noopener");else{const a=document.createElement("a");a.href=url;a.download=`${w.batch.runLabel.replace("/","-")}_Task-List-${n}_uncontrolled.pdf`;a.click();}
+   setTimeout(()=>URL.revokeObjectURL(url),60000);
+   setMsg({ok:true,text:`สร้าง PDF ของ Task List ${n} แล้ว (สำเนาตรวจทาน — ไม่ใช่เอกสารควบคุม)`});
+  }catch(e){setMsg({ok:false,text:failureText(e)});}finally{setBusy(false);}
+ }
  async function pdf(id:string,kind:string,reason?:string){setMsg(null);try{await labPdf(`/api/p4/documents/${id}`,{kind,...(reason?{reason}:{})});await reload();}catch(e){setMsg({ok:false,text:failureText(e)});}}
  const sheetDocs=w.documents.filter(d=>d.sheet_number===sheetNo);
  const preWork=sheetDocs.find(d=>d.form==="F2"&&d.kind==="PRE_WORK"&&d.status==="Issued");
@@ -102,6 +120,13 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
     {sheet.state==="InExecution"&&w.allowed.execute&&<button className="button secondary" type="button" disabled={busy} onClick={()=>act("end",{sheetNumber:sheetNo},"บันทึกจบการปฏิบัติแล้ว")}>บันทึกจบการปฏิบัติ</button>}
     {sheet.state==="ExecutionRecorded"&&w.allowed.verify&&<button className="button" type="button" disabled={busy||!comp.ready} onClick={()=>act("verify",{sheetNumber:sheetNo},"ทวนสอบหลักฐานการปฏิบัติครบแล้ว")}>ยืนยัน Execution Verified</button>}
     {sheet.state==="ExecutionVerified"&&w.allowed.execute&&<button className="button" type="button" disabled={busy} onClick={()=>act("issueCompleted",{sheetNumber:sheetNo},"ออกบันทึกหลังปฏิบัติ (F2 Completed) แล้ว")}>ออก F2 Completed</button>}
+   </div>
+   <div className="action-bar" aria-label={`PDF ของ Task List ${sheetNo}`}>
+    {sheet.placement_revision>0&&sheet.state!=="Cancelled"&&w.allowed.execute?<>
+     <button className="button secondary" type="button" disabled={busy} onClick={()=>void taskPdf(sheetNo,"view")}>ดูตัวอย่าง PDF Task List {sheetNo}</button>
+     <button className="button secondary" type="button" disabled={busy} onClick={()=>void taskPdf(sheetNo,"download")}>ดาวน์โหลด PDF Task List {sheetNo}</button>
+     <span className="help">สำเนาตรวจทานจาก Excel Master — ไม่ใช่เอกสารควบคุม (เอกสารควบคุมคือใบงาน Pre-work / Completed ด้านล่าง)</span></>
+    :<span className="help">PDF ของ Task List {sheetNo} พร้อมเมื่อ Finalize Placement แล้ว</span>}
    </div>
    {sheet.state==="PlanChecked"&&<p className="help">การยืนยันแผนคือการตรวจแผนบนจอ ไม่ใช่หลักฐานว่าดูดตัวอย่างแล้ว · Finalize จะประเมิน Finalize Gate ใหม่ทุกตัวอย่าง — ถ้าตัวใดไม่ผ่านจะไม่ Finalize ทั้ง Sheet</p>}
    {sheet.state==="PlacementFinalized"&&<p className="help">ล็อกเฉพาะแผนตำแหน่ง — ยังไม่มีการบันทึก ✓ การดูด ใบงาน Pre-work มีเพียงช่องว่างสำหรับเขียนระหว่างปฏิบัติ</p>}
