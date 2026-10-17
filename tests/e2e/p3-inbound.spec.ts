@@ -18,7 +18,7 @@ async function login(page:Page,username="synthetic.lab"){
 const AA_TAGS=["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"];
 for(const width of [375,768,1280])test(`P3 inbound queue is accessible and responsive at ${width}px (Lab)`,async({page})=>{
  await page.setViewportSize({width,height:900});await login(page);
- await page.goto("/health");await page.getByRole("link",{name:"เปิดหน้ารับใบสั่งจาก HIS"}).click();
+ await page.goto("/inbound");
  await expect(page.getByRole("heading",{level:1,name:"รับใบสั่งจาก HIS"})).toBeVisible();
  for(const name of ["สถานะการเชื่อมต่อ","ไฟล์ล่าสุด","ประวัติการสแกน"])await expect(page.getByRole("heading",{name})).toBeVisible();
  await expect(page.getByRole("heading",{name:/รายการที่ต้องตรวจ/})).toBeVisible();
@@ -55,7 +55,7 @@ test("P2-P3 Lab blind entry: presence only before entry, match links S1 at P[21]
  const n=String(Date.now()).slice(-8),match={ln:"0099000"+n+"1",hn:"00990"+n+"1"},miss={ln:"0099000"+n+"2",hn:"00990"+n+"2"},fresh="0099000"+n+"3";
  await hisIntakes([match,miss]);
  await page.setViewportSize({width:375,height:900});await login(page,"synthetic.lab");
- await expect(page.getByRole("navigation",{name:"เมนูหลัก"}).getByRole("link",{name:"รับใบสั่งจาก HIS"})).toBeVisible();
+ await page.getByRole("button",{name:"เปิดเมนูหลัก",exact:true}).click();await expect(page.getByRole("navigation",{name:"เมนูหลัก"}).getByRole("link",{name:"รับใบสั่งจาก HIS"})).toBeVisible();await page.keyboard.press("Escape");
  const open=async(ln:string)=>{await page.goto("/cases");await page.getByRole("button",{name:"ลงทะเบียนโดย Lab",exact:true}).click();const dialog=page.getByRole("dialog");await dialog.getByLabel("LN HIS จำลอง",{exact:false}).fill(ln);await dialog.getByLabel("LN HIS จำลอง",{exact:false}).blur();return dialog;};
  const fill=async(dialog:ReturnType<Page["getByRole"]>,hn:string,source:string)=>{await dialog.getByLabel("HN จำลอง",{exact:false}).fill(hn);const unit=dialog.getByLabel("หน่วยงานลงทะเบียน",{exact:false});await expect(unit.locator("option")).not.toHaveCount(1);await unit.selectOption({index:1});const s=dialog.getByLabel("แหล่งของตัวระบุ",{exact:false});await s.selectOption(source);await expect(s).toHaveValue(source);await dialog.getByRole("button",{name:"ตรวจและลงทะเบียน",exact:true}).click();};
  let dialog=await open(match.ln);

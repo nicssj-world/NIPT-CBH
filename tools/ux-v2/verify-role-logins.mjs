@@ -1,0 +1,7 @@
+import {readFile,writeFile} from 'node:fs/promises';
+import {chromium} from 'playwright';
+const origin='https://127.0.0.1:19518';
+const accounts=JSON.parse(await readFile('.local/ux-v2/secrets/uat-accounts.json','utf8'));
+const browser=await chromium.launch({headless:true});const results=[];
+try{for(const account of accounts){const context=await browser.newContext({baseURL:origin,ignoreHTTPSErrors:true});const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('/login');await page.getByLabel('ชื่อผู้ใช้',{exact:true}).fill(account.username);await page.getByLabel('รหัสผ่าน',{exact:true}).fill(account.password);await page.getByRole('button',{name:'เข้าสู่ระบบ',exact:true}).click();await page.waitForURL(u=>u.pathname!=='/login');await page.waitForLoadState('networkidle');const cookies=await context.cookies();const result={role:account.role,pathname:new URL(page.url()).pathname,secureSession:cookies.find(c=>c.name==='nipt_session')?.secure===true,banner:await page.getByText('TRAINING / LOCAL UAT — NOT FOR CLINICAL USE',{exact:true}).count(),errors};results.push(result);await context.close();if(!result.secureSession||result.banner<1||errors.length)throw Error('ROLE_RUNTIME_CHECK_FAILED_'+account.role);}}finally{await browser.close();await writeFile('.local/ux-v2/role-login-evidence.json',JSON.stringify(results,null,2));}
+console.log(JSON.stringify(results));

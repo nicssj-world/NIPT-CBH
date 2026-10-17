@@ -1,0 +1,3 @@
+services:
+  web:
+    image: nipt-ux-v2-local-web:20261017

@@ -37,7 +37,7 @@ const fixtureQuery=async<T extends Record<string,unknown>>(sql:string,params:unk
 
 for(const width of [375,768,1280])test(`P4 Lab worklist is accessible and responsive at ${width}px`,async({page})=>{
  await page.setViewportSize({width,height:900});await login(page,"synthetic.lab");
- await page.getByRole("navigation",{name:"เมนูหลัก"}).getByRole("link",{name:"งาน Lab"}).click();
+ if(await page.getByRole("button",{name:"เปิดเมนูหลัก",exact:true}).isVisible())await page.getByRole("button",{name:"เปิดเมนูหลัก",exact:true}).click();await page.getByRole("navigation",{name:"เมนูหลัก"}).getByRole("link",{name:"งาน Lab"}).click();
  await expect(page.getByRole("heading",{level:1,name:"งาน Lab — คิวตัวอย่าง"})).toBeVisible();
  await expect(page.getByRole("tab",{name:/พร้อมเข้าตรวจ/})).toHaveAttribute("aria-selected","true");
  await expect(page.getByText("รอบที่ 1 เข้ามาเองจากการรับใน HIS")).toBeVisible();

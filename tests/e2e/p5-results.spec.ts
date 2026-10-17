@@ -46,7 +46,7 @@ test("P5 folder workflow: Test Path → Scan → Preview → import, then two-pe
  test.setTimeout(150000);
  const f=await resultFixture();
  await page.setViewportSize({width:1440,height:1000});await login(page,"synthetic.lab");
- await page.getByRole("navigation",{name:"เมนูหลัก"}).getByRole("link",{name:"ผลตรวจ NIPT"}).click();
+ if(await page.getByRole("button",{name:"เปิดเมนูหลัก",exact:true}).isVisible())await page.getByRole("button",{name:"เปิดเมนูหลัก",exact:true}).click();await page.getByRole("navigation",{name:"เมนูหลัก"}).getByRole("link",{name:"ผลตรวจ NIPT"}).click();
  await expect(page.getByRole("heading",{name:"ผลตรวจ NIPT",exact:true})).toBeVisible();
  await expect(page.getByText("ยังไม่ปล่อยผลจริง")).toBeVisible();
  await page.getByRole("button",{name:"ทดสอบโฟลเดอร์"}).click();

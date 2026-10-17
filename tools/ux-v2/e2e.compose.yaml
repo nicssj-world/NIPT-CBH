@@ -1,0 +1,20 @@
+name: nipt-ux-v2-e2e-20261017
+services:
+  db:
+    image: postgres:17-bookworm@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826
+    ports: ["127.0.0.1:19529:5432"]
+    environment:
+      POSTGRES_USER: nipt_e2e
+      POSTGRES_DB: nipt_synthetic_p2_browser_uxv2
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets: [db_password]
+    volumes: [database:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U nipt_e2e -d nipt_synthetic_p2_browser_uxv2]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+volumes:
+  database:
+secrets:
+  db_password: {file: .local/ux-v2-e2e/db-password}
