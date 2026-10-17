@@ -2,6 +2,7 @@ import {beforeEach,afterEach,it,expect} from 'vitest';
 import {inboundFixture,register,registrar,writePet,cycle,rows,type InboundFixture} from '../helpers/inbound';
 import {orderRedraw,labWorklist,previewLabels,printLabels} from '../../packages/lab/intake';
 import {tx,labUsers} from '../helpers/lab';
+import {printedSampleId} from '../../packages/lab/rules';
 
 // Owner Lock OD-R1 / OD-R1a: redraw S2 (HIS PET) = S1 base + R, Twins D before R; labels, print audit and screens show it;
 // the base, monthly sequence and lineage are unchanged. Synthetic PGlite database only (all migrations incl. 099).
@@ -50,4 +51,13 @@ it('S2 labels/print audit/worklist show BASE[D]R while S1 keeps BASE; base, coun
  // The worklist lists the current round only: S2 shows the redraw code (S1's code is checked via the label preview above).
  for(const code of [s2Code,twinS2])expect(list).toContain(`"labelCode":"${code}"`);
  expect(list).not.toContain(`"labelCode":"${s1Code}"`);
+});
+
+it('characterization (OD-R2 pending): a redraw can be ordered from a PET-received S2; S3 stays Expected with no LN Halos or printed-ID rule',async()=>{
+ const c=await redrawCase('990001009203','9900002003','Singleton');
+ const {certifier}=await labUsers(f.db);
+ const s3=await tx(f.db,()=>orderRedraw(f.db,certifier,{caseId:c.caseId,reasonCode:'OTHER',note:'SYNTHETIC third draw for characterization'}));
+ expect(await rows(f.db,'SELECT round_number,state FROM specimen_round WHERE id=$1',[s3.newRoundId])).toEqual([{round_number:3,state:'Expected'}]);
+ expect(await rows(f.db,'SELECT 1 FROM specimen_lab_number WHERE round_id=$1',[s3.newRoundId])).toEqual([]);
+ expect(printedSampleId({base:c.base,pregnancy:'Singleton',attemptNumber:1,repeatLevel:null,earlierReLibraryCount:0,roundNumber:3,receivedSource:'HIS_PET_RECEIPT'})).toBeNull();
 });
