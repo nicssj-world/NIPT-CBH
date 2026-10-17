@@ -54,7 +54,7 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
     <button className="button secondary" type="button" onClick={reload}>โหลดใหม่</button>
    </div>
    {status&&<p className="notice" role="alert">{status}</p>}
-   {tab==="REDRAW_EXPECTED"?<ExpectedTable rows={data.expected.filter(e=>match(e.hisLn,e.previousLnHalos))} can={can} open={(type,row)=>setDialog({type,row})}/>
+   {tab==="REDRAW_EXPECTED"?<ExpectedTable operational={!!data.operational} rows={data.expected.filter(e=>match(e.hisLn,e.previousLnHalos))} can={can} open={(type,row)=>setDialog({type,row})}/>
    :tab==="LN_HALOS_MISSING"?<MissingTable rows={data.missing.filter(m=>match(m.hisLn))} can={can} open={(type,row)=>setDialog({type,row})}/>
    :<>
     <div className="bulk-bar" aria-live="polite"><span>เลือก {chosen.length} รายการ</span>
@@ -76,13 +76,13 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
        {a.gate?.syntheticPendingAccepted&&<p className="small muted">ผ่านด้วยนโยบายจำลอง: {a.gate.pending.map(gateText).join(", ")}</p>}</td>
       <td>{a.labels.prints?<span className="status good">พิมพ์แล้ว {a.labels.prints}</span>:<span className="status warning">ยังไม่พิมพ์</span>}</td>
       <td>{a.placement?<Link href={`/lab/batches/${a.placement.batchId}${a.placement.slot?`?task=${getSheetNumber(a.placement.slot)}`:""}`}>{a.placement.runLabel} · {a.placement.slot?`Task List ${getSheetNumber(a.placement.slot)} · `:""}ตน. {a.placement.slot}</Link>:"—"}</td>
-      <td>{data.operational&&can.receive&&a.attemptState==='Ready'&&<button className="button small" onClick={()=>setDialog({type:'accept',row:a})}>ตรวจรับสิ่งส่งตรวจ</button>}<RowActions a={a} can={can} open={(type)=>setDialog({type,row:a})}/></td>
+      <td>{data.operational&&can.receive&&a.attemptState==='Ready'&&<button className="button small" onClick={()=>setDialog({type:'accept',row:a})}>ตรวจสภาพสิ่งส่งตรวจ</button>}<RowActions a={a} can={can} open={(type)=>setDialog({type,row:a})}/></td>
      </tr>)}</tbody></table></div>}
    </>}
   </section>
   {dialog?.type==="labels"&&<LabelDialog samples={(dialog.samples??[dialog.row as Attempt]).map(a=>({roundId:a.roundId,hisLn:a.hisLn,lnHalos:a.lnHalos,labelCode:a.labelCode,roundNumber:a.roundNumber,printed:a.labels.prints}))} onClose={()=>setDialog(null)} onPrinted={reload}/>}
   {dialog?.type==="assign"&&<AssignDialog attempts={dialog.samples!} onClose={()=>setDialog(null)} onDone={async msg=>{setDialog(null);setStatus(msg);await reload();}}/>}
-  {dialog&&["accept","urgent","hold","repeat","redraw","receive","recover","cancelRedraw"].includes(dialog.type)&&<ActionDialog type={dialog.type} row={dialog.row!} onClose={()=>setDialog(null)} onDone={async msg=>{setStatus(msg);await reload();}}/>}
+  {dialog&&["accept","urgent","hold","repeat","redraw","receive","recover","cancelRedraw"].includes(dialog.type)&&<ActionDialog operational={!!data.operational} type={dialog.type} row={dialog.row!} onClose={()=>setDialog(null)} onDone={async msg=>{setStatus(msg);await reload();}}/>}
  </>;
 }
 function RowActions({a,can,open}:{a:Attempt;can:Can;open:(type:string)=>void}){
@@ -94,13 +94,13 @@ function RowActions({a,can,open}:{a:Attempt;can:Can;open:(type:string)=>void}){
   {can.redraw&&<button className="button small secondary" type="button" onClick={()=>open("redraw")}>สั่งเจาะซ้ำ</button>}
  </div>;
 }
-function ExpectedTable({rows,can,open}:{rows:Expected[];can:Can;open:(t:string,r:Expected)=>void}){
+function ExpectedTable({operational,rows,can,open}:{operational:boolean;rows:Expected[];can:Can;open:(t:string,r:Expected)=>void}){
  if(!rows.length)return <p className="empty-state">ไม่มีรอบเจาะซ้ำที่รอรับ</p>;
- return <div className="table-wrap"><table className="data-table"><caption className="sr-only">รอบเจาะซ้ำที่รอรับใน NIPT — ไม่รับซ้ำใน HIS</caption>
+ return <div className="table-wrap"><table className="data-table"><caption className="sr-only">{operational?"รอบเจาะซ้ำที่รอ PET ใหม่จาก HIS (LN เดิม)":"รอบเจาะซ้ำที่รอรับ (ชุดจำลอง)"}</caption>
   <thead><tr><th scope="col">LN (HIS เดิม)</th><th scope="col">รอบ</th><th scope="col">LN Halos รอบก่อน</th><th scope="col">สั่งเมื่อ / เหตุผล</th><th scope="col">จัดการ</th></tr></thead>
   <tbody>{rows.map(r=><tr key={r.roundId}><td className="mono">{r.hisLn}</td><td>รอบที่ {r.roundNumber} <span className="badge warning">ต้องเก็บตัวอย่างใหม่</span></td><td className="mono">{r.previousLnHalos??"—"}</td><td>{bkk(r.requestedAt)} · {r.reasonCode}</td>
-   <td><div className="row-actions">{can.receive&&<button className="button small" type="button" onClick={()=>open("receive",r)}>รับตัวอย่างเจาะซ้ำ</button>}{can.redrawCancel&&<button className="button small secondary" type="button" onClick={()=>open("cancelRedraw",r)}>ยกเลิกคำสั่ง</button>}</div></td></tr>)}</tbody></table>
-  <p className="help">รอบเจาะซ้ำรับในระบบ NIPT เท่านั้น ใช้ HIS LN เดิม ไม่สร้างใบสั่ง/LN ใหม่ใน HIS และไม่รอไฟล์ .pet</p></div>;
+   <td><div className="row-actions">{operational?<span className="badge">รอ PET ใหม่จาก HIS</span>:can.receive&&<button className="button small" type="button" onClick={()=>open("receive",r)}>รับตัวอย่างเจาะซ้ำ (ชุดจำลอง)</button>}{can.redrawCancel&&<button className="button small secondary" type="button" onClick={()=>open("cancelRedraw",r)}>ยกเลิกคำสั่ง</button>}</div></td></tr>)}</tbody></table>
+  <p className="help">{operational?"เจ้าหน้าที่กดรับสิ่งส่งตรวจรอบใหม่ใน HIS ตามปกติ (HIS LN เดิม) เมื่อระบบอ่าน .pet/.ok ใหม่ได้ รอบนี้จะรับอัตโนมัติด้วยเวลารับจาก HIS และใช้ LN Halos ฐานเดิมต่อท้าย R — ไม่ต้องรับซ้ำใน NIPT":"ชุดจำลอง: รับรอบเจาะซ้ำในระบบ NIPT ได้เพื่อทดสอบ ในการใช้งานจริงรอบเจาะซ้ำรับจาก PET ใหม่ของ HIS เท่านั้น"}</p></div>;
 }
 function MissingTable({rows,can,open}:{rows:Missing[];can:Can;open:(t:string,r:Missing)=>void}){
  if(!rows.length)return <p className="empty-state">ทุกรอบที่รับแล้วมี LN Halos</p>;
@@ -133,7 +133,7 @@ function AssignDialog({attempts,onClose,onDone}:{attempts:Attempt[];onClose:()=>
 }
 const REDRAW_REASONS:[string,string][]=[["QC1_FAILED","QC1 ไม่ผ่าน"],["QC_SAMPLE_FAILED","QC ระดับตัวอย่างไม่ผ่าน"],["FETAL_FRACTION_LOW","FF ต่ำ"],["SPECIMEN_PROBLEM","ปัญหาสิ่งส่งตรวจ"],["OTHER","อื่น ๆ"]];
 const REPEAT_REASONS:[string,string][]=[["QC1_LOW","QC1 ต่ำกว่าเกณฑ์"],["LIBRARY_FAILURE","Library ล้มเหลว"],["BATCH_CANCELLED","Batch ถูกยกเลิก"],["STOPPED_BY_LAB","Lab หยุดงาน"],["OTHER","อื่น ๆ"]];
-function ActionDialog({type,row,onClose,onDone}:{type:string;row:Attempt|Expected|Missing;onClose:()=>void;onDone:(msg:string)=>Promise<void>}){
+function ActionDialog({operational,type,row,onClose,onDone}:{operational:boolean;type:string;row:Attempt|Expected|Missing;onClose:()=>void;onDone:(msg:string)=>Promise<void>}){
  const a=row as Attempt;const [note,setNote]=useState(""),[code,setCode]=useState(""),[level,setLevel]=useState("RE_LIBRARY"),[identity,setIdentity]=useState(false),[label,setLabel]=useState(false),[condition,setCondition]=useState("ACCEPTABLE"),[date,setDate]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState(""),[issued,setIssued]=useState<null|{lnHalos:string;duplicate:boolean}>(null);
  const titles:Record<string,string>={urgent:a.urgent?"ยกเลิกสถานะด่วน":"ตั้งเป็นงานด่วน",hold:a.hold?"ปลด Hold":"ระงับ (Hold)",repeat:"สั่งตรวจซ้ำ (Repeat) — สิ่งส่งตรวจเดิม",redraw:"สั่งเก็บตัวอย่างใหม่ (Redraw)",receive:"รับตัวอย่างเจาะซ้ำใน NIPT",recover:"ออก LN Halos จากการรับเดิม",cancelRedraw:"ยกเลิกคำสั่งเก็บตัวอย่างใหม่"};
  async function submit(){setBusy(true);setError("");try{
@@ -142,21 +142,21 @@ function ActionDialog({type,row,onClose,onDone}:{type:string;row:Attempt|Expecte
    :type==="recover"?{action:"recoverLnHalos",roundId:row.roundId,reason:note}:{action:"receiveRedraw",roundId:row.roundId,identityChecked:identity,labelChecked:label,condition,...(condition==="PROBLEM_NOTED"?{conditionNote:note}:{}),collectionDate:date};
   const r=await labApi<Record<string,unknown>>("/api/p4/worklist",body);
   if(type==="receive"||type==="recover"){setIssued(r as {lnHalos:string;duplicate:boolean});await onDone(`LN Halos ${String(r.lnHalos)}`);}
-  else{await onDone(type==="repeat"?`สั่งตรวจซ้ำแล้ว — Attempt #${String(r.attemptNumber)} ${r.printedSampleId?String(r.printedSampleId):"(รูปแบบ Printed Sample ID รอ OD-03)"}`:type==="redraw"?`สั่งเก็บตัวอย่างใหม่แล้ว — รอบที่ ${String(r.newRoundNumber)} รอรับใน NIPT`:"บันทึกแล้ว");onClose();}
+  else{await onDone(type==="repeat"?`สั่งตรวจซ้ำแล้ว — Attempt #${String(r.attemptNumber)} ${r.printedSampleId?String(r.printedSampleId):"(รูปแบบ Printed Sample ID รอ OD-03)"}`:type==="redraw"?`สั่งเก็บตัวอย่างใหม่แล้ว — รอบที่ ${String(r.newRoundNumber)} ${operational?"รอ PET ใหม่จาก HIS":"รอรับ (ชุดจำลอง)"}`:"บันทึกแล้ว");onClose();}
  }catch(e){setError(failureText(e));}finally{setBusy(false);}}
  const needsNote=type!=="receive"||condition==="PROBLEM_NOTED";
  const valid=(!needsNote||note.trim().length>=8)&&(!["repeat","redraw"].includes(type)||code)&&(type!=="receive"||(identity&&label&&date))&&(type!=='accept'||(identity&&label&&code.trim().length>=8));
- return <Dialog title={type==='accept'?'ตรวจรับสิ่งส่งตรวจ':titles[type]} onClose={onClose}><div className="stack">
+ return <Dialog title={type==='accept'?'ตรวจสภาพสิ่งส่งตรวจ (หลังรับใน HIS)':titles[type]} onClose={onClose}><div className="stack">
   <p className="mono">LN {row.hisLn} · รอบที่ {row.roundNumber}{"lnHalos" in row&&row.lnHalos?` · ${row.lnHalos}`:""}</p>
   {type==="repeat"&&<><p className="help">ใช้สิ่งส่งตรวจเดิม ไม่สร้างรอบใหม่ ไม่เกี่ยวกับ HIS — Attempt เดิมถูกแทนที่และเก็บประวัติไว้ ชื่อระดับการตรวจซ้ำรอ OD-03; Printed Sample ID สร้างได้เฉพาะรูปแบบเดิมของ Genomic-CBH (Re-Library ครั้งแรก = -2)</p>
    <fieldset><legend>ระดับการตรวจซ้ำ</legend><label className="check-label"><input type="radio" name="level" checked={level==="RE_LIBRARY"} onChange={()=>setLevel("RE_LIBRARY")}/> Re-Library</label><label className="check-label"><input type="radio" name="level" checked={level==="RE_EXTRACTION"} onChange={()=>setLevel("RE_EXTRACTION")}/> Re-extraction (พลาสมาหลอดที่ 2 — รูปแบบ ID รอ OD-03)</label></fieldset></>}
-  {type==="redraw"&&<p className="help">สร้างรอบใหม่ภายใต้ HIS LN เดิม งานที่ค้างของรอบนี้ถูกหยุด ANC เห็นสถานะ “ต้องเก็บตัวอย่างใหม่” ทันที — ไม่มีการเขียนใด ๆ ไป HIS</p>}
+  {type==="redraw"&&<p className="help">สร้างรอบใหม่ภายใต้ HIS LN เดิม งานที่ค้างของรอบนี้ถูกหยุด ANC เห็นสถานะ “ต้องเก็บตัวอย่างใหม่” ทันที — ไม่มีการเขียนใด ๆ ไป HIS{operational?" รอบใหม่จะรับเมื่อ HIS ส่ง PET ใหม่ของ LN เดิม":""}</p>}
   {(type==="repeat"||type==="redraw")&&<div><label htmlFor="code">รหัสเหตุผล</label><select id="code" value={code} onChange={e=>setCode(e.target.value)}><option value="">เลือกเหตุผล</option>{(type==="repeat"?REPEAT_REASONS:REDRAW_REASONS).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div>}
   {type==='accept'&&<div><label htmlFor="acceptance-criteria">เอกสาร / เกณฑ์ที่ใช้ตรวจรับ</label><input id="acceptance-criteria" value={code} onChange={e=>setCode(e.target.value)}/></div>}
-  {['receive','accept'].includes(type)&&!issued&&<>{type==='receive'&&<p className="help">บันทึกเมื่อตัวอย่างมาถึง Lab จริงเท่านั้น — LN Halos ของรอบนี้ออกจากการรับครั้งนี้ หากกดซ้ำจะได้เลขเดิม</p>}
+  {['receive','accept'].includes(type)&&!issued&&<>{type==='accept'&&<p className="help">รับสิ่งส่งตรวจใน HIS แล้ว (เวลารับจาก PET) — ขั้นนี้บันทึกผลตรวจสภาพหลอดและฉลากก่อนจัดเข้า Batch ไม่ใช่การรับซ้ำ</p>}{type==='receive'&&<p className="help">บันทึกเมื่อตัวอย่างมาถึง Lab จริงเท่านั้น — LN Halos ของรอบนี้ออกจากการรับครั้งนี้ หากกดซ้ำจะได้เลขเดิม</p>}
    <label className="check-label"><input type="checkbox" checked={identity} onChange={e=>setIdentity(e.target.checked)}/> ตรวจตัวตนผู้รับบริการตรงกับ HIS LN เดิมแล้ว</label>
    <label className="check-label"><input type="checkbox" checked={label} onChange={e=>setLabel(e.target.checked)}/> ตรวจฉลากหลอดตรงกับเคสและรอบแล้ว</label>
-   <fieldset><legend>สภาพสิ่งส่งตรวจ (นโยบายการยอมรับรอ OD-01)</legend><label className="check-label"><input type="radio" name="cond" checked={condition==="ACCEPTABLE"} onChange={()=>setCondition("ACCEPTABLE")}/> ไม่พบปัญหา</label><label className="check-label"><input type="radio" name="cond" checked={condition==="PROBLEM_NOTED"} onChange={()=>setCondition("PROBLEM_NOTED")}/> พบปัญหา (ระบุ)</label></fieldset>
+   <fieldset><legend>สภาพสิ่งส่งตรวจ (นโยบายการยอมรับรอ OD-01)</legend><label className="check-label"><input type="radio" name="cond" checked={condition==="ACCEPTABLE"} onChange={()=>setCondition("ACCEPTABLE")}/> {type==='accept'?"ยอมรับสิ่งส่งตรวจ":"ไม่พบปัญหา"}</label><label className="check-label"><input type="radio" name="cond" checked={condition==="PROBLEM_NOTED"} onChange={()=>setCondition("PROBLEM_NOTED")}/> {type==='accept'?"ปฏิเสธสิ่งส่งตรวจ (ไม่จัดเข้า Batch)":"พบปัญหา (ระบุ)"}</label></fieldset>
    {type==='receive'&&<div><label htmlFor="cdate">วันที่เจาะเลือดของรอบนี้</label><ThaiDateInput id="cdate" value={date} onChange={setDate}/></div>}</>}
   {issued?<p className="notice success" role="status">{issued.duplicate?"รับไว้แล้วก่อนหน้า — ":""}LN Halos ของรอบนี้: <strong className="mono">{issued.lnHalos}</strong> พิมพ์ฉลากได้จากคิว “พร้อมเข้าตรวจ/ติด Gate”</p>
    :needsNote&&<div><label htmlFor="note">{type==="receive"?"รายละเอียดปัญหา":"เหตุผล"} (อย่างน้อย 8 ตัวอักษร)</label><textarea id="note" value={note} onChange={e=>setNote(e.target.value)} maxLength={500} rows={3}/></div>}

@@ -17,7 +17,7 @@ export const failureText=(e:unknown)=>e instanceof LabFailure?e.text:"ทำร�
 /** Asia/Bangkok date-time with a 4-digit BE year (Owner date standard), e.g. 17/10/2569 11:54. */
 export const bkk=(v:string|Date|null|undefined)=>displayBeDateTime(v);
 export const GATE_TEXT:Record<string,string>={
- NOT_CURRENT_ROUND:"ไม่ใช่รอบปัจจุบัน",NOT_RECEIVED:"ยังไม่รับสิ่งส่งตรวจ",REDRAW_REQUESTED:"สั่งเก็บตัวอย่างใหม่แล้ว",ANALYSIS_STARTED_REQUIRES_REPEAT_LINEAGE:"รอบนี้เริ่มวิเคราะห์แล้ว — ต้องสั่งตรวจซ้ำ (Repeat)",
+ NOT_CURRENT_ROUND:"ไม่ใช่รอบปัจจุบัน",REDRAW_BEYOND_S2_PENDING_OD_R2:"ยังไม่มีขั้นตอนรับรอบเจาะซ้ำครั้งที่ 3 ขึ้นไปจาก HIS (รอ Owner ตัดสิน OD-R2) ระบบจึงไม่สร้างรอบที่รับไม่ได้ — ปรึกษาผู้รับผิดชอบก่อนสั่งเจาะซ้ำอีกครั้ง",REDRAW_REQUIRES_NEW_HIS_PET:"รอบเจาะซ้ำรับจาก PET ใหม่ของ HIS เท่านั้น — ให้รับสิ่งส่งตรวจใน HIS ตามปกติ",NOT_RECEIVED:"ยังไม่รับสิ่งส่งตรวจ",REDRAW_REQUESTED:"สั่งเก็บตัวอย่างใหม่แล้ว",ANALYSIS_STARTED_REQUIRES_REPEAT_LINEAGE:"รอบนี้เริ่มวิเคราะห์แล้ว — ต้องสั่งตรวจซ้ำ (Repeat)",
  IDENTITY_ISSUE_OPEN:"มีปัญหาตัวตนจาก HIS ค้าง",LN_NOT_VERIFIED:"LN ยังไม่ยืนยันด้วย .pet",RECEIPT_CHECK_INCOMPLETE:"การตรวจรับรอบเจาะซ้ำไม่ครบ",CONSENT_REVOKED:"ถอนความยินยอมแล้ว",CONSENT_DECLINED:"ผู้รับบริการไม่ยินยอม",
  CONSENT_NOT_GRANTED:"ยังไม่มีความยินยอมที่ยืนยันแล้ว",REQUEST_NOT_VERIFIED:"Request ยังไม่ยืนยัน",CLINICAL_NOT_ASSESSED:"ยังไม่ประเมิน Clinical Gate",COLLECTION_DATE_MISSING:"ไม่มีวันที่เจาะเลือด",COLLECTION_DATE_CONFLICT:"วันที่เจาะเลือดขัดแย้งกัน",
  ATTEMPT_ON_HOLD:"ถูกระงับ (Hold)",RESUME_DECISION_REQUIRED:"รอการตัดสินใจหลังยกเลิกคำสั่งเจาะซ้ำ",PREGNANCY_TYPE_UNCONFIRMED:"ยังไม่ยืนยันประเภทครรภ์ (เดี่ยว/แฝด)",PRINTED_ID_FORMAT_PENDING_OD03:"ยังไม่มีรูปแบบ Printed Sample ID ที่อนุมัติ (OD-03)",

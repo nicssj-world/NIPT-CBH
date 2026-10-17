@@ -128,6 +128,9 @@ export async function orderRedraw(db:Queryable,user:Staff,input:unknown){
  const head=(await db.query<{current_round_id:string}>('SELECT current_round_id FROM nipt_case WHERE id=$1',[d.caseId])).rows[0];if(!head)throw new LabError('NOT_FOUND',404);
  const r=await lockedRound(db,user,head.current_round_id);need(user,'redraw.order','write',{unitId:r.unit_id??undefined,origin:r.registration_origin as 'ANC'});
  if(r.current_round_id!==r.id||!['ReceivedInHIS','ReceivedInNIPT'].includes(r.state))throw new LabError('REDRAW_REQUIRES_RECEIVED_CURRENT_ROUND',409);
+ // Rev 3.4 §11A fix 8 (interim until OD-R2): HIS PET receipt exists for S2 only, so an S3+ round could never be received.
+ // Refuse to create it in operational mode instead of leaving a round that silently waits forever. Nothing existing changes.
+ if(process.env.NIPT_MODE==='operational'&&r.round_number>=2)throw new LabError('REDRAW_BEYOND_S2_PENDING_OD_R2',409);
  const request=(await db.query<{id:string}>("INSERT INTO redraw_request(case_id,source_round_id,reason_code,note,requested_by,prior_round_state) VALUES($1,$2,$3,$4,$5,$6) RETURNING id",[r.case_id,r.id,d.reasonCode,d.note,user.id,r.state])).rows[0].id;
  const live=await attemptFacts(db,"a.round_id=$1 AND a.state IN ('Ready','Assigned','InProgress')",[r.id]);
  for(const a of live){
