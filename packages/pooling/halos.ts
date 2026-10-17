@@ -8,12 +8,13 @@ import {storedPool} from '../sequencing/service';
 import {fixtureMember} from '../sequencing/schemas';
 import {generateHalosWorkbook,verifyHalosWorkbook,type OperationalHalosInput} from '../halos-export/workbook';
 import {digest} from './calculation';
+import {isoDate} from '../domain/thai-date';
 const hash=z.string().regex(/^[a-f0-9]{64}$/);
 export type HalosExport={id:string;pool_snapshot_id:string;dnb_date:string;file_sha256:string;source:OperationalHalosInput;manifest:Record<string,unknown>;revision:number};
 /** Accepted Pool -> real vendor XLSX. Generation/readback never asserts that a device imported it. */
 export async function exportAcceptedPool(db:Queryable,user:Staff,input:unknown,store:FileStore){
  await assertSession(db,user);need(user,'handoff.create');if(!await operationalWorkflow(db))throw new LabError('OWNER_DECISIONS_HOLD',423);
- const d=z.strictObject({batchId:uuid,poolSnapshotId:uuid,expectedVersion:z.number().int().nonnegative(),dnbDate:z.iso.date(),mappingReference:reasonText,members:z.array(fixtureMember).length(47)}).parse(input);
+ const d=z.strictObject({batchId:uuid,poolSnapshotId:uuid,expectedVersion:z.number().int().nonnegative(),dnbDate:isoDate,mappingReference:reasonText,members:z.array(fixtureMember).length(47)}).parse(input);
  const b=await lockBatch(db,d.batchId,d.expectedVersion),{snapshot,p}=await storedPool(db,b.id,d.poolSnapshotId);
  if(snapshot.payload.acceptance!=='Accepted'||snapshot.payload.synthetic)throw new LabError('POOL_ACCEPTED_REQUIRED',409);
  if(snapshot.payload.members.length!==47)throw new LabError('MAPPING_UNAVAILABLE_PARTIAL_SOURCE',409);

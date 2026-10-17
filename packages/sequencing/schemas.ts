@@ -1,12 +1,13 @@
 import {z} from 'zod';
 import {uuid,reasonText} from '../lab/core';
 import {numeric} from '../pooling/calculation';
+import {isoDate} from '../domain/thai-date';
 
 export {HOLDS,QC3_CRITERIA,QC4_CRITERIA} from './constants';
 // Identity comparison must preserve exact scanned/imported text; never trim a mismatch into a match.
 export const opaque=z.string().min(1).max(160).refine(v=>v.trim().length>0&&!/[\u0000-\u001f\u007f]/.test(v),'INVALID_TEXT');
 export const hash=z.string().regex(/^[a-f0-9]{64}$/);
-export const date=z.iso.date();
+export const date=isoDate;
 export const common=z.strictObject({batchId:uuid,dnbId:uuid,expectedVersion:z.number().int().nonnegative()});
 export const command=common.extend({requestId:uuid});
 export const lot=z.strictObject({name:opaque,lot:opaque,expiry:date});

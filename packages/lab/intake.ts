@@ -8,6 +8,7 @@ import {effectiveLnHalos} from './rules';
 import {compareReceive,READY_QUEUE_DEFAULT_SORT} from './receive-sort';
 import {LabError,uuid,reasonText,need,assertSession,audit,caseEvent,attemptEvent,setAttemptState,pendingPolicy,attemptFacts,assignmentDecision,candidatePrintedId,caseVisible,bangkokToday,
  REDRAW_REASONS,REPEAT_REASONS,REPEAT_LEVELS,type Staff,type AttemptRow} from './core';
+import {isoDate} from '../domain/thai-date';
 
 export type QueueCategory='READY'|'GATE_BLOCKED'|'IN_BATCH'|'IN_PROGRESS'|'QC_FAILED'|'NEEDS_DECISION'|'REDRAW_EXPECTED'|'LN_HALOS_MISSING'|'OTHER';
 const iso=(d:Date|null)=>d?d.toISOString():null;
@@ -67,7 +68,7 @@ const lnHalosOf=async(db:Queryable,roundId:string)=>(await db.query<{ln_halos:st
  */
 export async function receiveRedraw(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);
- const d=z.strictObject({roundId:uuid,identityChecked:z.literal(true),labelChecked:z.literal(true),condition:z.enum(['ACCEPTABLE','PROBLEM_NOTED']),conditionNote:reasonText.optional(),collectionDate:z.iso.date()}).refine(v=>v.condition==='ACCEPTABLE'||v.conditionNote!==undefined,{path:['conditionNote'],message:'NOTE_REQUIRED'}).parse(input);
+ const d=z.strictObject({roundId:uuid,identityChecked:z.literal(true),labelChecked:z.literal(true),condition:z.enum(['ACCEPTABLE','PROBLEM_NOTED']),conditionNote:reasonText.optional(),collectionDate:isoDate}).refine(v=>v.condition==='ACCEPTABLE'||v.conditionNote!==undefined,{path:['conditionNote'],message:'NOTE_REQUIRED'}).parse(input);
  const r=await lockedRound(db,user,d.roundId);need(user,'round.receive','write',{unitId:r.unit_id??undefined,origin:r.registration_origin as 'ANC'});
  if(r.round_number<2)throw new LabError('S1_RECEIVED_IN_HIS_ONLY',409);
  if(r.received_at){const code=await lnHalosOf(db,r.id);await audit(db,user,'LAB_S2_RECEIPT_DUPLICATE','specimen_round',r.id,{outcome:'DUPLICATE'});return {duplicate:true,lnHalos:code,roundNumber:r.round_number};}

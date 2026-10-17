@@ -14,6 +14,7 @@ import {resultPredicates,noticePredicates,decideGate,crossFailures,type Cmp,type
 import {attemptEvidence} from './evidence';
 import {operationalWorkflow} from '../lab/operational';
 import {digest} from '../pooling/calculation';
+import {isoDate} from '../domain/thai-date';
 
 // P5 Result Management service (Plan §11, §5.7–§5.10). Restricted synthetic: every path ends before release. Certification is
 // evaluated in the acting transaction and then answered with RELEASE_HOLD (AL-5/OD-05/OD-07); the database refuses any release.
@@ -22,7 +23,7 @@ export type P5JobKind=typeof P5_JOB_KINDS[number];
 export type ResultSettings=z.infer<typeof SETTINGS.result_management.schema>;
 export async function resultSettings(db:Queryable):Promise<ResultSettings>{const s=await readActiveSettings(db);return SETTINGS.result_management.schema.parse(s.result_management??SETTINGS.result_management.default);}
 export const limitsOf=(s:ResultSettings)=>({maxBytes:s.maxUploadMb*1024*1024,acceptZip:s.acceptZip});
-const date=z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const date=isoDate;
 const rowVersion=z.number().int().min(0);
 export const REDRAW_LABELS:Record<typeof REDRAW_REASONS[number],string>={QC1_FAILED:'คุณภาพตัวอย่าง (QC) ไม่ผ่าน',QC_SAMPLE_FAILED:'คุณภาพตัวอย่างไม่ผ่าน',FETAL_FRACTION_LOW:'ปริมาณ DNA ของทารกต่ำ',SPECIMEN_PROBLEM:'ปัญหาสิ่งส่งตรวจ',OTHER:'เหตุผลอื่น (ข้อความรอ OD-11)'};
 

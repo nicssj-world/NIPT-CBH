@@ -13,6 +13,7 @@ import {LabError,uuid,reasonText,need,assertSession,audit,caseEvent,attemptEvent
 import {lockBatch,sheetOf,latestSnapshot,FINALIZED,type PlacementPayload} from './batch';
 import {isNativeIssue,type NativeIssuePort} from '../workbook/controlled';
 import {labelNativeCopy} from '../workbook/controlled-copy';
+import {isoDate} from '../domain/thai-date';
 
 export type DocDeps={render:(doc:P4Document)=>Promise<Buffer>;store:FileStore;native?:NativeIssuePort};
 const no13=(v:string)=>!/\d{13}/.test(v);
@@ -21,8 +22,8 @@ const VALUE:Record<FieldDef['kind'],z.ZodType>={
  TRANSFER:z.strictObject({before:z.literal(true),after:z.literal(true)}),
  CHECK:z.strictObject({checked:z.literal(true)}),
  TEXT:z.strictObject({text:z.string().trim().min(1).max(120).refine(no13)}),
- DATE:z.strictObject({date:z.iso.date()}),
- LOT:z.strictObject({lot:z.string().trim().min(1).max(60).refine(no13),expiry:z.iso.date()}),
+ DATE:z.strictObject({date:isoDate}),
+ LOT:z.strictObject({lot:z.string().trim().min(1).max(60).refine(no13),expiry:isoDate}),
  TIME_RANGE:z.strictObject({start:hhmm,end:hhmm}).refine(v=>v.start<=v.end,'END_BEFORE_START'),
  NUMBER:z.strictObject({value:z.string().regex(/^\d{1,4}(\.\d{1,3})?$/),unit:z.literal('ng/uL')})
 };

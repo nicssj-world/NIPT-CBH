@@ -1,11 +1,13 @@
 import {z} from 'zod';
 import {operationalDataEnabled} from '../security/runtime';
+import {isLikelyBuddhistEraYear} from '../domain/thai-date';
 export const REQUEST_TEMPLATE='SYNTHETIC-FM01-v1';
 export const CONSENT_TEMPLATE='SYNTHETIC-FM02-v1';
 export const RULE_VERSION='SYNTHETIC-NEGATIVE-ONLY-v1';
 export const answer=z.enum(['Yes','No','Unknown']).nullable();
 export const syntheticText=z.string().trim().max(500).refine(v=>!/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(v)&&(operationalDataEnabled()||v===''||v.startsWith('SYNTHETIC')||v.startsWith('จำลอง')||v.startsWith('ผู้รับบริการจำลอง')),'ใช้ข้อความจำลองที่ขึ้นต้น SYNTHETIC หรือ จำลอง เท่านั้น');
-export const date=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v=>!Number.isNaN(Date.parse(v))&&new Date(v+'T00:00:00Z').toISOString().slice(0,10)===v,'วันที่ไม่ถูกต้อง');
+export const date=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v=>!Number.isNaN(Date.parse(v))&&new Date(v+'T00:00:00Z').toISOString().slice(0,10)===v,'วันที่ไม่ถูกต้อง')
+ .refine(v=>!isLikelyBuddhistEraYear(v),'DATE_LIKELY_BUDDHIST_ERA'); // H2: a BE year sent as CE (Plan Rev 3.4 §7.2)
 const fact=z.strictObject({answer,date:date.nullable(),exposureAt:z.iso.datetime().nullable().optional()});
 export const requestSchema=z.strictObject({
  patient:z.strictObject({syntheticName:syntheticText,dob:date.nullable(),phone:z.string().trim().max(32).refine(v=>operationalDataEnabled()?v===''||/^\+?[0-9][0-9 ()-]{5,24}$/.test(v):/^SYNTHETIC(?:-[A-Z0-9]+)*$|^$/.test(v)).nullable(),address:syntheticText.nullable(),identifier:z.string().trim().max(64).refine(v=>operationalDataEnabled()? /^[A-Za-z0-9][A-Za-z0-9./-]*$/.test(v):/^SYNTHETIC-[A-Z0-9-]+$/.test(v)).nullable().optional(),identifierType:z.enum(['Synthetic','Unknown','ThaiNationalId','Passport','HospitalId','Other']).refine(v=>operationalDataEnabled()||['Synthetic','Unknown'].includes(v)).nullable().optional(),entitlement:syntheticText.nullable().optional()}),

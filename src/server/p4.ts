@@ -34,7 +34,12 @@ const MESSAGES:Record<string,string>={
  WORKING_COPY_ONLY_FROM_ISSUED_PRE_WORK:"พิมพ์สำเนาใช้งานได้จากใบงาน Pre-work ที่ยังมีผลเท่านั้น",LN_HALOS_REQUIRES_RECEIPT:"ออก LN Halos ได้เฉพาะรอบที่รับสิ่งส่งตรวจจริงแล้ว",BATCH_CANCELLED:"Batch นี้ถูกยกเลิกแล้ว"
 };
 export function p4Error(error:unknown){
- if(error instanceof ZodError)return NextResponse.json({code:"VALIDATION_ERROR",error:"ข้อมูลไม่ครบหรือไม่ถูกต้อง — เหตุผลต้องมีอย่างน้อย 8 ตัวอักษร",issues:error.issues.map(x=>({path:x.path.join("."),message:x.message}))},{status:422,headers:noStore});
+ if(error instanceof ZodError){
+  // Date guard (Plan Rev 3.4 §7.2) gets its own wording; every other validation message is unchanged.
+  const dateIssue=error.issues.find(x=>x.message==="DATE_LIKELY_BUDDHIST_ERA"||x.message==="INVALID_DATE")?.message;
+  const text=dateIssue==="DATE_LIKELY_BUDDHIST_ERA"?"ปีของวันที่ดูเป็น พ.ศ. ที่ถูกส่งเป็น ค.ศ. — กรุณากรอกวันที่ใหม่เป็น วว/ดด/ปปปป (พ.ศ.)":dateIssue==="INVALID_DATE"?"วันที่ไม่มีอยู่จริงในปฏิทิน — กรุณาตรวจวันและเดือน":"ข้อมูลไม่ครบหรือไม่ถูกต้อง — เหตุผลต้องมีอย่างน้อย 8 ตัวอักษร";
+  return NextResponse.json({code:dateIssue??"VALIDATION_ERROR",error:text,issues:error.issues.map(x=>({path:x.path.join("."),message:x.message}))},{status:422,headers:noStore});
+ }
  const code=error instanceof LabError?error.code:error instanceof Error?error.message:"INTERNAL_ERROR";
  const db=/^[A-Z][A-Z0-9_]+$/.test(code)?code:null;
  const status=error instanceof LabError?error.status:code==="UNAUTHENTICATED"?401:code==="FORBIDDEN"||code==="CSRF_REJECTED"?403:db?409:400;

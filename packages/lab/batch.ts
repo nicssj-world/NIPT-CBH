@@ -4,6 +4,7 @@ import {contentHash} from '../p2/service';
 import {CONTROL_LABEL,controlTypeOf,formatControlCode,formatPrintedControlId,formatRunLabel,getPlatePosition,getSheetNumber,effectiveLnHalos,type ControlType} from './rules';
 import {finalizePredicates,decide,GATE_RULE_VERSION} from './gate';
 import {LabError,uuid,reasonText,need,assertSession,audit,caseEvent,attemptEvent,setAttemptState,pendingPolicy,attemptFacts,assignmentDecision,candidatePrintedId,commonFacts,fifo,caseVisible,BATCH_TEMPLATE,type Staff} from './core';
+import {isoDate} from '../domain/thai-date';
 
 export const EDITABLE=['Draft','PlanChecked','Amended'];
 export const FINALIZED=['PlacementFinalized','PreWorkIssued','InExecution','ExecutionRecorded','ExecutionVerified','CompletedIssued'];
@@ -145,7 +146,7 @@ export async function removeFromBatch(db:Queryable,user:Staff,input:unknown){
 const optText=z.string().trim().max(80).refine(v=>!/\d{13}/.test(v)).nullable();
 export async function updateSheetPlan(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'batch.draft');
- const d=z.strictObject({batchId:uuid,expectedVersion:z.number().int().min(0),sheetNumber:z.number().int().min(1).max(3),plannedWorkDate:z.iso.date(),plannedOperator:optText,plannedExtractionLot:optText,plannedExtractionExpiry:z.iso.date().nullable(),plannedLibraryLot:optText,plannedLibraryExpiry:z.iso.date().nullable()}).parse(input);
+ const d=z.strictObject({batchId:uuid,expectedVersion:z.number().int().min(0),sheetNumber:z.number().int().min(1).max(3),plannedWorkDate:isoDate,plannedOperator:optText,plannedExtractionLot:optText,plannedExtractionExpiry:isoDate.nullable(),plannedLibraryLot:optText,plannedLibraryExpiry:isoDate.nullable()}).parse(input);
  const b=await lockBatch(db,d.batchId,d.expectedVersion);const s=await sheetOf(db,b.id,d.sheetNumber);if(!EDITABLE.includes(s.state))throw new LabError('PLACEMENT_LOCKED',409);
  await db.query('UPDATE lab_task_sheet SET planned_work_date=$2,planned_operator=$3,planned_extraction_lot=$4,planned_extraction_expiry=$5,planned_library_lot=$6,planned_library_expiry=$7 WHERE id=$1',[s.id,d.plannedWorkDate,d.plannedOperator,d.plannedExtractionLot,d.plannedExtractionExpiry,d.plannedLibraryLot,d.plannedLibraryExpiry]);
  const version=await touch(db,b.id,[d.sheetNumber]);await batchEvent(db,user,b.id,'PLAN_DATA_UPDATED',d.sheetNumber,null);
