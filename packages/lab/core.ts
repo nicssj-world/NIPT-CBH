@@ -48,7 +48,7 @@ export type AttemptRow={ln_halos_resampling:boolean;attempt_id:string;case_id:st
  round_number:number;round_state:string;received_source:string|null;received_at:Date|null;analysis_started:boolean;round_collection_date:string|null;receipt_check:Record<string,unknown>|null;specimen_accepted?:boolean;
  current_round_id:string;registration_origin:'ANC'|'LAB_DIRECT'|'HISTORICAL';unit_id:string|null;ln:string;ln_verification:string;ln_halos:string|null;
  repeat_state:string|null;repeat_level:RepeatLevel|null;parent_attempt_id:string|null;open_issues:number;revoked:boolean;consent_ev:string|null;request_ev:string|null;clinical_state:string|null;collection_dates:string[];
- pregnancy:'Singleton'|'Twins'|null;other_relibrary:number;previously_finalized:boolean;hold:boolean;hold_stage:string|null;urgent:boolean;urgent_reason:string|null;
+ pregnancy:'Singleton'|'Twins'|null;ga_edd:string|null;ga_request_collection:string|null;other_relibrary:number;previously_finalized:boolean;hold:boolean;hold_stage:string|null;urgent:boolean;urgent_reason:string|null;
  slot_batch_id:string|null;slot_number:number|null;run_label:string|null;sheet_state:string|null;label_prints:number;last_label_print:Date|null};
 
 /** Every fact needed for BG-01..09A, queue position and labels of the given attempts, in one set-based read. */
@@ -68,6 +68,7 @@ export async function attemptFacts(db:Queryable,where:string,params:unknown[]):P
   ARRAY(SELECT y.d FROM (SELECT DISTINCT ON(f.source) f.collection_date::text d FROM p2_collection_fact f WHERE f.round_id=a.round_id ORDER BY f.source,f.sequence DESC) y) collection_dates,
   (SELECT x.pt FROM (SELECT d.created_at,d.payload->'draft'->'pregnancy'->>'type' pt FROM p2_document_revision d WHERE d.round_id=a.round_id AND d.kind='REQUEST'
     UNION ALL SELECT p.created_at,p.panel->>'pregnancyType' FROM p2_paper_review p WHERE p.round_id=a.round_id AND p.kind='REQUEST' AND p.status='Verified') x WHERE x.pt IN ('Singleton','Twins') ORDER BY x.created_at DESC LIMIT 1) pregnancy,
+  ga.edd ga_edd,ga.cd ga_request_collection,
   EXISTS(SELECT 1 FROM lab_placement_snapshot ps,jsonb_array_elements(ps.payload->'slots') sl WHERE sl->>'attemptId'=a.id::text) previously_finalized,
   (SELECT count(*) FROM analytical_attempt b JOIN repeat_work_order w ON w.id=b.repeat_order_id WHERE b.round_id=a.round_id AND b.id<>a.id AND w.level='RE_LIBRARY')::int other_relibrary,
   COALESCE((SELECT e.event_type='HOLD_SET' FROM attempt_event e WHERE e.attempt_id=a.id AND e.event_type IN ('HOLD_SET','HOLD_RELEASED') ORDER BY e.sequence DESC LIMIT 1),false) hold,
@@ -78,6 +79,8 @@ export async function attemptFacts(db:Queryable,where:string,params:unknown[]):P
   (SELECT count(*) FROM label_print_item i WHERE i.round_id=a.round_id)::int label_prints,(SELECT max(j.created_at) FROM label_print_item i JOIN label_print_job j ON j.id=i.job_id WHERE i.round_id=a.round_id) last_label_print
  FROM analytical_attempt a JOIN specimen_round r ON r.id=a.round_id JOIN nipt_case c ON c.id=a.case_id JOIN case_ln l ON l.id=r.case_ln_id
  LEFT JOIN specimen_lab_number n ON n.round_id=r.id LEFT JOIN repeat_work_order o ON o.id=a.repeat_order_id
+ LEFT JOIN LATERAL (SELECT x.edd,x.cd FROM (SELECT d.created_at,d.payload->'draft'->'pregnancy'->>'edd' edd,d.payload->'draft'->'pregnancy'->>'collectionDate' cd FROM p2_document_revision d WHERE d.round_id=a.round_id AND d.kind='REQUEST'
+    UNION ALL SELECT p.created_at,p.panel->>'edd',p.panel->>'collectionDate' FROM p2_paper_review p WHERE p.round_id=a.round_id AND p.kind='REQUEST' AND p.status='Verified') x WHERE x.edd IS NOT NULL ORDER BY x.created_at DESC LIMIT 1) ga ON true
  LEFT JOIN lab_slot_assignment sa ON sa.attempt_id=a.id AND sa.removed_at IS NULL LEFT JOIN lab_batch b ON b.id=sa.batch_id
  LEFT JOIN lab_task_sheet t ON t.batch_id=sa.batch_id AND t.sheet_number=CASE WHEN sa.slot_number<=16 THEN 1 WHEN sa.slot_number<=32 THEN 2 ELSE 3 END
  WHERE ${where}`,params)).rows;
@@ -102,6 +105,15 @@ export function assignmentDecision(r:AttemptRow,policy:PendingPolicy){
 }
 /** FIFO proposal: Urgent first, then specimen-round receipt time (Repeat keeps the original receipt time), then attempt creation. */
 export const fifo=(a:AttemptRow,b:AttemptRow)=>Number(b.urgent)-Number(a.urgent)||(a.received_at?.getTime()??0)-(b.received_at?.getTime()??0)||a.attempt_created_at.getTime()-b.attempt_created_at.getTime()||a.attempt_id.localeCompare(b.attempt_id);
+/** GA ≥ 22+0 notice (Owner: warning only). EDD from the latest verified Request of this round; collection date from the HIS receipt
+ * evidence when present, otherwise the Request. Same arithmetic as P2 `calculations()`. Display only: no gate, FIFO, urgent or override reads it. */
+export const GA_WARNING_DAYS=22*7;
+export function gestationalAge(r:Pick<AttemptRow,'ga_edd'|'ga_request_collection'|'round_collection_date'>){
+ const iso=/^\d{4}-\d{2}-\d{2}$/,collection=r.round_collection_date??r.ga_request_collection;
+ if(!r.ga_edd||!collection||!iso.test(r.ga_edd)||!iso.test(collection))return null;
+ const days=280+Math.round((Date.parse(collection)-Date.parse(r.ga_edd))/86400000);if(days<0||days>315)return null;
+ return {days,weeks:Math.floor(days/7),remainder:days%7,warning:days>=GA_WARNING_DAYS,collectionBasis:r.round_collection_date?'HIS_RECEIPT' as const:'REQUEST' as const};
+}
 export const caseVisible=(user:Staff,r:{unit_id:string|null;registration_origin:string})=>authorize(user,'case.read',{unitId:r.unit_id??undefined,origin:r.registration_origin as 'ANC'},'read');
 /** The database clock: the single time authority for DIRECT_ENTRY event times (it also stamps recorded_at and the execution anchors).
  * A Date holds milliseconds, so the value is never later than the microsecond clock_timestamp() that later stamps recorded_at. */

@@ -6,7 +6,7 @@ import {lockLn} from '../db/registration';
 import {buildTubeLabelsHtml} from './labels';
 import {specimenDisplayCode} from './rules';
 import {compareReceive,READY_QUEUE_DEFAULT_SORT} from './receive-sort';
-import {LabError,uuid,reasonText,need,assertSession,audit,caseEvent,attemptEvent,setAttemptState,pendingPolicy,attemptFacts,assignmentDecision,candidatePrintedId,caseVisible,bangkokToday,
+import {LabError,uuid,reasonText,need,assertSession,audit,caseEvent,attemptEvent,setAttemptState,pendingPolicy,attemptFacts,assignmentDecision,candidatePrintedId,caseVisible,bangkokToday,gestationalAge,
  REDRAW_REASONS,REPEAT_REASONS,REPEAT_LEVELS,type Staff,type AttemptRow} from './core';
 import {isoDate} from '../domain/thai-date';
 
@@ -17,7 +17,7 @@ function worklistRow(r:AttemptRow,policy:'HOLD'|'PROCEED_SYNTHETIC_LABELLED'){
  const gate=r.attempt_state==='Ready'?assignmentDecision(r,policy):null;
  const category:QueueCategory=r.attempt_state==='Ready'?(gate!.eligible?'READY':'GATE_BLOCKED'):r.attempt_state==='Assigned'?'IN_BATCH':r.attempt_state==='InProgress'?'IN_PROGRESS':r.attempt_state==='QcFailed'?'QC_FAILED':['Stopped','BatchCancelled'].includes(r.attempt_state)?'NEEDS_DECISION':'OTHER';
  const code=r.ln_halos?specimenDisplayCode(r.ln_halos,r.pregnancy,r.ln_halos_resampling):r.ln_halos; // OD-R1a: BASE[D][R]
- return {kind:'ATTEMPT' as const,category,caseId:r.case_id,roundId:r.round_id,roundNumber:r.round_number,receivedSource:r.received_source,receivedAt:iso(r.received_at),hisLn:r.ln,lnHalos:r.ln_halos,labelCode:code,pregnancy:r.pregnancy,
+ return {kind:'ATTEMPT' as const,category,caseId:r.case_id,roundId:r.round_id,roundNumber:r.round_number,receivedSource:r.received_source,receivedAt:iso(r.received_at),hisLn:r.ln,lnHalos:r.ln_halos,labelCode:code,pregnancy:r.pregnancy,ga:gestationalAge(r),
   attemptId:r.attempt_id,attemptNumber:r.attempt_number,attemptState:r.attempt_state,printedSampleId:candidatePrintedId(r).id,repeat:r.repeat_order_id?{level:r.repeat_level,state:r.repeat_state}:null,
   urgent:r.urgent,urgentReason:r.urgent_reason,hold:r.hold?{stage:r.hold_stage}:null,resumeDecisionRequired:r.resume_decision_required,qcFailedStage:r.qc_failed_stage,
   gate:gate&&{eligible:gate.eligible,syntheticPendingAccepted:gate.syntheticPendingAccepted,failed:gate.failed,pending:gate.pending},

@@ -7,9 +7,10 @@ import {LabelDialog} from "./label-dialog";
 import {labApi,failureText,bkk,gateText,LabFailure} from "./lab-api";
 import {compareReceive,READY_QUEUE_DEFAULT_SORT,type SortDirection} from "../../../packages/lab/receive-sort";
 import {getSheetNumber} from "../../../packages/lab/rules";
+import {gaBadge,type Ga} from "./ga-badge";
 import {ThaiDateInput} from "../shared/thai-date-input";
 
-type Attempt={kind:"ATTEMPT";category:string;caseId:string;roundId:string;roundNumber:number;receivedSource:string|null;receivedAt:string|null;hisLn:string;lnHalos:string|null;labelCode:string|null;pregnancy:string|null;attemptId:string;attemptNumber:number;attemptState:string;printedSampleId:string|null;
+type Attempt={kind:"ATTEMPT";category:string;caseId:string;roundId:string;roundNumber:number;receivedSource:string|null;receivedAt:string|null;hisLn:string;lnHalos:string|null;labelCode:string|null;pregnancy:string|null;ga:Ga;attemptId:string;attemptNumber:number;attemptState:string;printedSampleId:string|null;
  repeat:{level:string|null;state:string|null}|null;urgent:boolean;urgentReason:string|null;hold:{stage:string|null}|null;resumeDecisionRequired:boolean;qcFailedStage:string|null;gate:{eligible:boolean;syntheticPendingAccepted:boolean;failed:string[];pending:string[]}|null;
  placement:{batchId:string;runLabel:string|null;slot:number|null;sheetState:string|null}|null;labels:{prints:number;lastPrintedAt:string|null}};
 type Expected={kind:"REDRAW_EXPECTED";caseId:string;roundId:string;roundNumber:number;hisLn:string;requestedAt:string;reasonCode:string;previousLnHalos:string|null};
@@ -70,7 +71,7 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
       <td><span className="mono strong">{a.labelCode??"—"}</span>{a.printedSampleId&&<div className="mono small">{a.printedSampleId}</div>}{a.pregnancy==="Twins"&&<span className="badge">ครรภ์แฝด (D)</span>}</td>
       <td className="receive-time">{a.receivedAt?bkk(a.receivedAt):"— / ยังไม่รับ"}<div className="small muted">{SOURCE[a.receivedSource??""]??""}</div></td><td>รอบที่ {a.roundNumber}{a.roundNumber>1&&<span className="badge warning">เจาะซ้ำ</span>}{a.repeat&&<span className="badge warning">ตรวจซ้ำ #{a.attemptNumber} {a.repeat.level==="RE_LIBRARY"?"Re-Library":a.repeat.level==="RE_EXTRACTION"?"Re-extraction":""}</span>}</td>
       <td><span className={`status ${a.gate?.eligible?"good":a.category==="GATE_BLOCKED"||a.category==="QC_FAILED"?"bad":"warning"}`}>{STATE[a.attemptState]??a.attemptState}{a.qcFailedStage?` (${a.qcFailedStage})`:""}</span>
-       {a.urgent&&<span className="badge danger" title={a.urgentReason??undefined}>ด่วน</span>}{a.hold&&<span className="badge danger">Hold{a.hold.stage?` ${a.hold.stage}`:""}</span>}{a.resumeDecisionRequired&&<span className="badge danger">รอตัดสินใจทำต่อ</span>}
+       {a.urgent&&<span className="badge danger" title={a.urgentReason??undefined}>ด่วน</span>}{gaBadge(a.ga)}{a.hold&&<span className="badge danger">Hold{a.hold.stage?` ${a.hold.stage}`:""}</span>}{a.resumeDecisionRequired&&<span className="badge danger">รอตัดสินใจทำต่อ</span>}
        {a.gate&&!a.gate.eligible&&<ul className="reasons">{[...a.gate.failed,...(data.policy==="HOLD"?a.gate.pending:[])].map(r=><li key={r}>{gateText(r)}</li>)}</ul>}
        {a.gate?.syntheticPendingAccepted&&<p className="small muted">ผ่านด้วยนโยบายจำลอง: {a.gate.pending.map(gateText).join(", ")}</p>}</td>
       <td>{a.labels.prints?<span className="status good">พิมพ์แล้ว {a.labels.prints}</span>:<span className="status warning">ยังไม่พิมพ์</span>}</td>
