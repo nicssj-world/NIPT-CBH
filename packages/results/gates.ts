@@ -18,7 +18,7 @@ export type ResultFacts={
  attemptState:string|null;attemptIsLatest:boolean;hold:boolean;qc1Accepted:boolean;nonMeasuredQc1:boolean;batchCancelled:boolean;activeSlot:boolean;
  upstreamCurrent:boolean;upstreamReason:string|null;analysisAccepted:boolean;finalQcAccepted:boolean;
  isCurrentRound:boolean;roundState:string;roundNumber:number;openRepeat:boolean;
- openIdentityIssues:number;clinicalState:string|null;consentRevoked:boolean;consent:'GRANTED'|'DECLINED'|'NONE';
+ openIdentityIssues:number;clinicalState:string|null;consentRevoked:boolean;consent:'GRANTED'|'DECLINED'|'PAPER_SELECTED'|'NONE';
  pregnancy:'Singleton'|'Twins'|null;sexPreference:string|null;sexShown:boolean;
  versionState:string;latestInSeries:boolean;activeReleaseInSeries:boolean;reviewedCurrent:boolean;
  certifierRoleActive:boolean;
@@ -55,7 +55,7 @@ export function resultPredicates(f:ResultFacts,purpose:Purpose):GatePredicate[]{
   :f.qc1Accepted?p('RG-07','FAIL','QC1_ONLY_NOT_FINAL_QC_ACCEPTED',{dependency:'P4b'}):p('RG-07','FAIL','FINAL_QC_NOT_ACCEPTED',{dependency:'P4b'}));
  out.push(f.openIdentityIssues>0?p('RG-08','FAIL','IDENTITY_ISSUE_OPEN'):p('RG-08','PASS','NO_IDENTITY_CONFLICT'));
  out.push(['Pass','AcknowledgedConditions'].includes(f.clinicalState??'')?p('RG-09','PASS','CLINICAL_GATE_PASS'):f.clinicalState==='PendingClinicalReview'?p('RG-09','PENDING','CLINICAL_RULES_NOT_APPROVED',{governance:'OD-08'}):p('RG-09','FAIL',f.clinicalState?`CLINICAL_${f.clinicalState.replace(/[^A-Za-z]/g,'_').toUpperCase()}`:'CLINICAL_NOT_ASSESSED'));
- out.push(f.consentRevoked?p('RG-10','FAIL','CONSENT_REVOKED'):f.consent==='GRANTED'?p('RG-10','PASS','CONSENT_GRANTED'):f.consent==='DECLINED'?p('RG-10','FAIL','CONSENT_DECLINED'):f.roundNumber>=2?p('RG-10','PENDING','REDRAW_CONSENT_APPLICABILITY',{governance:'OD-16'}):p('RG-10','FAIL','CONSENT_NOT_GRANTED'));
+ out.push(f.consentRevoked?p('RG-10','FAIL','CONSENT_REVOKED'):f.consent==='GRANTED'?p('RG-10','PASS','CONSENT_GRANTED'):f.consent==='PAPER_SELECTED'?p('RG-10','PASS','PAPER_CONSENT_SELECTED'):f.consent==='DECLINED'?p('RG-10','FAIL','CONSENT_DECLINED'):f.roundNumber>=2?p('RG-10','PENDING','REDRAW_CONSENT_APPLICABILITY',{governance:'OD-16'}):p('RG-10','FAIL','CONSENT_NOT_GRANTED'));
  // RG-11 proposed OD-09 rule: a singleton report that shows fetal sex is blocked unless the recorded wish is "Want".
  out.push(f.templateKind==='TWIN'&&f.operationalReviewed?p('RG-11','PASS','TWIN_DISCLOSURE_REVIEWED'):f.templateKind==='TWIN'?p('RG-11','PENDING','TWIN_Y_CHROMOSOME_DISCLOSURE_RULE',{governance:'OD-09'})
   :!f.sexShown?p('RG-11','PASS','SEX_NOT_SHOWN'):f.sexPreference==='Want'&&f.operationalReviewed?p('RG-11','PASS','DISCLOSURE_REVIEWED'):f.sexPreference==='Want'?p('RG-11','PENDING','DISCLOSURE_RULE_PROPOSED_ONLY',{governance:'OD-09'})

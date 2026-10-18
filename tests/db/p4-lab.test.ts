@@ -101,6 +101,14 @@ describe('Ready queue, gates and FIFO (§12.9, §5.9.1)',()=>{
   expect(row(none.roundId).gate!.failed).toEqual(expect.arrayContaining(['CONSENT_NOT_GRANTED','REQUEST_NOT_VERIFIED','CLINICAL_NOT_ASSESSED']));
   expect((await db.query('SELECT count(*)::int n FROM lab_slot_assignment')).rows[0]).toEqual({n:0});
  });
+ it('BG-04: a Paper Consent marker passes without a paper consent review (not signing evidence); a recorded refusal still fails',async()=>{
+  const marker=await received({evidence:false}),declined=await received({evidence:false});
+  for(const c of [marker,declined])await db.query("INSERT INTO p2_workspace(round_id,case_id,draft,request_mode,consent_mode,updated_by) VALUES($1,$2,'{}','Paper','Paper',$3)",[c.roundId,c.caseId,u.staff.id]);
+  await db.query("INSERT INTO p2_paper_review(case_id,round_id,kind,template_version,document_reference,panel,status,location,reason,verifier_id) VALUES($1,$2,'CONSENT','SYNTHETIC-FM02-v1','SYNTHETIC-REF','{}','Declined','SYNTHETIC','SYNTHETIC refusal recorded',$3)",[declined.caseId,declined.roundId,u.staff.id]);
+  const w=await run(t=>intake.labWorklist(t,u.staff)),row=(id:string)=>w.attempts.find(a=>a.roundId===id)!;
+  expect(row(marker.roundId).gate!.failed).not.toContain('CONSENT_NOT_GRANTED');expect(row(marker.roundId).gate!.failed).toContain('REQUEST_NOT_VERIFIED'); // paper Request unchanged
+  expect(row(declined.roundId).gate!.failed).toContain('CONSENT_DECLINED');
+ });
  it('PROCEED_SYNTHETIC_LABELLED (maker-checker) passes only PENDING, labelled; FAIL never passes',async()=>{
   const ok=await received(),bad=await received({clinical:'ClinicalDataConflict'});
   await setPendingPolicy(q(db),u,'PROCEED_SYNTHETIC_LABELLED');

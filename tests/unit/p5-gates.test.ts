@@ -33,7 +33,7 @@ describe('RG-01..RG-13 (Plan §5.9.2)',()=>{
  });
  it('AT-RG-07: identity conflict, revoked consent, missing round applicability',()=>{
   expect(status({openIdentityIssues:1},'RG-08').status).toBe('FAIL');expect(status({consentRevoked:true},'RG-10').status).toBe('FAIL');
-  expect(status({consent:'NONE',roundNumber:2},'RG-10')).toMatchObject({status:'PENDING',governance:'OD-16'});expect(status({clinicalState:'PendingClinicalReview'},'RG-09')).toMatchObject({status:'PENDING',governance:'OD-08'});
+  expect(status({consent:'NONE',roundNumber:2},'RG-10')).toMatchObject({status:'PENDING',governance:'OD-16'});expect(status({consent:'PAPER_SELECTED'},'RG-10')).toMatchObject({status:'PASS',reason:'PAPER_CONSENT_SELECTED'});expect(status({clinicalState:'PendingClinicalReview'},'RG-09')).toMatchObject({status:'PENDING',governance:'OD-08'});
  });
  it('AT-RES-05: sex shown but not wanted is blocked; twins wait for OD-09 (RG-11)',()=>{
   expect(status({sexShown:true,sexPreference:'DoNotWant'},'RG-11').reason).toBe('SEX_SHOWN_BUT_NOT_WANTED');expect(status({sexShown:true,sexPreference:null},'RG-11').status).toBe('FAIL');

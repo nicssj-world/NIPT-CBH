@@ -34,6 +34,8 @@ describe('ANC form field mapping',()=>{
   expect(consentFields(base(structuredClone(emptyRequest),{revoked:true})).status).toBe('REVOKED');
   const paper=consentFields(base(structuredClone(emptyRequest),{paperConsent:{panel:{decision:'Declined'}}}));expect(paper).toMatchObject({status:'PAPER_VERIFIED',fields:{decision:'Declined',patientSignedDate:null}});
   expect(paper.fields.acknowledged.some(Boolean)).toBe(false); // paper ticks are on the paper original, not invented
+  const marker=consentFields(base(structuredClone(emptyRequest),{consentMode:'Paper'}));expect(marker).toMatchObject({status:'PAPER_SELECTED',fields:{decision:null,patientSignedDate:null}}); // the marker is not signing evidence
+  expect(consentItems(marker.fields).filter(i=>i.kind==='check')).toEqual([]);
  });
  it('the doctor printed is the registry doctor of the request; an inactive or mismatched doctor is left blank, never replaced',()=>{
   const d=structuredClone(emptyRequest);

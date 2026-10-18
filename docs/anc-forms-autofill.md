@@ -58,7 +58,7 @@ All four Owner files sit in `NIPT-Audit`. The draft mapping `CBH_NIPT_ANC_Forms_
 - **The service-user signing date** comes only from the recorded signature. No signature image is ever drawn, neither the patient's, the doctor's nor a representative's. The doctor's signing date stays blank.
 - **Printed names in parentheses:** the patient name, and the doctor from the request's Doctor Registry selection.
 - **Doctor mismatch:** if a prepared consent document names a different doctor, the name is left blank and the banner says "แพทย์ในเอกสารยินยอมไม่ตรงกับแพทย์ผู้สั่งตรวจ".
-- **Status line:** ยังไม่ได้ลงนาม / ลงนามอิเล็กทรอนิกส์แล้ว (หลักฐานอยู่ในระบบ) / เอกสารกระดาษที่ตรวจแล้ว / ถอนความยินยอมแล้ว.
+- **Status line:** ยังไม่ได้ลงนาม / ลงนามอิเล็กทรอนิกส์แล้ว (หลักฐานอยู่ในระบบ) / เอกสารกระดาษที่ตรวจแล้ว / เลือกใช้ Paper Consent — ไม่ใช่หลักฐานการลงนาม (marker only, see `docs/p2-paper-consent.md`) / ถอนความยินยอมแล้ว.
 - Opening a preview never creates or changes consent evidence (test-proven).
 
 **Fix made (Owner lock).** `prepareConsent` used to accept any doctor. It now:

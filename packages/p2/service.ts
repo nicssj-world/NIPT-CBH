@@ -266,8 +266,9 @@ export async function approveClinicalP2(db:Queryable,user:Staff,id:string,input:
   const document=evidence.consentDocument as {id?:string;payload?:{workspaceVersion?:number}}|null;
   if(!final||final.document_id!==document?.id||document?.payload?.workspaceVersion!==w.version||final.payload?.signature?.decision!=='Granted')throw new P2Error('CURRENT_GRANTED_CONSENT_REQUIRED',409);
  }else{
-  const paper=evidence.paperConsent as {status?:string;panel?:{decision?:string}}|null;
-  if(paper?.status!=='Verified'||paper.panel?.decision!=='Granted')throw new P2Error('CURRENT_GRANTED_CONSENT_REQUIRED',409);
+  // Paper Consent marker (Owner 2026-10-18): the selection is enough to proceed; it is not signing evidence. Only a recorded refusal stops it.
+  const paper=evidence.paperConsent as {status?:string;panel?:{decision?:string}}|null,final=evidence.finalConsent as {payload?:{signature?:{decision?:string}}}|null;
+  if(paper?.status==='Declined'||paper?.status==='Verified'&&paper.panel?.decision!=='Granted'||final?.payload?.signature?.decision==='Declined')throw new P2Error('CONSENT_DECLINED',409);
  }
  const result={state:'ClinicalPassed',passed:true,authority:'AUTHORIZED_CLINICAL_REVIEW',sourceHash:source.hash,workspaceVersion:w.version,reviewerId:user.id,reason:d.reason,sourceReference:d.sourceReference,attestation:true};
  const row=(await db.query('INSERT INTO clinical_snapshot(case_id,round_id,rule_version,input_snapshot,result) VALUES($1,$2,$3,$4,$5) RETURNING id',[id,c.current_round_id,'CBH-AUTHORIZED-REVIEW-v1',source.source,result])).rows[0];
