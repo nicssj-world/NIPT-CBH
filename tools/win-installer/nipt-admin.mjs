@@ -274,6 +274,7 @@ async function healthReport(L,c){
  const verdict=healthVerdict(report,{supervisor:supervisorPid(L)!==null,https:httpsOk});
  return {...verdict,release:st.current.version,details:{workerAlive:report.workerAlive,heartbeatAgeSeconds:report.heartbeatAgeSeconds,backlog:report.backlog,webReachable:report.webReachable,rendererReachable:report.rendererReachable,https:httpsOk,backupStatus:report.backupStatus,migrationsMatch:report.migrationsMatch,auditValid:report.auditValid,rolesRestricted:report.rolesRestricted,quarantined:report.quarantined,clinicalAcceptance:false,hospitalOperationalAcceptance:false}};
 }
+const healthTimeout=(d=180000)=>Number(args['health-timeout-seconds'])>0?Number(args['health-timeout-seconds'])*1000:d;
 async function waitHealthy(L,c,{timeout=120000}={}){
  let last;
  await waitFor(async()=>{last=await healthReport(L,c);return last.ok;},'HEALTH_'+JSON.stringify(last?.failed??'pending'),timeout,3000).catch(e=>{e.detail=last;throw e;});
@@ -315,6 +316,11 @@ async function restore(){
  const result={restored:true,database,destination,receipt:{restoreVerified:receipt.restoreVerified,quarantined:receipt.quarantined,tableCount:receipt.tableCount,fileCount:receipt.fileCount,tableDigest:receipt.tableDigest}};
  if(!args.activate){await startServices(L,c);await waitHealthy(L,c);return {...result,activated:false,note:'restored database is quarantined and not in use; inspect then rerun with --activate --confirm-source-fenced yes'};}
  if(args['confirm-source-fenced']!=='yes'){await startServices(L,c);fail('SOURCE_FENCE_CONFIRMATION_REQUIRED');}
+ const releaseNow=await readJson(path.join(releaseDir(L,st.current.version),'release.json'));
+ const restoredLedger=psql(L,c,"SELECT name||'|'||checksum FROM schema_migration ORDER BY name",{db:database}).split('
+').filter(Boolean).map(l=>{const [name,checksum]=l.split('|');return {name,checksum};});
+ const restoredCompat=schemaCompatibility({ledger:restoredLedger,releaseMigrations:releaseNow.migrations});
+ if(!restoredCompat.compatibleWithDatabase){await startServices(L,c);fail('RESTORE_BACKUP_NEWER_THAN_RELEASE',restoredCompat);}
  const a=nodeIn(L,ops,[path.join('tools','win-installer','ops-restore.mjs'),'activate',destination],{...env,RESTORE_SOURCE_FENCED:'yes'});
  if(a.status!==0){await startServices(L,c);fail('ACTIVATION_FAILED',(a.stderr||a.stdout).slice(-2000));}
  // the application now runs on the restored database and file store
@@ -323,9 +329,12 @@ async function restore(){
  for(const n of ['migration-url','web-url','worker-url'])writeFileSync(secretFile(L,n),urlFor(L,c,n,database),{mode:0o600});
  c.database=database;c.filesRoot=path.join(destination,'files');c.masterPath=path.join(destination,'master','owner-master.xlsx');
  await writeJson(L.configFile,c);writeBackupPolicy(L,c);
+ // a backup older than the running release is brought forward with the release's own forward-only migrations
+ const mig=nodeIn(L,ops,['--import','tsx','tools/win-installer/provision.ts','--root',L.root,'--phase','migrate'],appEnv(L,c,st));
+ if(mig.status!==0)fail('RESTORE_FORWARD_MIGRATION_FAILED',(mig.stderr||mig.stdout).slice(-1500));
  const s2=stateOf(L);history(L,s2,'RESTORE_ACTIVATED',{database,previous});
  await startServices(L,c);const health=await waitHealthy(L,c);
- return {...result,activated:true,previous,health:{ok:health.ok}};
+ return {...result,activated:true,previous,forwardMigrationsApplied:restoredCompat.pending,health:{ok:health.ok}};
 }
 
 async function upgrade(){
@@ -369,13 +378,14 @@ async function upgrade(){
  syncAdmin(L,next);
  try{
   await startServices(L,c);
-  const health=await waitHealthy(L,c,{timeout:180000});
+  const health=await waitHealthy(L,c,{timeout:healthTimeout()});
   history(L,st,'UPGRADED',{from:from.version,to:m.version});
   return {upgraded:true,from:from.version,to:m.version,pendingMigrationsApplied:compat.pending,preUpgradeBackup:pre.backupBase,health:{ok:health.ok}};
  }catch(error){
   say('new release did not become healthy: '+error.message+' — rolling back');
   const rb=await rollbackInternal(L,c,{reason:'UPGRADE_HEALTH_FAILED'}).catch(e=>({rolledBack:false,error:e.message}));
   const s=stateOf(L);history(L,s,'UPGRADE_FAILED_AUTO_ROLLBACK',{to:m.version,result:rb});
+  if(rb.rolledBack){const {renameSync:mv}=await import('node:fs');try{mv(next,next+'.failed-'+Date.now());}catch{/* kept as is */}}
   fail('UPGRADE_FAILED_HEALTH',rb);
  }
 }
@@ -390,7 +400,7 @@ async function rollbackInternal(L,c,{reason}){
  if(!gate.ok){history(L,st,'ROLLBACK_REFUSED_SCHEMA',{reason:gate.reason,unknown:gate.unknown});await startServices(L,c).catch(()=>{});fail('ROLLBACK_REQUIRES_DATABASE_RESTORE',{reason:gate.reason,newerMigrations:gate.unknown,preUpgradeBackup:st.preUpgradeBackup??null});}
  const from=st.current;st.current=target;st.previous=from;saveState(L,st);
  syncAdmin(L,releaseDir(L,target.version));
- await startServices(L,c);const health=await waitHealthy(L,c,{timeout:180000});
+ await startServices(L,c);const health=await waitHealthy(L,c,{timeout:healthTimeout()});
  history(L,st,'ROLLED_BACK',{from:from.version,to:target.version,reason});
  return {rolledBack:true,from:from.version,to:target.version,health:{ok:health.ok}};
 }

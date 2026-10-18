@@ -30,6 +30,17 @@ if(existsSync(L.supervisorLock)){
 }
 writeFileSync(L.supervisorLock,String(process.pid));
 
+// A previous supervisor that died without stopping its children (killed, crashed host process) leaves them holding the ports.
+// Reap exactly the processes it recorded, and only while they are still node.exe / postgres-free application processes of this installation.
+const taskkill=pid=>{try{execFileSync(path.join(process.env.SystemRoot??'C:/Windows','System32','taskkill.exe'),['/PID',String(pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});}catch{/* already gone */}};
+const imageOf=pid=>{try{return execFileSync(path.join(process.env.SystemRoot??'C:/Windows','System32','tasklist.exe'),['/FI',`PID eq ${pid}`,'/FO','CSV','/NH'],{encoding:'utf8',windowsHide:true}).split(',')[0].replaceAll('"','').toLowerCase();}catch{return '';}};
+try{
+ const previous=readJsonSync(L.state);
+ for(const [name,svc] of Object.entries(previous.services??{})){
+  if(svc.pid&&svc.status==='RUNNING'&&alive(svc.pid)&&imageOf(svc.pid)==='node.exe'){taskkill(svc.pid);log('STALE_SERVICE_REAPED',{service:name,pid:svc.pid});}
+ }
+}catch{/* no previous state */}
+
 const secret=name=>path.join(L.secrets,name);
 const exe=name=>path.join(L.pgBin,name+'.exe');
 const pgOptions=`-p ${config.ports.postgres} -h 127.0.0.1`;
