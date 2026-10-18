@@ -18,6 +18,7 @@ P2 ใช้ขอบเขตจำลองตาม AL-2 Restricted Owner Loc
 - ผล PDF ฉบับสุดท้ายมาจากโปรแกรมวิเคราะห์ภายนอก NIPT-CBH ไม่วิเคราะห์หรือรับรองผลทางคลินิกซ้ำ ทำหน้าที่รับ จับคู่ ตรวจตัวตนและ Report Version ที่ถูกต้อง แล้วส่ง HIS
 - RES/PDF/OK ใช้ File Contract ที่ตรวจจาก ZIP ([docs/p6/contract-review.md](docs/p6/contract-review.md)) การ Copy ไฟล์สำเร็จไม่ใช่หลักฐานว่า HIS รับผลแล้ว
 - P5-A (Owner 2026-10-18, Migration 100): ระบบเชื่อมโยง PDF ที่ตรงกับรอบตัวอย่างเดียวชัดเจนได้โดยไม่ต้องมีคนที่สอง เมื่อเปิด `result_management.linkageMode = UNIQUE_AUTO_LINK` ผ่าน Settings (ค่าเริ่มต้นยังเป็นแบบ 2 คน) ไม่ส่ง HIS อัตโนมัติ และยังต้อง "ตรวจรับ PDF และยืนยันส่งผล"
+- ผล PDF รับได้ 2 ช่องทาง: โฟลเดอร์ (หลัก) และ "อัปโหลด PDF ผลตรวจ" ในหน้าผู้ป่วย (สำรอง ใช้ได้แม้ Worker หยุด) ใช้ขั้นตอนเดียวกันทั้งหมด: [docs/p5-two-pdf-channels.md](docs/p5-two-pdf-channels.md)
 - การพิสูจน์ Settings ทุกหมวดจนถึง Consumer จริง และการจำลองด้วยไฟล์ตัวอย่างจาก ZIP: [docs/settings-operational-acceptance.md](docs/settings-operational-acceptance.md)
 
 ## สิ่งที่ทำได้

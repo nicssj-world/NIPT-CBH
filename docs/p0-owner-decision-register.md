@@ -42,6 +42,12 @@ All eight questions of the earlier packet were approved by the Owner on 2026-10-
 3. **Lab/QA sign-off of the F2 field inventory** (still SEED_UNVERIFIED), including the new F2-03.
 4. **OD-R2 S3+ redraw rule** — operational orders beyond S2 stay refused.
 
+## Two Final Result PDF channels (Owner 2026-10-18)
+
+- **Fallback (implemented):** "อัปโหลด PDF ผลตรวจ" on the case page. It checks against the selected round/attempt, refuses identity conflicts, shares the same intake/import/linkage/P5-B path, prevents duplicates across channels, and works while the Worker is down. See [p5-two-pdf-channels.md](p5-two-pdf-channels.md).
+- **Primary folder intake:** Settings, Worker scan and P5-A auto-link at import are implemented.
+- **Needs approval:** an unattended Worker *import*. Either widen `worker_rw` and provision a system account, or add a migration with a SECURITY DEFINER import function. Until then, staff confirm the import on the Results page.
+
 ## Settings operational acceptance (2026-10-18)
 
 Every Settings category was traced to its consumer and proven with the `NIPTY_handover.zip` sample files ([settings-operational-acceptance.md](settings-operational-acceptance.md)). Proven gaps fixed: PET with an empty citizen ID, generic Settings error text, no Worker-in-use evidence. Not fixable without an Owner/DCC decision: global request/consent settings (no consumer, OD-06/DCC); backup is installation-owned.
