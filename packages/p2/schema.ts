@@ -44,6 +44,14 @@ export function requestIssues(d:RequestDraft){
  if(!d.ordering.doctorVersionId)issues.push('ordering.doctorVersionId');
  return issues;
 }
+/** Progress for a stored draft that may predate or bypass the schema (registry list, display only). Missing sections and facts
+ * count as unanswered; it never throws and never relaxes the save/confirm validation, which still parses with requestSchema. */
+export function requestProgressIssues(raw:unknown):string[]{
+ const r=(raw&&typeof raw==='object'?raw:{}) as Record<string,Record<string,unknown>|undefined>;const merged:Record<string,unknown>={};
+ for(const [section,base] of Object.entries(emptyRequest) as [string,Record<string,unknown>][]){const given=r[section]&&typeof r[section]==='object'?r[section]!:{};const out:Record<string,unknown>={...base,...given};
+  for(const [k,v] of Object.entries(base))if(v&&typeof v==='object'&&!Array.isArray(v))out[k]={...v,...(given[k]&&typeof given[k]==='object'?given[k] as object:{})};merged[section]=out;}
+ return requestIssues(merged as RequestDraft);
+}
 export function evaluateClinical(d:RequestDraft,dateConflict=false){
  const c=calculations(d),issues=requestIssues(d),h=d.history;
  const invalid=c.gaDays!==null&&(c.gaDays<0||c.gaDays>315)||c.ageYears!==null&&c.ageYears<0;
