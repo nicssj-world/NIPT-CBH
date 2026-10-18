@@ -58,12 +58,12 @@ export function CasePdfIntake({caseId}:{caseId:string}){
    {check?.outcome==="READY"&&<div className="stack" role="region" aria-label="ตรวจ PDF กับรายการที่เลือก">
     <p role="status">ข้อมูลใน PDF ตรงกับรายการที่เลือก — ตรวจตัวอย่างไฟล์แล้วกดยืนยัน</p>
     <table className="data-table"><thead><tr><th scope="col">ข้อมูล</th><th scope="col">ผลเทียบ</th></tr></thead><tbody>{Object.entries(check.cross??{}).map(([k,v])=><tr key={k}><td>{FIELD[k]??k}</td><td>{CMP[v]??v}</td></tr>)}</tbody></table>
-    <iframe title="ตัวอย่าง PDF ที่อัปโหลด" src={`/api/p5/intake/${check.intakeId}/file`} style={{width:"100%",height:"28rem",border:"1px solid var(--border)"}}/>
+    <iframe title="ตัวอย่าง PDF ที่อัปโหลด" src={`/api/p5/intake/${check.intakeId}/file`} className="pdf-frame"/>
     {check.nameConflict&&<label className="check-label"><input type="checkbox" checked={ack} onChange={e=>setAck(e.target.checked)}/> มีไฟล์ชื่อเดียวกันแต่เนื้อหาต่างในระบบแล้ว — รับทราบ</label>}
     <div className="action-bar"><button type="button" className="button" disabled={busy||(!!check.nameConflict&&!ack)} onClick={()=>void confirm()}>{busy?"กำลังบันทึก…":"ยืนยันแนบ PDF กับรายการนี้"}</button></div>
    </div>}
    {done&&<div className="stack" role="region" aria-label="ผลการอัปโหลด"><p className="notice success" role="status">แนบ PDF แล้ว ({STATE[done.state]??done.state}) — ขั้นต่อไป: {done.next}</p>
-    <iframe title="PDF ที่แนบแล้ว" src={`/api/p5/results/${done.versionId}/file`} style={{width:"100%",height:"28rem",border:"1px solid var(--border)"}}/>
+    <iframe title="PDF ที่แนบแล้ว" src={`/api/p5/results/${done.versionId}/file`} className="pdf-frame"/>
     <p><a className="button secondary" href={`/results/${done.versionId}`}>เปิดหน้าตรวจรับผล</a></p></div>}
   </div>
  </section>;

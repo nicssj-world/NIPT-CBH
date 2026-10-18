@@ -17,7 +17,7 @@ import {createHash} from 'node:crypto';
 type Context={db:Pool;base:string;ownerUrl:string;env:NodeJS.ProcessEnv;stopWriters:()=>Promise<void>;restart:(env:NodeJS.ProcessEnv)=>Promise<void>;waitFor:(fn:()=>Promise<boolean>,label:string,timeout?:number)=>Promise<void>;events:string[]};
 export async function verifyOperationalRecovery(c:Context){
  const {db,base,ownerUrl,env,events,waitFor}=c;
- const account=process.platform==='win32'?execFileSync('whoami',[],{encoding:'utf8',windowsHide:true}).trim():process.env.USER;
+ const account=process.platform==='win32'?execFileSync(path.join(process.env.SystemRoot??'C:/Windows','System32/whoami.exe'),[],{encoding:'utf8',windowsHide:true}).trim():process.env.USER;
  const backupRoot=path.join(base,'backups'),restoreRoot=path.join(base,'restores'),policy=path.join(base,'backup-policy.json'),key=path.join(base,'backup.key');
  const outboundRoots=['res','pdf','backup'].map(n=>({root:path.join(base,'outbound',n)}));
  await fs.writeFile(policy,JSON.stringify({version:1,serviceAccount:account,sourceDatabase:'nipt_operational_test',backupRoot,restoreRoot,restoreDatabasePrefix:'nipt_operational_restore_',outboundRoots}));await fs.writeFile(key,randomBytes(32));
