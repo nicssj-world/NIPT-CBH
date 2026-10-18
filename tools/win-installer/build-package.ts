@@ -54,7 +54,8 @@ if(!await exists(path.join(modulesCache,'node_modules','tsx'))){
 const release=path.join(out,'payload','release'),app=path.join(release,'app'),ops=path.join(release,'ops');
 await mkdir(app,{recursive:true});await mkdir(ops,{recursive:true});
 log('staging app');
-await cp(standalone,app,{recursive:true,filter:s=>!/[\\/]\.local([\\/]|$)/.test(s)});
+// Next's standalone output links externalized packages (e.g. argon2) through hashed symlinks; a package must hold real files (creating a symlink needs a privilege on the target).
+await cp(standalone,app,{recursive:true,dereference:true,filter:s=>!/[\\/]\.local([\\/]|$)/.test(s)});
 await cp('.next/static',path.join(app,'.next','static'),{recursive:true});
 await cp('public',path.join(app,'public'),{recursive:true});
 await mkdir(path.join(app,'tools'),{recursive:true});await cp('tools/runtime-env.mjs',path.join(app,'tools','runtime-env.mjs'));
