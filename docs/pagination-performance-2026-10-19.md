@@ -51,7 +51,7 @@ Only 5 000 was measured in the browser. Smaller sizes (100/500/1 000) are covere
 | Check | Result |
 | --- | --- |
 | Vitest, default (PGlite) | 2 223 passed, 58 skipped (native-PG/fixture gated) |
-| Vitest, native PG 17 + owner fixtures | 164 files, 2 280 passed, 1 skipped (`operational-workbook`/owner-master composition group needs a path not present in this run) — 0 failed |
+| Vitest, native PG 17 + owner fixtures | 164 files, 2 280 passed, 1 skipped (an environment-gated test; which one was not identified) — 0 failed |
 | Playwright (all specs, real Chromium) | 93 passed, 0 failed |
 | Typecheck, ESLint `--max-warnings 0`, source guard, production build | passed |
 | Operational positive journey (built web, native PG) | passed, no browser errors |
