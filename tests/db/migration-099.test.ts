@@ -14,7 +14,7 @@ import type {Queryable} from '../../packages/db/connection';
 // Proven on a database that already holds print rows written under the previous constraint.
 it('099 keeps existing print rows valid and accepts exactly BASE, BASED, BASER, BASEDR',async()=>{
  const all=(await readdir('db/migrations')).filter(f=>/^\d+.*\.sql$/.test(f)).sort();
- expect(all.at(-1)).toBe('099_label_printed_code_resampling.sql');
+ expect(all).toContain('099_label_printed_code_resampling.sql');
  const before=await mkdtemp(path.join(tmpdir(),'nipt-mig-098-'));const db=new PGlite();
  try{
   for(const f of all.filter(f=>f<'099'))await copyFile(path.join('db/migrations',f),path.join(before,f));

@@ -110,7 +110,8 @@ export function crossCheck(p:Parsed,sys:{hn:string|null;printed_sample_id:string
 export type Candidate={caseId:string;ln:string;hn:string|null;origin:string;lnHalos:string|null;matchedOn:string[];cross:CrossCheck;
  round:{id:string;number:number;state:string;current:boolean;collectionDate:string|null};attempt:{id:string;number:number;state:string;printedSampleId:string|null;latest:boolean}};
 /** Candidates shown one round/attempt at a time. HN, the lab number or the HIS LN only *finds* rows; none of them links. */
-export async function linkCandidates(db:Queryable,user:Staff,p:Parsed,s:ResultSettings):Promise<Candidate[]>{
+/** `user` null = the system search of P5-A: every non-historical case, so a match hidden by a user's scope can never look unique. */
+export async function linkCandidates(db:Queryable,user:Staff|null,p:Parsed,s:ResultSettings):Promise<Candidate[]>{
  const hn=digits(p.identifiers.hn.value),lab=p.identifiers.labNumber.value;
  if(!hn&&!lab)return [];
  const rows=(await db.query<{attempt_id:string;attempt_number:number;attempt_state:string;printed_sample_id:string|null;latest:boolean;round_id:string;round_number:number;round_state:string;collection_date:string|null;case_id:string;current_round_id:string;registration_origin:string;ln:string;ln_halos:string|null;hn:string|null;unit_id:string|null}>(
@@ -120,7 +121,7 @@ export async function linkCandidates(db:Queryable,user:Staff,p:Parsed,s:ResultSe
    FROM analytical_attempt a JOIN specimen_round r ON r.id=a.round_id JOIN nipt_case c ON c.id=a.case_id JOIN case_ln l ON l.id=r.case_ln_id
    LEFT JOIN p2_case_identity i ON i.case_id=c.id LEFT JOIN specimen_lab_number n ON n.round_id=r.id
    WHERE c.registration_origin<>'HISTORICAL' AND (ltrim(i.hn,'0')=$1 OR a.printed_sample_id=$2 OR n.ln_halos=$2 OR l.ln=$2 OR n.ln_halos=substring($2 from 1 for 12))
-   ORDER BY c.id,r.round_number DESC,a.attempt_number DESC LIMIT 60`,[hn,lab])).rows.filter(r=>caseVisible(user,r));
+   ORDER BY c.id,r.round_number DESC,a.attempt_number DESC LIMIT 60`,[hn,lab])).rows.filter(r=>!user||caseVisible(user,r));
  const reqs=new Map<string,RoundRequest>();
  const out:Candidate[]=[];
  for(const r of rows){
@@ -146,6 +147,7 @@ export function autoMatchCandidate(candidates:Candidate[],o:{kind:string;nameCon
  return clean.length===1&&cases.size===1?clean[0]:null;
 }
 export const AUTO_MATCH_REASON='ระบบจับคู่อัตโนมัติ: LN/HN/วันเกิด/ครรภ์/วันเจาะ/GA ตรงกันชัดเจนเพียงรายการเดียว';
+export const AUTO_LINK_CONTRACT='P5A-UNIQUE-v1';
 
 // ---------- Import confirmation ----------
 type VersionRow={id:string;intake_file_id:string;sha256:string;kind:'RESULT'|'REDRAW_NOTICE'|'UNKNOWN';template_kind:string;template_version:string;parser_version:string;parsed:Parsed;state:string;case_id:string|null;round_id:string|null;attempt_id:string|null;link_mode:string|null;supersedes_id:string|null;revision:unknown;imported_by:string;imported_at:Date;state_changed_at:Date;row_version:number};
@@ -163,7 +165,7 @@ async function move(db:Queryable,v:VersionRow,to:string,actor:string|null,reason
 }
 export async function confirmImport(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'result.import');
- const d=z.strictObject({intakeIds:z.array(uuid).min(1).max(100),acknowledgeNameConflicts:z.array(uuid).max(100).optional()}).parse(input);const out:{intakeId:string;outcome:string;versionId?:string}[]=[];
+ const d=z.strictObject({intakeIds:z.array(uuid).min(1).max(100),acknowledgeNameConflicts:z.array(uuid).max(100).optional()}).parse(input);const out:{intakeId:string;outcome:string;versionId?:string;autoLink?:string}[]=[];
  const ack=new Set(d.acknowledgeNameConflicts??[]),unacknowledged:string[]=[];
  for(const id of [...new Set(d.intakeIds)]){const r=(await db.query<{sha256:string;name:string;job_id:string|null;state:string;container:string|null}>('SELECT sha256,coalesce(member_name,original_name) name,job_id,state,container FROM result_intake_file WHERE id=$1',[id])).rows[0];
   if(r&&r.state==='Parsed'&&r.container!=='ZIP_BATCH'&&!ack.has(id)&&hasConflict(await nameConflicts(db,r.name,r.sha256,r.job_id,id)))unacknowledged.push(id);}
@@ -184,7 +186,9 @@ export async function confirmImport(db:Queryable,user:Staff,input:unknown){
   await db.query("UPDATE result_intake_file SET state='Imported',decided_at=now() WHERE id=$1",[id]);
   if(r.parent_id)await db.query("UPDATE result_intake_file SET state='Imported',decided_at=now() WHERE id=$1 AND state='Parsed'",[r.parent_id]);
   await audit(db,user,'RESULT_IMPORTED','RESULT_VERSION',v.id,{outcome:v.state});
-  out.push({intakeId:id,outcome:v.state,versionId:v.id});
+  // Owner P5-A: a unique clean match is linked by the system (when result_management.linkageMode allows it). Never released or sent.
+  const auto=v.kind==='RESULT'?await tryAutoLink(db,user,v.id):null;if(auto?.linked)v=auto.version;
+  out.push({intakeId:id,outcome:v.state,versionId:v.id,...(auto?{autoLink:auto.linked?'LINKED':auto.reason}:{})});
  }
  return out;
 }
@@ -233,12 +237,68 @@ export async function proposeLink(db:Queryable,user:Staff,input:unknown){
  await audit(db,user,'RESULT_LINK_PROPOSED','RESULT_VERSION',v.id,{outcome:'PROPOSED'});
  return {cross};
 }
+// ---------- P5-A system link (Owner 2026-10-18, migration 100) ----------
+const seriesExists=async(db:Queryable,kind:string,roundId:string,versionId:string)=>(await db.query('SELECT 1 FROM result_report_version WHERE round_id=$1 AND kind=$2 AND id<>$3 LIMIT 1',[roundId,kind,versionId])).rows.length>0;
+// Any human linkage decision on this version (a proposal, a rejection or an unlink) keeps it manual for good.
+const humanDecided=async(db:Queryable,versionId:string)=>(await db.query("SELECT 1 FROM result_link_event WHERE version_id=$1 AND event IN ('PROPOSED','REJECTED','UNLINKED') LIMIT 1",[versionId])).rows.length>0;
+async function systemMatch(db:Queryable,v:VersionRow,s:ResultSettings){
+ const candidates=await linkCandidates(db,null,v.parsed,s),conflicts=(await versionNameConflicts(db,v)).length;
+ const series=candidates[0]?await seriesExists(db,v.kind,candidates[0].round.id,v.id):false;
+ const match=autoMatchCandidate(candidates,{kind:v.kind,nameConflicts:conflicts,openRevision:series});
+ const reason=match?null:!candidates.length?'NO_CANDIDATE':conflicts?'NAME_CONFLICT':series?'SERIES_NOT_EMPTY':new Set(candidates.map(c=>c.caseId)).size>1?'AMBIGUOUS_CASES':'NOT_A_CLEAN_MATCH';
+ return {candidates,match,reason};
+}
+/**
+ * Links a final result to its single clean match without a second person (Owner P5-A). The matching contract is the tested
+ * autoMatchCandidate; it is evaluated again after the LN → round → attempt → version locks, and the DB trigger of migration 100
+ * re-checks the target (current round, latest attempt, empty series, no human decision). Evidence is kept on the AUTO_LINKED event.
+ * It does not review, certify or release, and nothing reaches HIS from here.
+ */
+export async function autoLinkUnique(db:Queryable,actor:Staff,versionId:string):Promise<{linked:true;version:VersionRow}|{linked:false;reason:string}>{
+ const s=await resultSettings(db);if(s.linkageMode!=='UNIQUE_AUTO_LINK')return {linked:false,reason:'LINKAGE_MODE_MANUAL'};
+ let v=await versionOf(db,versionId);
+ if(v.kind!=='RESULT')return {linked:false,reason:'NOT_A_FINAL_RESULT'};
+ if(v.state!=='Unlinked')return {linked:false,reason:'NOT_UNLINKED'};
+ if(await humanDecided(db,v.id))return {linked:false,reason:'HUMAN_DECISION_EXISTS'};
+ const before=await systemMatch(db,v,s);if(!before.match)return {linked:false,reason:before.reason!};
+ await lockChain(db,before.match.round.id,before.match.attempt.id,[v.id]);
+ v=await versionOf(db,v.id,true);if(v.state!=='Unlinked')return {linked:false,reason:'NOT_UNLINKED'};
+ const now=await systemMatch(db,v,s),m=now.match;
+ if(!m)return {linked:false,reason:now.reason!};
+ if(m.round.id!==before.match.round.id||m.attempt.id!==before.match.attempt.id)return {linked:false,reason:'CHANGED_DURING_LINK'};
+ const evidence={contract:AUTO_LINK_CONTRACT,candidates:1,candidateRows:now.candidates.length,matchedOn:m.matchedOn,cross:m.cross,parserVersion:v.parser_version,sha256:v.sha256,gaToleranceDays:s.gaToleranceDays};
+ await db.query("INSERT INTO result_link_event(version_id,event,mode,case_id,round_id,attempt_id,outcome,reason,cross_check,match_evidence,actor_id) VALUES($1,'AUTO_LINKED','AUTO_UNIQUE',$2,$3,$4,'Linked',$5,$6,$7,$8)",
+  [v.id,m.caseId,m.round.id,m.attempt.id,AUTO_MATCH_REASON,JSON.stringify(m.cross),JSON.stringify(evidence),actor.id]);
+ v=await move(db,v,'Linked',actor.id,'AUTO_LINKED_UNIQUE',{case_id:m.caseId,round_id:m.round.id,attempt_id:m.attempt.id,link_mode:'AUTO_UNIQUE'},{contract:AUTO_LINK_CONTRACT});
+ await audit(db,actor,'RESULT_AUTO_LINKED','RESULT_VERSION',v.id,{outcome:'Linked',reasonCode:AUTO_LINK_CONTRACT});
+ return {linked:true,version:await validate(db,actor,v)};
+}
+const AUTO_LINK_REFUSALS=/^(AUTO_LINK_[A-Z_]+|LINK_PROPOSAL_OPEN|VERSION_CONFLICT)$/;
+/** The import never fails because a system link lost a race: the version simply stays Unlinked for manual review. */
+async function tryAutoLink(db:Queryable,actor:Staff,versionId:string){
+ await db.query('SAVEPOINT p5a_auto_link');
+ try{const r=await autoLinkUnique(db,actor,versionId);await db.query('RELEASE SAVEPOINT p5a_auto_link');
+  if(!r.linked&&r.reason!=='LINKAGE_MODE_MANUAL')await audit(db,actor,'RESULT_AUTO_LINK_SKIPPED','RESULT_VERSION',versionId,{outcome:'Unlinked',reasonCode:r.reason});
+  return r;}
+ catch(e){
+  const code=e instanceof LabError?e.code:(e as {code?:string}).code==='23505'?'AUTO_LINK_CONCURRENT_SERIES':e instanceof Error?e.message:'';
+  if(!AUTO_LINK_REFUSALS.test(code)&&code!=='AUTO_LINK_CONCURRENT_SERIES')throw e;
+  await db.query('ROLLBACK TO SAVEPOINT p5a_auto_link');await db.query('RELEASE SAVEPOINT p5a_auto_link');
+  await audit(db,actor,'RESULT_AUTO_LINK_SKIPPED','RESULT_VERSION',versionId,{outcome:'Unlinked',reasonCode:code});
+  return {linked:false as const,reason:code};
+ }
+}
 /** P5-A one-click proposal of the unambiguous match; the second person still approves (result_link_event two-person trigger). */
 export async function proposeAutoMatch(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);
  const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion}).parse(input);
  need(user,'result.link.manual','propose');
  const v=await versionOf(db,d.versionId);if(v.state!=='Unlinked')throw new LabError('LINK_REQUIRES_UNLINKED',409);
+ if(v.row_version!==d.expectedRowVersion)throw new LabError('VERSION_CONFLICT',409);
+ if((await resultSettings(db)).linkageMode==='UNIQUE_AUTO_LINK'){
+  const r=await tryAutoLink(db,user,v.id);if(!r.linked)throw new LabError('AUTO_MATCH_NOT_UNAMBIGUOUS',409,{reason:r.reason});
+  return {outcome:r.version.state,autoLinked:true};
+ }
  const candidates=await linkCandidates(db,user,v.parsed,await resultSettings(db));
  const first=candidates[0],open=first?await openInSeries(db,v,first.round.id):null;
  const m=autoMatchCandidate(candidates,{kind:v.kind,nameConflicts:(await versionNameConflicts(db,v)).length,openRevision:!!open});
@@ -286,7 +346,7 @@ async function gateFor(db:Queryable,v:VersionRow,purpose:Purpose,certifierId?:st
   `SELECT EXISTS(SELECT 1 FROM result_link_event e WHERE e.version_id=$1 AND e.event='PROPOSED' AND NOT EXISTS(SELECT 1 FROM result_link_event y WHERE y.version_id=e.version_id AND y.event IN ('APPROVED','REJECTED','UNLINKED') AND y.sequence>e.sequence)) open_proposal,
    NOT EXISTS(SELECT 1 FROM result_report_version o WHERE o.round_id=$2 AND o.kind=$3 AND o.id<>$1 AND o.state IN ('LinkConflict','Linked','ValidationBlocked','PendingCertification','CertifiedReleased') AND o.imported_at>$4) latest,
    EXISTS(SELECT 1 FROM result_release r WHERE r.round_id=$2 AND r.kind=$3 AND r.state='Active' AND r.version_id<>$1) active_release,
-   EXISTS(SELECT 1 FROM result_review w WHERE w.version_id=$1 AND w.created_at>=(SELECT max(e.created_at) FROM result_link_event e WHERE e.version_id=$1 AND e.event='APPROVED')) reviewed,
+   EXISTS(SELECT 1 FROM result_review w WHERE w.version_id=$1 AND w.created_at>=(SELECT max(e.created_at) FROM result_link_event e WHERE e.version_id=$1 AND e.event IN ('APPROVED','AUTO_LINKED'))) reviewed,
    (SELECT min(d.requested_at) FROM redraw_request d WHERE d.source_round_id=$2 AND d.state IN ('Requested','Completed')) redraw_at,
    EXISTS(SELECT 1 FROM role_assignment a WHERE a.user_id=$5 AND a.role='LAB_CERTIFIER' AND a.approved_by IS NOT NULL AND a.effective_from<=now() AND (a.expires_at IS NULL OR a.expires_at>now())) certifier,
    (SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=$6 ORDER BY s.unit_id LIMIT 1) unit_id`,
@@ -307,7 +367,7 @@ async function gateFor(db:Queryable,v:VersionRow,purpose:Purpose,certifierId?:st
  const latestAttempt=(await db.query<{n:number}>('SELECT max(attempt_number)::int n FROM analytical_attempt WHERE round_id=$1',[v.round_id])).rows[0].n===a.attempt_number;
  const evidence=await attemptEvidence(db,a.attempt_id);
  return decideGate(resultPredicates({templateKind:v.template_kind as 'SINGLETON'|'TWIN',templateApproved,missing:missingRequired(v.parsed),pdfQc:v.parsed.results.qc.value,
-  linked:!!v.link_mode&&['Linked','ValidationBlocked','PendingCertification','CertifiedReleased'].includes(v.state),linkMode:v.link_mode as 'MANUAL_REVIEWED'|null,openProposal:x.open_proposal,cross,
+  linked:!!v.link_mode&&['Linked','ValidationBlocked','PendingCertification','CertifiedReleased'].includes(v.state),linkMode:v.link_mode as 'MANUAL_REVIEWED'|'AUTO_UNIQUE'|null,openProposal:x.open_proposal,cross,
   attemptState:a.attempt_state,attemptIsLatest:latestAttempt,hold:a.hold,qc1Accepted:y.qc1_accepted,nonMeasuredQc1:y.non_measured,batchCancelled:y.batch_cancelled||a.attempt_state==='BatchCancelled',activeSlot:a.slot_batch_id!==null,
   upstreamCurrent:evidence.current,upstreamReason:evidence.reason,analysisAccepted:evidence.analysisAccepted,finalQcAccepted:evidence.finalQcAccepted,
   isCurrentRound:cf.isCurrentRound,roundState:cf.roundState,roundNumber:cf.roundNumber,openRepeat:y.open_repeat,openIdentityIssues:cf.openIdentityIssues,clinicalState:operational?((await db.query<{ready:boolean}>('SELECT p2_clinical_ready($1) ready',[v.round_id])).rows[0]?.ready?'Pass':'PendingClinicalReview'):cf.clinicalState,consentRevoked:cf.consentRevoked,consent:cf.consentRoundEvidence,
@@ -439,7 +499,7 @@ export async function versionDetail(db:Queryable,user:Staff,id:string){
  const intake=(await db.query<{source:string;relative_path:string|null;original_name:string;member_name:string|null;byte_size:string;container:string;actor_id:string;created_at:Date}>('SELECT source,relative_path,original_name,member_name,byte_size,container,actor_id,created_at FROM result_intake_file WHERE id=$1',[v.intake_file_id])).rows[0];
  const [events,links,gates,reviews]=await Promise.all([
   db.query("SELECT e.from_state,e.to_state,e.reason,e.created_at,u.display_name actor FROM result_version_event e LEFT JOIN app_user u ON u.id=e.actor_id WHERE e.version_id=$1 ORDER BY e.sequence",[v.id]),
-  db.query("SELECT e.event,e.round_id,e.attempt_id,e.outcome,e.reason,e.cross_check,e.revision,e.created_at,e.actor_id,u.display_name actor FROM result_link_event e JOIN app_user u ON u.id=e.actor_id WHERE e.version_id=$1 ORDER BY e.sequence",[v.id]),
+  db.query("SELECT e.event,e.mode,e.match_evidence,e.round_id,e.attempt_id,e.outcome,e.reason,e.cross_check,e.revision,e.created_at,e.actor_id,u.display_name actor FROM result_link_event e JOIN app_user u ON u.id=e.actor_id WHERE e.version_id=$1 ORDER BY e.sequence",[v.id]),
   db.query("SELECT g.gate,g.purpose,g.outcome,g.eligible,g.predicates,g.created_at,u.display_name actor FROM result_gate_evaluation g LEFT JOIN app_user u ON u.id=g.actor_id WHERE g.version_id=$1 ORDER BY g.created_at DESC LIMIT 10",[v.id]),
   db.query("SELECT w.abnormal_acknowledged,w.note,w.created_at,u.display_name reviewer,w.reviewer_id FROM result_review w JOIN app_user u ON u.id=w.reviewer_id WHERE w.version_id=$1 ORDER BY w.created_at",[v.id])]);
  const s=await resultSettings(db);
@@ -451,7 +511,7 @@ export async function versionDetail(db:Queryable,user:Staff,id:string){
  const operational=await operationalWorkflow(db);
  return {operational,nameConflicts:conflicts,version:{id:v.id,kind:v.kind,templateKind:v.template_kind,templateVersion:v.template_version,parserVersion:v.parser_version,state:v.state,rowVersion:v.row_version,sha256:v.sha256,importedAt:v.imported_at,caseId:v.case_id,roundId:v.round_id,attemptId:v.attempt_id,linkMode:v.link_mode,supersedesId:v.supersedes_id,revision:v.revision},
   parsed:v.parsed,summary:summary(v.parsed),intake:{...intake,size:Number(intake.byte_size)},target,proposal,
-  candidates,autoMatch:auto?{caseId:auto.caseId,roundId:auto.round.id,attemptId:auto.attempt.id,reason:AUTO_MATCH_REASON}:null,
+  candidates,autoMatch:auto?{caseId:auto.caseId,roundId:auto.round.id,attemptId:auto.attempt.id,reason:AUTO_MATCH_REASON,linksDirectly:s.linkageMode==='UNIQUE_AUTO_LINK'}:null,
   gate:v.round_id?await gateFor(db,v,'VALIDATION'):null,events:events.rows,links:links.rows,gates:gates.rows,reviews:reviews.rows,
   can:{propose:authorize(user,'result.link.manual',{},'propose')&&v.state==='Unlinked'&&!proposal,decide:!!proposal&&authorize(user,'result.link.manual',{actorId:proposal.actor_id},'approve'),
    unlink:authorize(user,'result.link.manual',{},'approve')&&['LinkConflict','Linked','ValidationBlocked','PendingCertification'].includes(v.state)&&!v.supersedes_id,

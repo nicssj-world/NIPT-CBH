@@ -14,7 +14,7 @@ export type Purpose='VALIDATION'|'CERTIFY_ATTEMPT';
 export type CrossCheck={hn:Cmp;dob:Cmp;pregnancy:Cmp;collectionDate:Cmp;gestationalAge:Cmp;labNumber:Cmp};
 export type ResultFacts={
  templateKind:'SINGLETON'|'TWIN';templateApproved:boolean;missing:string[];pdfQc:string|null;
- linked:boolean;linkMode:'MANUAL_REVIEWED'|null;openProposal:boolean;cross:CrossCheck;
+ linked:boolean;linkMode:'MANUAL_REVIEWED'|'AUTO_UNIQUE'|null;openProposal:boolean;cross:CrossCheck;
  attemptState:string|null;attemptIsLatest:boolean;hold:boolean;qc1Accepted:boolean;nonMeasuredQc1:boolean;batchCancelled:boolean;activeSlot:boolean;
  upstreamCurrent:boolean;upstreamReason:string|null;analysisAccepted:boolean;finalQcAccepted:boolean;
  isCurrentRound:boolean;roundState:string;roundNumber:number;openRepeat:boolean;

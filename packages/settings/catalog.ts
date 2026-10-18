@@ -14,7 +14,8 @@ export const SETTINGS = {
     pdfSourcePath: pathValue.default("simulator/results"), scanSubfolders: z.boolean().default(true), acceptZip: z.boolean().default(true), maxFilesPerScan: z.number().int().min(1).max(2000).default(500),
     // A23 (Owner 2026-10-13): NIPTY auto_scan_min kept as a listing-only schedule; 0 = off. It never imports, links, certifies or releases.
     scheduledScanMinutes: z.number().int().refine(v => v === 0 || (v >= 5 && v <= 1440), "SCHEDULED_SCAN_0_OR_5_TO_1440").default(0),
-    gaToleranceDays: z.number().int().min(0).max(14).default(7), linkageMode: z.literal("MANUAL_REVIEWED_ONLY").default("MANUAL_REVIEWED_ONLY"),
+    gaToleranceDays: z.number().int().min(0).max(14).default(7), // Owner P5-A (2026-10-18, migration 100): UNIQUE_AUTO_LINK lets the system link a single clean match; MANUAL_REVIEWED_ONLY keeps two people.
+    linkageMode: z.enum(["MANUAL_REVIEWED_ONLY","UNIQUE_AUTO_LINK"]).default("MANUAL_REVIEWED_ONLY"),
     certificationMethod: z.literal("PENDING_OD05").default("PENDING_OD05"), sexDisclosureRule: z.literal("PROPOSED_BLOCK_UNLESS_WANTED_OD09").default("PROPOSED_BLOCK_UNLESS_WANTED_OD09"),
     postReleaseRecollection: z.literal("PENDING_OD17_VOID_FIRST").default("PENDING_OD17_VOID_FIRST"), noticeChannel: z.literal("NIPT_ONLY_PENDING_OD07").default("NIPT_ONLY_PENDING_OD07"),
     releaseAuthority: z.literal("HOLD_AL5").default("HOLD_AL5") }).strict(),

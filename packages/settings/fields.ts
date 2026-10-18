@@ -44,7 +44,7 @@ export const SETTING_FORMS:Record<SettingKey,SettingForm>={
   {name:"maxUploadMb",label:"ขนาดไฟล์สูงสุด",help:"ใช้ทั้งไฟล์จากโฟลเดอร์และไฟล์ที่เลือกจากเครื่อง (1–25 MB)",kind:"number",unit:"MB",min:1,max:25},
   {name:"gaToleranceDays",label:"ความคลาดเคลื่อนอายุครรภ์ที่ยอมรับ",help:"เทียบอายุครรภ์ใน PDF กับที่คำนวณจาก EDD ของรอบ (0–14 วัน)",kind:"number",unit:"วัน",min:0,max:14},
   {name:"picVersion",label:"รุ่น PDF Identifier Contract (PIC)",help:"ยังไม่ผ่าน OD-07 — ระบบใช้การจับคู่แบบมีผู้ตรวจเท่านั้น",kind:"text"},
-  {name:"linkageMode",label:"วิธีจับคู่ผลกับ Attempt",help:"AUTO_PIC เปิดไม่ได้จนกว่า PIC จะ Active (OD-07); HN หรือ HIS LN อย่างเดียวไม่เคยจับคู่อัตโนมัติ",kind:"locked",lockedBy:"OD-07 HOLD"},
+  {name:"linkageMode",label:"วิธีจับคู่ผลกับ Attempt",help:"Owner P5-A: เชื่อมโยงอัตโนมัติเฉพาะเมื่อ PDF ตรงกับรอบตัวอย่างเดียวชัดเจน (HN + เลข Lab + วันเกิด/ครรภ์/วันเจาะ/GA ตรงหมด ไม่มีชื่อไฟล์ซ้ำ ไม่มีรายงานเดิมในรอบนั้น) ไม่ส่ง HIS อัตโนมัติ และยังต้อง ตรวจรับ PDF และยืนยันส่งผล โดยผู้มีสิทธิ์ — กรณีอื่นยังต้องมีผู้เสนอและผู้อนุมัติ 2 คน; HN หรือ HIS LN อย่างเดียวไม่เคยจับคู่อัตโนมัติ",kind:"select",options:[{value:"MANUAL_REVIEWED_ONLY",label:"มีผู้เสนอและผู้อนุมัติ 2 คนทุกครั้ง"},{value:"UNIQUE_AUTO_LINK",label:"เชื่อมโยงอัตโนมัติเมื่อตรงกันชัดเจนเพียงรายการเดียว (P5-A)"}]},
   {name:"certificationMethod",label:"วิธียืนยันการรับรอง",help:"รอ OD-05",kind:"locked",lockedBy:"OD-05 HOLD"},
   {name:"sexDisclosureRule",label:"กฎการเปิดเผยเพศ",help:"ข้อเสนอ: ครรภ์เดี่ยวที่ไม่ประสงค์ทราบเพศแต่ PDF แสดงเพศ → บล็อก (รอ OD-09)",kind:"locked",lockedBy:"OD-09 HOLD"},
   {name:"postReleaseRecollection",label:"การเก็บตัวอย่างใหม่หลังออกผล",help:"ระหว่างรอ OD-17: ต้อง Void ผลเดิมก่อน",kind:"locked",lockedBy:"OD-17 HOLD"},
