@@ -83,7 +83,7 @@ describe('every tab is reachable page by page and the totals are exact',()=>{
   const d=await page({tab:'READY',page:1,pageSize:25});expect(Object.keys(d.counts).sort()).toEqual([...WORKLIST_TABS].sort());
   const past=await page({tab:'READY',page:999,pageSize:25});expect(past.page.number).toBe(past.page.totalPages);expect(past.attempts.length).toBeGreaterThan(0);
   await expect(page({tab:'READY',pageSize:30})).rejects.toThrow();await expect(page({tab:'NOPE'})).rejects.toThrow();await expect(page({page:0})).rejects.toThrow();await expect(page({unknown:1})).rejects.toThrow();
-  expect(d.scan).toEqual({capped:false,limit:10000});
+  expect(d.scan).toEqual({capped:false,limit:10000,scanned:d.counts.READY+d.counts.GATE_BLOCKED,ready:d.counts.READY+d.counts.GATE_BLOCKED}); // everything scanned: exact
  });
 });
 

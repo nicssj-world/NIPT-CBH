@@ -18,7 +18,7 @@ type Missing={kind:"LN_HALOS_MISSING";caseId:string;roundId:string;roundNumber:n
 const TABS=[["READY","พร้อมเข้าตรวจ"],["GATE_BLOCKED","ติด Gate"],["IN_BATCH","อยู่ใน Batch / กำลังทำ"],["DECISION","ต้องตัดสินใจ (QC ไม่ผ่าน / หยุด)"],["REDRAW_EXPECTED","รอรับเจาะซ้ำ (รอบที่ 2+)"],["LN_HALOS_MISSING","ไม่มี LN Halos"]] as const;
 type Tab=typeof TABS[number][0];
 /** One page of one tab, answered by the server (filters, sort, FIFO classification and totals are the server's). `counts` are exact for every tab. */
-export type WorklistData={operational?:boolean;policy:string;tab:Tab;counts:Record<Tab,number>;scan:{capped:boolean;limit:number};page:{number:number;size:number;total:number;totalPages:number};
+export type WorklistData={operational?:boolean;policy:string;tab:Tab;counts:Record<Tab,number>;scan:{capped:boolean;limit:number;scanned:number;ready:number};page:{number:number;size:number;total:number;totalPages:number};
  filters:{q:string;round:string;unprinted:boolean;urgent:boolean;sort:SortDirection};attempts:Attempt[];expected:Expected[];missing:Missing[];generatedAt:string};
 type Can={labels:boolean;assign:boolean;receive:boolean;repeat:boolean;redraw:boolean;redrawCancel:boolean;hold:boolean};
 type Batch={id:string;run_label:string;state:string;version:number;samples:number;sheet_states:string[]};
@@ -57,7 +57,7 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
   {data.operational?<p className="help">จัดเข้า Batch ได้เมื่อรับ PET ตรวจสิ่งส่งตรวจ เอกสารยินยอม และทบทวนทางคลินิกของรอบปัจจุบันครบแล้ว</p>:data.policy==="PROCEED_SYNTHETIC_LABELLED"?<p className="notice warning-notice" role="note"><strong>นโยบายจำลอง:</strong> ตัวอย่างที่ติดเฉพาะข้อที่ยังรอการตัดสิน (OD-01, OD-08, OD-16) จัดเข้า Batch ได้พร้อมป้ายกำกับ — ไม่ใช่การรับรองทางคลินิก ข้อที่ไม่ผ่านจริงยังบล็อกเสมอ</p>
    :<p className="notice warning-notice" role="note"><strong>Gate รอการตัดสิน:</strong> เกณฑ์ Clinical Gate (OD-08) และการยอมรับตัวอย่าง (OD-01) ยังไม่ได้รับรอง ระบบจึงยังไม่ให้จัดตัวอย่างเข้า Batch (นโยบาย HOLD)</p>}
   <div className="tabs" role="tablist" aria-label="คิวงาน Lab">{TABS.map(([t,label])=><button key={t} role="tab" type="button" id={`tab-${t}`} aria-selected={tab===t} aria-controls="queue-panel" className="tab" onClick={()=>{setSelected(new Map());setParams(p=>({...p,tab:t,page:1}));}}>{label} <span className="count">{data.counts[t]}</span></button>)}</div>
-  {data.scan.capped&&<p className="notice warning-notice" role="note">มีตัวอย่างสถานะ Ready มากกว่า {data.scan.limit} รายการ — ระบบจัดประเภท “พร้อม / ติด Gate” ให้เฉพาะ {data.scan.limit} รายการแรกตามลำดับ FIFO</p>}
+  {data.scan.capped&&<p className="notice warning-notice" role="note">มีตัวอย่างสถานะ Ready {data.scan.ready} รายการ — ระบบตรวจ “พร้อม / ติด Gate” แล้ว {data.scan.scanned} รายการแรกตามลำดับ จำนวนที่แสดงเป็นอย่างน้อย และจะตรวจต่อเมื่อเปิดหน้าถัดไป ไม่มีรายการใดถูกตัดทิ้ง</p>}
   <section id="queue-panel" ref={panel} role="tabpanel" aria-labelledby={`tab-${tab}`} aria-busy={loading} className="panel">
    <div className="filters">
     <div className="field grow"><label htmlFor="q">ค้นหา LN / LN Halos / Sample ID / Run</label><input id="q" type="search" value={typed} onChange={e=>setTyped(e.target.value)} autoComplete="off"/></div>
