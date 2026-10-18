@@ -7,12 +7,13 @@ import {identityLookup} from '../security/envelope';
 import {requirePermission,authorize,type Principal,type Operation} from '../security/policy';
 import {appendAudit} from '../db/audit';
 import {recordPhiAccess} from '../db/phi-access';
+import {pageFields,clampPage,offsetOf,likeContains} from '../db/pagination';
 import {digest,token,validateCsrf} from '../security/session';
 import {verifyPassword} from '../security/password';
 import {deriveSignature,vectorSchema} from './signature';
 import type {FileStore} from '../storage';
 import {IDENTIFIER_SOURCES,intakePresence,linkIntakeAtRegistration} from '../inbound/registration-link';
-import {receiveOrderSql,REGISTRY_DEFAULT_SORT,type SortDirection} from '../lab/receive-sort';
+import {receiveOrderSql,REGISTRY_DEFAULT_SORT} from '../lab/receive-sort';
 import {requestSchema,emptyRequest,requestIssues,requestProgressIssues,evaluateClinical,paperSchema,paperStatus,syntheticText,date,CONSENT_TEMPLATE,REQUEST_TEMPLATE,consentClauses,type RequestDraft} from './schema';
 
 const documentTemplate=(kind:'REQUEST'|'CONSENT')=>operationalDataEnabled()?(kind==='REQUEST'?'CBH-FM01-v1':'CBH-FM02-v1'):(kind==='REQUEST'?REQUEST_TEMPLATE:CONSENT_TEMPLATE);
@@ -245,16 +246,36 @@ export async function doctorAction(db:Queryable,user:Staff,input:unknown){
  await db.query('INSERT INTO p2_doctor_event(doctor_version_id,event_type,actor_id,reason) VALUES($1,$2,$3,$4)',[d.id,d.action==='approve'?'Approved':'Suspended',user.id,d.reason]);await appendAudit(db,{actorId:user.id,action:d.action==='approve'?'P2_DOCTOR_APPROVED':'P2_DOCTOR_SUSPENDED',resourceType:'p2_doctor_version',resourceId:d.id,details:{synthetic:!operationalDataEnabled()}});return {id:d.id,status:d.action==='approve'?'Approved':'Suspended'};
 }
 export async function doctorUnits(db:Queryable,user:Staff){await assertStaff(db,user);if(!user.roles.some(r=>['ANC_NURSE','ANC_SUPERVISOR','LAB_STAFF','LAB_CERTIFIER','APP_ADMIN','CLINICAL_APPROVER'].includes(r)))throw new P2Error('FORBIDDEN',403);const units=(await db.query<{id:string;code:string;name:string}>('SELECT id,code,name FROM unit ORDER BY code')).rows;return units.filter(u=>user.roles.some(r=>['APP_ADMIN','CLINICAL_APPROVER','LAB_STAFF','LAB_CERTIFIER'].includes(r))||user.unitIds.includes(u.id));}
-export async function listP2Cases(db:Queryable,user:Staff,search='',offset=0,sort:SortDirection=REGISTRY_DEFAULT_SORT){
- if(sort!=='asc'&&sort!=='desc')throw new P2Error('SORT_INVALID');
- await assertStaff(db,user);if(!Number.isSafeInteger(offset)||offset<0)throw new P2Error('PAGE_INVALID');if(search.length>60)throw new P2Error('SEARCH_INVALID');
+const registryInput=z.strictObject({q:z.string().max(60).default(''),sort:z.enum(['asc','desc']).default(REGISTRY_DEFAULT_SORT),...pageFields(25)});
+/** Registry page. Everything that decides what is on the page - scope, search, sort, total - is evaluated by one SQL predicate, so the
+ * total always matches the rows reachable by paging, and a page costs one bounded query plus one count (never the whole registry). */
+export async function listP2Cases(db:Queryable,user:Staff,input:unknown={}){
+ const parsed=registryInput.safeParse(input);
+ if(!parsed.success){const bad=new Set(parsed.error.issues.map(i=>String(i.path[0])));throw new P2Error(bad.has('sort')?'SORT_INVALID':bad.has('q')?'SEARCH_INVALID':'PAGE_INVALID');}
+ const {q:search,sort,page:requested,pageSize}=parsed.data;
+ await assertStaff(db,user);
  const allUnits=(await db.query<{id:string;code:string;name:string}>('SELECT id,code,name FROM unit ORDER BY code')).rows;
- const readableUnitIds=allUnits.filter(u=>authorize(user,'case.read',{unitId:u.id,origin:'ANC'},'read')).map(u=>u.id);
- // Scope and deduplicate in SQL BEFORE applying the page limit. Multiple scope rows cannot consume the page.
- const rows=(await db.query<CaseScope&{received_at:Date|null;received_source:string|null;draft:RequestDraft|null;version:number|null;request_mode:string|null;consent_mode:string|null;consent_decision:string|null}>("SELECT c.id,l.ln,i.hn,c.registration_origin,c.current_round_id,s.unit_id,r.state,r.analysis_started,r.round_number,r.received_at,r.received_source,w.draft,w.version,w.request_mode,w.consent_mode,(CASE WHEN w.round_id IS NULL THEN NULL ELSE p2_consent_latest_decision(w.round_id) END) consent_decision FROM nipt_case c JOIN case_ln l ON l.id=(SELECT cl.id FROM case_ln cl WHERE cl.case_id=c.id ORDER BY cl.id LIMIT 1) LEFT JOIN p2_case_identity i ON i.case_id=c.id JOIN LATERAL(SELECT us.unit_id FROM case_unit_scope us WHERE us.case_id=c.id AND us.unit_id=ANY($2::uuid[]) ORDER BY us.unit_id LIMIT 1) s ON true JOIN specimen_round r ON r.id=c.current_round_id LEFT JOIN p2_workspace w ON w.round_id=r.id WHERE c.registration_origin IN ('ANC','LAB_DIRECT') AND (l.ln LIKE $1 OR i.hn LIKE $1 OR w.draft->'patient'->>'syntheticName' ILIKE $1) ORDER BY "+receiveOrderSql('r.received_at',sort,['(CASE WHEN r.received_at IS NULL THEN c.created_at END) DESC NULLS LAST','l.ln','c.id'])+" LIMIT 201 OFFSET $3",['%'+search+'%',readableUnitIds,offset])).rows;
- const seen=new Set<string>();const cases=rows.slice(0,200).filter(c=>{if(seen.has(c.id)||!authorize(user,'case.read',{unitId:c.unit_id,origin:c.registration_origin},'read'))return false;seen.add(c.id);return true;}).map(({draft,...c})=>({...c,identityVerified:c.hn!==null,progress:draft?{missing:requestProgressIssues(draft),savedVersion:c.version}:null}));
+ // Scope is decided per (unit, origin) exactly as authorize() decides it for the row; the SQL predicate and the post-filter below agree.
+ const origins=['ANC','LAB_DIRECT'] as const;
+ const readable=allUnits.flatMap(u=>origins.filter(o=>authorize(user,'case.read',{unitId:u.id,origin:o},'read')).map(o=>u.id+':'+o));
+ const halosTerm=search.replace(/[DR]{1,2}$/i,'');
+ const canHalos=authorize(user,'worksheet.read',{},'read')&&halosTerm.length>=4;
+ const values:unknown[]=[likeContains(search),readable,canHalos,likeContains(halosTerm)];
+ // LN Halos is Lab numbering: searchable only by roles that can already read the Lab worksheet. The printed code may carry a D/R suffix.
+ const base=`FROM nipt_case c JOIN case_ln l ON l.id=(SELECT cl.id FROM case_ln cl WHERE cl.case_id=c.id ORDER BY cl.id LIMIT 1) LEFT JOIN p2_case_identity i ON i.case_id=c.id
+  JOIN LATERAL(SELECT us.unit_id FROM case_unit_scope us WHERE us.case_id=c.id AND (us.unit_id::text||':'||c.registration_origin)=ANY($2::text[]) ORDER BY us.unit_id LIMIT 1) s ON true
+  JOIN specimen_round r ON r.id=c.current_round_id LEFT JOIN p2_workspace w ON w.round_id=r.id
+  WHERE c.registration_origin IN ('ANC','LAB_DIRECT') AND (l.ln LIKE $1 OR i.hn LIKE $1 OR w.draft->'patient'->>'syntheticName' ILIKE $1
+   OR ($3::boolean AND EXISTS(SELECT 1 FROM specimen_lab_number n WHERE n.case_id=c.id AND n.ln_halos ILIKE $4)))`;
+ const total=Number((await db.query<{n:string}>(`SELECT count(*)::text n ${base}`,values)).rows[0].n);
+ const meta=clampPage(requested,total,pageSize);
+ const rows=(await db.query<CaseScope&{received_at:Date|null;received_source:string|null;draft:RequestDraft|null;version:number|null;request_mode:string|null;consent_mode:string|null;consent_decision:string|null}>(
+  `SELECT c.id,l.ln,i.hn,c.registration_origin,c.current_round_id,s.unit_id,r.state,r.analysis_started,r.round_number,r.received_at,r.received_source,w.draft,w.version,w.request_mode,w.consent_mode,(CASE WHEN w.round_id IS NULL THEN NULL ELSE p2_consent_latest_decision(w.round_id) END) consent_decision ${base}
+   ORDER BY ${receiveOrderSql('r.received_at',sort,['(CASE WHEN r.received_at IS NULL THEN c.created_at END) DESC NULLS LAST','l.ln','c.id'])} LIMIT ${pageSize} OFFSET ${offsetOf(meta)}`,values)).rows;
+ const seen=new Set<string>();const cases=rows.filter(c=>{if(seen.has(c.id)||!authorize(user,'case.read',{unitId:c.unit_id,origin:c.registration_origin},'read'))return false;seen.add(c.id);return true;}).map(({draft,...c})=>({...c,identityVerified:c.hn!==null,progress:draft?{missing:requestProgressIssues(draft),savedVersion:c.version}:null}));
  const units=allUnits.filter(u=>authorize(user,'case.register.anc',{unitId:u.id,origin:'ANC'})||authorize(user,'case.register.lab',{unitId:u.id,origin:'LAB_DIRECT'}));
- if(cases.length)await recordPhiAccess(db,user.id,cases.map(c=>c.id),'REGISTRY_VIEW');return {cases,units,hasMore:rows.length>200,nextOffset:rows.length>200?offset+200:null};
+ if(cases.length)await recordPhiAccess(db,user.id,cases.map(c=>c.id),'REGISTRY_VIEW');
+ return {cases,units,page:meta};
 }
 
 /** Human clinical assessment bound to the exact current round and all document/receipt evidence. */

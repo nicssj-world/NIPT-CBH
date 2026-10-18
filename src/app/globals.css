@@ -508,3 +508,14 @@ label.check-label,:is(.stack,fieldset,.form-grid) > label.check-label,fieldset l
 .workbook-sheets summary::-webkit-details-marker {display:none;}
 .workbook-sheets summary::before {content:"";width:8px;height:8px;flex-shrink:0;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);transition:transform .15s ease-out;}
 .workbook-sheets details[open] > summary::before {transform:rotate(45deg);}
+/* Shared pager (2026-10-19 pagination pass): summary text, page size, first/previous/next/last, jump. Buttons stay inline on phones. */
+.pager {display:grid;gap:var(--space-3);margin:var(--space-4) 0;}
+.pager-summary {margin:0;max-width:none;color:var(--color-muted);font-size:14px;font-variant-numeric:tabular-nums;}
+.pager-controls {display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3) var(--space-6);}
+.pager-size,.pager-jump {display:flex;align-items:center;gap:var(--space-2);margin:0;font-size:14px;font-weight:400;}
+.pager-size select {width:auto;min-width:5.5rem;}
+.pager-jump label {margin:0;font-weight:400;}
+.pager-jump input {width:5.5rem;}
+.pager-buttons {display:flex;flex-wrap:wrap;gap:var(--space-2);}
+.pager .button {width:auto;min-width:44px;}
+@media(max-width:600px){.pager-controls {gap:var(--space-3);}.pager-buttons {flex:1 1 100%;}.pager-buttons .button {flex:1 1 0;}}

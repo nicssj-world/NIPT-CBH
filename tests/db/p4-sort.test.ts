@@ -28,7 +28,7 @@ describe('Receive Date/Time sorting — Owner Lock 2026-10-12 (AT-SORT-01..07)',
   // AT-SORT-01: the registry shows the same receipt time, newest first by default; ASC on request.
   const {lab}=await registrar(f.db);
   const desc=await run(t=>listP2Cases(t,lab));expect(desc.cases.map(c=>c.ln)).toEqual([...his].reverse());
-  const asc=await run(t=>listP2Cases(t,lab,'',0,'asc'));expect(asc.cases.map(c=>c.ln)).toEqual(his);
+  const asc=await run(t=>listP2Cases(t,lab,{sort:'asc'}));expect(asc.cases.map(c=>c.ln)).toEqual(his);
   expect(desc.cases[0]).toMatchObject({received_source:'HIS_PET_RECEIPT'});
   expect(ids).toHaveLength(3);
  });
@@ -38,12 +38,12 @@ describe('Receive Date/Time sorting — Owner Lock 2026-10-12 (AT-SORT-01..07)',
   for(const [ln,hn] of [['990004000012','9900040012'],['990004000013','9900040013']])await register(f,{ln,hn});
   for(const [ln,hn] of [['990004000013','9900040013'],['990004000012','9900040012']])await writePet(f.root,DAY,{ln,hn,receivedAt:'20261012091500'}); // identical P[21]
   await cycle(f,{now:NOW});
-  for(const dir of ['asc','desc'] as const){const r=await run(t=>listP2Cases(t,lab,'',0,dir));
+  for(const dir of ['asc','desc'] as const){const r=await run(t=>listP2Cases(t,lab,{sort:dir}));
    expect(r.cases.slice(0,2).map(c=>c.ln)).toEqual(['990004000012','990004000013']); // equal time → HIS LN, never ingest order
    expect(r.cases.slice(2).every(c=>c.received_at===null)).toBe(true);expect(r.cases.slice(2).map(c=>c.ln).sort()).toEqual(['990004000010','990004000011']);}
-  const search=await run(t=>listP2Cases(t,lab,'99000400001',0,'asc'));expect(search.cases).toHaveLength(4);
-  expect((await run(t=>listP2Cases(t,lab,'',0,'desc'))).cases.map(c=>c.ln)).toEqual((await run(t=>listP2Cases(t,lab,'',0,'desc'))).cases.map(c=>c.ln)); // refresh-stable
-  await expect(run(t=>listP2Cases(t,lab,'',0,'created' as 'asc'))).rejects.toThrow();
+  const search=await run(t=>listP2Cases(t,lab,{q:'99000400001',sort:'asc'}));expect(search.cases).toHaveLength(4);
+  expect((await run(t=>listP2Cases(t,lab,{sort:'desc'}))).cases.map(c=>c.ln)).toEqual((await run(t=>listP2Cases(t,lab,{sort:'desc'}))).cases.map(c=>c.ln)); // refresh-stable
+  await expect(run(t=>listP2Cases(t,lab,{sort:'created'}))).rejects.toThrow();
  });
  it('AT-SORT-04: S2+ uses the NIPT receipt time, Repeat keeps the original round time; no HIS receipt is created',async()=>{
   await setPendingPolicy(q(),u,'PROCEED_SYNTHETIC_LABELLED');
