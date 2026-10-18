@@ -12,7 +12,8 @@ import assert from 'node:assert/strict';
 const flag=(n:string)=>process.argv.includes('--'+n);
 const stamp=new Date().toISOString().replace(/[-:T]/g,'').slice(0,14);
 const base=path.resolve('.local/p8-win'),evidenceDir=path.join(base,'evidence','rehearsal-'+stamp);mkdirSync(evidenceDir,{recursive:true});
-const root=path.join(base,'rehearsal-'+stamp,'root');
+const resumeIdx=process.argv.indexOf('--resume'),resume=resumeIdx>=0?path.resolve(process.argv[resumeIdx+1]):undefined; // debugging aid: continue on an existing installation (steps S00-S06 skipped)
+const root=resume??path.join(base,'rehearsal-'+stamp,'root');
 const ports=[19860,19861,19862,19863];
 const master=process.env.NIPT_TASK_MASTER_PATH??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx';
 const publicKey=path.join(base,'keys','package-signing-public.pem');
@@ -27,6 +28,7 @@ const tsx=(...a:string[])=>execFileSync(process.execPath,['node_modules/tsx/dist
 
 async function step(id:string,name:string,fn:()=>Promise<unknown>|unknown){
  const t=Date.now();log(`${id} ${name}`);
+ if(resume&&id<='S06'){steps.push({id,name,ok:true,ms:0,detail:'SKIPPED_RESUMED_FROM_EXISTING_ROOT'});return;}
  try{const detail=await fn();steps.push({id,name,ok:true,ms:Date.now()-t,detail});}
  catch(e){steps.push({id,name,ok:false,ms:Date.now()-t,detail:{error:(e as Error).message,stack:(e as Error).stack?.split('\n').slice(0,4)}});finish(false);throw e;}
 }
@@ -44,7 +46,7 @@ function cli(who:'package'|'installed',cmd:string,extra:string[]=[],opts:{allowF
  const node=who==='package'?packageCli('1.0.0').node:path.join(root,'runtime','node','node.exe');
  const script=who==='package'?path.join(pkgDir('1.0.0'),'installer','nipt-admin.mjs'):path.join(root,'admin','nipt-admin.mjs');
  const r=spawnSync(node,[script,cmd,'--root',root,...extra],{encoding:'utf8',windowsHide:true,maxBuffer:64*1024*1024});
- let json:Record<string,any>={};try{json=JSON.parse(r.stdout);}catch{json={ok:false,error:'UNPARSEABLE_OUTPUT',stdout:r.stdout.slice(-800),stderr:r.stderr.slice(-800)};} // eslint-disable-line @typescript-eslint/no-explicit-any
+ let json:Record<string,any>={};try{json=JSON.parse(r.stdout);}catch{json={ok:false,error:'UNPARSEABLE_OUTPUT',status:r.status,signal:r.signal,spawnError:r.error?.message,stdout:r.stdout.slice(-800),stderr:r.stderr.slice(-800)};} // eslint-disable-line @typescript-eslint/no-explicit-any
  if(r.status!==0&&!opts.allowFail)throw Error(`${cmd} failed: ${JSON.stringify(json).slice(0,1200)}`);
  return {...json,_status:r.status};
 }
