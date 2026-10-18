@@ -1,29 +1,17 @@
 import {z} from 'zod';
 import {createHash} from 'node:crypto';
 import type {Queryable} from '../db/connection';
-import {recordPhiAccess} from '../db/phi-access';
 import {lockLn} from '../db/registration';
 import {buildTubeLabelsHtml} from './labels';
 import {specimenDisplayCode} from './rules';
-import {compareReceive,READY_QUEUE_DEFAULT_SORT} from './receive-sort';
-import {LabError,uuid,reasonText,need,assertSession,audit,caseEvent,attemptEvent,setAttemptState,pendingPolicy,attemptFacts,assignmentDecision,candidatePrintedId,caseVisible,bangkokToday,gestationalAge,
- REDRAW_REASONS,REPEAT_REASONS,REPEAT_LEVELS,type Staff,type AttemptRow} from './core';
+import {LabError,uuid,reasonText,need,assertSession,audit,caseEvent,attemptEvent,setAttemptState,attemptFacts,candidatePrintedId,caseVisible,bangkokToday,
+ REDRAW_REASONS,REPEAT_REASONS,REPEAT_LEVELS,type Staff} from './core';
 import {isoDate} from '../domain/thai-date';
 
-export type QueueCategory='READY'|'GATE_BLOCKED'|'IN_BATCH'|'IN_PROGRESS'|'QC_FAILED'|'NEEDS_DECISION'|'REDRAW_EXPECTED'|'LN_HALOS_MISSING'|'OTHER';
-const iso=(d:Date|null)=>d?d.toISOString():null;
+// The F1 queue read (rows, categories, paging) lives in ./worklist; re-exported so existing imports keep working.
+export {labWorklist,labWorklistPage,worklistRow,WORKLIST_TABS,READY_SCAN_LIMIT} from './worklist';
+export type {QueueCategory,WorklistAttempt,WorklistPage,WorklistTab} from './worklist';
 
-function worklistRow(r:AttemptRow,policy:'HOLD'|'PROCEED_SYNTHETIC_LABELLED'){
- const gate=r.attempt_state==='Ready'?assignmentDecision(r,policy):null;
- const category:QueueCategory=r.attempt_state==='Ready'?(gate!.eligible?'READY':'GATE_BLOCKED'):r.attempt_state==='Assigned'?'IN_BATCH':r.attempt_state==='InProgress'?'IN_PROGRESS':r.attempt_state==='QcFailed'?'QC_FAILED':['Stopped','BatchCancelled'].includes(r.attempt_state)?'NEEDS_DECISION':'OTHER';
- const code=r.ln_halos?specimenDisplayCode(r.ln_halos,r.pregnancy,r.ln_halos_resampling):r.ln_halos; // OD-R1a: BASE[D][R]
- return {kind:'ATTEMPT' as const,category,caseId:r.case_id,roundId:r.round_id,roundNumber:r.round_number,receivedSource:r.received_source,receivedAt:iso(r.received_at),hisLn:r.ln,lnHalos:r.ln_halos,labelCode:code,pregnancy:r.pregnancy,ga:gestationalAge(r),
-  attemptId:r.attempt_id,attemptNumber:r.attempt_number,attemptState:r.attempt_state,printedSampleId:candidatePrintedId(r).id,repeat:r.repeat_order_id?{level:r.repeat_level,state:r.repeat_state}:null,
-  urgent:r.urgent,urgentReason:r.urgent_reason,hold:r.hold?{stage:r.hold_stage}:null,resumeDecisionRequired:r.resume_decision_required,qcFailedStage:r.qc_failed_stage,
-  gate:gate&&{eligible:gate.eligible,syntheticPendingAccepted:gate.syntheticPendingAccepted,failed:gate.failed,pending:gate.pending},
-  placement:r.slot_batch_id?{batchId:r.slot_batch_id,runLabel:r.run_label,slot:r.slot_number,sheetState:r.sheet_state}:null,labels:{prints:r.label_prints,lastPrintedAt:iso(r.last_label_print)}};
-}
-export type WorklistAttempt=ReturnType<typeof worklistRow>;
 export async function acceptSpecimen(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);const d=z.strictObject({roundId:uuid,identityChecked:z.literal(true),labelChecked:z.literal(true),condition:z.enum(['ACCEPTABLE','REJECTED']),criteriaReference:reasonText,reason:reasonText}).parse(input);
  const r=await lockedRound(db,user,d.roundId);need(user,'round.receive','write',{unitId:r.unit_id??undefined,origin:r.registration_origin as 'ANC'});
@@ -33,25 +21,6 @@ export async function acceptSpecimen(db:Queryable,user:Staff,input:unknown){
 }
 
 /** F1 queues (Plan §12.9 "คิวในหน้าจอ Lab"). S1 enters from the matched HIS PET receipt only; there is no second S1 receipt here. */
-export async function labWorklist(db:Queryable,user:Staff){
- await assertSession(db,user);need(user,'worksheet.read','read');
- const {policy}=await pendingPolicy(db);
- // The live attempt of each case's current round (highest number); superseded/cancelled attempts are history.
- const rows=(await attemptFacts(db,`c.current_round_id=a.round_id AND c.registration_origin<>'HISTORICAL' AND a.attempt_number=(SELECT max(x.attempt_number) FROM analytical_attempt x WHERE x.round_id=a.round_id)`,[])).filter(r=>caseVisible(user,r));
- // Default display order is the Owner-locked Ready Queue order: receive time ASC with immutable tie keys (Urgent is a badge, not a re-sort).
- const attempts=rows.sort((a,b)=>compareReceive({receivedAt:a.received_at,keys:[a.ln,a.attempt_id]},{receivedAt:b.received_at,keys:[b.ln,b.attempt_id]},READY_QUEUE_DEFAULT_SORT)).map(r=>worklistRow(r,policy));
- const expected=(await db.query<{case_id:string;round_id:string;round_number:number;ln:string;requested_at:Date;reason_code:string;unit_id:string|null;registration_origin:string;previous_ln_halos:string|null}>(`SELECT r.case_id,r.id round_id,r.round_number,l.ln,d.requested_at,d.reason_code,(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=r.case_id ORDER BY s.unit_id LIMIT 1) unit_id,c.registration_origin,
-  (SELECT n.ln_halos FROM specimen_lab_number n WHERE n.round_id=d.source_round_id) previous_ln_halos
-  FROM specimen_round r JOIN nipt_case c ON c.id=r.case_id AND c.current_round_id=r.id JOIN case_ln l ON l.id=r.case_ln_id JOIN redraw_request d ON d.id=r.redraw_request_id
-  WHERE r.round_number>=2 AND r.state='Expected' ORDER BY d.requested_at`)).rows.filter(r=>caseVisible(user,r)).map(r=>({kind:'REDRAW_EXPECTED' as const,category:'REDRAW_EXPECTED' as QueueCategory,caseId:r.case_id,roundId:r.round_id,roundNumber:r.round_number,hisLn:r.ln,requestedAt:r.requested_at.toISOString(),reasonCode:r.reason_code,previousLnHalos:r.previous_ln_halos}));
- const missing=(await db.query<{case_id:string;round_id:string;round_number:number;ln:string;received_at:Date;received_source:string;unit_id:string|null;registration_origin:string}>(`SELECT r.case_id,r.id round_id,r.round_number,l.ln,r.received_at,r.received_source,(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=r.case_id ORDER BY s.unit_id LIMIT 1) unit_id,c.registration_origin
-  FROM specimen_round r JOIN nipt_case c ON c.id=r.case_id AND c.current_round_id=r.id JOIN case_ln l ON l.id=r.case_ln_id
-  WHERE r.received_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM specimen_lab_number n WHERE n.round_id=r.id) ORDER BY r.received_at`)).rows.filter(r=>caseVisible(user,r)).map(r=>({kind:'LN_HALOS_MISSING' as const,category:'LN_HALOS_MISSING' as QueueCategory,caseId:r.case_id,roundId:r.round_id,roundNumber:r.round_number,hisLn:r.ln,receivedAt:r.received_at.toISOString(),receivedSource:r.received_source}));
- const caseIds=[...new Set([...attempts.map(a=>a.caseId),...expected.map(e=>e.caseId),...missing.map(m=>m.caseId)])].slice(0,200);
- if(caseIds.length)await recordPhiAccess(db,user.id,caseIds,'REGISTRY_VIEW');
- return {policy,attempts,expected,missing,operational:process.env.NIPT_MODE==='operational',generatedAt:new Date().toISOString()};
-}
-
 async function lockedRound(db:Queryable,user:Staff,roundId:string){
  const r=(await db.query<{id:string;case_id:string;round_number:number;state:string;received_at:Date|null;collection_date:string|null;case_ln_id:string;ln:string;current_round_id:string;registration_origin:string;unit_id:string|null;redraw_request_id:string|null}>(
   `SELECT r.id,r.case_id,r.round_number,r.state,r.received_at,r.collection_date::text,r.case_ln_id,l.ln,c.current_round_id,c.registration_origin,(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=c.id ORDER BY s.unit_id LIMIT 1) unit_id,r.redraw_request_id

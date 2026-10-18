@@ -1,6 +1,5 @@
 "use client";
-import {useEffect,useMemo,useState} from "react";
-import {useRouter} from "next/navigation";
+import {useCallback,useEffect,useMemo,useRef,useState} from "react";
 import Link from "next/link";
 import {Dialog} from "../p2/shared";
 import {LabelDialog} from "./label-dialog";
@@ -9,64 +8,79 @@ import {compareReceive,READY_QUEUE_DEFAULT_SORT,type SortDirection} from "../../
 import {getSheetNumber} from "../../../packages/lab/rules";
 import {gaBadge,type Ga} from "./ga-badge";
 import {ThaiDateInput} from "../shared/thai-date-input";
+import {Pager} from "../shared/pager";
 
 type Attempt={kind:"ATTEMPT";category:string;caseId:string;roundId:string;roundNumber:number;receivedSource:string|null;receivedAt:string|null;hisLn:string;lnHalos:string|null;labelCode:string|null;pregnancy:string|null;ga:Ga;attemptId:string;attemptNumber:number;attemptState:string;printedSampleId:string|null;
  repeat:{level:string|null;state:string|null}|null;urgent:boolean;urgentReason:string|null;hold:{stage:string|null}|null;resumeDecisionRequired:boolean;qcFailedStage:string|null;gate:{eligible:boolean;syntheticPendingAccepted:boolean;failed:string[];pending:string[]}|null;
  placement:{batchId:string;runLabel:string|null;slot:number|null;sheetState:string|null}|null;labels:{prints:number;lastPrintedAt:string|null}};
 type Expected={kind:"REDRAW_EXPECTED";caseId:string;roundId:string;roundNumber:number;hisLn:string;requestedAt:string;reasonCode:string;previousLnHalos:string|null};
 type Missing={kind:"LN_HALOS_MISSING";caseId:string;roundId:string;roundNumber:number;hisLn:string;receivedAt:string;receivedSource:string};
-export type WorklistData={operational?:boolean;policy:string;attempts:Attempt[];expected:Expected[];missing:Missing[];generatedAt:string};
-type Can={labels:boolean;assign:boolean;receive:boolean;repeat:boolean;redraw:boolean;redrawCancel:boolean;hold:boolean};
-type Batch={id:string;run_label:string;state:string;version:number;samples:number;sheet_states:string[]};
-
 const TABS=[["READY","พร้อมเข้าตรวจ"],["GATE_BLOCKED","ติด Gate"],["IN_BATCH","อยู่ใน Batch / กำลังทำ"],["DECISION","ต้องตัดสินใจ (QC ไม่ผ่าน / หยุด)"],["REDRAW_EXPECTED","รอรับเจาะซ้ำ (รอบที่ 2+)"],["LN_HALOS_MISSING","ไม่มี LN Halos"]] as const;
 type Tab=typeof TABS[number][0];
-const tabOf=(a:Attempt):Tab=>a.category==="READY"?"READY":a.category==="GATE_BLOCKED"?"GATE_BLOCKED":["IN_BATCH","IN_PROGRESS"].includes(a.category)?"IN_BATCH":"DECISION";
+/** One page of one tab, answered by the server (filters, sort, FIFO classification and totals are the server's). `counts` are exact for every tab. */
+export type WorklistData={operational?:boolean;policy:string;tab:Tab;counts:Record<Tab,number>;scan:{capped:boolean;limit:number};page:{number:number;size:number;total:number;totalPages:number};
+ filters:{q:string;round:string;unprinted:boolean;urgent:boolean;sort:SortDirection};attempts:Attempt[];expected:Expected[];missing:Missing[];generatedAt:string};
+type Can={labels:boolean;assign:boolean;receive:boolean;repeat:boolean;redraw:boolean;redrawCancel:boolean;hold:boolean};
+type Batch={id:string;run_label:string;state:string;version:number;samples:number;sheet_states:string[]};
+type Params={tab:Tab;q:string;round:string;unprinted:boolean;urgent:boolean;sort:SortDirection;page:number;pageSize:number};
+// 50 per page: a Run holds 48 samples, so one page covers a whole Run's worth of the FIFO head.
+const DEFAULT_PARAMS:Params={tab:"READY",q:"",round:"ALL",unprinted:false,urgent:false,sort:READY_QUEUE_DEFAULT_SORT,page:1,pageSize:50};
 const STATE:Record<string,string>={Ready:"พร้อม",Assigned:"จัดเข้า Batch",InProgress:"กำลังปฏิบัติ",QcFailed:"QC ไม่ผ่าน",Stopped:"หยุด",BatchCancelled:"Batch ถูกยกเลิก",Superseded:"ถูกแทนที่"};
 const SOURCE:Record<string,string>={HIS_PET_RECEIPT:"รับใน HIS",NIPT_LOCAL_RECEIPT:"รับใน NIPT"};
 
 export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
- const router=useRouter();
- const [data,setData]=useState(initial),[tab,setTab]=useState<Tab>("READY"),[query,setQuery]=useState(""),[round,setRound]=useState("ALL"),[onlyUnprinted,setOnlyUnprinted]=useState(false),[urgentOnly,setUrgentOnly]=useState(false),[sort,setSort]=useState<SortDirection>(READY_QUEUE_DEFAULT_SORT);
- const [selected,setSelected]=useState<Set<string>>(new Set()),[dialog,setDialog]=useState<null|{type:string;row?:Attempt|Expected|Missing;samples?:Attempt[]}>(null),[status,setStatus]=useState("");
- async function reload(){try{setData(await labApi<WorklistData>("/api/p4/worklist"));setSelected(new Set());router.refresh();}catch(e){setStatus(failureText(e));}}
- const q=query.trim().toLowerCase();
- const match=(...v:(string|null|undefined)[])=>!q||v.some(x=>x?.toLowerCase().includes(q));
- const tabRows=useMemo(()=>data.attempts.filter(a=>tabOf(a)===tab).sort((x,y)=>compareReceive({receivedAt:x.receivedAt,keys:[x.hisLn,x.attemptId]},{receivedAt:y.receivedAt,keys:[y.hisLn,y.attemptId]},sort)),[data,tab,sort]);
- const attempts=useMemo(()=>tabRows.filter(a=>match(a.hisLn,a.lnHalos,a.labelCode,a.printedSampleId,a.placement?.runLabel)&&(round==="ALL"||(round==="S1"?a.roundNumber===1:a.roundNumber>1))&&(!onlyUnprinted||a.labels.prints===0)&&(!urgentOnly||a.urgent)),
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  [tabRows,q,round,onlyUnprinted,urgentOnly]);
- const counts=Object.fromEntries(TABS.map(([t])=>[t,t==="REDRAW_EXPECTED"?data.expected.length:t==="LN_HALOS_MISSING"?data.missing.length:data.attempts.filter(a=>tabOf(a)===t).length]));
- // Selection order = the order shown on screen after sort (Owner Lock §2.3), not the order of the clicks.
- const chosen=useMemo(()=>tabRows.filter(a=>selected.has(a.attemptId)),[tabRows,selected]);
- const toggle=(id:string)=>setSelected(s=>{const n=new Set(s);if(n.has(id))n.delete(id);else n.add(id);return n;});
+ const [data,setData]=useState(initial),[params,setParams]=useState(DEFAULT_PARAMS),[typed,setTyped]=useState(""),[loading,setLoading]=useState(false);
+ const [selected,setSelected]=useState<Map<string,Attempt>>(new Map()),[dialog,setDialog]=useState<null|{type:string;row?:Attempt|Expected|Missing;samples?:Attempt[]}>(null),[status,setStatus]=useState("");
+ const seq=useRef(0),first=useRef(true),panel=useRef<HTMLElement>(null),paramsRef=useRef(params);
+ useEffect(()=>{paramsRef.current=params;},[params]);
+ const fetchPage=useCallback(async(p:Params)=>{
+  const id=++seq.current;setLoading(true);
+  try{const qs=new URLSearchParams({tab:p.tab,q:p.q,round:p.round,unprinted:p.unprinted?"1":"0",urgent:p.urgent?"1":"0",sort:p.sort,page:String(p.page),pageSize:String(p.pageSize)});
+   const next=await labApi<WorklistData>(`/api/p4/worklist?${qs}`);if(id===seq.current){setData(next);setStatus("");}}
+  catch(e){if(id===seq.current)setStatus(failureText(e));}finally{if(id===seq.current)setLoading(false);}
+ },[]);
+ // The first render uses the server-rendered page; every later change of tab, filter, sort, page or size asks the server for that page.
+ useEffect(()=>{if(first.current){first.current=false;return;}void fetchPage(params);},[params,fetchPage]);
+ // Typing in the search box: ask the server once typing pauses (the search covers every attempt, not only the rows on screen).
+ useEffect(()=>{const t=setTimeout(()=>setParams(p=>p.q===typed.trim()?p:{...p,q:typed.trim(),page:1}),350);return()=>clearTimeout(t);},[typed]);
+ const change=(patch:Partial<Params>)=>setParams(p=>({...p,...patch,page:1}));
+ async function reload(){setSelected(new Map());await fetchPage(paramsRef.current);}
+ const tab=data.tab,sort=data.filters.sort;
+ // Selection order = the order shown on screen after sort (Owner Lock §2.3), not the order of the clicks. It survives paging and filtering.
+ const chosen=useMemo(()=>[...selected.values()].sort((x,y)=>compareReceive({receivedAt:x.receivedAt,keys:[x.hisLn,x.attemptId]},{receivedAt:y.receivedAt,keys:[y.hisLn,y.attemptId]},sort)),[selected,sort]);
+ const toggle=(a:Attempt)=>setSelected(m=>{const n=new Map(m);if(n.has(a.attemptId))n.delete(a.attemptId);else n.set(a.attemptId,a);return n;});
+ const attempts=data.attempts;
  const allShown=attempts.length>0&&attempts.every(a=>selected.has(a.attemptId));
+ const goPage=(n:number)=>{setParams(p=>({...p,page:n}));setTimeout(()=>panel.current?.scrollIntoView({block:"start"}),0);};
+ const pager=<Pager label="คิวงาน Lab" page={data.page.number} pageSize={data.page.size} total={data.page.total} totalPages={data.page.totalPages} busy={loading} onPage={goPage} onSize={n=>change({pageSize:n})}/>;
  return <>
   {data.operational?<p className="help">จัดเข้า Batch ได้เมื่อรับ PET ตรวจสิ่งส่งตรวจ เอกสารยินยอม และทบทวนทางคลินิกของรอบปัจจุบันครบแล้ว</p>:data.policy==="PROCEED_SYNTHETIC_LABELLED"?<p className="notice warning-notice" role="note"><strong>นโยบายจำลอง:</strong> ตัวอย่างที่ติดเฉพาะข้อที่ยังรอการตัดสิน (OD-01, OD-08, OD-16) จัดเข้า Batch ได้พร้อมป้ายกำกับ — ไม่ใช่การรับรองทางคลินิก ข้อที่ไม่ผ่านจริงยังบล็อกเสมอ</p>
    :<p className="notice warning-notice" role="note"><strong>Gate รอการตัดสิน:</strong> เกณฑ์ Clinical Gate (OD-08) และการยอมรับตัวอย่าง (OD-01) ยังไม่ได้รับรอง ระบบจึงยังไม่ให้จัดตัวอย่างเข้า Batch (นโยบาย HOLD)</p>}
-  <div className="tabs" role="tablist" aria-label="คิวงาน Lab">{TABS.map(([t,label])=><button key={t} role="tab" type="button" id={`tab-${t}`} aria-selected={tab===t} aria-controls="queue-panel" className="tab" onClick={()=>{setTab(t);setSelected(new Set());}}>{label} <span className="count">{counts[t]}</span></button>)}</div>
-  <section id="queue-panel" role="tabpanel" aria-labelledby={`tab-${tab}`} className="panel">
+  <div className="tabs" role="tablist" aria-label="คิวงาน Lab">{TABS.map(([t,label])=><button key={t} role="tab" type="button" id={`tab-${t}`} aria-selected={tab===t} aria-controls="queue-panel" className="tab" onClick={()=>{setSelected(new Map());setParams(p=>({...p,tab:t,page:1}));}}>{label} <span className="count">{data.counts[t]}</span></button>)}</div>
+  {data.scan.capped&&<p className="notice warning-notice" role="note">มีตัวอย่างสถานะ Ready มากกว่า {data.scan.limit} รายการ — ระบบจัดประเภท “พร้อม / ติด Gate” ให้เฉพาะ {data.scan.limit} รายการแรกตามลำดับ FIFO</p>}
+  <section id="queue-panel" ref={panel} role="tabpanel" aria-labelledby={`tab-${tab}`} aria-busy={loading} className="panel">
    <div className="filters">
-    <div className="field grow"><label htmlFor="q">ค้นหา LN / LN Halos / Sample ID / Run</label><input id="q" type="search" value={query} onChange={e=>setQuery(e.target.value)} autoComplete="off"/></div>
-    {!["REDRAW_EXPECTED","LN_HALOS_MISSING"].includes(tab)&&<><div className="field"><label htmlFor="round">รอบ</label><select id="round" value={round} onChange={e=>setRound(e.target.value)}><option value="ALL">ทุกรอบ</option><option value="S1">รอบที่ 1 (HIS)</option><option value="S2">รอบที่ 2+ (เจาะซ้ำ)</option></select></div>
-     <label className="check-label"><input type="checkbox" checked={onlyUnprinted} onChange={e=>setOnlyUnprinted(e.target.checked)}/> ยังไม่พิมพ์ฉลาก</label>
-     <label className="check-label"><input type="checkbox" checked={urgentOnly} onChange={e=>setUrgentOnly(e.target.checked)}/> ด่วนเท่านั้น</label></>}
+    <div className="field grow"><label htmlFor="q">ค้นหา LN / LN Halos / Sample ID / Run</label><input id="q" type="search" value={typed} onChange={e=>setTyped(e.target.value)} autoComplete="off"/></div>
+    {!["REDRAW_EXPECTED","LN_HALOS_MISSING"].includes(tab)&&<><div className="field"><label htmlFor="round">รอบ</label><select id="round" value={params.round} onChange={e=>change({round:e.target.value})}><option value="ALL">ทุกรอบ</option><option value="S1">รอบที่ 1 (HIS)</option><option value="S2">รอบที่ 2+ (เจาะซ้ำ)</option></select></div>
+     <label className="check-label"><input type="checkbox" checked={params.unprinted} onChange={e=>change({unprinted:e.target.checked})}/> ยังไม่พิมพ์ฉลาก</label>
+     <label className="check-label"><input type="checkbox" checked={params.urgent} onChange={e=>change({urgent:e.target.checked})}/> ด่วนเท่านั้น</label></>}
     <button className="button secondary" type="button" onClick={reload}>โหลดใหม่</button>
    </div>
    {status&&<p className="notice" role="alert">{status}</p>}
-   {tab==="REDRAW_EXPECTED"?<ExpectedTable operational={!!data.operational} rows={data.expected.filter(e=>match(e.hisLn,e.previousLnHalos))} can={can} open={(type,row)=>setDialog({type,row})}/>
-   :tab==="LN_HALOS_MISSING"?<MissingTable rows={data.missing.filter(m=>match(m.hisLn))} can={can} open={(type,row)=>setDialog({type,row})}/>
+   {tab==="REDRAW_EXPECTED"?<><ExpectedTable operational={!!data.operational} rows={data.expected} can={can} open={(type,row)=>setDialog({type,row})} q={data.filters.q}/>{pager}</>
+   :tab==="LN_HALOS_MISSING"?<><MissingTable rows={data.missing} can={can} open={(type,row)=>setDialog({type,row})} q={data.filters.q}/>{pager}</>
    :<>
-    <div className="bulk-bar" aria-live="polite"><span>เลือก {chosen.length} รายการ</span>
+    <div className="bulk-bar" aria-live="polite"><span>เลือก {chosen.length} รายการ{chosen.length>attempts.filter(a=>selected.has(a.attemptId)).length?` (รวมหน้าอื่น)`:""}</span>
      {can.labels&&<button className="button secondary" type="button" disabled={!chosen.length||chosen.some(c=>!c.lnHalos)} onClick={()=>setDialog({type:"labels",samples:chosen})}>พิมพ์ฉลาก ({chosen.length})</button>}
      {can.assign&&tab==="READY"&&<button className="button" type="button" disabled={!chosen.length} onClick={()=>setDialog({type:"assign",samples:chosen})}>เพิ่มเข้า Batch ({chosen.length})</button>}
+     {chosen.length>0&&<button className="button secondary" type="button" onClick={()=>setSelected(new Map())}>ล้างที่เลือก</button>}
     </div>
-    {attempts.length===0?<p className="empty-state">ไม่มีรายการในคิวนี้{q?" ที่ตรงกับคำค้น":""}</p>:
+    {attempts.length===0?<p className="empty-state">ไม่มีรายการในคิวนี้{data.filters.q?" ที่ตรงกับคำค้น":""}</p>:
     <div className="table-wrap" role="region" aria-label="รายการงาน Lab" tabIndex={0}><table className="data-table">
      <caption className="sr-only">รายการตัวอย่าง เรียงตามวันที่/เวลารับสิ่งส่งตรวจ ({sort==="asc"?"เก่าไปใหม่ — FIFO":"ใหม่ไปเก่า"})</caption>
-     <thead><tr><th scope="col"><input type="checkbox" aria-label="เลือกทั้งหมดที่แสดง" checked={allShown} onChange={()=>setSelected(allShown?new Set():new Set(attempts.map(a=>a.attemptId)))}/></th><th scope="col">LN (HIS)</th><th scope="col">LN Halos / Sample ID</th><th scope="col" aria-sort={sort==="asc"?"ascending":"descending"}><button type="button" className="sort-button" aria-label={`วันที่/เวลารับสิ่งส่งตรวจ เรียง${sort==="asc"?"เก่าไปใหม่":"ใหม่ไปเก่า"} กดเพื่อสลับ`} onClick={()=>setSort(sort==="asc"?"desc":"asc")}>วันที่/เวลารับ <span aria-hidden="true">{sort==="asc"?"↑":"↓"}</span></button></th><th scope="col">รอบ</th><th scope="col">สถานะ / Gate</th><th scope="col">ฉลาก</th><th scope="col">Batch</th><th scope="col">จัดการ</th></tr></thead>
+     <thead><tr><th scope="col"><input type="checkbox" aria-label="เลือกทั้งหมดที่แสดง" checked={allShown} onChange={()=>setSelected(m=>{const n=new Map(m);if(allShown)for(const a of attempts)n.delete(a.attemptId);else for(const a of attempts)n.set(a.attemptId,a);return n;})}/></th><th scope="col">LN (HIS)</th><th scope="col">LN Halos / Sample ID</th><th scope="col" aria-sort={sort==="asc"?"ascending":"descending"}><button type="button" className="sort-button" aria-label={`วันที่/เวลารับสิ่งส่งตรวจ เรียง${sort==="asc"?"เก่าไปใหม่":"ใหม่ไปเก่า"} กดเพื่อสลับ`} onClick={()=>change({sort:sort==="asc"?"desc":"asc"})}>วันที่/เวลารับ <span aria-hidden="true">{sort==="asc"?"↑":"↓"}</span></button></th><th scope="col">รอบ</th><th scope="col">สถานะ / Gate</th><th scope="col">ฉลาก</th><th scope="col">Batch</th><th scope="col">จัดการ</th></tr></thead>
      <tbody>{attempts.map(a=><tr key={a.attemptId} className={selected.has(a.attemptId)?"selected":undefined}>
-      <td><input type="checkbox" aria-label={`เลือก LN ${a.hisLn}`} checked={selected.has(a.attemptId)} onChange={()=>toggle(a.attemptId)}/></td>
+      <td><input type="checkbox" aria-label={`เลือก LN ${a.hisLn}`} checked={selected.has(a.attemptId)} onChange={()=>toggle(a)}/></td>
       <td><span className="mono">{a.hisLn}</span></td>
       <td><span className="mono strong">{a.labelCode??"—"}</span>{a.printedSampleId&&<div className="mono small">{a.printedSampleId}</div>}{a.pregnancy==="Twins"&&<span className="badge">ครรภ์แฝด (D)</span>}</td>
       <td className="receive-time">{a.receivedAt?bkk(a.receivedAt):"— / ยังไม่รับ"}<div className="small muted">{SOURCE[a.receivedSource??""]??""}</div></td><td>รอบที่ {a.roundNumber}{a.roundNumber>1&&<span className="badge warning">เจาะซ้ำ</span>}{a.repeat&&<span className="badge warning">ตรวจซ้ำ #{a.attemptNumber} {a.repeat.level==="RE_LIBRARY"?"Re-Library":a.repeat.level==="RE_EXTRACTION"?"Re-extraction":""}</span>}</td>
@@ -78,7 +92,7 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
       <td>{a.placement?<Link href={`/lab/batches/${a.placement.batchId}${a.placement.slot?`?task=${getSheetNumber(a.placement.slot)}`:""}`}>{a.placement.runLabel} · {a.placement.slot?`Task List ${getSheetNumber(a.placement.slot)} · `:""}ตน. {a.placement.slot}</Link>:"—"}</td>
       <td>{data.operational&&can.receive&&a.attemptState==='Ready'&&<button className="button small" onClick={()=>setDialog({type:'accept',row:a})}>ตรวจสภาพสิ่งส่งตรวจ</button>}<RowActions a={a} can={can} open={(type)=>setDialog({type,row:a})}/></td>
      </tr>)}</tbody></table></div>}
-   </>}
+   {pager}</>}
   </section>
   {dialog?.type==="labels"&&<LabelDialog samples={(dialog.samples??[dialog.row as Attempt]).map(a=>({roundId:a.roundId,hisLn:a.hisLn,lnHalos:a.lnHalos,labelCode:a.labelCode,roundNumber:a.roundNumber,printed:a.labels.prints}))} onClose={()=>setDialog(null)} onPrinted={reload}/>}
   {dialog?.type==="assign"&&<AssignDialog attempts={dialog.samples!} onClose={()=>setDialog(null)} onDone={async msg=>{setDialog(null);setStatus(msg);await reload();}}/>}
@@ -94,16 +108,16 @@ function RowActions({a,can,open}:{a:Attempt;can:Can;open:(type:string)=>void}){
   {can.redraw&&<button className="button small secondary" type="button" onClick={()=>open("redraw")}>สั่งเจาะซ้ำ</button>}
  </div>;
 }
-function ExpectedTable({operational,rows,can,open}:{operational:boolean;rows:Expected[];can:Can;open:(t:string,r:Expected)=>void}){
- if(!rows.length)return <p className="empty-state">ไม่มีรอบเจาะซ้ำที่รอรับ</p>;
+function ExpectedTable({operational,rows,can,open,q}:{operational:boolean;rows:Expected[];can:Can;open:(t:string,r:Expected)=>void;q:string}){
+ if(!rows.length)return <p className="empty-state">ไม่มีรอบเจาะซ้ำที่รอรับ{q?" ที่ตรงกับคำค้น":""}</p>;
  return <div className="table-wrap" role="region" aria-label="รอบเจาะซ้ำที่รอ PET ใหม่" tabIndex={0}><table className="data-table"><caption className="sr-only">{operational?"รอบเจาะซ้ำที่รอ PET ใหม่จาก HIS (LN เดิม)":"รอบเจาะซ้ำที่รอรับ (ชุดจำลอง)"}</caption>
   <thead><tr><th scope="col">LN (HIS เดิม)</th><th scope="col">รอบ</th><th scope="col">LN Halos รอบก่อน</th><th scope="col">สั่งเมื่อ / เหตุผล</th><th scope="col">จัดการ</th></tr></thead>
   <tbody>{rows.map(r=><tr key={r.roundId}><td className="mono">{r.hisLn}</td><td>รอบที่ {r.roundNumber} <span className="badge warning">ต้องเก็บตัวอย่างใหม่</span></td><td className="mono">{r.previousLnHalos??"—"}</td><td>{bkk(r.requestedAt)} · {r.reasonCode}</td>
    <td><div className="row-actions">{operational?<span className="badge">รอ PET ใหม่จาก HIS</span>:can.receive&&<button className="button small" type="button" onClick={()=>open("receive",r)}>รับตัวอย่างเจาะซ้ำ (ชุดจำลอง)</button>}{can.redrawCancel&&<button className="button small secondary" type="button" onClick={()=>open("cancelRedraw",r)}>ยกเลิกคำสั่ง</button>}</div></td></tr>)}</tbody></table>
   <p className="help">{operational?"เจ้าหน้าที่กดรับสิ่งส่งตรวจรอบใหม่ใน HIS ตามปกติ (HIS LN เดิม) เมื่อระบบอ่าน .pet/.ok ใหม่ได้ รอบนี้จะรับอัตโนมัติด้วยเวลารับจาก HIS และใช้ LN Halos ฐานเดิมต่อท้าย R — ไม่ต้องรับซ้ำใน NIPT":"ชุดจำลอง: รับรอบเจาะซ้ำในระบบ NIPT ได้เพื่อทดสอบ ในการใช้งานจริงรอบเจาะซ้ำรับจาก PET ใหม่ของ HIS เท่านั้น"}</p></div>;
 }
-function MissingTable({rows,can,open}:{rows:Missing[];can:Can;open:(t:string,r:Missing)=>void}){
- if(!rows.length)return <p className="empty-state">ทุกรอบที่รับแล้วมี LN Halos</p>;
+function MissingTable({rows,can,open,q}:{rows:Missing[];can:Can;open:(t:string,r:Missing)=>void;q:string}){
+ if(!rows.length)return <p className="empty-state">{q?"ไม่มีรอบที่ตรงกับคำค้น":"ทุกรอบที่รับแล้วมี LN Halos"}</p>;
  return <div className="table-wrap" role="region" aria-label="รอบที่รับก่อนเปิดใช้ P4" tabIndex={0}><table className="data-table"><caption className="sr-only">รอบที่รับก่อนเปิดใช้ P4 และยังไม่มี LN Halos</caption><thead><tr><th scope="col">LN (HIS)</th><th scope="col">รอบ</th><th scope="col">รับเมื่อ</th><th scope="col">จัดการ</th></tr></thead>
   <tbody>{rows.map(r=><tr key={r.roundId}><td className="mono">{r.hisLn}</td><td>รอบที่ {r.roundNumber}</td><td>{SOURCE[r.receivedSource]} {bkk(r.receivedAt)}</td><td>{can.receive&&<button className="button small" type="button" onClick={()=>open("recover",r)}>ออก LN Halos จากการรับเดิม</button>}</td></tr>)}</tbody></table></div>;
 }
