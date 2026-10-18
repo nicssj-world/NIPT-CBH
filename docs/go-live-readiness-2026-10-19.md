@@ -1,6 +1,6 @@
 # Go-Live readiness: technical verdict for 19 October 2569 (2026-10-19)
 
-Branch `feat/task-list-parity-p0`. Nothing was pushed, merged or deployed, and no production system or real database was touched. Everything below ran on synthetic data in isolated local databases.
+Branch `feat/task-list-parity-p0`. Updated after the three Consent Owner decisions (HEAD `58b2083`, migration 102). Nothing was pushed, merged or deployed, and no production system or real database was touched. Everything below ran on synthetic data in isolated local databases.
 
 ## Verdict
 
@@ -15,10 +15,10 @@ Branch `feat/task-list-parity-p0`. Nothing was pushed, merged or deployed, and n
 | Gate | Result |
 |---|---|
 | Lint / typecheck / source guard / production build | PASS |
-| Vitest, native PostgreSQL 17 + native Excel | **2144 / 2144 passed** (151 files, 0 skipped) |
-| Playwright, 18 specs | **83 passed, 0 failed, 2 skipped** (P6 CLI sandbox and P8 signed-installed: they need the packaged environment, not run here) |
+| Vitest, native PostgreSQL 17 + native Excel | **2148 / 2148 passed** (152 files, 0 skipped) |
+| Playwright, 18 specs | **84 passed, 0 failed, 2 skipped** (P6 CLI sandbox and P8 signed-installed: they need the packaged environment, not run here) |
 | Deployment contracts (`node --test`) | 13 / 13 passed |
-| Operational positive journey, real browser + Worker + isolated PostgreSQL + native Excel | **PASS**, 0 browser errors (evidence `.local/operational-positive-LTYwBO/evidence.json`) |
+| Operational positive journey, real browser + Worker + isolated PostgreSQL + native Excel | **PASS**, 0 browser errors (re-run on HEAD `58b2083`: 24 events, 0 browser errors) |
 
 The journey covers:
 - HTTPS login and 45 registered cases;
@@ -83,11 +83,17 @@ The journey covers:
    - DCC approval of the electronic forms is pending (ANC forms are DRAFT PREVIEW).
    - OD-06 channel mode is pending.
    - The OD-R1b physical label test must pass before clinical use.
-5. **Migrations 099, 100 and 101 are approved for synthetic databases only.** Applying them to the operational database needs an Owner-authorised procedure with a verified backup first.
+5. **Migrations 099, 100, 101 and 102 are approved for synthetic databases only.** Applying them to the operational database needs an Owner-authorised procedure with a verified backup first.
 
-## Owner decisions raised by this pass (not defects)
+## Consent Owner decisions: closed (2026-10-18)
 
-- **Recording a paper refusal.** With the paper consent prepare/verify buttons removed, the UI has no way to record that a patient refused on paper. The API path and the withdrawal ("ถอนความยินยอม") still block the case. Should staff get a UI for it?
-- **DCC form signatures.** The DCC-form preview of a signed electronic consent prints ticks, decision and date but not the stored signature images. The system consent PDF does print both signatures. Should the DCC form include them once DCC approves?
-- **Marker is not evidence.** BG-04 and RG-10 cannot tell a patient who signed on paper from one who did not. This is inherent to the Owner's marker-only decision.
-- **Housekeeping.** The isolated P0 Postgres holds 121 leftover synthetic databases. They are harmless and are not production.
+The three open questions of the previous report were decided by the Owner and implemented (see [p2-paper-consent.md](p2-paper-consent.md) and the Owner Decision Register):
+
+- **Paper refusal.** ANC has a "ผู้ป่วยไม่ยินยอม (Paper)" button. A refusal is separate from the marker and blocks Clinical review, Lab gates, result release and HIS release. Withdrawal still blocks.
+- **DCC form signatures.** The system's signed Digital Consent PDF already shows both signatures and is unchanged. Previews stay DRAFT. Paper creates no digital signature or inferred decision.
+- **Marker-only.** Unchanged since `719d56b`.
+
+Remaining notes:
+- **Mistaken refusal.** A refusal recorded by mistake can be lifted only by a later decisive Granted decision (a verified paper review through the API, or a completed Digital Consent signing). The dialog warns before saving. There is no UI to undo it.
+- **Application vs schema.** The application at this HEAD needs migration 102: the Lab gate reads `p2_consent_latest_decision`. The installer applies migrations before it starts the application, so only the order matters. An application-only rollback to the previous version is safe.
+- **Housekeeping.** The isolated P0 Postgres holds about 130 leftover synthetic databases. They are harmless and are not production.
