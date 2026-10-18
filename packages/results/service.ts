@@ -132,6 +132,21 @@ export async function linkCandidates(db:Queryable,user:Staff,p:Parsed,s:ResultSe
  return out;
 }
 
+/**
+ * P5-A (Owner 2026-10-18): the single unambiguous match of a final result. It qualifies only when exactly one candidate passes every
+ * identity cross-check (HN, DOB, pregnancy, collection date, GA and the lab number), is the current round and its latest live attempt,
+ * no other case was found, and there is no name conflict and no open report in the series (that would be a revision).
+ * It never links or releases by itself: the link still follows the two-person rule enforced by the database.
+ */
+export function autoMatchCandidate(candidates:Candidate[],o:{kind:string;nameConflicts:number;openRevision:boolean}){
+ if(o.kind!=='RESULT'||o.nameConflicts>0||o.openRevision)return null;
+ const clean=candidates.filter(c=>c.round.current&&c.attempt.latest&&!['Superseded','BatchCancelled','Stopped','Cancelled'].includes(c.attempt.state)
+  &&crossFailures(c.cross,'RESULT').length===0&&c.cross.labNumber==='MATCH'&&c.matchedOn.includes('HN'));
+ const cases=new Set(candidates.map(c=>c.caseId));
+ return clean.length===1&&cases.size===1?clean[0]:null;
+}
+export const AUTO_MATCH_REASON='ระบบจับคู่อัตโนมัติ: LN/HN/วันเกิด/ครรภ์/วันเจาะ/GA ตรงกันชัดเจนเพียงรายการเดียว';
+
 // ---------- Import confirmation ----------
 type VersionRow={id:string;intake_file_id:string;sha256:string;kind:'RESULT'|'REDRAW_NOTICE'|'UNKNOWN';template_kind:string;template_version:string;parser_version:string;parsed:Parsed;state:string;case_id:string|null;round_id:string|null;attempt_id:string|null;link_mode:string|null;supersedes_id:string|null;revision:unknown;imported_by:string;imported_at:Date;state_changed_at:Date;row_version:number};
 async function event(db:Queryable,versionId:string,from:string|null,to:string,actor:string|null,reason:string|null,details:Record<string,unknown>={}){
@@ -217,6 +232,18 @@ export async function proposeLink(db:Queryable,user:Staff,input:unknown){
  await db.query("INSERT INTO result_link_event(version_id,event,case_id,round_id,attempt_id,reason,cross_check,revision,name_review,actor_id) VALUES($1,'PROPOSED',$2,$3,$4,$5,$6,$7,$8,$9)",[v.id,t.case_id,d.roundId,d.attemptId,d.reason,JSON.stringify(cross),d.revision?JSON.stringify(d.revision):null,conflict.length?d.nameReview:null,user.id]);
  await audit(db,user,'RESULT_LINK_PROPOSED','RESULT_VERSION',v.id,{outcome:'PROPOSED'});
  return {cross};
+}
+/** P5-A one-click proposal of the unambiguous match; the second person still approves (result_link_event two-person trigger). */
+export async function proposeAutoMatch(db:Queryable,user:Staff,input:unknown){
+ await assertSession(db,user);
+ const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion}).parse(input);
+ need(user,'result.link.manual','propose');
+ const v=await versionOf(db,d.versionId);if(v.state!=='Unlinked')throw new LabError('LINK_REQUIRES_UNLINKED',409);
+ const candidates=await linkCandidates(db,user,v.parsed,await resultSettings(db));
+ const first=candidates[0],open=first?await openInSeries(db,v,first.round.id):null;
+ const m=autoMatchCandidate(candidates,{kind:v.kind,nameConflicts:(await versionNameConflicts(db,v)).length,openRevision:!!open});
+ if(!m)throw new LabError('AUTO_MATCH_NOT_UNAMBIGUOUS',409);
+ return proposeLink(db,user,{versionId:v.id,roundId:m.round.id,attemptId:m.attempt.id,reason:AUTO_MATCH_REASON,expectedRowVersion:d.expectedRowVersion});
 }
 export async function decideLink(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);
@@ -366,6 +393,30 @@ export async function certifyAttempt(db:Queryable,user:Staff,input:unknown){
  await audit(db,user,'RESULT_CERTIFY_ATTEMPT','RESULT_VERSION',v.id,{outcome});
  return {outcome:outcome==='CERTIFIED_RELEASED'?'CertifiedReleased':outcome,releaseId,replayed:false,predicates:g.predicates,failed:g.failed,pending:g.pending,waitsForP4b:g.waitsForP4b};
 }
+/**
+ * P5-B (Owner 2026-10-18): the final report was produced and certified by the external analysis system, so NIPT-CBH asks one authorised
+ * person for one confirmation: "ตรวจรับ PDF และยืนยันส่งผล". It records the review, QC5 (reports only) and the certification in one
+ * transaction through the existing services, so every identity, version, consent, QC and RG gate still applies; any failure rolls back.
+ */
+export const EXTERNAL_FINAL_CRITERIA='EXTERNAL_FINAL_REPORT_CERTIFIED (Owner P5-B 2026-10-18)';
+export async function acceptAndRelease(db:Queryable,user:Staff,input:unknown){
+ await assertSession(db,user);
+ const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,idempotencyKey:z.string().regex(/^[A-Za-z0-9_-]{16,80}$/),externalFinalCertified:z.literal(true),identityAndValuesMatchPdf:z.literal(true),disclosureReviewed:z.literal(true),abnormalAcknowledged:z.boolean(),note:z.string().trim().max(500).refine(x=>!/\d{13}/.test(x),'REASON_TEXT_INVALID').optional()}).parse(input);
+ if(!await operationalWorkflow(db))throw new LabError('OPERATIONAL_MODE_REQUIRED',409);
+ need(user,'result.review');need(user,'result.certify');
+ // A replayed key returns the recorded outcome without re-recording anything.
+ if((await db.query('SELECT 1 FROM result_gate_evaluation WHERE idempotency_key=$1',[d.idempotencyKey])).rows[0])return certifyAttempt(db,user,{versionId:d.versionId,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:d.expectedRowVersion,confirmed:true});
+ const pre=await versionOf(db,d.versionId);
+ if(pre.row_version!==d.expectedRowVersion)throw new LabError('VERSION_CONFLICT',409);
+ await recordReview(db,user,{versionId:pre.id,valuesMatchPdf:true,abnormalAcknowledged:d.abnormalAcknowledged,...(d.note?{note:d.note}:{}),expectedRowVersion:pre.row_version});
+ let v=await versionOf(db,pre.id);
+ if(v.kind==='RESULT'){
+  need(user,'qc.accept');
+  await recordQc5(db,user,{versionId:v.id,expectedRowVersion:v.row_version,criteriaReference:EXTERNAL_FINAL_CRITERIA,templateReviewed:true,disclosureReviewed:true,abnormalAcknowledged:d.abnormalAcknowledged,reason:'ตรวจรับ PDF Final จากระบบวิเคราะห์ภายนอกและยืนยันส่งผล'});
+  v=await versionOf(db,v.id);
+ }
+ return certifyAttempt(db,user,{versionId:v.id,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:v.row_version,confirmed:true});
+}
 /** Void. Before release it withdraws an import that will never be linked; after release it needs a release, which AL-5 holds. */
 export async function voidVersion(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);const d=z.strictObject({versionId:uuid,reason:reasonText,expectedRowVersion:rowVersion}).parse(input);
@@ -395,14 +446,18 @@ export async function versionDetail(db:Queryable,user:Staff,id:string){
  const proposal=await openProposal(db,v.id);
  const target=v.round_id?(await db.query<{round_number:number;ln:string;ln_halos:string|null;printed_sample_id:string|null;attempt_number:number|null;attempt_state:string|null;current:boolean}>('SELECT r.round_number,l.ln,n.ln_halos,a.printed_sample_id,a.attempt_number,a.state attempt_state,c.current_round_id=r.id current FROM specimen_round r JOIN nipt_case c ON c.id=r.case_id JOIN case_ln l ON l.id=r.case_ln_id LEFT JOIN specimen_lab_number n ON n.round_id=r.id LEFT JOIN analytical_attempt a ON a.id=$2 WHERE r.id=$1',[v.round_id,v.attempt_id])).rows[0]:null;
  const conflicts=await versionNameConflicts(db,v);
- return {operational:await operationalWorkflow(db),nameConflicts:conflicts,version:{id:v.id,kind:v.kind,templateKind:v.template_kind,templateVersion:v.template_version,parserVersion:v.parser_version,state:v.state,rowVersion:v.row_version,sha256:v.sha256,importedAt:v.imported_at,caseId:v.case_id,roundId:v.round_id,attemptId:v.attempt_id,linkMode:v.link_mode,supersedesId:v.supersedes_id,revision:v.revision},
+ const candidates=v.state==='Unlinked'&&v.kind!=='UNKNOWN'?await linkCandidates(db,user,v.parsed,s):[];
+ const auto=v.state==='Unlinked'&&!proposal&&candidates[0]?autoMatchCandidate(candidates,{kind:v.kind,nameConflicts:conflicts.length,openRevision:!!await openInSeries(db,v,candidates[0].round.id)}):null;
+ const operational=await operationalWorkflow(db);
+ return {operational,nameConflicts:conflicts,version:{id:v.id,kind:v.kind,templateKind:v.template_kind,templateVersion:v.template_version,parserVersion:v.parser_version,state:v.state,rowVersion:v.row_version,sha256:v.sha256,importedAt:v.imported_at,caseId:v.case_id,roundId:v.round_id,attemptId:v.attempt_id,linkMode:v.link_mode,supersedesId:v.supersedes_id,revision:v.revision},
   parsed:v.parsed,summary:summary(v.parsed),intake:{...intake,size:Number(intake.byte_size)},target,proposal,
-  candidates:v.state==='Unlinked'&&v.kind!=='UNKNOWN'?await linkCandidates(db,user,v.parsed,s):[],
+  candidates,autoMatch:auto?{caseId:auto.caseId,roundId:auto.round.id,attemptId:auto.attempt.id,reason:AUTO_MATCH_REASON}:null,
   gate:v.round_id?await gateFor(db,v,'VALIDATION'):null,events:events.rows,links:links.rows,gates:gates.rows,reviews:reviews.rows,
   can:{propose:authorize(user,'result.link.manual',{},'propose')&&v.state==='Unlinked'&&!proposal,decide:!!proposal&&authorize(user,'result.link.manual',{actorId:proposal.actor_id},'approve'),
    unlink:authorize(user,'result.link.manual',{},'approve')&&['LinkConflict','Linked','ValidationBlocked','PendingCertification'].includes(v.state)&&!v.supersedes_id,
    review:authorize(user,'result.review')&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state),certify:authorize(user,'result.release.check')&&!!v.round_id,
-   void:authorize(user,'result.revise')&&v.state==='Unlinked',releaseAuthorized:false}};
+   void:authorize(user,'result.revise')&&v.state==='Unlinked',releaseAuthorized:false,
+   acceptRelease:operational&&authorize(user,'result.review')&&authorize(user,'qc.accept')&&authorize(user,'result.certify')&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state)}};
 }
 export async function readVersionFile(db:Queryable,user:Staff,store:FileStore,id:string){
  need(user,'result.review','read');const v=await versionOf(db,id);

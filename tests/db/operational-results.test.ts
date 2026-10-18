@@ -32,7 +32,8 @@ import {issueF5} from '../../packages/sequencing/documents';
 import path from 'node:path';
 import {addUser} from '../helpers/database';
 afterEach(()=>vi.unstubAllEnvs());
-it('accepted operational Pool → real XLSX/readback → DNB/QC3 → verified observed import → sequence/QC4 → external PDF/QC5 → same reviewer certification creates one release and completion event',async()=>{
+// Owner P5-A/P5-B (2026-10-18): the same journey through the one-click auto-match proposal and the single "ตรวจรับ PDF และยืนยันส่งผล".
+it.each(['MANUAL_STEPS','OWNER_P5_SINGLE_CONFIRMATION'] as const)('accepted operational Pool → real XLSX/readback → DNB/QC3 → verified observed import → sequence/QC4 → external PDF/QC5 → same reviewer certification creates one release and completion event (%s)',async mode=>{
  const f=await resultFixture(),docs=await docDeps();
  try{
   const hn='990000000999';
@@ -106,13 +107,33 @@ it('accepted operational Pool → real XLSX/readback → DNB/QC3 → verified ob
   const attempt=(await f.db.query<{printed_sample_id:string}>('SELECT printed_sample_id FROM analytical_attempt WHERE id=$1',[a.id])).rows[0];
   const {versionId}=await importReport(f,{kind:'SINGLETON',labNumber:attempt.printed_sample_id,hn,collection:pdfDate('2026-10-10')});
   const rv=async()=>(await rowVersion(f,versionId)).row_version;
-  await f.run(async t=>results.proposeLink(t,f.u.staff,{versionId,roundId:c.roundId,attemptId:a.id,reason:'Exact current attempt report linkage',expectedRowVersion:await rv()}));
-  await f.run(async t=>results.decideLink(t,f.u.certifier,{versionId,decision:'APPROVE',reason:'Report identity and current attempt reviewed',expectedRowVersion:await rv()}));
-  await f.run(async t=>results.recordReview(t,f.u.certifier,{versionId,valuesMatchPdf:true,abnormalAcknowledged:false,expectedRowVersion:await rv()}));
-  await f.run(async t=>results.recordQc5(t,f.u.certifier,{versionId,expectedRowVersion:await rv(),criteriaReference:'Controlled QC5 final result review',templateReviewed:true,disclosureReviewed:true,abnormalAcknowledged:false,reason:'Current PDF and upstream QC evidence accepted'})).catch(error=>{throw Error(JSON.stringify(error.details??error.message));});
-  const input={versionId,idempotencyKey:randomUUID().replaceAll('-',''),abnormalAcknowledged:false,expectedRowVersion:await rv(),confirmed:true};
-  const released=await f.run(t=>results.certifyAttempt(t,f.u.certifier,input));expect(released.outcome).toBe('CertifiedReleased');
-  expect((await f.run(t=>results.certifyAttempt(t,f.u.certifier,input))).outcome).toBe('CertifiedReleased');
+  let released:{outcome:string;releaseId?:string};
+  if(mode==='MANUAL_STEPS'){
+   await f.run(async t=>results.proposeLink(t,f.u.staff,{versionId,roundId:c.roundId,attemptId:a.id,reason:'Exact current attempt report linkage',expectedRowVersion:await rv()}));
+   await f.run(async t=>results.decideLink(t,f.u.certifier,{versionId,decision:'APPROVE',reason:'Report identity and current attempt reviewed',expectedRowVersion:await rv()}));
+   await f.run(async t=>results.recordReview(t,f.u.certifier,{versionId,valuesMatchPdf:true,abnormalAcknowledged:false,expectedRowVersion:await rv()}));
+   await f.run(async t=>results.recordQc5(t,f.u.certifier,{versionId,expectedRowVersion:await rv(),criteriaReference:'Controlled QC5 final result review',templateReviewed:true,disclosureReviewed:true,abnormalAcknowledged:false,reason:'Current PDF and upstream QC evidence accepted'})).catch(error=>{throw Error(JSON.stringify(error.details??error.message));});
+   const input={versionId,idempotencyKey:randomUUID().replaceAll('-',''),abnormalAcknowledged:false,expectedRowVersion:await rv(),confirmed:true};
+   released=await f.run(t=>results.certifyAttempt(t,f.u.certifier,input));expect(released.outcome).toBe('CertifiedReleased');
+   expect((await f.run(t=>results.certifyAttempt(t,f.u.certifier,input))).outcome).toBe('CertifiedReleased');
+  }else{
+   // P5-A: the unambiguous match is offered and proposed in one click; the second person still approves; nothing is released.
+   const detail=await f.run(t=>results.versionDetail(t,f.u.staff,versionId));
+   expect(detail.autoMatch).toMatchObject({roundId:c.roundId,attemptId:a.id});
+   await f.run(async t=>results.proposeAutoMatch(t,f.u.staff,{versionId,expectedRowVersion:await rv()}));
+   expect((await f.db.query<{n:number}>('SELECT count(*)::int n FROM result_release')).rows[0].n).toBe(0);
+   await expect(f.run(async t=>results.decideLink(t,f.u.staff,{versionId,decision:'APPROVE',reason:'Same person must not approve',expectedRowVersion:await rv()}))).rejects.toThrow();
+   await f.run(async t=>results.decideLink(t,f.u.certifier,{versionId,decision:'APPROVE',reason:'Auto-matched identity confirmed',expectedRowVersion:await rv()}));
+   // P5-B: one confirmation records review + QC5 + certification; the gates still run (missing confirmation is refused).
+   const base={versionId,idempotencyKey:randomUUID().replaceAll('-',''),externalFinalCertified:true,identityAndValuesMatchPdf:true,disclosureReviewed:true,abnormalAcknowledged:false};
+   await expect(f.run(async t=>results.acceptAndRelease(t,f.u.certifier,{...base,externalFinalCertified:false,expectedRowVersion:await rv()}))).rejects.toThrow();
+   await expect(f.run(async t=>results.acceptAndRelease(t,f.u.staff,{...base,expectedRowVersion:await rv()}))).rejects.toMatchObject({code:'FORBIDDEN'});
+   released=await f.run(async t=>results.acceptAndRelease(t,f.u.certifier,{...base,expectedRowVersion:await rv()})).catch(error=>{throw Error(JSON.stringify(error.details??error.message));});
+   expect(released.outcome).toBe('CertifiedReleased');
+   expect((await f.run(async t=>results.acceptAndRelease(t,f.u.certifier,{...base,expectedRowVersion:await rv()}))).outcome).toBe('CertifiedReleased'); // replay
+   expect((await f.db.query<{n:number}>('SELECT count(*)::int n FROM result_qc5_review WHERE version_id=$1',[versionId])).rows[0].n).toBe(1);
+   expect((await f.db.query<{n:number}>('SELECT count(*)::int n FROM result_review WHERE version_id=$1',[versionId])).rows[0].n).toBe(1);
+  }
   expect((await f.db.query<{n:number}>('SELECT count(*)::int n FROM result_release')).rows[0].n).toBe(1);
   expect((await f.db.query<{n:number}>('SELECT count(*)::int n FROM result_release_completed')).rows[0].n).toBe(1);
   // Continue the actual released row through the reused P6 journal and real isolated file transport.

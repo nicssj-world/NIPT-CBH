@@ -13,6 +13,7 @@ export {noStore};
 export const resultStore=()=>new FileStore(path.resolve(/* turbopackIgnore: true */ process.env.FILE_STORE_ROOT||"data/files"));
 const MESSAGES:Record<string,string>={
  FORBIDDEN:"ไม่มีสิทธิ์ทำรายการนี้",NOT_FOUND:"ไม่พบรายการ หรือไม่มีสิทธิ์เห็นรายการนี้",VERSION_CONFLICT:"มีผู้ใช้อื่นเปลี่ยนรายการนี้ก่อนหน้า กรุณาโหลดข้อมูลล่าสุดแล้วทำรายการอีกครั้ง",
+ AUTO_MATCH_NOT_UNAMBIGUOUS:"ระบบจับคู่ไม่ได้ชัดเจนเพียงรายการเดียว — เลือกรอบและ Attempt เอง",OPERATIONAL_MODE_REQUIRED:"ใช้ได้ในโหมดใช้งานจริงเท่านั้น",
  SECOND_PERSON_REQUIRED:"ผู้เสนอการเชื่อมโยงยืนยันรายการของตนเองไม่ได้ ต้องให้ผู้รับรองอีกคนตัดสิน",LINK_PROPOSAL_REQUIRED:"ยังไม่มีข้อเสนอการเชื่อมโยงให้ตัดสิน",LINK_PROPOSAL_OPEN:"มีข้อเสนอที่รอตัดสินอยู่แล้ว",
  LINK_REQUIRES_UNLINKED:"รายการนี้เชื่อมโยงแล้ว หรือไม่อยู่ในสถานะรอเชื่อมโยง",ATTEMPT_REQUIRED_FOR_RESULT:"ผลตรวจต้องเชื่อมกับ Attempt ที่ระบุ ไม่ใช่เพียงรอบ",ATTEMPT_NOT_IN_ROUND:"Attempt ที่เลือกไม่อยู่ในรอบนี้",
  REVISION_DETAILS_REQUIRED:"รอบนี้มีรายงานที่เปิดอยู่แล้ว — ต้องระบุข้อมูลการแก้ไข (วันที่รับเรื่อง ผู้ขอ เหตุผล) เพื่อทำเป็นฉบับแก้ไข",NO_VERSION_TO_REVISE:"รอบนี้ยังไม่มีรายงานที่จะแก้ไข",

@@ -17,7 +17,8 @@ type Detail={operational?:boolean;nameConflicts:{id:string;state:string;imported
  proposal:{actor_id:string;round_id:string;attempt_id:string|null;reason:string;cross_check:Cross;revision:unknown;name_review:string|null;created_at:string}|null;candidates:Candidate[];gate:Gate|null;
  events:{from_state:string|null;to_state:string;reason:string|null;created_at:string;actor:string|null}[];links:{event:string;outcome:string|null;reason:string;cross_check:Cross;created_at:string;actor:string}[];
  gates:{gate:string;purpose:string;outcome:string;created_at:string;actor:string|null}[];reviews:{abnormal_acknowledged:boolean;note:string|null;created_at:string;reviewer:string}[];
- can:{propose:boolean;decide:boolean;unlink:boolean;review:boolean;certify:boolean;void:boolean}};
+ autoMatch:{caseId:string;roundId:string;attemptId:string;reason:string}|null;
+ can:{propose:boolean;decide:boolean;unlink:boolean;review:boolean;certify:boolean;void:boolean;acceptRelease?:boolean}};
 const ID_FIELDS:[string,string][]=[["labNumber","เลข Lab (LN ใน PDF)"],["hn","HN"],["patientName","ชื่อ"],["dob","วันเกิด"],["collectionDate","วันที่เก็บตัวอย่าง"],["receivedDate","วันที่รับตัวอย่าง"],["reportedDate","วันที่รายงาน"],["gestationalAgeDays","อายุครรภ์ (วัน)"]];
 const RESULT_FIELDS:[string,string][]=[["t21","Trisomy 21"],["t18","Trisomy 18"],["t13","Trisomy 13"],["fetalSex","เพศทารก (ถ้าแสดง)"],["xo","XO"],["xxx","XXX"],["xxy","XXY"],["xyy","XYY"],["yChromosome","โครโมโซม Y (ครรภ์แฝด)"],["fetalFraction","Fetal fraction (%)"],["qc","RESULTS QC"]];
 const METHOD_TEXT:Record<string,string>={ANCHORED:"ตรงตำแหน่ง",FALLBACK:"สำรอง — ตรวจมือ",UNREADABLE:"อ่านไม่ได้",NOT_APPLICABLE:"ไม่เกี่ยวข้อง"};
@@ -37,6 +38,7 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
  const [d,setD]=useState<Detail|null>(null),[error,setError]=useState(""),[notice,setNotice]=useState(""),[busy,setBusy]=useState<string|null>(null);
  const [choice,setChoice]=useState(""),[reason,setReason]=useState(""),[revise,setRevise]=useState(false),[nameReview,setNameReview]=useState<""|"NEW_REPORT"|"REVISION">(""),[rev,setRev]=useState({receivedDate:"",requestedBy:"",reason:""});
  const [decision,setDecision]=useState(""),[valuesOk,setValuesOk]=useState(false),[ack,setAck]=useState(false),[note,setNote]=useState("");
+ const [accept,setAccept]=useState({external:false,identity:false,disclosure:false});
  const [certKey,setCertKey]=useState(key),[certAck,setCertAck]=useState(false),[outcome,setOutcome]=useState<{outcome:string;failed?:string[];pending?:string[];waitsForP4b?:boolean}|null>(null),[voidReason,setVoidReason]=useState("");
  const [reparseReason,setReparseReason]=useState(""),[reparseKey,setReparseKey]=useState(()=>crypto.randomUUID()),[diagnostics,setDiagnostics]=useState<{id:string;parserVersion:string;outcome:string;rejectCode:string|null;createdAt:string;reason:string}[]>([]),[maintenanceError,setMaintenanceError]=useState("");
  const loadDiagnostics=useCallback(async()=>{if(!canMaintain)return;try{const r=await labApi<{evidence:typeof diagnostics}>(`/api/p5/results/${id}/reparse`);setDiagnostics(r.evidence);setMaintenanceError("");}catch(e){setMaintenanceError(failureText(e));}},[id,canMaintain]);
@@ -111,6 +113,7 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
        <div className="action-bar"><button className="button secondary" value="REJECT" disabled={!!busy}>ปฏิเสธข้อเสนอ</button><button className="button" value="APPROVE" disabled={!!busy}>{busy==="decide"?"กำลังบันทึก…":"ยืนยันการเชื่อมโยง"}</button></div></form>
        :<p className="help">ผู้เสนอยืนยันรายการของตนเองไม่ได้ — ต้องให้ผู้รับรองคนอื่นยืนยัน</p>}
      </div>}
+     {v.state==="Unlinked"&&!d.proposal&&d.autoMatch&&d.can.propose&&<div className="notice success" role="status"><p><strong>ระบบจับคู่ได้ชัดเจน 1 รายการ</strong> — LN/HN/วันเกิด/ครรภ์/วันเจาะ/GA และเลข Lab ตรงกัน ไม่มีรายงานชื่อซ้ำหรือฉบับที่ค้าง ระบบไม่ส่งผล HIS อัตโนมัติ</p><div className="action-bar"><button type="button" className="button" disabled={!!busy} onClick={()=>void act("proposeAuto",{},"เสนอการเชื่อมโยงตามที่ระบบจับคู่แล้ว — รอผู้รับรองคนที่สองยืนยัน")}>{busy==="proposeAuto"?"กำลังส่ง…":"ใช้รายการที่ระบบจับคู่"}</button></div><p className="help">การเชื่อมโยงยังต้องให้ผู้รับรองคนที่สองยืนยันตามข้อกำหนดฐานข้อมูลปัจจุบัน</p></div>}
      {v.state==="Unlinked"&&!d.proposal&&(d.can.propose?<form className="stack" onSubmit={e=>{e.preventDefault();if(!picked)return;void act("propose",{roundId:picked.round.id,attemptId:isNotice?null:picked.attempt.id,reason,...(revise?{revision:rev}:{}),...(nameReview?{nameReview}:{})},"ส่งข้อเสนอการเชื่อมโยงแล้ว — รอผู้รับรองคนที่สองยืนยัน").then(r=>{if(r){setReason("");setChoice("");setRevise(false);setNameReview("");}});}}>
       <fieldset className="p5-candidates"><legend>เลือก{isNotice?"รอบที่ถูกสั่งเจาะซ้ำ":"รอบและ Attempt"} ({d.candidates.length} ตัวเลือก)</legend>
        {d.candidates.length?<div className="table-wrap" role="region" aria-label="ตัวเลือกการเชื่อมโยง" tabIndex={0}><table className="data-table"><thead><tr><th scope="col"><span className="sr-only">เลือก</span></th><th scope="col">LN · รอบ</th><th scope="col">Attempt</th><th scope="col">พบจาก</th>{CROSS_KEYS.slice(0,5).map(k=><th scope="col" key={k}>{CROSS_TEXT[k]}</th>)}</tr></thead>
@@ -141,7 +144,18 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
      {d.can.review&&<div className="action-bar"><button type="button" className="button secondary" disabled={!!busy} onClick={()=>void act("revalidate",{},"ประเมิน Gate ใหม่แล้ว")}>{busy==="revalidate"?"กำลังประเมิน…":"ประเมินใหม่"}</button></div>}
     </section>}
 
-    {d.can.review&&<section className="panel" aria-labelledby="review-h">
+    {d.operational&&d.can.acceptRelease&&<section className="panel" aria-labelledby="accept-h">
+     <h2 id="accept-h">ตรวจรับ PDF และยืนยันส่งผล</h2>
+     <p className="help">รายงาน Final มาจากโปรแกรมวิเคราะห์ภายนอกที่รับรองผลแล้ว NIPT-CBH ไม่วิเคราะห์หรือรับรองผลทางคลินิกซ้ำ — ยืนยันครั้งเดียวเพื่อบันทึกการตรวจรับ PDF และส่งผล ระบบยังตรวจตัวตนผู้ป่วย ฉบับรายงาน ความยินยอม และ Gate ทุกข้อขณะกด</p>
+     <label className="check-label"><input type="checkbox" checked={accept.external} onChange={e=>setAccept({...accept,external:e.target.checked})}/> รายงานฉบับนี้เป็น Final ที่ผ่านการรับรองจากระบบวิเคราะห์ภายนอกแล้ว</label>
+     <label className="check-label"><input type="checkbox" checked={accept.identity} onChange={e=>setAccept({...accept,identity:e.target.checked})}/> ตรวจตัวตนผู้ป่วย (LN/HN/ชื่อ/วันเกิด) และค่าทุกค่าตรงกับ PDF ต้นฉบับแล้ว</label>
+     <label className="check-label"><input type="checkbox" checked={accept.disclosure} onChange={e=>setAccept({...accept,disclosure:e.target.checked})}/> ตรวจความยินยอมและข้อมูลที่เปิดเผยในรายงานแล้ว</label>
+     {p.abnormal&&<label className="check-label"><input type="checkbox" checked={certAck} onChange={e=>setCertAck(e.target.checked)}/> รับทราบผลผิดปกติ (High risk / Detected)</label>}
+     <div className="action-bar"><button type="button" className="button" disabled={!!busy||!accept.external||!accept.identity||!accept.disclosure||(p.abnormal&&!certAck)} onClick={async()=>{const r=await act("acceptRelease",{idempotencyKey:certKey,externalFinalCertified:true,identityAndValuesMatchPdf:true,disclosureReviewed:true,abnormalAcknowledged:certAck},"บันทึกการตรวจรับและยืนยันส่งผลแล้ว");if(r){setOutcome(r as typeof outcome);setCertKey(key());setAccept({external:false,identity:false,disclosure:false});}}}>{busy==="acceptRelease"?"กำลังตรวจและบันทึก…":"ตรวจรับและยืนยันส่งผล"}</button></div>
+     {outcome&&<div role="status" className={`notice ${outcome.outcome==="CertifiedReleased"?"":"warning-notice"}`}>{outcome.outcome==="CertifiedReleased"?<p><strong>ยืนยันส่งผลแล้ว</strong> — ระบบส่งไฟล์ไป HIS ตามคิว การส่งไฟล์ยังไม่ใช่หลักฐานว่า HIS รับผลแล้ว</p>:<><p><strong>ยังส่งผลไม่ได้</strong> — ไม่ผ่าน Gate</p><ul>{[...(outcome.failed??[]),...(outcome.pending??[])].map(x=>{const [code,...rest]=x.split(":");return <li key={x}>{code} {GATE_NAME[code]}: {reasonText(rest[rest.length-1])}</li>;})}</ul></>}</div>}
+    </section>}
+
+    {d.can.review&&!(d.operational&&d.can.acceptRelease)&&<section className="panel" aria-labelledby="review-h">
      <h2 id="review-h">ตรวจทานค่ากับ PDF</h2>
      <form className="stack" onSubmit={e=>{e.preventDefault();void act("review",{valuesMatchPdf:true,abnormalAcknowledged:ack,...(note?{note}:{})},"บันทึกการตรวจทานแล้ว").then(r=>{if(r){setValuesOk(false);setAck(false);setNote("");}});}}>
       <label className="check-label"><input type="checkbox" checked={valuesOk} onChange={e=>setValuesOk(e.target.checked)} required/> ตรวจแล้วว่าค่าทุกค่าตรงกับ PDF ต้นฉบับ</label>
@@ -152,7 +166,7 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
      <p className="help">OD-04: ผู้ตรวจทานเป็นคนเดียวกับผู้รับรองได้หากได้รับสิทธิ์ — Clinical Governance ยังไม่ลงนาม</p>
     </section>}
 
-    {d.can.certify&&<section className="panel" aria-labelledby="certify-h">
+    {d.can.certify&&!(d.operational&&d.can.acceptRelease)&&<section className="panel" aria-labelledby="certify-h">
      <h2 id="certify-h">รับรองและส่งผล</h2>
      {d.operational?<><p className="help">ทบทวน QC5 และยืนยันการรับรอง ระบบตรวจสิทธิ์และหลักฐานปัจจุบันก่อนปล่อยผลทุกครั้ง</p><fieldset><legend>QC5 ของ PDF ฉบับนี้</legend><label htmlFor="qc5-criteria">เอกสาร / เกณฑ์ที่ใช้ทบทวน</label><input id="qc5-criteria" value={qcCriteria} onChange={e=>setQcCriteria(e.target.value)}/><label htmlFor="qc5-reason">ผลทบทวน</label><textarea id="qc5-reason" value={qcReason} onChange={e=>setQcReason(e.target.value)}/><label className="check-label"><input type="checkbox" checked={qcTemplate} onChange={e=>setQcTemplate(e.target.checked)}/> ตรวจรูปแบบและค่ากับ PDF ต้นฉบับแล้ว</label><label className="check-label"><input type="checkbox" checked={qcDisclosure} onChange={e=>setQcDisclosure(e.target.checked)}/> ตรวจความยินยอมและข้อมูลที่เปิดเผยในรายงานแล้ว</label><button className="button secondary" disabled={!!busy||!qcTemplate||!qcDisclosure||qcCriteria.trim().length<8||qcReason.trim().length<8} onClick={()=>void act('qc5',{criteriaReference:qcCriteria,reason:qcReason,templateReviewed:true,disclosureReviewed:true,abnormalAcknowledged:certAck},'บันทึก QC5 แล้ว')}>ยืนยัน QC5</button></fieldset><label className="check-label"><input type="checkbox" checked={confirmCertification} onChange={e=>setConfirmCertification(e.target.checked)}/> ยืนยันรับรองผลด้วยบัญชีของฉัน</label></>:<p className="help">ระบบประเมิน Gate ใหม่ทั้งหมดในขณะกด และบันทึกผลการประเมินทุกครั้ง ในระยะนี้แม้ผ่าน Gate ก็จะไม่ปล่อยผล (AL-5 / OD-05 / OD-07)</p>}
      {p.abnormal&&<label className="check-label"><input type="checkbox" checked={certAck} onChange={e=>setCertAck(e.target.checked)}/> รับทราบผลผิดปกติก่อนรับรอง</label>}
