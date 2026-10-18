@@ -31,9 +31,10 @@ import {issueSyntheticDocument,readF4} from '../../packages/pooling/documents';
 import {issueF5} from '../../packages/sequencing/documents';
 import path from 'node:path';
 import {addUser} from '../helpers/database';
+import {syntheticReportPdf} from '../../tools/his-simulator/result-pdf';
 afterEach(()=>vi.unstubAllEnvs());
 // Owner P5-A/P5-B (2026-10-18): the same journey through the one-click auto-match proposal and the single "ตรวจรับ PDF และยืนยันส่งผล".
-it.each(['MANUAL_STEPS','OWNER_P5_SINGLE_CONFIRMATION'] as const)('accepted operational Pool → real XLSX/readback → DNB/QC3 → verified observed import → sequence/QC4 → external PDF/QC5 → same reviewer certification creates one release and completion event (%s)',async mode=>{
+it.each(['MANUAL_STEPS','OWNER_P5_SINGLE_CONFIRMATION','CASE_PAGE_UPLOAD'] as const)('accepted operational Pool → real XLSX/readback → DNB/QC3 → verified observed import → sequence/QC4 → external PDF/QC5 → same reviewer certification creates one release and completion event (%s)',async mode=>{
  const f=await resultFixture(),docs=await docDeps();
  try{
   const hn='990000000999';
@@ -105,7 +106,16 @@ it.each(['MANUAL_STEPS','OWNER_P5_SINGLE_CONFIRMATION'] as const)('accepted oper
    await f.run(async t=>issueF5(t,f.u.staff,{batchId:lab.batchId,dnbId:created.id,expectedVersion:await version(t,lab.batchId),kind:'COMPLETED',purpose:'OPERATIONAL'},native));
   }
   const attempt=(await f.db.query<{printed_sample_id:string}>('SELECT printed_sample_id FROM analytical_attempt WHERE id=$1',[a.id])).rows[0];
-  const {versionId}=await importReport(f,{kind:'SINGLETON',labNumber:attempt.printed_sample_id,hn,collection:pdfDate('2026-10-10')});
+  const spec={kind:'SINGLETON' as const,labNumber:attempt.printed_sample_id,hn,collection:pdfDate('2026-10-10')};
+  let versionId:string;
+  if(mode==='CASE_PAGE_UPLOAD'){
+   // Owner 2026-10-18 fallback channel: upload from the patient's case page while no Worker is involved.
+   const target={caseId:c.caseId,roundId:c.roundId,attemptId:a.id};
+   const check=await f.run(t=>results.caseUploadCheck(t,f.u.staff,f.store,{target,name:'case-page-report.pdf',bytes:syntheticReportPdf(spec)}));
+   expect(check.outcome).toBe('READY');
+   const confirmed=await f.run(t=>results.caseUploadConfirm(t,f.u.staff,{target,intakeId:check.intakeId}));
+   expect(confirmed).toMatchObject({outcome:'IMPORTED',state:'Unlinked'});versionId=confirmed.versionId;
+  }else versionId=(await importReport(f,spec)).versionId;
   const rv=async()=>(await rowVersion(f,versionId)).row_version;
   let released:{outcome:string;releaseId?:string};
   if(mode==='MANUAL_STEPS'){
@@ -116,6 +126,10 @@ it.each(['MANUAL_STEPS','OWNER_P5_SINGLE_CONFIRMATION'] as const)('accepted oper
    const input={versionId,idempotencyKey:randomUUID().replaceAll('-',''),abnormalAcknowledged:false,expectedRowVersion:await rv(),confirmed:true};
    released=await f.run(t=>results.certifyAttempt(t,f.u.certifier,input));expect(released.outcome).toBe('CertifiedReleased');
    expect((await f.run(t=>results.certifyAttempt(t,f.u.certifier,input))).outcome).toBe('CertifiedReleased');
+  }else if(mode==='CASE_PAGE_UPLOAD'){
+   await f.run(async t=>results.decideLink(t,f.u.certifier,{versionId,decision:'APPROVE',reason:'Case-page upload identity confirmed',expectedRowVersion:await rv()}));
+   const base={versionId,idempotencyKey:randomUUID().replaceAll('-',''),externalFinalCertified:true,identityAndValuesMatchPdf:true,disclosureReviewed:true,abnormalAcknowledged:false};
+   released=await f.run(async t=>results.acceptAndRelease(t,f.u.certifier,{...base,expectedRowVersion:await rv()}));expect(released.outcome).toBe('CertifiedReleased');
   }else{
    // P5-A: the unambiguous match is offered and proposed in one click; the second person still approves; nothing is released.
    const detail=await f.run(t=>results.versionDetail(t,f.u.staff,versionId));

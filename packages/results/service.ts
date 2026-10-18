@@ -8,7 +8,7 @@ import {SETTINGS} from '../settings/catalog';
 import {authorize} from '../security/policy';
 import {LabError,need,assertSession,audit,uuid,reasonText,attemptFacts,commonFacts,caseVisible,REDRAW_REASONS,type Staff} from '../lab/core';
 import {QuarantineError} from './extract';
-import {registerIntake} from './intake';
+import {registerIntake,parseIntake} from './intake';
 import {missingRequired,type Parsed} from './parser';
 import {resultPredicates,noticePredicates,decideGate,crossFailures,type Cmp,type CrossCheck,type Purpose,type GateDecision,type GatePredicate} from './gates';
 import {attemptEvidence} from './evidence';
@@ -555,4 +555,116 @@ export async function readReleasedFile(db:Queryable,user:Staff,store:FileStore,r
  if(!r||!authorize(user,'result.read.released',{unitId:r.unit_id??undefined,origin:r.registration_origin as 'ANC'},'read'))throw new LabError('NOT_FOUND',404);
  await db.query("INSERT INTO result_access_log(actor_id,case_id,purpose) VALUES($1,$2,'ANC_RESULT_FILE')",[user.id,r.case_id]);
  return {bytes:await store.get(r.sha256),sha256:r.sha256};
+}
+
+// ---------- Owner 2026-10-18: fallback channel — upload the final PDF from the patient's case page ----------
+// Same intake, parser, quarantine, storage, versioning, linkage and release rules as the folder channel; no second result system.
+// The file is parsed in the web request, so the upload works while the Worker or the folder scan is down. The person picks the case,
+// round and attempt; the PDF's identity must MATCH that target on every required key (RG-04 contract), otherwise nothing is attached.
+// Uploading never reviews, certifies, releases or sends: the version still goes through linkage and "ตรวจรับ PDF และยืนยันส่งผล".
+export const MANUAL_UPLOAD_CHANNEL='MANUAL_UPLOAD';
+const caseUploadTarget=z.strictObject({caseId:uuid,roundId:uuid,attemptId:uuid.nullable()});
+type CaseUploadTarget=z.infer<typeof caseUploadTarget>;
+async function caseTarget(db:Queryable,user:Staff,t:CaseUploadTarget,kind:'RESULT'|'REDRAW_NOTICE'){
+ const round=(await db.query<{case_id:string}>('SELECT case_id FROM specimen_round WHERE id=$1',[t.roundId])).rows[0];
+ if(!round||round.case_id!==t.caseId)throw new LabError('NOT_FOUND',404);
+ return targetOf(db,user,{kind} as VersionRow,t.roundId,kind==='RESULT'?t.attemptId:null);
+}
+async function compareWithTarget(db:Queryable,user:Staff,parsed:Parsed,t:CaseUploadTarget){
+ const kind=parsed.templateKind==='REDRAW_NOTICE'?'REDRAW_NOTICE' as const:'RESULT' as const;
+ const target=await caseTarget(db,user,t,kind);
+ const cross=crossCheck(parsed,target,await roundRequest(db,t.roundId),(await resultSettings(db)).gaToleranceDays);
+ const failed=crossFailures(cross,kind);
+ return {kind,cross,failed,conflict:failed.some(k=>cross[k]==='MISMATCH')};
+}
+/** Step 1: store, screen and parse the original, then compare the PDF with the selected case/round/attempt. */
+export async function caseUploadCheck(db:Queryable,user:Staff,store:FileStore,input:{target:unknown;name:string;bytes:Buffer}){
+ await assertSession(db,user);need(user,'result.import');
+ const t=caseUploadTarget.parse(input.target);await caseTarget(db,user,t,'RESULT');
+ const s=await resultSettings(db),limits=limitsOf(s);
+ if(!input.bytes.length)throw new LabError('EMPTY_FILE',422);if(input.bytes.length>limits.maxBytes)throw new LabError('FILE_TOO_LARGE',422);
+ const intakeId=await registerIntake(db,store,{source:'UPLOAD',relativePath:null,originalName:input.name,actorId:user.id,jobId:null},input.bytes);
+ const state=await parseIntake(db,store,intakeId,limits);
+ const r=(await db.query<{state:string;reject_code:string|null;duplicate_of:string|null;container:string|null;parsed:Parsed|null;sha256:string;name:string}>('SELECT state,reject_code,duplicate_of,container,parsed,sha256,coalesce(member_name,original_name) name FROM result_intake_file WHERE id=$1',[intakeId])).rows[0];
+ const base={intakeId,sha256:r.sha256,channel:MANUAL_UPLOAD_CHANNEL};
+ if(state==='Duplicate'){
+  // The same bytes already exist (from the folder or an earlier upload): never a second report, never a replacement.
+  await audit(db,user,'RESULT_CASE_UPLOAD_DUPLICATE','RESULT_VERSION',r.duplicate_of!,{outcome:'Duplicate',reasonCode:MANUAL_UPLOAD_CHANNEL});
+  return {...base,outcome:'DUPLICATE' as const,versionId:r.duplicate_of};
+ }
+ if(state==='Rejected')return {...base,outcome:'REJECTED' as const,code:r.reject_code};
+ const refuse=async(code:string,extra:Record<string,unknown>={})=>{
+  await db.query("UPDATE result_intake_file SET state='Expired',decided_at=now() WHERE id=$1 AND state='Parsed'",[intakeId]);
+  await audit(db,user,'RESULT_CASE_UPLOAD_REFUSED','RESULT_INTAKE',intakeId,{outcome:'Refused',reasonCode:code});
+  return {...base,outcome:'REFUSED' as const,code,...extra};
+ };
+ if(r.container==='ZIP_BATCH'||!r.parsed)return refuse('ONE_REPORT_PER_UPLOAD');
+ if(r.parsed.templateKind==='UNKNOWN')return refuse('TEMPLATE_UNKNOWN');
+ const c=await compareWithTarget(db,user,r.parsed,t);
+ if(c.failed.length)return refuse(c.conflict?'IDENTITY_CONFLICT_WITH_SELECTED_CASE':'IDENTITY_NOT_VERIFIABLE',{cross:c.cross,failed:c.failed});
+ const conflicts=await nameConflicts(db,r.name,r.sha256,null,intakeId);
+ await audit(db,user,'RESULT_CASE_UPLOAD_CHECKED','RESULT_INTAKE',intakeId,{outcome:'READY',reasonCode:MANUAL_UPLOAD_CHANNEL});
+ return {...base,outcome:'READY' as const,kind:c.kind,cross:c.cross,summary:summary(r.parsed),nameConflict:hasConflict(conflicts)};
+}
+/** Step 2: the person confirms; the same import then links through P5-A or a two-person proposal to the selected target. */
+export async function caseUploadConfirm(db:Queryable,user:Staff,input:unknown){
+ await assertSession(db,user);need(user,'result.import');
+ const d=z.strictObject({target:caseUploadTarget,intakeId:uuid,acknowledgeNameConflict:z.boolean().optional()}).parse(input);
+ const i=(await db.query<{state:string;actor_id:string;parsed:Parsed|null;job_id:string|null;source:string}>('SELECT state,actor_id,parsed,job_id,source FROM result_intake_file WHERE id=$1 FOR UPDATE',[d.intakeId])).rows[0];
+ if(!i||i.actor_id!==user.id||i.source!=='UPLOAD'||i.job_id!==null)throw new LabError('NOT_FOUND',404);
+ if(i.state!=='Parsed'||!i.parsed)throw new LabError('UPLOAD_NOT_READY',409);
+ const c=await compareWithTarget(db,user,i.parsed,d.target);
+ if(c.failed.length)throw new LabError(c.conflict?'IDENTITY_CONFLICT_WITH_SELECTED_CASE':'IDENTITY_NOT_VERIFIABLE',409,{failed:c.failed});
+ const [out]=await confirmImport(db,user,{intakeIds:[d.intakeId],...(d.acknowledgeNameConflict?{acknowledgeNameConflicts:[d.intakeId]}:{})});
+ if(!out.versionId)throw new LabError('UPLOAD_NOT_READY',409);
+ if(out.outcome==='Duplicate')return {versionId:out.versionId,outcome:'DUPLICATE',state:(await versionOf(db,out.versionId)).state,next:'ไฟล์นี้มีในระบบแล้ว — ใช้รายการเดิม'};
+ let v=await versionOf(db,out.versionId);
+ await db.query('INSERT INTO result_version_event(version_id,from_state,to_state,actor_id,reason,details) VALUES($1,$2,$2,$3,$4,$5)',[v.id,v.state,user.id,'MANUAL_UPLOAD_FOR_CASE',JSON.stringify({channel:MANUAL_UPLOAD_CHANNEL,caseId:d.target.caseId,roundId:d.target.roundId,attemptId:d.target.attemptId,synthetic:!await operationalWorkflow(db)})]);
+ await audit(db,user,'RESULT_CASE_UPLOADED','RESULT_VERSION',v.id,{outcome:v.state,reasonCode:MANUAL_UPLOAD_CHANNEL});
+ // A system link can only be the same clean target; anything else is refused and rolls the whole upload back.
+ if(v.round_id&&(v.round_id!==d.target.roundId||(c.kind==='RESULT'&&v.attempt_id!==d.target.attemptId)))throw new LabError('AUTO_LINK_TARGET_DIFFERS',409);
+ let next='รอตรวจรับ PDF และยืนยันส่งผล';
+ if(v.state==='Unlinked'){
+  // The uploader proposes the selected target; a second authorised person approves (existing D-18 rule).
+  await db.query('SAVEPOINT case_upload_link');
+  try{
+   await proposeLink(db,user,{versionId:v.id,roundId:d.target.roundId,attemptId:c.kind==='RESULT'?d.target.attemptId:null,reason:'อัปโหลด PDF จากรายการตรวจของผู้ป่วย ตัวตนตรงกับรายการที่เลือก',expectedRowVersion:v.row_version});
+   await db.query('RELEASE SAVEPOINT case_upload_link');next='รอผู้รับรองคนที่สองยืนยันการเชื่อมโยง';
+  }catch(e){await db.query('ROLLBACK TO SAVEPOINT case_upload_link');await db.query('RELEASE SAVEPOINT case_upload_link');if(!(e instanceof LabError))throw e;next=`ต้องจับคู่ในหน้าผลตรวจ (${e.code})`;}
+  v=await versionOf(db,v.id);
+ }
+ return {versionId:v.id,outcome:'IMPORTED',state:v.state,linkMode:v.link_mode,next};
+}
+export type CasePdfStatus='NO_RESULT'|'AWAITING_MATCH'|'AWAITING_ACCEPTANCE'|'CONFIRMED';
+/** PDF status of every round of a case for the Lab case page, plus the folder/Worker channel health. */
+export async function caseResultStatus(db:Queryable,user:Staff,caseId:string){
+ await assertSession(db,user);need(user,'result.review','read');
+ const c=(await db.query<{id:string;current_round_id:string;registration_origin:string;unit_id:string|null;hn:string|null}>('SELECT c.id,c.current_round_id,c.registration_origin,(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=c.id ORDER BY s.unit_id LIMIT 1) unit_id,i.hn FROM nipt_case c LEFT JOIN p2_case_identity i ON i.case_id=c.id WHERE c.id=$1',[uuid.parse(caseId)])).rows[0];
+ if(!c||!caseVisible(user,c))throw new LabError('NOT_FOUND',404);
+ const rounds=(await db.query<{id:string;round_number:number;received_at:Date|null}>('SELECT id,round_number,received_at FROM specimen_round WHERE case_id=$1 ORDER BY round_number',[c.id])).rows;
+ const attempts=(await db.query<{id:string;round_id:string;attempt_number:number;state:string;printed_sample_id:string|null}>('SELECT id,round_id,attempt_number,state,printed_sample_id FROM analytical_attempt WHERE case_id=$1 ORDER BY attempt_number DESC',[c.id])).rows;
+ const versions=(await db.query<{id:string;round_id:string|null;state:string;kind:string;imported_at:Date;link_mode:string|null;manual:boolean;open_proposal:boolean}>(
+  `SELECT v.id,v.round_id,v.state,v.kind,v.imported_at,v.link_mode,
+    EXISTS(SELECT 1 FROM result_version_event e WHERE e.version_id=v.id AND e.details->>'channel'='MANUAL_UPLOAD') manual,
+    EXISTS(SELECT 1 FROM result_link_event e WHERE e.version_id=v.id AND e.event='PROPOSED' AND NOT EXISTS(SELECT 1 FROM result_link_event x WHERE x.version_id=v.id AND x.event IN ('APPROVED','REJECTED','UNLINKED','AUTO_LINKED') AND x.sequence>e.sequence)) open_proposal
+   FROM result_report_version v
+   WHERE v.case_id=$1 OR (v.state='Unlinked' AND $2::text IS NOT NULL AND ltrim(v.parsed->'identifiers'->'hn'->>'value','0')=ltrim($2::text,'0'))
+      OR EXISTS(SELECT 1 FROM result_link_event e WHERE e.version_id=v.id AND e.case_id=$1 AND e.event='PROPOSED')
+   ORDER BY v.imported_at DESC LIMIT 50`,[c.id,c.hn])).rows;
+ const statusOf=(roundId:string):CasePdfStatus=>{
+  const own=versions.filter(v=>v.round_id===roundId),loose=roundId===c.current_round_id?versions.filter(v=>!v.round_id):[];
+  if(own.some(v=>v.state==='CertifiedReleased'))return 'CONFIRMED';
+  if(own.some(v=>['Linked','ValidationBlocked','PendingCertification'].includes(v.state)))return 'AWAITING_ACCEPTANCE';
+  if([...own,...loose].some(v=>v.state==='LinkConflict'||v.state==='Unlinked'||v.open_proposal))return 'AWAITING_MATCH';
+  return 'NO_RESULT';
+ };
+ const s=SETTINGS.notifications.schema.parse((await readActiveSettings(db)).notifications??SETTINGS.notifications.default);
+ const beat=(await db.query<{at:Date|null}>('SELECT max(observed_at) at FROM worker_heartbeat')).rows[0].at;
+ const scan=(await db.query<{created_at:Date;result:Record<string,unknown>|null}>("SELECT j.created_at,r.result FROM job_outbox j LEFT JOIN integration_job_receipt r ON r.outbox_id=j.id WHERE j.kind='synthetic_result_scan' ORDER BY j.created_at DESC LIMIT 1")).rows[0]??null;
+ const workerAlive=!!beat&&Date.now()-new Date(beat).getTime()<=s.staleSeconds*1000;
+ return {caseId:c.id,currentRoundId:c.current_round_id,
+  rounds:rounds.map(r=>({id:r.id,number:r.round_number,received:!!r.received_at,status:statusOf(r.id),attempts:attempts.filter(a=>a.round_id===r.id).map(a=>({id:a.id,number:a.attempt_number,state:a.state,printedSampleId:a.printed_sample_id}))})),
+  versions:versions.map(v=>({id:v.id,roundId:v.round_id,state:v.state,kind:v.kind,importedAt:v.imported_at,linkMode:v.link_mode,channel:v.manual?MANUAL_UPLOAD_CHANNEL:'FOLDER_OR_RESULTS_PAGE',openProposal:v.open_proposal})),
+  folderChannel:{workerAlive,lastHeartbeatAt:beat,lastScanAt:scan?.created_at??null,lastScanError:scan?(scan.result?((scan.result.errorCode as string|null)??null):'PENDING'):null,manualUploadAvailable:true},
+  can:{upload:authorize(user,'result.import')}};
 }
