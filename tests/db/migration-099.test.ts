@@ -6,6 +6,7 @@ import {tmpdir} from 'node:os';
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {migrate} from '../../tools/migrate';
+import {installPre102Stub,removePre102Stub} from '../helpers/pre-102';
 import {tx,labUsers,syntheticCase,receiveS1} from '../helpers/lab';
 import * as intake from '../../packages/lab/intake';
 import type {Queryable} from '../../packages/db/connection';
@@ -19,12 +20,14 @@ it('099 keeps existing print rows valid and accepts exactly BASE, BASED, BASER, 
  try{
   for(const f of all.filter(f=>f<'099'))await copyFile(path.join('db/migrations',f),path.join(before,f));
   await migrate(db,before);
+  await installPre102Stub(db);
   const q=db as unknown as Queryable,u=await labUsers(q);
   const c=await tx(q,t=>syntheticCase(t,u));await tx(q,t=>receiveS1(t,c));
   const printed=await tx(q,t=>intake.printLabels(t,u.staff,{roundIds:[c.roundId],includeName:false})); // under the 098 constraint
   const code=(await db.query<{printed_code:string}>('SELECT printed_code FROM label_print_item WHERE job_id=$1',[printed.jobId])).rows[0].printed_code;
   const oldDef=(await db.query<{d:string}>("SELECT pg_get_constraintdef(oid) d FROM pg_constraint WHERE conname='label_print_item_printed_code_check'")).rows[0].d;
   expect(oldDef).toContain('D?$');
+  await removePre102Stub(db);
   await migrate(db); // full bundle: applies only 099
   const newDef=(await db.query<{d:string}>("SELECT pg_get_constraintdef(oid) d FROM pg_constraint WHERE conname='label_print_item_printed_code_check'")).rows[0].d;
   expect(newDef).toContain('D?R?$');

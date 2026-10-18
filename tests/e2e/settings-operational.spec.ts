@@ -28,10 +28,14 @@ function deidentifiedPet(n:number){
 }
 const today=()=>new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"}).replace(/-/g,"");
 async function drop(folder:string,pet:ReturnType<typeof deidentifiedPet>){const dir=path.join(SHARE!,folder,today());await fs.mkdir(dir,{recursive:true});await fs.writeFile(path.join(dir,pet.filename),pet.bytes);await fs.writeFile(path.join(dir,pet.filename.replace(".pet",".ok")),pet.ok);}
+// The revision list re-renders right after a save; a click that lands in that re-render is swallowed and queues nothing, so click inside the
+// newest untested draft row and retry until the request to start the Worker test was actually sent.
+async function testDraft(page:Page){await expect(async()=>{const button=page.getByRole("listitem").filter({hasText:"ยังไม่ผ่านการทดสอบ"}).first().getByRole("button",{name:"ทดสอบร่าง",exact:true});await expect(button).toBeVisible({timeout:5000});
+ await Promise.all([page.waitForResponse(r=>r.url().includes("/api/settings")&&r.request().method()==="POST"&&r.ok(),{timeout:5000}),button.click({timeout:5000})]);}).toPass({timeout:30000});}
 async function saveDraft(page:Page,reason:string){await page.getByLabel("เหตุผลที่เปลี่ยน").fill(reason);await page.getByRole("button",{name:"บันทึกร่าง",exact:true}).click();await expect(page.getByRole("status").filter({hasText:"บันทึกร่างแล้ว"})).toBeVisible();}
 /** Maker: Worker test of the newest draft, then record the pass. Checker: approve, then activate. */
 async function workerTestAndRecord(page:Page,report?:RegExp){
- await page.getByRole("button",{name:"ทดสอบร่าง",exact:true}).first().click();
+ await testDraft(page);
  await expect(page.getByRole("status").filter({hasText:"เข้าคิวทดสอบที่ Worker แล้ว"})).toBeVisible();
  const record=page.getByRole("button",{name:"บันทึกผลทดสอบผ่านของร่างนี้"});await expect(record).toBeVisible({timeout:60000});
  if(report)await expect(page.getByText(report)).toBeVisible(); // the Worker's own report of what it read
@@ -52,7 +56,7 @@ test("General: a name saved and activated in Settings is what every page shows a
  await page.setViewportSize({width:1280,height:900});await login(page,"synthetic.admin");
  await page.goto("/settings?key=general");const name="NIPT CBH ทดสอบ "+String(Date.now()).slice(-5);
  await page.getByLabel("ชื่อระบบ").fill(name);await saveDraft(page,"Settings acceptance: system name");
- await page.getByRole("button",{name:"ทดสอบร่าง",exact:true}).first().click();await page.getByRole("button",{name:"เปิดใช้",exact:true}).first().click();
+ await testDraft(page);await page.getByRole("button",{name:"เปิดใช้",exact:true}).first().click();
  await expect(page.getByRole("status").filter({hasText:"บันทึกการเปลี่ยนแปลงแล้ว"})).toBeVisible();
  await page.goto("/");await expect(page.getByText(name).first()).toBeVisible();await page.reload();await expect(page.getByText(name).first()).toBeVisible();
  // Out-of-range value (Notifications): the refusal names the field, it is not a generic failure.
@@ -92,7 +96,7 @@ test("HIS inbound: path A → Worker reads the ZIP PET and the case is received;
   await page.reload();await expect(page.getByRole("region",{name:"Worker ขาเข้าที่กำลังทำงาน"})).not.toContainText("ยังไม่ได้ใช้รุ่นที่เปิดใช้ล่าสุด",{timeout:20000});
   // Invalid path: the Worker test fails with a readable reason and there is nothing to approve.
   await page.getByLabel("โฟลเดอร์ขาเข้า").fill(path.join(SHARE!,"missing"));await saveDraft(page,"Settings acceptance: missing folder");
-  await page.getByRole("button",{name:"ทดสอบร่าง",exact:true}).first().click();
+  await testDraft(page);
   await expect(page.getByText("ไม่พบ Path หรือไฟล์").first()).toBeVisible({timeout:60000});
   await expect(page.getByRole("button",{name:"บันทึกผลทดสอบผ่านของร่างนี้"})).toHaveCount(0);
   await checker.goto("/settings?key=his_inbound");await expect(checker.getByRole("button",{name:"อนุมัติ (ผู้ตรวจอีกคน)"})).toHaveCount(0);
@@ -110,7 +114,7 @@ test("HIS outbound: destinations saved in Settings receive the Worker's syntheti
  await page.getByLabel("ปลายทาง RES / OK").fill(path.join(SHARE!,"res"));await page.getByLabel("ปลายทาง PDF / CFS").fill(path.join(SHARE!,"pdf"));await page.getByLabel("โฟลเดอร์สำรองไฟล์ส่ง").fill(path.join(SHARE!,"backup"));
  await page.getByLabel("เปิดการส่งผล").check();
  await saveDraft(page,"Settings acceptance: outbound destinations");
- await page.getByRole("button",{name:"ทดสอบร่าง",exact:true}).first().click();
+ await testDraft(page);
  await expect(page.getByText("RES / PDF / OK และ Backup ตรวจสอบแล้ว · HIS Confirmed: false")).toBeVisible({timeout:60000});
  const res=(await fs.readdir(path.join(SHARE!,"res"))).filter(f=>/\.res$/.test(f)),ok=(await fs.readdir(path.join(SHARE!,"res"))).filter(f=>/\.ok$/.test(f));
  expect(res.length).toBeGreaterThan(0);expect(ok.length).toBe(res.length);
@@ -119,7 +123,7 @@ test("HIS outbound: destinations saved in Settings receive the Worker's syntheti
  expect((await fs.readdir(path.join(SHARE!,"pdf"))).some(f=>f.endsWith(".pdf"))).toBe(true);
  // A destination outside the authorised root fails its Worker test, with the reason on screen.
  await page.getByLabel("ปลายทาง PDF / CFS").fill(path.join(path.dirname(SHARE!),"not-authorised-cfs"));await saveDraft(page,"Settings acceptance: wrong destination");
- await page.getByRole("button",{name:"ทดสอบร่าง",exact:true}).first().click();
+ await testDraft(page);
  await expect(page.getByText("Path อยู่นอก Allowed Root หรืออนุญาตซ้ำกัน").first()).toBeVisible({timeout:60000});
  const checkerContext=await browser.newContext({baseURL:process.env.E2E_BASE_URL,extraHTTPHeaders:{"x-real-ip":"synthetic-settings-checker2-"+randomUUID()}});
  try{const checker=await checkerContext.newPage();await login(checker,"synthetic.approver");await checker.goto("/settings?key=his_outbound");await expect(checker.getByRole("button",{name:"อนุมัติ (ผู้ตรวจอีกคน)"})).toHaveCount(0);}finally{await checkerContext.close();}

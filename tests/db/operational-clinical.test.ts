@@ -1,7 +1,7 @@
 import {beforeAll,afterAll,afterEach,expect,it,vi} from 'vitest';
 import type {PGlite} from '@electric-sql/pglite';
 import {testDatabase,addUser} from '../helpers/database';
-import {registerP2,paperReview,approveClinicalP2,setModes,getCase,type Staff} from '../../packages/p2/service';
+import {registerP2,paperReview,approveClinicalP2,setModes,getCase,refusePaperConsent,withdraw,type Staff} from '../../packages/p2/service';
 import {paperSchema} from '../../packages/p2/schema';
 let db:PGlite,lab:Staff,cert:Staff,reviewer:Staff,unit:string,caseId:string;
 beforeAll(async()=>{db=await testDatabase();lab=await addUser(db,'LAB_STAFF','clinical.lab');reviewer=await addUser(db,'CLINICAL_APPROVER','clinical.reviewer');reviewer.roles=['CLINICAL_APPROVER','LAB_STAFF'];cert=await addUser(db,'LAB_CERTIFIER','clinical.cert');unit=(await db.query<{id:string}>("INSERT INTO unit(code,name) VALUES('CLINICAL-TEST','หน่วยทดสอบ') RETURNING id")).rows[0].id;await db.query("UPDATE nipt_runtime_config SET mode='operational'");});
@@ -42,7 +42,50 @@ it('a recorded paper refusal or a withdrawal still stops a Paper Consent round; 
  const v=(await getCase(db,reviewer,id)).workspace.version;
  await setModes(db,lab,id,{expectedVersion:v,requestMode:'Paper',consentMode:'Electronic',reason:'ทดสอบช่องทางอิเล็กทรอนิกส์'});
  expect((await db.query('SELECT p2_clinical_documents_ready($1) AS ready',[round])).rows[0]).toEqual({ready:false});
- await expect(approveClinicalP2(db,reviewer,id,{...review,expectedVersion:v+1})).rejects.toThrow('CURRENT_GRANTED_CONSENT_REQUIRED');
+ await expect(approveClinicalP2(db,reviewer,id,{...review,expectedVersion:v+1})).rejects.toThrow('CONSENT_DECLINED'); // the recorded refusal survives a channel switch
+});
+it('Paper Consent REFUSED blocks every consent gate; the marker, a later Pending row or switching channels cannot override it; only a later decisive Granted lifts it; withdrawal still blocks',async()=>{
+ mode();const c=await registerP2(db,lab,{ln:'261014009997',hn:'TEST-HN-03',unitId:unit,origin:'LAB_DIRECT',identifierSource:'TUBE_LABEL',idempotencyKey:'CLINICAL-REVIEW-REFUSED'},Buffer.alloc(32,8));const id=c.caseId!;
+ await paperReview(db,cert,id,{kind:'REQUEST',templateVersion:'CBH-FM01-v1',documentReference:'REQ-TEST-3',panel:requestPanel(),location:'ห้องทดสอบ',reason:'ตรวจเอกสารทดสอบ',operation:'Review',previousId:null});
+ const round=(await getCase(db,reviewer,id)).case.current_round_id;const ready=async()=>(await db.query<{ready:boolean}>('SELECT p2_clinical_documents_ready($1) AS ready',[round])).rows[0].ready;
+ const version=async()=>(await getCase(db,reviewer,id)).workspace.version;
+ // Selected is not Refused: the marker alone proceeds.
+ await setModes(db,lab,id,{expectedVersion:await version(),requestMode:'Paper',consentMode:'Paper',reason:'ANC เลือกใช้ Paper Consent'});
+ expect(await ready()).toBe(true);expect((await getCase(db,reviewer,id)).consentDecision).toBeNull();
+ // ANC records the refusal (no print/upload/verification); it reuses the paper consent model and the case audit trail.
+ const refusal=await refusePaperConsent(db,lab,id,{expectedVersion:await version(),reason:'ผู้ป่วยแจ้งไม่ยินยอมบนใบกระดาษ'});expect(refusal).toMatchObject({state:'Refused'});
+ expect((await db.query("SELECT status,document_reference FROM p2_paper_review WHERE id=$1",[refusal.id])).rows[0]).toEqual({status:'Declined',document_reference:'PAPER_CONSENT_REFUSED'});
+ expect((await db.query("SELECT 1 FROM case_event WHERE case_id=$1 AND event_type='P2_PAPER_CONSENT_REFUSED'",[id])).rows).toHaveLength(1);
+ expect((await getCase(db,reviewer,id)).consentDecision).toBe('Declined');expect(await ready()).toBe(false);
+ await expect(approveClinicalP2(db,reviewer,id,{...review,expectedVersion:await version()})).rejects.toThrow('CONSENT_DECLINED');
+ expect((await db.query('SELECT p2_clinical_ready($1) AS ready',[round])).rows[0]).toEqual({ready:false});
+ // Nothing that is not a decisive Granted decision can lift it.
+ await setModes(db,lab,id,{expectedVersion:await version(),requestMode:'Paper',consentMode:'Paper',reason:'ANC เลือกใช้ Paper Consent อีกครั้ง'});expect(await ready()).toBe(false);
+ await db.query("INSERT INTO p2_paper_review(case_id,round_id,kind,template_version,document_reference,panel,status,location,reason,verifier_id) VALUES($1,$2,'CONSENT','CBH-FM02-v1','PENDING-LATER','{}','Pending','ANC','later non-decisive row',$3)",[id,round,lab.id]);
+ expect(await ready()).toBe(false);expect((await getCase(db,reviewer,id)).consentDecision).toBe('Declined');
+ await setModes(db,lab,id,{expectedVersion:await version(),requestMode:'Paper',consentMode:'Electronic',reason:'ทดสอบสลับช่องทาง'});expect(await ready()).toBe(false); // switching channel does not erase it
+ await setModes(db,lab,id,{expectedVersion:await version(),requestMode:'Paper',consentMode:'Paper',reason:'ทดสอบสลับกลับ'});expect(await ready()).toBe(false);
+ // The marker never created signed evidence, and neither did the refusal.
+ expect((await db.query("SELECT (SELECT count(*) FROM p2_consent_signature s JOIN p2_document_revision d ON d.id=s.document_id WHERE d.case_id=$1)::int sig,(SELECT count(*) FROM p2_final_consent f JOIN p2_document_revision d ON d.id=f.document_id WHERE d.case_id=$1)::int fin",[id])).rows[0]).toEqual({sig:0,fin:0});
+ // Only a LATER decisive Granted decision (a verified paper review) lifts the refusal.
+ const granted=paperSchema.parse(Object.fromEntries(Object.keys(paperSchema.shape).map(k=>[k,null])));Object.assign(granted,{decision:'Granted',signatures:'Complete',representative:'NotRequired'});
+ await db.query("SELECT pg_sleep(0.01)");await paperReview(db,cert,id,{kind:'CONSENT',templateVersion:'CBH-FM02-v1',documentReference:'CONSENT-LATER',panel:granted,location:'ห้องทดสอบ',reason:'ผู้ป่วยกลับมาให้ความยินยอม',operation:'Review',previousId:null});
+ expect((await getCase(db,reviewer,id)).consentDecision).toBe('Granted');
+ // Withdrawal is a separate rule and still blocks.
+ await withdraw(db,lab,id,{reason:'ถอนความยินยอม'});expect(await ready()).toBe(false);
+});
+it('refusal needs the consent.prepare permission and a reason, and is refused on a revoked case',async()=>{
+ mode();const c=await registerP2(db,lab,{ln:'261014009996',hn:'TEST-HN-04',unitId:unit,origin:'LAB_DIRECT',identifierSource:'TUBE_LABEL',idempotencyKey:'CLINICAL-REVIEW-REFUSED-PERM'},Buffer.alloc(32,8));const id=c.caseId!;
+ await expect(refusePaperConsent(db,{...lab,roles:['AUDITOR']},id,{expectedVersion:0,reason:'ทดสอบสิทธิ์'})).rejects.toThrow();
+ await expect(refusePaperConsent(db,lab,id,{expectedVersion:0,reason:''})).rejects.toThrow();
+ await withdraw(db,lab,id,{reason:'ถอนความยินยอม'});await expect(refusePaperConsent(db,lab,id,{expectedVersion:0,reason:'ทดสอบ'})).rejects.toThrow('CONSENT_REVOKED_HOLD');
+});
+it('Digital Consent still needs a completed signing: Electronic mode without a signed Granted consent is not ready and cannot be approved',async()=>{
+ mode();const c=await registerP2(db,lab,{ln:'261014009995',hn:'TEST-HN-05',unitId:unit,origin:'LAB_DIRECT',identifierSource:'TUBE_LABEL',idempotencyKey:'CLINICAL-REVIEW-DIGITAL'},Buffer.alloc(32,8));const id=c.caseId!;
+ await paperReview(db,cert,id,{kind:'REQUEST',templateVersion:'CBH-FM01-v1',documentReference:'REQ-TEST-5',panel:requestPanel(),location:'ห้องทดสอบ',reason:'ตรวจเอกสารทดสอบ',operation:'Review',previousId:null});
+ const g=await getCase(db,reviewer,id);expect(g.workspace.consent_mode).toBe('Electronic');
+ expect((await db.query('SELECT p2_clinical_documents_ready($1) AS ready',[g.case.current_round_id])).rows[0]).toEqual({ready:false});
+ await expect(approveClinicalP2(db,reviewer,id,{...review,expectedVersion:g.workspace.version})).rejects.toThrow('CURRENT_GRANTED_CONSENT_REQUIRED');
 });
 it('rejects forged source hashes at SQL boundary and synthetic runtime approval',async()=>{
  mode();const round=(await getCase(db,reviewer,caseId)).case.current_round_id;

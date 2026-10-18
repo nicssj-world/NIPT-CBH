@@ -65,6 +65,23 @@ The Request (Fm-WI-T-BM17/01) and Consent (/02) previews are filled from recorde
 
 Every Settings category was traced to its consumer and proven with the `NIPTY_handover.zip` sample files ([settings-operational-acceptance.md](settings-operational-acceptance.md)). Proven gaps fixed: PET with an empty citizen ID, generic Settings error text, no Worker-in-use evidence. Not fixable without an Owner/DCC decision: global request/consent settings (no consumer, OD-06/DCC); backup is installation-owned.
 
+## Consent workflow: three Owner decisions (2026-10-18), all implemented
+
+Details and tests are in [p2-paper-consent.md](p2-paper-consent.md).
+
+1. **Paper Consent refusal.**
+   - ANC has a **ผู้ป่วยไม่ยินยอม (Paper)** button. It records the refusal in one step, with no print, upload, scan, Signature Pad, wait, paper verification or second approval.
+   - A refusal is separate from the marker "ใช้ Paper Consent" and blocks Clinical review, Lab gates, result release and HIS release.
+   - Choosing Paper again, or switching channel, never erases it. Withdrawal still blocks as before.
+2. **DCC Consent PDF and signatures.**
+   - The system's signed Digital Consent PDF already shows the registry doctor's stored signature and the patient's Signature Pad signature, with the recorded decision and time. It is kept as is.
+   - An unsigned preview stays DRAFT, with no invented signature or date.
+   - A Paper marker or refusal creates no digital signature and infers no decision or date.
+   - The original DCC forms are never edited, and an auto-filled DCC form is not treated as approved.
+3. **Paper marker-only** stays as in `719d56b`: ANC selects Paper Consent, the marker is recorded, and the next step opens at once.
+
+Migration 102 (forward only, synthetic only) adds the refusal rule. Migrations 099–101 are untouched.
+
 ## External and physical tests (not Owner questions)
 
 - **Hospital IT / HIS (AL-6):**

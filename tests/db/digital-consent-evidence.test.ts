@@ -60,7 +60,7 @@ describe('Digital Consent evidence chain',()=>{
   const preview=await tx(()=>createDocumentPreview(db,anc,caseId,doc.id,renderP2Pdf));expect(preview.id).toBeTruthy();
   const bytes=(await import('../../packages/p2/documents')).readDocumentPreview;const read=await tx(()=>bytes(db,anc,preview.id,'download'));
   const facts=await pdfFacts(read.bytes);
-  expect(facts.text).toContain('SYNTHETICนพ.ทะเบียนเอ');expect(facts.text).toContain('Granted');expect(facts.images).toBeGreaterThanOrEqual(2);
+  expect(facts.text).toContain('SYNTHETICนพ.ทะเบียนเอ');expect(facts.text).not.toContain('นพ.ทะเบียนบี');expect(facts.text).toContain('0099000200');expect(facts.text).toContain('009900020001'); // the registry doctor of THIS request and THIS patient's LN/HN, not another doctorexpect(facts.text).toContain('Granted');expect(facts.images).toBeGreaterThanOrEqual(2);
   // Audit trail: every step is recorded in order, the hash chain verifies, and the document read is logged.
   const events=(await db.query<{event_type:string}>("SELECT event_type FROM case_event WHERE case_id=$1 AND event_type LIKE 'P2_%' ORDER BY created_at,id",[caseId])).rows.map(e=>e.event_type);
   const at=(t:string)=>events.indexOf(t);

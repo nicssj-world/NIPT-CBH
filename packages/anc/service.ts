@@ -9,7 +9,7 @@ export const filterSchema=z.object({fy:z.coerce.number().int().min(2543).max(274
 /** ANC roles need both case.read and result.read.released for each unit before facts are read.
  * EXISTS and scalar subqueries keep exactly one row per case, even for multiple unit scopes.
  * Documents use the authoritative p2_clinical_source and document portion of the readiness predicate
- * (migration 088, Paper Consent marker branch from migration 101). Collection-date/clinical-review gates remain separate from document readiness. */
+ * (migration 088; Paper Consent marker 101; refusal-aware decision 102). Collection-date/clinical-review gates remain separate from document readiness. */
 export const factsSql=`SELECT c.id,l.ln,i.hn,
  ARRAY(SELECT s.unit_id::text FROM case_unit_scope s WHERE s.case_id=c.id AND s.unit_id=ANY($1::uuid[]) ORDER BY s.unit_id) "unitIds",
  c.current_round_id "currentRoundId",r.round_number "roundNumber",r.state "roundState",
@@ -18,7 +18,8 @@ export const factsSql=`SELECT c.id,l.ln,i.hn,
  x->>'currentRoundId'=r.id::text AND x->>'revoked'='false'
  AND (CASE WHEN x->>'requestMode'='Electronic' THEN x#>'{requestDocument,payload,draft}'=x->'draft' ELSE x#>>'{paperRequest,status}'='Verified' END)
  AND (CASE WHEN x->>'consentMode'='Electronic' THEN x#>>'{finalConsent,document_id}'=x#>>'{consentDocument,id}' AND x#>>'{finalConsent,payload,signature,decision}'='Granted' AND x#>'{consentDocument,payload,workspaceVersion}'=x->'workspaceVersion'
- ELSE x->>'consentMode'='Paper' AND COALESCE(x#>>'{paperConsent,status}','')<>'Declined' AND NOT (COALESCE(x#>>'{paperConsent,status}','')='Verified' AND x#>>'{paperConsent,panel,decision}' IS DISTINCT FROM 'Granted') AND COALESCE(x#>>'{finalConsent,payload,signature,decision}','')<>'Declined' END)
+ ELSE x->>'consentMode'='Paper' END)
+ AND COALESCE(p2_consent_latest_decision(r.id),'')<>'Declined'
  FROM (SELECT p2_clinical_source(r.id) x) source),false) "documentsReady",
  (SELECT v.state FROM result_report_version v WHERE v.case_id=c.id AND v.round_id=r.id AND v.kind='RESULT' AND v.state NOT IN ('Superseded','Voided','RejectedImport') ORDER BY v.state_changed_at DESC,v.id DESC LIMIT 1) "reportState",
  (SELECT count(*)::int FROM result_release rr WHERE rr.case_id=c.id AND rr.round_id=r.id AND rr.kind='RESULT' AND rr.state='Active') "activeReleaseCount",

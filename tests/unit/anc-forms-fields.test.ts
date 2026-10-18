@@ -36,6 +36,8 @@ describe('ANC form field mapping',()=>{
   expect(paper.fields.acknowledged.some(Boolean)).toBe(false); // paper ticks are on the paper original, not invented
   const marker=consentFields(base(structuredClone(emptyRequest),{consentMode:'Paper'}));expect(marker).toMatchObject({status:'PAPER_SELECTED',fields:{decision:null,patientSignedDate:null}}); // the marker is not signing evidence
   expect(consentItems(marker.fields).filter(i=>i.kind==='check')).toEqual([]);
+  const refused=consentFields(base(structuredClone(emptyRequest),{consentMode:'Paper',paperRefused:true} as Partial<Sources>));expect(refused).toMatchObject({status:'PAPER_REFUSED',fields:{decision:null,patientSignedDate:null}}); // staff-recorded refusal: still no decision tick, signature or date inferred
+  expect(consentItems(refused.fields).filter(i=>i.kind==='check')).toEqual([]);
  });
  it('the doctor printed is the registry doctor of the request; an inactive or mismatched doctor is left blank, never replaced',()=>{
   const d=structuredClone(emptyRequest);

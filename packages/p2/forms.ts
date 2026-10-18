@@ -44,7 +44,9 @@ export async function formSources(db:Queryable,user:Staff,caseId:string){
  const final=consentDoc?(await db.query<{payload:{signature?:{decision?:string;signed_at?:string};acknowledgments?:{item:number|string}[]}}>('SELECT payload FROM p2_final_consent WHERE document_id=$1 ORDER BY created_at DESC LIMIT 1',[consentDoc.id])).rows[0]??null:null;
  const paperConsent=(await db.query<{panel:{decision?:string;signatures?:string}}>("SELECT panel FROM p2_paper_review WHERE round_id=$1 AND kind='CONSENT' AND status='Verified' ORDER BY created_at DESC LIMIT 1",[c.current_round_id])).rows[0]??null;
  const revoked=(await db.query('SELECT 1 FROM p2_revocation WHERE case_id=$1 LIMIT 1',[c.id])).rows.length>0;
- return {c,draft,requestMode:w?.request_mode??null,consentMode:w?.consent_mode??null,doctor,fact,round,acceptance,consentDoc,final,paperConsent,revoked};
+ // A refusal recorded by ANC on the paper consent (Owner 2026-10-18): the latest decisive consent evidence is a paper Declined row.
+ const paperRefused=!!(await db.query<{r:boolean}>("SELECT (p2_consent_latest_decision($1)='Declined' AND EXISTS(SELECT 1 FROM p2_paper_review p WHERE p.round_id=$1 AND p.kind='CONSENT' AND p.status='Declined' AND p.created_at>=COALESCE((SELECT max(f.created_at) FROM p2_final_consent f JOIN p2_document_revision d ON d.id=f.document_id WHERE d.round_id=$1),'-infinity'))) AS r",[c.current_round_id])).rows[0]?.r;
+ return {c,draft,requestMode:w?.request_mode??null,consentMode:w?.consent_mode??null,doctor,fact,round,acceptance,consentDoc,final,paperConsent,paperRefused,revoked};
 }
 type Sources=Awaited<ReturnType<typeof formSources>>;
 
@@ -83,7 +85,7 @@ export function requestFields(s:Sources):{fields:RequestFields;missing:string[]}
  if(fields.pregnancyType===null)missing.push('ครรภ์เดี่ยว/แฝด');
  return {fields,missing};
 }
-export function consentFields(s:Sources):{fields:ConsentFields;status:'UNSIGNED'|'SIGNED_ELECTRONIC'|'PAPER_VERIFIED'|'PAPER_SELECTED'|'REVOKED';doctorMismatch:boolean}{
+export function consentFields(s:Sources):{fields:ConsentFields;status:'UNSIGNED'|'SIGNED_ELECTRONIC'|'PAPER_VERIFIED'|'PAPER_SELECTED'|'PAPER_REFUSED'|'REVOKED';doctorMismatch:boolean}{
  const sig=s.final?.payload.signature,acks=new Set((s.final?.payload.acknowledgments??[]).map(a=>Number(a.item)));
  const decision=sig?.decision==='Granted'||sig?.decision==='Declined'?sig.decision:s.paperConsent?.panel.decision==='Granted'||s.paperConsent?.panel.decision==='Declined'?s.paperConsent.panel.decision as 'Granted'|'Declined':null;
  const doctorMismatch=!!(s.consentDoc?.payload.doctor?.id&&s.doctor&&s.consentDoc.payload.doctor.id!==s.doctor.id);
@@ -91,9 +93,9 @@ export function consentFields(s:Sources):{fields:ConsentFields;status:'UNSIGNED'
    // "เข้าใจแล้ว" only for clauses acknowledged in a completed signing session (p2_consent_ack → final consent); never from a preview.
    acknowledged:Array.from({length:12},(_,i)=>!!sig&&acks.has(i+1)&&acks.size===12),
    decision,patientSignedDate:sig?.signed_at?displayBe(new Date(new Date(sig.signed_at).getTime()+7*3600000).toISOString().slice(0,10),''):null},
-  status:s.revoked?'REVOKED':sig?'SIGNED_ELECTRONIC':s.paperConsent?'PAPER_VERIFIED':s.consentMode==='Paper'?'PAPER_SELECTED':'UNSIGNED',doctorMismatch};
+  status:s.revoked?'REVOKED':s.paperRefused?'PAPER_REFUSED':sig?'SIGNED_ELECTRONIC':s.paperConsent?'PAPER_VERIFIED':s.consentMode==='Paper'?'PAPER_SELECTED':'UNSIGNED',doctorMismatch};
 }
-const STATUS_TEXT={UNSIGNED:'ยังไม่ได้ลงนาม ยังไม่ได้ให้ความยินยอม',PAPER_SELECTED:'เลือกใช้ Paper Consent — ไม่ใช่หลักฐานการลงนาม',SIGNED_ELECTRONIC:'ลงนามอิเล็กทรอนิกส์แล้ว — หลักฐานอยู่ในระบบ ไม่ใช่ฉบับร่างนี้',PAPER_VERIFIED:'มีเอกสารกระดาษที่ตรวจแล้ว — ต้นฉบับกระดาษคือหลักฐาน',REVOKED:'ถอนความยินยอมแล้ว'};
+const STATUS_TEXT={UNSIGNED:'ยังไม่ได้ลงนาม ยังไม่ได้ให้ความยินยอม',PAPER_SELECTED:'เลือกใช้ Paper Consent — ไม่ใช่หลักฐานการลงนาม',PAPER_REFUSED:'ผู้ป่วยไม่ยินยอม (Paper) — เจ้าหน้าที่บันทึก ไม่ใช่การลงนาม',SIGNED_ELECTRONIC:'ลงนามอิเล็กทรอนิกส์แล้ว — หลักฐานอยู่ในระบบ ไม่ใช่ฉบับร่างนี้',PAPER_VERIFIED:'มีเอกสารกระดาษที่ตรวจแล้ว — ต้นฉบับกระดาษคือหลักฐาน',REVOKED:'ถอนความยินยอมแล้ว'};
 
 /** Builds the preview PDF (1 or 2 pages) from the active template set chosen in Settings. Never stored, never a controlled copy. */
 export async function ancFormPreview(db:Queryable,user:Staff,caseId:string,kind:FormKind,render:OverlayRenderer,templates?:LoadedTemplates){

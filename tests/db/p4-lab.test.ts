@@ -108,6 +108,11 @@ describe('Ready queue, gates and FIFO (§12.9, §5.9.1)',()=>{
   const w=await run(t=>intake.labWorklist(t,u.staff)),row=(id:string)=>w.attempts.find(a=>a.roundId===id)!;
   expect(row(marker.roundId).gate!.failed).not.toContain('CONSENT_NOT_GRANTED');expect(row(marker.roundId).gate!.failed).toContain('REQUEST_NOT_VERIFIED'); // paper Request unchanged
   expect(row(declined.roundId).gate!.failed).toContain('CONSENT_DECLINED');
+  // A later Pending paper row or choosing Paper again never hides the recorded refusal; a later verified paper decision lifts it.
+  await db.query("INSERT INTO p2_paper_review(case_id,round_id,kind,template_version,document_reference,panel,status,location,reason,verifier_id,created_at) VALUES($1,$2,'CONSENT','SYNTHETIC-FM02-v1','SYNTHETIC-LATER','{}','Pending','SYNTHETIC','SYNTHETIC later pending row',$3,now()+interval '1 minute')",[declined.caseId,declined.roundId,u.staff.id]);
+  const w2=await run(t=>intake.labWorklist(t,u.staff));expect(w2.attempts.find(a=>a.roundId===declined.roundId)!.gate!.failed).toContain('CONSENT_DECLINED');
+  await db.query("INSERT INTO p2_paper_review(case_id,round_id,kind,template_version,document_reference,panel,status,location,reason,verifier_id,created_at) VALUES($1,$2,'CONSENT','SYNTHETIC-FM02-v1','SYNTHETIC-GRANTED','{\"decision\":\"Granted\"}','Verified','SYNTHETIC','SYNTHETIC later verified decision',$3,now()+interval '2 minutes')",[declined.caseId,declined.roundId,u.staff.id]);
+  const w3=await run(t=>intake.labWorklist(t,u.staff));expect(w3.attempts.find(a=>a.roundId===declined.roundId)!.gate!.failed).not.toContain('CONSENT_DECLINED');
  });
  it('PROCEED_SYNTHETIC_LABELLED (maker-checker) passes only PENDING, labelled; FAIL never passes',async()=>{
   const ok=await received(),bad=await received({clinical:'ClinicalDataConflict'});

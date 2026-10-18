@@ -8,7 +8,7 @@ import {readFileSync} from 'node:fs';
 import {migrate} from '../../tools/migrate';
 
 // Migration 101 (Owner correction "SIMPLIFY PAPER CONSENT", approved 2026-10-18; forward only, isolated synthetic databases only):
-// replaces only p2_clinical_documents_ready. 088 stays as recorded; the paper Request and Electronic Consent branches are unchanged.
+// replaces only p2_clinical_documents_ready (a later migration, 102, adds p2_consent_latest_decision). 088 stays as recorded; the paper Request and Electronic Consent branches are unchanged.
 it('101 upgrades a 100 database by replacing only the document readiness function',async()=>{
  const all=(await readdir('db/migrations')).filter(f=>/^\d+.*\.sql$/.test(f)).sort();
  expect(all).toContain('101_p2_paper_consent_marker.sql');
@@ -28,6 +28,6 @@ it('101 upgrades a 100 database by replacing only the document readiness functio
   expect(now).toContain("x->>'consentMode'='Paper'");expect(now).not.toContain("x#>>'{paperConsent,panel,decision}'='Granted'");
   // Request and Electronic Consent branches are byte-identical to 088.
   for(const branch of ["ELSE x#>>'{paperRequest,status}'='Verified' END","x#>>'{finalConsent,payload,signature,decision}'='Granted' AND x#>'{consentDocument,payload,workspaceVersion}'=x->'workspaceVersion'"]){expect(old).toContain(branch);expect(now).toContain(branch);}
-  expect((await functions()).filter(f=>f.proname!=='p2_clinical_documents_ready')).toEqual(pre.filter(f=>f.proname!=='p2_clinical_documents_ready'));
+  expect((await functions()).filter(f=>!['p2_clinical_documents_ready','p2_consent_latest_decision'].includes(f.proname))).toEqual(pre.filter(f=>!['p2_clinical_documents_ready','p2_consent_latest_decision'].includes(f.proname)));
  }finally{await db.close();await rm(before,{recursive:true,force:true});}
 });

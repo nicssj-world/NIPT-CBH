@@ -60,9 +60,8 @@ export async function attemptFacts(db:Queryable,where:string,params:unknown[]):P
   o.state repeat_state,o.level repeat_level,o.parent_attempt_id,
   (SELECT count(*) FROM his_intake_issue i WHERE i.case_id=a.case_id AND i.state IN ('Open','Proposed'))::int open_issues,
   EXISTS(SELECT 1 FROM p2_revocation v WHERE v.case_id=a.case_id) revoked,
-  COALESCE(NULLIF((SELECT x.ev FROM (SELECT f.created_at,CASE WHEN f.payload->'signature'->>'decision'='Granted' THEN 'GRANTED' ELSE 'DECLINED' END ev FROM p2_final_consent f JOIN p2_document_revision d ON d.id=f.document_id WHERE d.round_id=a.round_id
-    UNION ALL SELECT p.created_at,CASE p.status WHEN 'Verified' THEN 'GRANTED' WHEN 'Declined' THEN 'DECLINED' ELSE 'NONE' END FROM p2_paper_review p WHERE p.round_id=a.round_id AND p.kind='CONSENT') x ORDER BY x.created_at DESC LIMIT 1),'NONE'),
-    (SELECT 'PAPER_SELECTED' FROM p2_workspace w WHERE w.round_id=a.round_id AND w.consent_mode='Paper')) consent_ev,
+  CASE p2_consent_latest_decision(a.round_id) WHEN 'Granted' THEN 'GRANTED' WHEN 'Declined' THEN 'DECLINED'
+   ELSE (SELECT 'PAPER_SELECTED' FROM p2_workspace w WHERE w.round_id=a.round_id AND w.consent_mode='Paper') END consent_ev,
   (SELECT x.ev FROM (SELECT d.created_at,'VERIFIED' ev FROM p2_document_revision d WHERE d.round_id=a.round_id AND d.kind='REQUEST'
     UNION ALL SELECT p.created_at,CASE WHEN p.status='Verified' THEN 'VERIFIED' ELSE 'NONE' END FROM p2_paper_review p WHERE p.round_id=a.round_id AND p.kind='REQUEST') x ORDER BY x.created_at DESC LIMIT 1) request_ev,
   (SELECT CASE WHEN p2_clinical_ready(a.round_id) THEN 'ClinicalPassed' WHEN s.result->>'state'='ClinicalPassed' THEN 'PendingClinicalReview' ELSE s.result->>'state' END FROM clinical_snapshot s WHERE s.round_id=a.round_id ORDER BY s.created_at DESC LIMIT 1) clinical_state,

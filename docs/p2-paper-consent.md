@@ -1,4 +1,4 @@
-# Paper Consent: a marker only (Owner correction 2026-10-18)
+# Paper Consent: a marker, plus a recorded refusal (Owner decisions 2026-10-18)
 
 **Status:** implemented on `feat/task-list-parity-p0`. Migration 101 was approved by the Owner on 2026-10-18 for isolated synthetic databases only.
 
@@ -31,12 +31,29 @@
   - a receipt confirmation;
   - a new approval.
 
+## Paper Consent refused (Owner decision 3, migration 102)
+
+- **Button:** **ผู้ป่วยไม่ยินยอม (Paper)** on the ANC case page, with a short reason. It selects Paper if needed and records the refusal in one step.
+- **Stored as** a `p2_paper_review` consent row with status `Declined` (reference `PAPER_CONSENT_REFUSED`), audited as `P2_PAPER_CONSENT_REFUSED`. It is staff-recorded, not a signature: no signature, final consent or paper verification is created.
+- **Selected ≠ Refused.** The case page and patient list show **Paper Consent** for the marker and **Paper Consent: ไม่ยินยอม** for a refusal. The consent preview says "ผู้ป่วยไม่ยินยอม (Paper) — เจ้าหน้าที่บันทึก ไม่ใช่การลงนาม" and ticks nothing.
+- **Single rule.** `p2_consent_latest_decision(round)` returns the latest decisive consent evidence:
+  - decisive means a verified paper review (granted) or a paper `Declined`, or a completed electronic signature;
+  - the marker, Pending, Replaced and Amended rows are not decisive.
+- **Where it blocks.** It is part of `p2_clinical_documents_ready`, so it stops:
+  - the clinical-review trigger and `approveClinicalP2` (`CONSENT_DECLINED`);
+  - the Lab ready gate (BG-04 `CONSENT_DECLINED`) and result gate RG-10;
+  - the release guard (086) and HIS outbound eligibility (089), which the P6 Worker re-checks;
+  - the ANC dashboard.
+- **Cannot be overridden by:** "ใช้ Paper Consent" again, switching channels, or any later non-decisive row.
+- **What lifts it.** Only a later decisive Granted decision: a verified paper review through the existing API, or a completed Granted Digital Consent signing. This means a refusal recorded by mistake can be corrected only through that API route or governance; the dialog warns before saving.
+- **Withdrawal** (`p2_revocation`) is a separate rule and still blocks.
+
 ## What still stops the round
 
 | Situation | Effect |
 |---|---|
 | Withdrawal (`p2_revocation`) | Blocks, as before |
-| A recorded refusal: a paper review `Declined`, a verified paper review whose decision is not `Granted`, or an electronic `Declined` signature | Blocks: `CONSENT_DECLINED`, BG-04 `CONSENT_DECLINED` |
+| A recorded refusal: a paper review `Declined` (button above, or API), a verified paper review whose decision is not `Granted`, or an electronic `Declined` signature, unless a later decisive Granted decision exists | Blocks: `CONSENT_DECLINED`, BG-04 `CONSENT_DECLINED` |
 
 ## Unchanged
 
@@ -77,10 +94,12 @@ $$;
 
 | Test | Proves |
 |---|---|
-| `tests/db/operational-clinical.test.ts` | Marker-only round passes the DB readiness rule and clinical review, with no consent review and no signature rows. A recorded refusal → `CONSENT_DECLINED`. Electronic mode still needs the signed consent. |
+| `tests/db/operational-clinical.test.ts` | Marker-only round passes the DB readiness rule and clinical review, with no consent review and no signature rows. A refusal blocks clinical review and readiness; Paper again, a channel switch or a later Pending row cannot override it; a later verified Granted lifts it; withdrawal still blocks. Electronic mode still needs the signed consent. |
 | `tests/db/p4-lab.test.ts` | BG-04 passes on the marker (mutation-checked); paper Request still required; refusal fails |
 | `tests/unit/p5-gates.test.ts` | RG-10 `PAPER_CONSENT_SELECTED` |
 | `tests/unit/anc-forms-fields.test.ts` | Preview status `PAPER_SELECTED` with no ticks, decision or date |
 | `tests/db/migration-101.test.ts` | Upgrade of a populated 100 database: ledger checksums, 088 unchanged, only one function replaced |
 | `tests/db/digital-consent-evidence.test.ts` | Digital Consent unchanged: registry doctor signature in the document, 12 acknowledgements, patient Signature Pad vector/PNG/hash, final consent only after preparer attestation, real Chromium PDF with both signature images, ordered audit events and a valid audit chain |
+| `tests/db/migration-102.test.ts` | Upgrade of a 101 database: ledger, 088/101 unchanged, one new function and one replaced, Request and Electronic branches identical, a tie resolves to Declined |
+| `tests/e2e/p2.spec.ts` (refusal) | ANC button and dialog, status text and list badge, no marker button after a refusal, API channel switches keep the refusal, preview status `PAPER_REFUSED` |
 | `tests/e2e/p2.spec.ts` | Browser: one click, marker on the case and in the list, no paper/Signature Pad buttons, no signing evidence, preview header `X-Consent-Status: PAPER_SELECTED`. A recorded refusal still stops the round. |

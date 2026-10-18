@@ -6,6 +6,7 @@ import {tmpdir} from 'node:os';
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {migrate} from '../../tools/migrate';
+import {installPre102Stub,removePre102Stub} from '../helpers/pre-102';
 import {tx,labUsers} from '../helpers/lab';
 import {receivedCase,importReport,rowVersion,pdfDate,type ResultFixture} from '../helpers/results';
 import {FileStore} from '../../packages/storage';
@@ -21,6 +22,7 @@ it('100 upgrades a populated 099 database without touching existing link history
  try{
   for(const f of all.filter(f=>f<'100'))await copyFile(path.join('db/migrations',f),path.join(before,f));
   await migrate(db,before);
+  await installPre102Stub(db);
   const root=path.join(before,'sim');await mkdir(path.join(root,'results'),{recursive:true});await writeFile(path.join(root,'.nipt-synthetic-root'),'NIPT_SYNTHETIC_ONLY_V1');
   const q=db as unknown as Queryable,f={db,u:await labUsers(q),store:new FileStore(path.join(before,'files')),root,base:before,run:<T>(fn:(t:Queryable)=>Promise<T>)=>tx(q,fn),close:async()=>{}} as unknown as ResultFixture;
   const c=await receivedCase(f),lab=(await db.query<{ln_halos:string}>('SELECT ln_halos FROM specimen_lab_number WHERE round_id=$1',[c.roundId])).rows[0].ln_halos;
@@ -32,6 +34,7 @@ it('100 upgrades a populated 099 database without touching existing link history
   await f.run(async t=>results.decideLink(t,f.u.certifier,{versionId,decision:'APPROVE',reason:'Pre-100 approved by a second person',expectedRowVersion:await rv()}));
   const snapshot=async()=>({links:(await db.query<{event:string}>("SELECT sequence,event,mode,outcome,reason,actor_id FROM result_link_event ORDER BY sequence")).rows,version:(await db.query('SELECT state,link_mode,row_version,round_id FROM result_report_version WHERE id=$1',[versionId])).rows});
   const pre=await snapshot();expect(pre.links.map(l=>l.event)).toEqual(['PROPOSED','REJECTED','PROPOSED','APPROVED']);
+  await removePre102Stub(db);
   await migrate(db); // full bundle: applies only 100
   const ledger=(await db.query<{checksum:string}>("SELECT checksum FROM schema_migration WHERE name='100_p5a_unique_auto_link.sql'")).rows[0].checksum;
   expect(ledger).toBe(createHash('sha256').update(readFileSync('db/migrations/100_p5a_unique_auto_link.sql','utf8')).digest('hex'));
