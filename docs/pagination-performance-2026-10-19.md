@@ -45,3 +45,17 @@ Only 5 000 was measured in the browser. Smaller sizes (100/500/1 000) are covere
 - Worklist tabs beyond `READY_SCAN_LIMIT` (10 000) show a capped-scan notice instead of the full count.
 - Results CSV exports the current page only (stated in the UI).
 - Photo search shows at most 300 photos per query (stated in the UI); each Run page lists all its photos.
+
+## Verification (final tree 622db00 + doc commit)
+
+| Check | Result |
+| --- | --- |
+| Vitest, default (PGlite) | 2 223 passed, 58 skipped (native-PG/fixture gated) |
+| Vitest, native PG 17 + owner fixtures | 164 files, 2 280 passed, 1 skipped (`operational-workbook`/owner-master composition group needs a path not present in this run) — 0 failed |
+| Playwright (all specs, real Chromium) | 93 passed, 0 failed |
+| Typecheck, ESLint `--max-warnings 0`, source guard, production build | passed |
+| Operational positive journey (built web, native PG) | passed, no browser errors |
+| Browser at 1440 / 768 / 390 px (Lab worklist Gate tab, 4 997 rows) | no horizontal overflow, 50 rows rendered, pager usable |
+
+Intentional baseline changes: the registry screenshots (foundation + p2, 4 widths each) differ only by the pager row and the "Lab searches by LN Halos" hint. E2E tests that read the old unpaged `/api/p4/worklist` or the removed registry "load more" were updated to the paged API/controls; no assertion was removed or weakened.
+Not run: `p8-installed` (installer, unrelated), npm audit, timing runs at 100/500/1 000 cases.
