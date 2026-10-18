@@ -9,7 +9,7 @@ import https from 'node:https';
 import path from 'node:path';
 import {
  layout,validateConfig,assertSafeRoot,portFree,freeBytes,MIN_FREE_BYTES,verifyPackage,sha256File,readJson,writeJson,compareVersions,
- schemaCompatibility,canRollbackApplicationOnly,healthVerdict
+ schemaCompatibility,canRollbackApplicationOnly,healthVerdict,parseLedgerOutput
 } from './lib.mjs';
 
 const SYS=process.env.SystemRoot??'C:\\Windows';
@@ -108,7 +108,7 @@ function psql(L,c,sql,{db=c.database}={}){
 
 // psql on Windows terminates lines with CRLF: parse tolerantly so a trailing CR can never turn a matching checksum into a mismatch.
 function ledgerOf(L,c,db=c.database){
- return psql(L,c,"SELECT name||'|'||checksum FROM schema_migration ORDER BY name",{db}).split(String.fromCharCode(10)).map(l=>l.trim()).filter(Boolean).map(l=>{const [name,checksum]=l.split('|');return {name,checksum};});
+ return parseLedgerOutput(psql(L,c,"SELECT name||'|'||checksum FROM schema_migration ORDER BY name",{db}));
 }
 
 // ───────────────────────────── environment for application tools ─────────────────────────────

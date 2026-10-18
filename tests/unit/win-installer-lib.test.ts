@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
  parseVersion,compareVersions,layout,validateConfig,assertSafeRoot,directoryHashes,verifyPackage,schemaCompatibility,canRollbackApplicationOnly,
- healthVerdict,backoffMs,sha256Bytes,INSTALLER_FORMAT,writeJson,readJson,portFree
+ healthVerdict,backoffMs,parseLedgerOutput,sha256Bytes,INSTALLER_FORMAT,writeJson,readJson,portFree
 } from '../../tools/win-installer/lib.mjs';
 
 // The Windows installer's decisions that must never depend on a live machine: version order, configuration limits, package authenticity,
@@ -122,6 +122,20 @@ describe('schema compatibility gates',()=>{
   const newer=canRollbackApplicationOnly({ledger:[...ledger,row('004_d.sql','h4')],targetMigrations:rel});
   expect(newer).toMatchObject({ok:false,reason:'DATABASE_NEWER_THAN_TARGET'});
   expect(canRollbackApplicationOnly({ledger:[row('001_a.sql','OTHER')],targetMigrations:rel})).toMatchObject({ok:false,reason:'MIGRATION_CHECKSUM_DIFFERS'});
+ });
+});
+
+describe('ledger parsing',()=>{
+ it('is not fooled by Windows CRLF line endings (a trailing CR once turned every matching checksum into a mismatch)',()=>{
+  const lf=parseLedgerOutput('001_a.sql|h1
+002_b.sql|h2
+'),crlf=parseLedgerOutput('001_a.sql|h1
+002_b.sql|h2
+');
+  expect(crlf).toEqual(lf);expect(crlf).toEqual([{name:'001_a.sql',checksum:'h1'},{name:'002_b.sql',checksum:'h2'}]);
+  expect(schemaCompatibility({ledger:crlf,releaseMigrations:{'001_a.sql':'h1','002_b.sql':'h2'}}).compatibleWithDatabase).toBe(true);
+  expect(parseLedgerOutput('')).toEqual([]);expect(parseLedgerOutput('
+')).toEqual([]);
  });
 });
 

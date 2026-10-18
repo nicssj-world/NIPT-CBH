@@ -23,3 +23,4 @@ export function schemaCompatibility(a:{ledger:LedgerRow[];releaseMigrations:Reco
 export function canRollbackApplicationOnly(a:{ledger:LedgerRow[];targetMigrations:Record<string,string>}):{ok:boolean;reason:string|null;compatibleWithDatabase:boolean;unknown:string[];changed:string[];pending:string[]};
 export function healthVerdict(report:Record<string,unknown>|undefined,extra:{supervisor?:boolean;https?:boolean}|undefined):{ok:boolean;failed:string[];technicalReady:boolean;backupStatus:unknown};
 export function backoffMs(restarts:number):number;
+export function parseLedgerOutput(text:string):LedgerRow[];

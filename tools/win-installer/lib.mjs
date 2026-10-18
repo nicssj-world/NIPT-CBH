@@ -157,3 +157,8 @@ export function healthVerdict(report,extra){
 
 /** Backoff schedule for the supervisor: 1,2,4,8,16,30,30,... seconds; resets after a stable run. */
 export function backoffMs(restarts){return Math.min(30000,1000*2**Math.max(0,restarts));}
+
+/** Parse `psql -A -t` output of "name|checksum" rows. Windows psql ends lines with CRLF; a trailing CR must never change a checksum. */
+export function parseLedgerOutput(text){
+ return String(text).split(String.fromCharCode(10)).map(l=>l.trim()).filter(Boolean).map(l=>{const [name,checksum]=l.split('|');return {name,checksum};});
+}
