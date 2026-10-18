@@ -229,7 +229,10 @@ export async function photoForServing(db:Queryable,user:Staff,id:string,variant:
 
 // ── Search ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
 export const searchInput=z.strictObject({date:isoDate.nullish(),run:z.string().trim().max(20).nullish(),lnHalos:z.string().trim().max(20).nullish(),lnHis:z.string().trim().max(20).nullish(),
- sample:z.number().int().min(1).max(48).nullish(),text:z.string().trim().max(100).nullish(),includeRetracted:z.boolean().default(false)});
+ sample:z.number().int().min(1).max(48).nullish(),text:z.string().trim().max(100).nullish(),includeRetracted:z.boolean().default(false),
+ /** Runs already shown; "load more" asks for the next block of Runs with the same criteria. */runsOffset:z.number().int().min(0).max(1000000).default(0)});
+/** Photos returned by one search. The rest stay reachable from each Run's own page, and the response says when this cap was reached. */
+export const SEARCH_PHOTO_CAP=300;
 /** "12", "Run012", "012/2026", "Run012/2026" → run number (and year). */
 export function parseRunQuery(q:string){
  const m=/^(?:run\s*)?0*(\d{1,4})(?:\s*\/\s*(\d{4}))?$/i.exec(q.trim());
@@ -272,24 +275,37 @@ export async function searchRunPhotos(db:Queryable,user:Staff,input:unknown){
   if(run){w.push(`b.run_number=${q.v(run.number)}`);if(run.year)w.push(`b.run_year=${q.v(run.year)}`);}
   if(lnRuns)w.push(`b.id=ANY(${q.v(lnRuns)}::uuid[])`);return w;};
  const runDate=(q:ReturnType<typeof sql>)=>{const x=q.v(d.date);return `((b.created_at AT TIME ZONE 'Asia/Bangkok')::date=${x}::date OR EXISTS(SELECT 1 FROM lab_task_sheet t WHERE t.batch_id=b.id AND (t.planned_work_date=${x}::date OR (t.execution_started_at AT TIME ZONE 'Asia/Bangkok')::date=${x}::date)))`;};
- const pq=sql(),photoWhere=[...runLevel(pq),`(p.state='Active' OR ${pq.v(d.includeRetracted)}::boolean)`];
- if(d.date)photoWhere.push(`(p.taken_on=${pq.v(d.date)}::date OR ${runDate(pq)})`);
- if(d.sample){const n=pq.v(d.sample);photoWhere.push(`p.sample_from<=${n}::int AND p.sample_to>=${n}::int`);}
- if(d.text)photoWhere.push(`p.caption ILIKE ${pq.v(like(d.text))} ESCAPE '\'`);
- const photos=criteria?(await db.query<PhotoRow&{uploader:string;retractor:string|null;run_label:string}>(`SELECT ${PHOTO_COLS},u.display_name uploader,x.display_name retractor,b.run_label ${PHOTO_FROM} JOIN lab_batch b ON b.id=p.batch_id
-  WHERE ${photoWhere.join(' AND ')} ORDER BY p.taken_on DESC,p.uploaded_at DESC LIMIT 300`,pq.values)).rows:[];
- // Runs meeting the Run criteria (for a date: the Run date or a photo taken that day); with only photo criteria, the photos' Runs.
+ // One predicate for the photo list, the photo count and the choice of Runs, so the three always agree. ESCAPE is a single backslash
+ // (the template needs '\\'): the previous '\' collapsed to an empty escape string, so a caption search for "%" or "_" never matched.
+ const photoPredicate=(q:ReturnType<typeof sql>)=>{const w=[...runLevel(q),`(p.state='Active' OR ${q.v(d.includeRetracted)}::boolean)`];
+  if(d.date)w.push(`(p.taken_on=${q.v(d.date)}::date OR ${runDate(q)})`);
+  if(d.sample){const n=q.v(d.sample);w.push(`p.sample_from<=${n}::int AND p.sample_to>=${n}::int`);}
+  if(d.text)w.push(`p.caption ILIKE ${q.v(like(d.text))} ESCAPE '\\'`);
+  return w;};
+ const pq=sql(),photoWhere=photoPredicate(pq);
+ const photoRows=criteria?(await db.query<PhotoRow&{uploader:string;retractor:string|null;run_label:string}>(`SELECT ${PHOTO_COLS},u.display_name uploader,x.display_name retractor,b.run_label ${PHOTO_FROM} JOIN lab_batch b ON b.id=p.batch_id
+  WHERE ${photoWhere.join(' AND ')} ORDER BY p.taken_on DESC,p.uploaded_at DESC,p.id DESC LIMIT ${SEARCH_PHOTO_CAP+1}`,pq.values)).rows:[];
+ const photosTruncated=photoRows.length>SEARCH_PHOTO_CAP,photos=photoRows.slice(0,SEARCH_PHOTO_CAP);
+ const photoTotal=!criteria?0:photosTruncated?Number((await db.query<{n:string}>(`SELECT count(*)::text n ${PHOTO_FROM} JOIN lab_batch b ON b.id=p.batch_id WHERE ${photoWhere.join(' AND ')}`,pq.values)).rows[0].n):photos.length;
+ // Runs meeting the Run criteria (for a date: the Run date or a photo taken that day); with only photo criteria, every Run that has a matching
+ // photo - chosen by the predicate itself, not from the (capped) list of photos above, so a Run is never missed because of the cap.
  const rq=sql();let runWhere:string;
+ const withPhotos=()=>`b.id IN (SELECT p.batch_id FROM run_photo p JOIN lab_batch b ON b.id=p.batch_id WHERE ${photoPredicate(rq).join(' AND ')})`;
  if(!criteria)runWhere='true';
- else if(!run&&!lnRuns&&!d.date)runWhere=`b.id=ANY(${rq.v([...new Set(photos.map(x=>x.batch_id))])}::uuid[])`;
+ else if(!run&&!lnRuns&&!d.date)runWhere=withPhotos();
  else{const w=runLevel(rq);if(d.date)w.push(`(${runDate(rq)} OR EXISTS(SELECT 1 FROM run_photo q WHERE q.batch_id=b.id AND q.taken_on=${rq.v(d.date)}::date))`);
-  if(d.sample||d.text)w.push(`b.id=ANY(${rq.v([...new Set(photos.map(x=>x.batch_id))])}::uuid[])`);runWhere=w.join(' AND ');}
+  if(d.sample||d.text)w.push(withPhotos());runWhere=w.join(' AND ');}
+ const runBlock=criteria?200:60;
+ const runTotal=Number((await db.query<{n:string}>(`SELECT count(*)::text n FROM lab_batch b WHERE ${runWhere}`,rq.values)).rows[0].n);
  const runs=(await db.query<{id:string;run_label:string;state:string;created_at:Date;work_dates:string[];photos:number;latest:string|null}>(`SELECT b.id,b.run_label,b.state,b.created_at,
   ARRAY(SELECT DISTINCT t.planned_work_date::text FROM lab_task_sheet t WHERE t.batch_id=b.id AND t.planned_work_date IS NOT NULL ORDER BY 1) work_dates,
   (SELECT count(*) FROM run_photo q WHERE q.batch_id=b.id AND q.state='Active')::int photos,(SELECT max(q.taken_on)::text FROM run_photo q WHERE q.batch_id=b.id AND q.state='Active') latest
-  FROM lab_batch b WHERE ${runWhere} ORDER BY b.created_at DESC LIMIT ${criteria?200:60}`,rq.values)).rows;
+  FROM lab_batch b WHERE ${runWhere} ORDER BY b.created_at DESC,b.id DESC LIMIT ${runBlock} OFFSET ${d.runsOffset}`,rq.values)).rows;
  const byRun=new Map<string,Match[]>();for(const m of matches){if(!byRun.has(m.batch_id))byRun.set(m.batch_id,[]);byRun.get(m.batch_id)!.push(m);}
+ const nextRunsOffset=d.runsOffset+runs.length;
  return {criteria,
+  /** Exact totals (never the capped list lengths): Runs matching, photos matching, and whether the photo list hit its cap. */
+  runTotal,hasMoreRuns:nextRunsOffset<runTotal,nextRunsOffset,photoTotal,photosTruncated,photoCap:SEARCH_PHOTO_CAP,
   runs:runs.map(r=>({id:r.id,runLabel:r.run_label,state:r.state,createdAt:r.created_at,workDates:r.work_dates,photos:r.photos,latestTakenOn:r.latest})),
   lnMatches:matches.map(m=>({batchId:m.batch_id,runLabel:m.run_label,slot:m.slot_number,ordinal:m.ordinal,removed:m.removed,sampleCode:m.printed_sample_id??m.ln_halos,lnHis:m.ln,lnHalos:m.ln_halos,round:m.round_number})),
   photos:photos.map(x=>{const own=byRun.get(x.batch_id)??[];
