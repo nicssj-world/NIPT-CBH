@@ -7,7 +7,7 @@ import {FileStore} from "../../../packages/storage";
 import {readActiveSettings} from "../../../packages/settings/service";
 import {SETTINGS} from "../../../packages/settings/catalog";
 import {inboundHealth} from "../../../packages/inbound/health";
-import {inboundQueue} from "../../../packages/inbound/queue";
+import {inboundQueuePage} from "../../../packages/inbound/queue";
 import {ResolutionError} from "../../../packages/inbound/resolution";
 import type {Principal} from "../../../packages/security/policy";
 import {apiError} from "../http";
@@ -17,10 +17,10 @@ export async function inboundSettings(){const s=await readActiveSettings(pool())
 export const inboundStore=()=>new FileStore(path.resolve(/* turbopackIgnore: true */ process.env.FILE_STORE_ROOT||"data/files"));
 export async function inboundDeps(){return {store:inboundStore(),lookupKey:await readFile(/* turbopackIgnore: true */ process.env.IDENTITY_LOOKUP_KEY_FILE??"")};}
 
-export async function inboundPageData(user:Principal){
+export async function inboundPageData(user:Principal,params:Record<string,unknown>={}){
  const settings=await inboundSettings();
  const [health,queue,test]=await Promise.all([
-  inboundHealth(pool(),settings),inboundQueue(pool(),user,300),
+  inboundHealth(pool(),settings),inboundQueuePage(pool(),user,params),
   pool().query<{result:{passed:boolean;checks:{code:string;passed:boolean}[];dayFolders:number;pairedPetFiles:number;sampleParse:string;errorCode:string|null};completed_at:Date}>("SELECT r.result,r.completed_at FROM integration_job_receipt r JOIN job_outbox o ON o.id=r.outbox_id WHERE o.kind='synthetic_inbound_test' ORDER BY r.completed_at DESC LIMIT 1")
  ]);
  return {settings:{enabled:settings.enabled,intervalSeconds:settings.intervalSeconds,lookbackDays:settings.lookbackDays},health,queue,lastTest:test.rows[0]??null};

@@ -7,7 +7,7 @@ import {useId,useState,type ReactNode} from "react";
  * only renders "แสดง X–Y จาก Z", page-size choice, first/previous/next/last and a jump-to-page box.
  * Two modes, same markup: state mode (client lists: callbacks) and URL mode (server-rendered pages: ordinary links, deep-linkable). */
 export const PAGER_SIZES=[25,50,100] as const;
-type Common={page:number;pageSize:number;total:number;totalPages:number;label:string;sizes?:readonly number[];busy?:boolean};
+type Common={page:number;pageSize:number;total:number;totalPages:number;label:string;sizes?:readonly number[];busy?:boolean;pageParam?:string;sizeParam?:string};
 export type PagerProps=Common&({onPage:(page:number)=>void;onSize:(size:number)=>void;basePath?:undefined;params?:undefined}|{basePath:string;params:Record<string,string|undefined>;onPage?:undefined;onSize?:undefined});
 
 export function pagerRange(page:number,pageSize:number,total:number){return total===0?{from:0,to:0}:{from:(page-1)*pageSize+1,to:Math.min(total,page*pageSize)};}
@@ -15,7 +15,7 @@ export function pagerRange(page:number,pageSize:number,total:number){return tota
 export function Pager(p:PagerProps){
  const router=useRouter(),sizeId=useId(),jumpId=useId(),sizes=p.sizes??PAGER_SIZES;
  const [jump,setJump]=useState("");
- const href=(page:number,size=p.pageSize)=>{const q=new URLSearchParams();for(const [k,v] of Object.entries(p.params??{}))if(v)q.set(k,v);q.set("page",String(page));q.set("pageSize",String(size));return `${p.basePath}?${q}`;};
+ const href=(page:number,size=p.pageSize)=>{const q=new URLSearchParams();for(const [k,v] of Object.entries(p.params??{}))if(v)q.set(k,v);q.set(p.pageParam??"page",String(page));q.set(p.sizeParam??"pageSize",String(size));return `${p.basePath}?${q}`;};
  const go=(page:number)=>{const n=Math.min(Math.max(1,page),p.totalPages);if(p.onPage)p.onPage(n);else router.push(href(n));};
  const size=(n:number)=>{if(p.onSize)p.onSize(n);else router.push(href(1,n));};
  const {from,to}=pagerRange(p.page,p.pageSize,p.total),first=p.page<=1,last=p.page>=p.totalPages;

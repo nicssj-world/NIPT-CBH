@@ -3,6 +3,7 @@ import {authorize,requirePermission} from "../../../../packages/security/policy"
 import {inboundPageData} from "../../../server/p3/inbound";
 import {ScanButton} from "../../../components/system-actions";
 import {TestConnectionButton,DeepScanForm,IssueActions,actionLabel} from "../../../components/p3/inbound-actions";
+import {Pager} from "../../../components/shared/pager";
 
 const KIND:Record<string,string>={UNLINKED:"ยังไม่มีเคสในระบบ — รอลงทะเบียน",IDENTITY_MISMATCH:"ตัวระบุไม่ตรงกับที่ผู้ลงทะเบียนบันทึก",IDENTITY_UNVERIFIED:"ไม่มีตัวระบุอิสระให้เทียบ",LN_REUSED_OR_CHANGED:"ข้อมูลตัวตนจาก HIS เปลี่ยนหลังรับรอบที่ 1",LN_REUSED_DIFFERENT_PATIENT:"LN ถูกใช้กับผู้ป่วยอื่น (HN ต่างกัน)",S1_INTEGRITY_EVENT:"ไฟล์ของรอบที่ 1 ส่งมาอีกพร้อมข้อมูลที่เปลี่ยน",HISTORICAL_LN_INTAKE:"LN เป็นเคสย้อนหลัง — ไม่นำไปใช้"};
 const FIELD:Record<string,string>={hn:"HN",name:"ชื่อ",dob:"วันเกิด",sex:"เพศ",identity:"เลขประจำตัว",receivedAt:"เวลารับใน HIS",specimenAt:"เวลาเก็บตัวอย่าง",orderAt:"เวลาสั่งตรวจ",ward:"หอผู้ป่วย"};
@@ -13,10 +14,13 @@ const SHARE:Record<string,string>={UP:"เข้าถึงได้",DOWN:"เ
 const ALERT:Record<string,string>={INBOUND_NOT_ALIVE:"เปิดใช้งานแต่ไม่มีการสแกนล่าสุด — ตรวจ Worker",INBOUND_SHARE_UNAVAILABLE:"เข้าถึงโฟลเดอร์ตัวจำลองไม่ได้ ระบบจะลองใหม่อัตโนมัติ",OK_SENTINEL_OVERDUE:"มีไฟล์ .pet ที่ยังไม่มี .ok เกิน 15 นาที",PET_PARSE_ERRORS:"มีไฟล์อ่านไม่ได้ใน 24 ชั่วโมง",INBOUND_PARTIAL_FAILURE:"การสแกนล่าสุดสำเร็จบางส่วน — ดูรหัสข้อผิดพลาด"};
 const when=(v:Date|string|null)=>v?new Date(v).toLocaleString("th-TH",{timeZone:"Asia/Bangkok"}):"ยังไม่มีข้อมูล";
 
-export default async function InboundPage(){
+export default async function InboundPage({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}){
  const user=(await currentUser())!;requirePermission(user,"his.scan",{},"read");
- const {settings,health,queue,lastTest}=await inboundPageData(user);
- const review=queue.issues.filter(i=>i.kind!=="UNLINKED"),unlinked=queue.issues.filter(i=>i.kind==="UNLINKED");
+ const sp=await searchParams,one=(k:string)=>{const v=sp[k];return Array.isArray(v)?v[0]:v;};
+ const {settings,health,queue,lastTest}=await inboundPageData(user,{issuesPage:one("issuesPage"),unlinkedPage:one("unlinkedPage"),filesPage:one("filesPage"),pageSize:one("pageSize"),q:one("q")});
+ const review=queue.review.rows,unlinked=queue.unlinked.rows;
+ // The three lists page independently; each pager keeps the other pages, the page size and the search.
+ const keep=()=>({q:queue.search.q||undefined,issuesPage:String(queue.review.page.number),unlinkedPage:String(queue.unlinked.page.number),filesPage:String(queue.files.page.number)}); // a pager overwrites its own page and size keys
  const canScan=authorize(user,"his.scan",{},"write"),canConfigure=authorize(user,"integration.configure",{},"write");
  const canPropose=authorize(user,"his.conflict.resolve",{},"propose"),canApprove=authorize(user,"his.conflict.resolve",{actorId:"another-person"},"approve");
  return <>
@@ -39,33 +43,36 @@ export default async function InboundPage(){
    {canConfigure&&<TestConnectionButton/>}
    {lastTest&&<p className="help">ทดสอบล่าสุด {when(lastTest.completed_at)}: {lastTest.result.passed?"ผ่าน":"ไม่ผ่าน"} · โฟลเดอร์วัน {lastTest.result.dayFolders} · คู่ .pet/.ok {lastTest.result.pairedPetFiles} · อ่านตัวอย่าง {lastTest.result.sampleParse}{lastTest.result.errorCode?` · ${lastTest.result.errorCode}`:""}</p>}
   </section>}
-  <section className="panel" aria-labelledby="inbound-issues"><h2 id="inbound-issues">รายการที่ต้องตรวจ ({review.length})</h2>
+  {queue.search.enabled&&<section className="panel" aria-label="ค้นหา LN"><form className="search-form" role="search" method="get" action="/inbound"><div className="field"><label htmlFor="inbound-q">ค้นหา LN (รายการที่ต้องตรวจ รอลงทะเบียน และไฟล์)</label><input id="inbound-q" name="q" type="search" defaultValue={queue.search.q} maxLength={40} autoComplete="off"/></div><input type="hidden" name="pageSize" value={queue.review.page.size}/><button className="button">ค้นหา</button>{queue.search.q&&<a className="button secondary" href={`/inbound?pageSize=${queue.review.page.size}`}>ล้าง</a>}</form></section>}
+  <section className="panel" aria-labelledby="inbound-issues"><h2 id="inbound-issues">รายการที่ต้องตรวจ ({queue.review.page.total})</h2>
    <p className="help">ไม่แสดงชื่อ HN หรือวันเกิดจาก HIS — ให้ตรวจกับหน้าจอ HIS และเอกสาร/หลอดเลือดโดยตรง การแก้ไขต้องมีผู้เสนอและผู้รับรองคนละคน</p>
    {review.length?<ul className="registry">{review.map(i=><li className="registry-row" key={i.id}>
     <div><span className="registry-label">LN</span><strong>{i.ln}</strong></div>
     <div><span className="registry-label">ชนิด</span>{KIND[i.kind]??i.kind}</div>
     <div><span className="registry-label">ข้อมูลที่ต่างกัน</span>{i.fields.length?i.fields.map(x=>FIELD[x]??x).join(", "):"—"}{i.proposal&&<><br/><span className="status">เสนอแล้ว: {actionLabel(i.proposal.action)}</span></>}</div>
     <details><summary className="min-h-11 cursor-pointer py-2">ดำเนินการ<span className="sr-only"> LN {i.ln}</span></summary><IssueActions issueId={i.id} ln={i.ln??""} allowedActions={i.allowedActions} caseId={i.caseId} proposal={i.proposal} canPropose={canPropose} canApprove={canApprove}/></details>
-   </li>)}</ul>:<p>ไม่มีรายการค้าง</p>}
+   </li>)}</ul>:<p>{queue.search.q?"ไม่มีรายการที่ตรงกับ LN ที่ค้น":"ไม่มีรายการค้าง"}</p>}
+   <Pager label="รายการที่ต้องตรวจ" basePath="/inbound" params={keep()} pageParam="issuesPage" page={queue.review.page.number} pageSize={queue.review.page.size} total={queue.review.page.total} totalPages={queue.review.page.totalPages}/>
   </section>
-  <section className="panel" aria-labelledby="inbound-unlinked"><h2 id="inbound-unlinked">รอลงทะเบียน ({unlinked.length})</h2>
+  <section className="panel" aria-labelledby="inbound-unlinked"><h2 id="inbound-unlinked">รอลงทะเบียน ({queue.unlinked.page.total})</h2>
    <p className="help">ไฟล์ที่ยังไม่มีเคสในระบบ จะเชื่อมอัตโนมัติเมื่อ ANC/Lab ลงทะเบียน LN นั้นและตัวระบุที่กรอกตรงกัน (ไม่แสดงค่าจาก HIS ก่อนกรอก)</p>
-   {unlinked.length?<ul className="registry">{unlinked.slice(0,30).map(i=><li className="registry-row" key={i.id}>
+   {unlinked.length?<ul className="registry">{unlinked.map(i=><li className="registry-row" key={i.id}>
     <div><span className="registry-label">LN</span><strong>{i.ln}</strong></div><div><span className="registry-label">พบเมื่อ</span>{when(i.createdAt)}</div>
     <div>{i.proposal&&<span className="status">เสนอแล้ว: {actionLabel(i.proposal.action)}</span>}</div>
     <details><summary className="min-h-11 cursor-pointer py-2">ปิดรายการ<span className="sr-only"> LN {i.ln}</span></summary><IssueActions issueId={i.id} ln={i.ln??""} allowedActions={i.allowedActions} caseId={i.caseId} proposal={i.proposal} canPropose={canPropose} canApprove={canApprove}/></details>
-   </li>)}</ul>:<p>ไม่มีไฟล์รอลงทะเบียน</p>}
-   {unlinked.length>30&&<p className="help">แสดง 30 รายการแรกจาก {unlinked.length} รายการ</p>}
+   </li>)}</ul>:<p>{queue.search.q?"ไม่มีรายการที่ตรงกับ LN ที่ค้น":"ไม่มีไฟล์รอลงทะเบียน"}</p>}
+   <Pager label="รอลงทะเบียน" basePath="/inbound" params={keep()} pageParam="unlinkedPage" page={queue.unlinked.page.number} pageSize={queue.unlinked.page.size} total={queue.unlinked.page.total} totalPages={queue.unlinked.page.totalPages}/>
   </section>
-  {queue.waiting.length>0&&<section className="panel" aria-labelledby="inbound-waiting"><h2 id="inbound-waiting">ไฟล์ที่ยังไม่มี .ok ({queue.waiting.length})</h2><p className="help">ระบบจะไม่อ่านไฟล์จนกว่า HIS จะสร้าง .ok คู่กัน</p>
-   <ul className="registry">{queue.waiting.map(w=><li className="registry-row" key={w.dayFolder+w.ln}><div><span className="registry-label">LN</span>{w.ln}</div><div><span className="registry-label">โฟลเดอร์วัน</span>{w.dayFolder}</div><div><span className="registry-label">พบครั้งแรก</span>{when(w.firstSeenAt)}</div><div/></li>)}</ul></section>}
-  <section className="panel" aria-labelledby="inbound-files"><h2 id="inbound-files">ไฟล์ล่าสุด</h2>
-   {queue.files.length?<ul className="registry">{queue.files.slice(0,30).map(x=><li className="registry-row" key={x.id}>
+  {queue.waiting.total>0&&<section className="panel" aria-labelledby="inbound-waiting"><h2 id="inbound-waiting">ไฟล์ที่ยังไม่มี .ok ({queue.waiting.total})</h2><p className="help">ระบบจะไม่อ่านไฟล์จนกว่า HIS จะสร้าง .ok คู่กัน</p>
+   <ul className="registry">{queue.waiting.rows.map(w=><li className="registry-row" key={w.dayFolder+w.ln}><div><span className="registry-label">LN</span>{w.ln}</div><div><span className="registry-label">โฟลเดอร์วัน</span>{w.dayFolder}</div><div><span className="registry-label">พบครั้งแรก</span>{when(w.firstSeenAt)}</div><div/></li>)}</ul></section>}
+  <section className="panel" aria-labelledby="inbound-files"><h2 id="inbound-files">ไฟล์ล่าสุด ({queue.files.page.total})</h2>
+   {queue.files.rows.length?<ul className="registry">{queue.files.rows.map(x=><li className="registry-row" key={x.id}>
     <div><span className="registry-label">LN</span><strong>{x.ln}</strong></div>
     <div><span className="registry-label">โฟลเดอร์วัน / รุ่น</span>{x.dayFolder} · v{x.pathVersion}</div>
     <div><span className="registry-label">สถานะ</span><span className={`status ${x.state==="Applied(S1)"?"good":""}`}>{STATE[x.state]??x.state}</span>{x.errorCode&&<> · รหัส {x.errorCode}</>}</div>
     <div><span className="registry-label">พบเมื่อ</span>{when(x.discoveredAt)}</div>
-   </li>)}</ul>:<p>ยังไม่มีไฟล์จากตัวจำลอง</p>}
+   </li>)}</ul>:<p>{queue.search.q?"ไม่มีไฟล์ที่ตรงกับ LN ที่ค้น":"ยังไม่มีไฟล์จากตัวจำลอง"}</p>}
+   <Pager label="ไฟล์ล่าสุด" basePath="/inbound" params={keep()} pageParam="filesPage" page={queue.files.page.number} pageSize={queue.files.page.size} total={queue.files.page.total} totalPages={queue.files.page.totalPages}/>
   </section>
   <section className="panel" aria-labelledby="inbound-runs"><h2 id="inbound-runs">ประวัติการสแกน</h2>
    {queue.runs.length?<ul className="registry">{queue.runs.map(r=><li className="registry-row" key={r.id}>
