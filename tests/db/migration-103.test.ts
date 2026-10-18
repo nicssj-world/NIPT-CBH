@@ -48,7 +48,7 @@ async function upgradeChecks(db:Queryable,dir:string){
  for(const t of added)expect(after[t].startsWith('0:'),t).toBe(true);
  // 099–102 ledger rows are unchanged; 103 is recorded with the checksum the photo branch shipped.
  const now=await ledger();expect(now.slice(0,ledgerBefore.length)).toEqual(ledgerBefore);
- expect(now.at(-1)).toEqual({name:PHOTO,checksum:PHOTO_SHA});
+ expect(now.find(r=>r.name===PHOTO)).toEqual({name:PHOTO,checksum:PHOTO_SHA});
  // Idempotent: a second run changes nothing.
  await migrate(db);expect(await ledger()).toEqual(now);expect(await snapshot(db)).toEqual(after);
  // The 102-era Lab workflow still runs on the upgraded schema (photos never gate a Run).
@@ -60,7 +60,7 @@ it('the bundle has one file per number from 096 on; Consent keeps 102 and Run Ph
  const files=await bundle();
  const recent=files.filter(f=>f>='096');const numbers=recent.map(f=>f.slice(0,3));
  expect(new Set(numbers).size).toBe(numbers.length);
- expect(recent.slice(-2)).toEqual([CONSENT,PHOTO]);
+ expect(recent.slice(recent.indexOf(CONSENT),recent.indexOf(CONSENT)+2)).toEqual([CONSENT,PHOTO]); // later forward migrations may follow
  expect(sha(PHOTO)).toBe(PHOTO_SHA);expect(files).not.toContain('102_run_photo_evidence.sql');
  expect(readFileSync('docs/migrations.md','utf8')).toContain(`| ${PHOTO} | ${PHOTO_SHA} |`);
 });
