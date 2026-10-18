@@ -127,15 +127,12 @@ describe('schema compatibility gates',()=>{
 
 describe('ledger parsing',()=>{
  it('is not fooled by Windows CRLF line endings (a trailing CR once turned every matching checksum into a mismatch)',()=>{
-  const lf=parseLedgerOutput('001_a.sql|h1
-002_b.sql|h2
-'),crlf=parseLedgerOutput('001_a.sql|h1
-002_b.sql|h2
-');
+  const LF=String.fromCharCode(10),CRLF=String.fromCharCode(13,10);
+  const rows=['001_a.sql|h1','002_b.sql|h2'];
+  const lf=parseLedgerOutput(rows.join(LF)+LF),crlf=parseLedgerOutput(rows.join(CRLF)+CRLF);
   expect(crlf).toEqual(lf);expect(crlf).toEqual([{name:'001_a.sql',checksum:'h1'},{name:'002_b.sql',checksum:'h2'}]);
   expect(schemaCompatibility({ledger:crlf,releaseMigrations:{'001_a.sql':'h1','002_b.sql':'h2'}}).compatibleWithDatabase).toBe(true);
-  expect(parseLedgerOutput('')).toEqual([]);expect(parseLedgerOutput('
-')).toEqual([]);
+  expect(parseLedgerOutput('')).toEqual([]);expect(parseLedgerOutput(CRLF)).toEqual([]);
  });
 });
 
