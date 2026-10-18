@@ -80,7 +80,9 @@ test("Settings: the active template set chosen in Settings is the one the previe
  try{
   const choose=async(id:string)=>{await cert.page.goto("/settings?key=request_consent");await cert.page.getByLabel("ชุดแบบฟอร์มที่ใช้งาน (Request + Consent)").fill(id);
    await cert.page.getByLabel("เหตุผลที่เปลี่ยน").fill("จำลอง: เปลี่ยนชุดแบบฟอร์ม");await cert.page.getByRole("button",{name:"บันทึกร่าง",exact:true}).click();await expect(cert.page.getByRole("status").filter({hasText:"บันทึกร่างแล้ว"})).toBeVisible();
-   await cert.page.getByRole("button",{name:"ทดสอบร่าง",exact:true}).first().click();await expect(cert.page.getByRole("status").filter({hasText:"ทดสอบร่างแล้ว"})).toBeVisible();};
+   // Drafts saved in the same second can list in either order: test the newest revision number, not the first row.
+   const items=cert.page.locator("ul.timeline > li");const versions=await items.evaluateAll(els=>els.map(e=>Number(/รุ่น (\d+)/.exec(e.textContent??"")?.[1]??0)));
+   await items.nth(versions.indexOf(Math.max(...versions))).getByRole("button",{name:"ทดสอบร่าง",exact:true}).click();await expect(cert.page.getByRole("status").filter({hasText:"ทดสอบร่างแล้ว"})).toBeVisible();};
   await choose("CBH-BM17-SECOND-SET");
   await approver.page.goto("/settings?key=request_consent");await approver.page.getByRole("button",{name:"อนุมัติ (ผู้ตรวจอีกคน)"}).first().click();await approver.page.getByRole("button",{name:"เปิดใช้รุ่นที่อนุมัติแล้ว"}).first().click();
   await expect(approver.page.getByRole("status").filter({hasText:"บันทึกการเปลี่ยนแปลงแล้ว"})).toBeVisible();
