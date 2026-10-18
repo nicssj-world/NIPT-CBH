@@ -27,7 +27,7 @@ const page=(raw:Record<string,unknown>={},user=lab)=>inboundQueuePage(q(),user,r
 describe('inbound lists page independently with exact totals',()=>{
  it('every open issue is reachable once, oldest first; both groups have their own totals',async()=>{
   for(const [group,total] of [['review',REVIEW],['unlinked',UNLINKED]] as const){
-   const key=group==='review'?'issuesPage':'unlinkedPage',seen:string[]=[];let created:number[]=[],p=1,pages=1;
+   const key=group==='review'?'issuesPage':'unlinkedPage',seen:string[]=[],created:number[]=[];let p=1,pages=1;
    do{const d=await page({[key]:p,pageSize:25});const g=d[group];expect(g.page.total).toBe(total);pages=g.page.totalPages;seen.push(...g.rows.map(i=>i.id));created.push(...g.rows.map(i=>+new Date(i.createdAt)));p++;}while(p<=pages);
    expect(seen).toHaveLength(total);expect(new Set(seen).size).toBe(total);expect(pages).toBe(Math.ceil(total/25));
    expect(created,group).toEqual([...created].sort((a,b)=>a-b)); // Workflow order: oldest first, across pages
