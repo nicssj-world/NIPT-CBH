@@ -76,8 +76,8 @@ Installation-owned = operator/deployment responsibility; Locked = intentional fi
 | Lookback | §13.2 #5 | pet_scan_days_back | his_inbound.lookbackDays | Implemented | P3 | — |
 | เปิด/ปิดการสแกน | §13.2 #5 | pet_autoimport_enabled | his_inbound.enabled | Implemented | P3 | — |
 | Deep scan / Scan now / ดู Log | §13.2 #5 | — | หน้า รับใบสั่งจาก HIS | Implemented | P3 | — |
-| Test Connection (Read-only) | §13.2 #5 | test_path(read_only) | synthetic_inbound_test (Worker) | Implemented | P3 | — |
-| เกณฑ์เตือน .ok ขาด | §13.2 #5 | — | his_inbound_waiting | Partial | P3 | บันทึกไฟล์ที่รอ .ok แต่ยังไม่มีเกณฑ์เตือนแบบตั้งค่าได้ |
+| Test Connection (Read-only) | §13.2 #5 | test_path(read_only) | synthetic_inbound_test (Worker) | Implemented | P3 | Worker test of the draft before approval; the HIS panel also shows which revision the running Worker last used and the last scan result/error (Settings acceptance 2026-10-18) |
+| เกณฑ์เตือน .ok ขาด | §13.2 #5 | — | his_inbound_waiting | Partial | P3 | Last scan shows waiting-.ok and unreadable PET counts on the HIS panel; a configurable overdue threshold is still not defined |
 | Credential (Secret ref) | §13.2 #5 | — | his_inbound.secretRef | Implemented | P3/P6 | อ้างอิง Credential ที่ IT ผูกกับ Service Account ใน Share Policy; ไม่เก็บรหัสผ่านใน Settings |
 | แหล่งวันที่เก็บตัวอย่างของ S1 | §13.2 #5 (OD-14) | — | — | HOLD | P3 | OD-14 |
 | นำเข้า STAT workload (.txt) | — | path_workload, auto_scan_min | — | Locked | P3 | STAT replacement by PET is an intentional architectural lock, not an editable integration |
@@ -119,7 +119,7 @@ Installation-owned = operator/deployment responsibility; Locked = intentional fi
 | ห้ามนำเข้า/เชื่อมโยง/รับรอง/ปล่อยผลอัตโนมัติจากการสแกน | Owner A23 | — | SCHEDULED_SCAN_LIST_ONLY (Worker) | Implemented | P5 | บังคับในโค้ดและทดสอบว่าการสแกนตามรอบไม่สร้าง Intake/Report |
 | ตรวจไฟล์ซ้ำด้วย SHA-256 + เตือนชื่อซ้ำเนื้อหาต่าง | Owner A14 | file_hash, raw_filename (import_log) | result_report_version.sha256 + nameConflicts + result_link_event.name_review | Implemented | P5 | Owner A14: ไม่ข้ามเพราะชื่อซ้ำ; ต้องรับทราบตอนนำเข้าและจัดประเภทใหม่/ฉบับแก้ไขโดยสองคน |
 | รุ่น Template / Parser | §13.2 #7 | — | PARSER_VERSION, TEMPLATE_VERSIONS | Partial | P5 | Actual parser/template versions are frozen per report. picVersion Setting is not parser selection; Owner/DCC approvals remain external |
-| PIC version | §13.2 #7 (OD-07) | — | result_management.picVersion | HOLD | P5 | OD-07; ใช้ MANUAL_REVIEWED เท่านั้น |
+| PIC version | §13.2 #7 (OD-07) | — | result_management.picVersion | HOLD | P5 | PIC (OD-07) stays HOLD. Separately Owner P5-A (2026-10-18, migration 100): result_management.linkageMode = UNIQUE_AUTO_LINK lets the system link only a single clean match (HN + lab number + DOB/pregnancy/collection/GA, no name conflict, empty series); default MANUAL_REVIEWED_ONLY; never releases or sends |
 | ความคลาดเคลื่อน GA | §13.2 #7 | — | result_management.gaToleranceDays | Implemented | P5 | ใช้ใน Cross-check RG-04 |
 | วิธียืนยันการรับรอง | §13.2 #7 (OD-05) | — | result_management.certificationMethod | HOLD | P5 | OD-05 |
 | การรับทราบผลผิดปกติ | §13.2 #7 | — | Dialog รับรอง (abnormalAcknowledged) | Implemented | P5 | บังคับเมื่อผล High Risk / Detected |

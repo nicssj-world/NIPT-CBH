@@ -28,7 +28,7 @@
 | OD-E / OD-E2 | Actual Library date differs after start | **APPROVED — implemented**; native annex **pending QA format acceptance** | Control IDs kept. F2-02 with a different date requires a short reason (`LIBRARY_DATE_DEVIATION_REASON_REQUIRED`). Chromium F2 Completed prints the basis line (planned date in IDs, actual date, reason). Native master Completed for a deviating sheet is held (`LIBRARY_DATE_DEVIATION_ANNEX_PENDING_QA`) because B4 alone would be ambiguous; pooling/sequencing are not blocked. |
 | OD-S / OD-T | Field mapping and identifier lock | **APPROVED — implemented** | `planned_work_date` labelled planned Library Preparation date (drives control IDs). F2-02 = actual Library Preparation date (B4). New F2-03 = actual DNA Extraction date: optional, informational, bound to no master cell. IDs locked at execution start (existing state machine). Approved master unchanged. Field inventory remains SEED_UNVERIFIED until Lab/QA sign-off. |
 | OD-L | Extra non-blocking date warnings | **APPROVED: none added** | Existing validation only (non-existent date, ISO year ≥ 2400, existing LOT warning) |
-| P5-A | Auto-match a unique, clean PDF | **APPROVED — partly implemented; migration needed for the rest** | Unique, conflict-free candidate (HN, DOB, pregnancy, collection date, GA, lab number; current round, latest live attempt; no name conflict or open revision) is shown as "ระบบจับคู่ได้ชัดเจน 1 รายการ" and proposed in one click. Never sends to HIS. A fully automatic link without a second person is blocked by migration-050 constraints (`link_mode<>'AUTO_PIC'`, `result_link_event.mode='MANUAL_REVIEWED'`, two-person trigger) and needs a new migration — not created (separate approval). |
+| P5-A | Auto-match a unique, clean PDF | **APPROVED incl. migration — implemented 2026-10-18** | Migration 100 (forward only, synthetic databases only): `AUTO_LINKED` / `AUTO_UNIQUE` with match evidence and DB guards. `autoLinkUnique` links only a single clean match (HN, DOB, pregnancy, collection date, GA, lab number; all cases searched; current round, latest attempt; empty series; no name conflict; no earlier human decision), at import and from the one-click button. Active while `result_management.linkageMode = UNIQUE_AUTO_LINK` (Settings maker-checker; default stays two-person). Never reviews, certifies, releases or sends. Evidence: [settings-operational-acceptance.md](settings-operational-acceptance.md) §5. |
 | P5-B | One confirmation for review/QC5/certification | **APPROVED — implemented (operational mode)** | "ตรวจรับ PDF และยืนยันส่งผล": one authorised person confirms external-final, identity/values, disclosure (+ abnormal ack); one transaction records review, QC5 and certification through the existing services; all RG gates, identity, version and consent checks unchanged; any failure rolls back. Synthetic mode keeps the separate steps. |
 
 ## Owner approvals recorded 2026-10-18
@@ -37,16 +37,20 @@ All eight questions of the earlier packet were approved by the Owner on 2026-10-
 
 ## Still needing a decision or acceptance
 
-1. **Migration approval for P5-A full auto-link** — relax the two migration-050 CHECKs and the link trigger for a system match mode. Without it, the second person still approves each link.
+1. **P5-A activation** — the code and migration are in place; switching `result_management.linkageMode` to `UNIQUE_AUTO_LINK` is one Settings maker-checker step by the authorised people (it is not switched on by default).
 2. **QA format acceptance for the OD-E2 annex** — how a native Completed shows planned vs actual Library date. Until then such sheets get no native Completed; analysis continues.
 3. **Lab/QA sign-off of the F2 field inventory** (still SEED_UNVERIFIED), including the new F2-03.
 4. **OD-R2 S3+ redraw rule** — operational orders beyond S2 stay refused.
+
+## Settings operational acceptance (2026-10-18)
+
+Every Settings category was traced to its consumer and proven with the `NIPTY_handover.zip` sample files ([settings-operational-acceptance.md](settings-operational-acceptance.md)). Proven gaps fixed: PET with an empty citizen ID, generic Settings error text, no Worker-in-use evidence. Not fixable without an Owner/DCC decision: global request/consent settings (no consumer, OD-06/DCC); backup is installation-owned.
 
 ## External and physical tests (not Owner questions)
 
 - **Hospital IT / HIS (AL-6):**
   - real share paths and ACLs;
-  - HIS acceptance of RES fields;
+  - HIS acceptance of RES fields, including P[7] DOB form (ZIP sample `1983-02-02`, NIPT-CBH `19830202`);
   - certifier HIS IDs;
   - the round-2 specimen date in RES P[23] (Q-I5);
   - HIS acknowledgment mechanism.

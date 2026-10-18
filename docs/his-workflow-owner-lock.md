@@ -51,7 +51,7 @@ Do not change the workflow below without written Owner approval. Do not design a
 1. **NIPT-CBH is not the NIPT analysis program.** The external program analyses the sample and produces the final report PDF.
 2. NIPT-CBH imports the PDF, matches it to LN, patient, round and attempt, shows it, and handles exceptions (unmatched, conflicting, duplicate, superseded).
 3. Owner P5-B (2026-10-18): one authorised person gives one confirmation, "ตรวจรับ PDF และยืนยันส่งผล", which records the review, QC5 and certification together. It is confirmation of the right report for the right patient, **not a second clinical analysis**. The release predicate (RG-01…13) is unchanged.
-   - Owner P5-A: a unique, conflict-free match is proposed automatically; it never sends to HIS by itself.
+   - Owner P5-A (migration 100): a single clean match may be linked by the system without a second person when the Settings switch is on; it never sends to HIS by itself.
 4. Identity checks, the choice of the correct (latest, non-superseded) report version, and release permissions must never be removed.
 
 ### 2.4 HIS result delivery
@@ -65,6 +65,7 @@ Do not change the workflow below without written Owner approval. Do not design a
 |---|---|---|---|---|
 | PET discovery | Read-only; `-7.pet` + `.ok`; test code 70096 | `packages/inbound/discovery.ts` `discoverInbound`, `packages/integrations/pet.ts` `parsePet` (CP874, field counts, O[18]=7, 70096) | CORRECT | — |
 | Identity match / registry | Match LN, HN and patient; never mis-link | `packages/inbound/process.ts` `processInboundFile` → `compareRegistrant`, `applyS1`; conflicts → `his_intake_issue` | CORRECT | — |
+| PET without citizen ID | Legacy `test_empty_citizen_id_ok` (fixture `2622370099-7.pet`, P[33] `301^`) parses | Operational `parsePet` rejected it (`INVALID_PATIENT_IDENTITY`), so the patient could never be received | INCORRECT | Fixed 2026-10-18: empty ID accepted (matching is LN + HN), present ID still validated; proven with the ZIP fixture |
 | Receive timestamp | HIS receipt time | `applyS1` sets `received_at`=P[21], `received_source='HIS_PET_RECEIPT'` | CORRECT | — |
 | Duplicate / changed PET | No double receipt | sha256 unique; `DuplicateSameContent`; `S1_INTEGRITY_EVENT` / `LN_REUSED_*` | CORRECT (stricter than legacy, by design) | — |
 | Second S1 reception in NIPT | Not allowed | `receiveRedraw` refuses S1 (`S1_RECEIVED_IN_HIS_ONLY`); the worklist states S1 is received in HIS only | CORRECT | — |
@@ -74,13 +75,13 @@ Do not change the workflow below without written Owner approval. Do not design a
 | S2 LN Halos / labels | Same base + R, D before R | `085` issuer, `specimenDisplayCode`, migration 099 | CORRECT | — |
 | S3+ | No silent stuck round | Ordered freely, never receivable | INCOMPLETE | Interim operational block (`REDRAW_BEYOND_S2_PENDING_OD_R2`); rule is OD-R2 |
 | PDF import / parse | Hash dedup, preview, confirm | `packages/results/intake.ts`, `service.ts` `confirmImport` (`Duplicate`) | CORRECT | — |
-| PDF matching | Legacy: unique HN match within date cutoff links automatically | `autoMatchCandidate` + `proposeAutoMatch`: unique clean match proposed in one click; second person approves (DB rule) | INCOMPLETE (P5-A approved) | Full auto-link needs a migration (separate approval) |
+| PDF matching | Legacy: unique HN match within date cutoff links automatically | `autoLinkUnique` (migration 100): only a single clean match (HN + lab number + DOB/pregnancy/collection/GA, all cases searched, empty series, no human decision) is linked by the system; anything else stays two-person | CORRECT (P5-A, 2026-10-18) | Active when `result_management.linkageMode = UNIQUE_AUTO_LINK` (Settings maker-checker; default two-person). Note: the ZIP's BGI numbers (`26P…`) are not LN Halos, so such reports stay manual. |
 | Review → QC5 → certify | Confirm the correct report; OD-04 lets one authorised person review and certify | `acceptAndRelease`: one "ตรวจรับ PDF และยืนยันส่งผล" (P5-B approved 2026-10-18) running the same services and RG gates | CORRECT (fixed) | — |
 | Superseded / wrong-patient report | Never delivered | RG-04 cross-check, RG-05 current attempt, RG-12 latest version, revision supersedes | CORRECT | — |
 | Release → outbound | Automatic, released only | `job_outbox` `result_release_completed` → `reserveReleasedResult` (eligibility re-checked) | CORRECT | — |
 | RES / PDF / OK | ZIP contract | `packages/p6/res.ts`, `transfer.ts`, `worker.ts`; legacy goldens in `tests/fixtures/p6` | CORRECT (wire); order PDF→RES→backup→OK is a Plan §10 safety change | — |
 | HIS confirmation | No claim from a file copy | `AWAITING_CONFIRMATION`, `PICKED_UP_UNCONFIRMED`, `hisConfirmed:false` | CORRECT | — |
-| Paths / settings | Editable, NIPT-owned | `his_outbound` settings (maker-checker), connection test | CORRECT | Real share and ACL test is IT (AL-6) |
+| Paths / settings | Editable, NIPT-owned | `his_inbound` / `result_management` / `his_outbound` Settings (maker-checker, Worker test); every value traced to its consumer in [settings-operational-acceptance.md](settings-operational-acceptance.md) | CORRECT | Real share and ACL test is IT (AL-6) |
 | Round-2 specimen date in RES P[23] | Not defined by legacy (legacy had no S2) | `round2SpecimenDatePolicy` must be set or reservation stops | UNVERIFIED | IT/HIS decision Q-I5 |
 
 **Not provable from the ZIPs:**
