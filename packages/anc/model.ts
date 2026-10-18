@@ -42,4 +42,4 @@ export function matches(c:QueueItem,f:Partial<Filters>):boolean {
  (!f.tab||f.tab==='all'||(f.tab==='redraw'?c.redraw:f.tab==='hold'?c.hold:metric(f.tab)))&&
  (!f.q||[c.ln,c.hn??'',c.id].some(v=>v.toLowerCase().includes(f.q!.trim().toLowerCase())));
 }
-export type Dashboard = {fiscalYear:number;generatedAt:string;scope:{unitIds:string[];allUnits:boolean};metrics:Record<'sent'|'pending'|'released'|'attention',number>;stages:{id:Stage;label:string;count:number}[];queue:{items:QueueItem[];total:number;page:number;pageSize:number};units:{id:string;name:string}[];limitations:string[]};
+export type Dashboard = {fiscalYear:number;generatedAt:string;asOf:string;scope:{unitIds:string[];allUnits:boolean};metrics:Record<'sent'|'pending'|'released'|'attention',number>;stages:{id:Stage;label:string;count:number}[];queue:{items:QueueItem[];total:number;page:number;pageSize:number;totalPages:number;nextCursor:string|null};units:{id:string;name:string}[];limitations:string[]};
