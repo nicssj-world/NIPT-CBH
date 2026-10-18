@@ -355,7 +355,7 @@ async function upgrade(){
  if(existsSync(next))fail('RELEASE_DIRECTORY_EXISTS');
  // compatibility of the new release with the live ledger
  pgStart(L,c);
- const ledger=psql(L,c,"SELECT name||'|'||checksum FROM schema_migration ORDER BY name").split('\n').filter(Boolean).map(l=>{const [name,checksum]=l.split('|');return {name,checksum};});
+ const ledger=ledgerOf(L,c);
  const newRelease=JSON.parse(readFileSync(path.join(packageDir,'payload','release','release.json'),'utf8'));
  const compat=schemaCompatibility({ledger,releaseMigrations:newRelease.migrations});
  if(!compat.compatibleWithDatabase)fail('UPGRADE_SCHEMA_INCOMPATIBLE',compat);
@@ -369,7 +369,7 @@ async function upgrade(){
  say('applying forward migrations ('+compat.pending.length+' pending)');
   const prov=nodeIn(L,path.join(next,'ops'),['--import','tsx','tools/win-installer/provision.ts','--root',L.root,'--phase','migrate'],appEnv(L,c,{...st,current:{...st.current,revision:m.revision}}));
  if(prov.status!==0){
-  const live=psql(L,c,"SELECT name||'|'||checksum FROM schema_migration ORDER BY name").split('\n').filter(Boolean).map(l=>{const [name,checksum]=l.split('|');return {name,checksum};});
+  const live=ledgerOf(L,c);
   const oldRelease=await readJson(path.join(releaseDir(L,st.current.version),'release.json'));
   const ok=canRollbackApplicationOnly({ledger:live,targetMigrations:oldRelease.migrations}).ok;
   const s=stateOf(L);history(L,s,ok?'UPGRADE_FAILED_MIGRATION_OLD_RELEASE_KEPT':'UPGRADE_FAILED_MIGRATION_RESTORE_REQUIRED',{to:m.version});
@@ -400,7 +400,7 @@ async function rollbackInternal(L,c,{reason}){
  if(!st.previous)fail('NO_PREVIOUS_RELEASE');
  await stopServices(L,{keepDatabase:true});pgStart(L,c);
  const target=st.previous,targetRelease=await readJson(path.join(releaseDir(L,target.version),'release.json'));
- const ledger=psql(L,c,"SELECT name||'|'||checksum FROM schema_migration ORDER BY name").split('\n').filter(Boolean).map(l=>{const [name,checksum]=l.split('|');return {name,checksum};});
+ const ledger=ledgerOf(L,c);
  const gate=canRollbackApplicationOnly({ledger,targetMigrations:targetRelease.migrations});
  if(!gate.ok){history(L,st,'ROLLBACK_REFUSED_SCHEMA',{reason:gate.reason,unknown:gate.unknown});await startServices(L,c).catch(()=>{});fail('ROLLBACK_REQUIRES_DATABASE_RESTORE',{reason:gate.reason,newerMigrations:gate.unknown,preUpgradeBackup:st.preUpgradeBackup??null});}
  const from=st.current;st.current=target;st.previous=from;saveState(L,st);
