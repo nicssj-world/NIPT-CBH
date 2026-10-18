@@ -36,7 +36,8 @@ async function event(db:Queryable,user:Principal,caseId:string,action:string,det
 }
 async function activeCase(db:Queryable,user:Staff,id:string,action:string){const c=await scopedCase(db,user,id,action,'write');if(!c.hn)throw new P2Error('IDENTITY_UNVERIFIED',409);await db.query('SELECT id FROM nipt_case WHERE id=$1 FOR UPDATE',[id]);if((await db.query('SELECT id FROM p2_revocation WHERE case_id=$1 LIMIT 1',[id])).rows[0])throw new P2Error('CONSENT_REVOKED_HOLD',409);return c;}
 async function workspace(db:Queryable,c:CaseScope,user:Staff){
- await db.query("INSERT INTO p2_workspace(round_id,case_id,draft,request_mode,consent_mode,updated_by) VALUES($1,$2,$3,$4,$4,$5) ON CONFLICT DO NOTHING",[c.current_round_id,c.id,emptyRequest,c.registration_origin==='LAB_DIRECT'?'Paper':'Electronic',user.id]);
+ await db.query("INSERT INTO p2_workspace(round_id,case_id,draft,request_mode,consent_mode,updated_by) VALUES($1,$2,$3,$4,'Electronic',$5) ON CONFLICT DO NOTHING",[c.current_round_id,c.id,emptyRequest,c.registration_origin==='LAB_DIRECT'?'Paper':'Electronic',user.id]);
+ // Paper Consent is a marker (Owner 2026-10-18) and must be an explicit selection (setModes), never a default: a LAB_DIRECT case starts with Electronic consent.
  return (await db.query<{round_id:string;case_id:string;version:number;draft:RequestDraft;request_mode:'Electronic'|'Paper';consent_mode:'Electronic'|'Paper'}>('SELECT * FROM p2_workspace WHERE round_id=$1 FOR UPDATE',[c.current_round_id])).rows[0];
 }
 async function invalidate(db:Queryable,caseId:string){await db.query("UPDATE p2_signing_session SET state='Invalidated',closed_at=now() WHERE case_id=$1 AND state='Active'",[caseId]);}

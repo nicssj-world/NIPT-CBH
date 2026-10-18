@@ -33,7 +33,9 @@ test("login keyboard, password manager, error and recovery",async({page})=>{
 test("case round details and session-bound PDF byte reuse",async({page,browser})=>{
  await login(page);await page.goto("/cases");await page.getByRole("link",{name:/ดูรายละเอียด/}).first().click();await expect(page.getByRole("heading",{name:"ประวัติรอบตัวอย่าง"})).toBeVisible();
  expect((await new AxeBuilder({page}).withTags(AA_TAGS).analyze()).violations).toEqual([]);
- await page.goto("/health");await page.getByRole("button",{name:"สร้าง PDF ทดสอบ",exact:true}).click();const link=page.getByRole("link",{name:"เปิด PDF ตัวอย่าง (แท็บใหม่)"});await expect(link).toBeVisible();const href=(await link.getAttribute("href"))!;
+ // The /health page no longer carries the P1 "สร้าง PDF ทดสอบ" button (replaced by the governed health console in 0fd4a89); the session-bound preview API behind it is unchanged, so it is exercised directly.
+ await page.goto("/health");const me=await page.request.get("/api/me").then(r=>r.json());
+ const created=await page.request.post("/api/pdf/preview",{headers:{"x-csrf-token":me.csrf,origin:process.env.E2E_BASE_URL??"http://127.0.0.1:3000"},data:{synthetic:true,reference:"SYNTHETIC-FOUNDATION",label:"ตัวอย่างเอกสารภาษาไทยสำหรับทดสอบระบบ"}});expect(created.ok()).toBe(true);const href=`/api/pdf/preview/${(await created.json()).id}`;
  const a=await page.request.get(href),b=await page.request.get(href);expect(a.ok()).toBe(true);expect((await a.body()).equals(await b.body())).toBe(true);
  const other=await browser.newContext({ignoreHTTPSErrors:process.env.E2E_IGNORE_LOCAL_TLS==="1",baseURL:process.env.E2E_BASE_URL??"http://127.0.0.1:3000",extraHTTPHeaders:{"x-real-ip":"synthetic-e2e-"+randomUUID()}});const otherPage=await other.newPage();await login(otherPage,"synthetic.anc");expect((await other.request.get(new URL(href,process.env.E2E_BASE_URL??"http://127.0.0.1:3000").href)).status()).toBe(403);await other.close();
 });
