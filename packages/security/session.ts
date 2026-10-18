@@ -6,6 +6,8 @@ import { hashPassword, verifyPassword } from "./password";
 export const IDLE_MS = 30 * 60_000;
 export const ABSOLUTE_MS = 8 * 60 * 60_000;
 export const LOCKOUT_MS = 15 * 60_000;
+/** Mirrors the locked Settings literal security.lockoutAttempts (asserted by tests/db/settings-consumers.test.ts). */
+export const LOCKOUT_ATTEMPTS = 5;
 export const digest = (value: string): string => createHash("sha256").update(value).digest("hex");
 export const token = (): string => randomBytes(32).toString("base64url");
 export function equalToken(a: string, b: string): boolean {
@@ -25,7 +27,7 @@ export async function authenticate(db: Queryable, username: string, password: st
   if (!user || !user.enabled || (user.locked_until && new Date(user.locked_until) > now)) return null;
   if (!valid) {
     const count = user.locked_until && new Date(user.locked_until) <= now ? 1 : user.failed_count + 1;
-    await db.query("UPDATE app_user SET failed_count=$2,locked_until=$3 WHERE id=$1", [user.id, count, count >= 5 ? new Date(now.getTime() + LOCKOUT_MS) : null]);
+    await db.query("UPDATE app_user SET failed_count=$2,locked_until=$3 WHERE id=$1", [user.id, count, count >= LOCKOUT_ATTEMPTS ? new Date(now.getTime() + LOCKOUT_MS) : null]);
     return null;
   }
   await db.query("UPDATE app_user SET failed_count=0,locked_until=NULL,last_login_at=$2 WHERE id=$1", [user.id,now]);

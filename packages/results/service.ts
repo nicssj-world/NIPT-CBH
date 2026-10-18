@@ -276,7 +276,8 @@ export async function autoLinkUnique(db:Queryable,actor:Staff,versionId:string):
 const AUTO_LINK_REFUSALS=/^(AUTO_LINK_[A-Z_]+|LINK_PROPOSAL_OPEN|VERSION_CONFLICT)$/;
 /** The import never fails because a system link lost a race: the version simply stays Unlinked for manual review. */
 async function tryAutoLink(db:Queryable,actor:Staff,versionId:string){
- await db.query('SAVEPOINT p5a_auto_link');
+ // Always called inside the import transaction (Results API withTransaction); outside one the system link is skipped, never half-done.
+ try{await db.query('SAVEPOINT p5a_auto_link');}catch{await audit(db,actor,'RESULT_AUTO_LINK_SKIPPED','RESULT_VERSION',versionId,{outcome:'Unlinked',reasonCode:'TRANSACTION_REQUIRED'});return {linked:false as const,reason:'TRANSACTION_REQUIRED'};}
  try{const r=await autoLinkUnique(db,actor,versionId);await db.query('RELEASE SAVEPOINT p5a_auto_link');
   if(!r.linked&&r.reason!=='LINKAGE_MODE_MANUAL')await audit(db,actor,'RESULT_AUTO_LINK_SKIPPED','RESULT_VERSION',versionId,{outcome:'Unlinked',reasonCode:r.reason});
   return r;}

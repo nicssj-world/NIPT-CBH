@@ -22,10 +22,10 @@ export function classifyPet(bytes:Buffer):'NIPT'|'NOT_NIPT'|'INVALID_ENCODING'|'
  return orders.some(o=>o[4]?.split('^').find(c=>/^\d+$/.test(c))===NIPT_TEST_CODE)?'NIPT':'NOT_NIPT';
 }
 
-export interface StoredPet{ln:string;hn:string;name:string;dob:string;sex:string;receivedAt:string;specimenAt:string;orderAt:string;ward:string;identityKey:string;identityLastFour:string;filename:string;hash:string;parserVersion:string;}
+export interface StoredPet{ln:string;hn:string;name:string;dob:string;sex:string;receivedAt:string;specimenAt:string;orderAt:string;ward:string;identityKey:string|null;identityLastFour:string;filename:string;hash:string;parserVersion:string;}
 /** Persisted parse: P[33] identity kept only as keyed HMAC + last four (Plan §10.2 ข้อ 5 "เข้ารหัส"). */
 export function redactPet(p:Pet,lookupKey:Buffer):StoredPet{
- const {identity,...rest}=p;return {...rest,identityKey:identityLookup(identity,lookupKey),identityLastFour:identity.slice(-4),parserVersion:PARSER_VERSION};
+ const {identity,...rest}=p;return {...rest,identityKey:identity?identityLookup(identity,lookupKey):null,identityLastFour:identity.slice(-4),parserVersion:PARSER_VERSION};
 }
 
 export const IDENTITY_FIELDS=['hn','name','dob','sex','identity'] as const;

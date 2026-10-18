@@ -14,6 +14,17 @@ import {transaction,loadTransfer,type StoredDraft} from './journal';
 
 export const RELEASE_OUTBOUND_JOB='result_release_completed';
 const wireTime=(date:Date)=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Bangkok',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(date).replace(/[- :]/g,'');
+const timestamp=(s:string)=>s.slice(0,19).replace(/[-T:]/g,'');
+/** RES order fields from the round's HIS PET (the file of record), exactly as delivered; shared with the ZIP contract simulation. */
+export function releaseOrderFromPet(pet:ReturnType<typeof parsePet>){
+ const name=pet.name.split('^^'),dspname=name.length===2?`${name[1].trim()} ${name[0].trim()}`:pet.name;
+ return {ln:pet.ln,hn:pet.hn,dspname,dob:pet.dob.slice(0,10).replaceAll('-',''),sex:pet.sex as 'F'|'M'|'U',specimen_date:timestamp(pet.specimenAt)};
+}
+/** RES result values from the parsed external report (no clinical value is invented; absent values stay absent). */
+export function releaseResultFromParsed(parsed:Parsed){
+ const fields=parsed.results;
+ return Object.fromEntries([['t21',fields.t21.value],['t18',fields.t18.value],['t13',fields.t13.value],['sex_xo',fields.xo.value],['sex_xxx',fields.xxx.value],['sex_xxy',fields.xxy.value],['sex_xyy',fields.xyy.value]].filter(([,v])=>v!==null)) as Record<string,string>;
+}
 export async function operationalReleaseEligible(db:Queryable,id:string,epoch:number){
  return (await db.query<{eligible:boolean}>('SELECT p6_release_eligible($1,$2) eligible',[id,epoch])).rows[0]?.eligible===true;
 }
@@ -38,12 +49,10 @@ export async function reserveReleasedResult(db:Queryable,releaseId:string,store:
    WHERE o.case_ln_id=$1 AND x.round_number=$2`,[r.case_ln_id,r.round_number>1&&s.round2SpecimenDatePolicy==='ORIGINAL_ORDER'?1:r.round_number])).rows[0];
   if(!order)throw Error('ROUND_PET_EVIDENCE_REQUIRED');
   const pet=parsePet(await store.get(order.sha256),order.filename);
-  const timestamp=(s:string)=>s.slice(0,19).replace(/[-T:]/g,'');
-  const name=pet.name.split('^^'),dspname=name.length===2?`${name[1].trim()} ${name[0].trim()}`:pet.name;
-  const fields=r.parsed.results,result=Object.fromEntries([['t21',fields.t21.value],['t18',fields.t18.value],['t13',fields.t13.value],['sex_xo',fields.xo.value],['sex_xxx',fields.xxx.value],['sex_xxy',fields.xxy.value],['sex_xyy',fields.xyy.value]].filter(([,v])=>v!==null)) as Record<string,string>;
-  const now=wireTime(new Date()),specimenAt=timestamp(pet.specimenAt);
+  const wireOrder=releaseOrderFromPet(pet),result=releaseResultFromParsed(r.parsed);
+  const now=wireTime(new Date()),specimenAt=wireOrder.specimen_date;
   const draft:SyntheticDraft={mode:'OPERATIONAL_RELEASE',fixtureId:'RELEASE-'+releaseId,reportVersionId:r.version_id,roundId:r.round_id,attemptId:r.attempt_id,origin:r.registration_origin,lnGeneration:r.version,roundNumber:r.round_number,epoch:r.epoch,
-   input:{order:{ln:pet.ln,hn:pet.hn,dspname,dob:pet.dob.slice(0,10).replaceAll('-',''),sex:pet.sex as 'F'|'M'|'U',specimen_date:specimenAt},generatedAt:now,approvedAt:wireTime(new Date(r.certified_at)),certifierHisId:certifier,result},
+   input:{order:wireOrder,generatedAt:now,approvedAt:wireTime(new Date(r.certified_at)),certifierHisId:certifier,result},
    profile:{...s.resProfile,style:s.resultStyle},pdf:await store.get(r.sha256),settings:outboundDraftSettings(active),
    ...(r.round_number>1?{round2Policy:s.round2SpecimenDatePolicy!,roundSpecimenAt:specimenAt,originalSpecimenAt:specimenAt}:{})};
   const n=(await db.query<{n:number}>('SELECT coalesce(max(sequence),0)::int+1 n FROM p6_transfer WHERE ln=$1 AND ln_generation=$2',[pet.ln,r.version])).rows[0].n;

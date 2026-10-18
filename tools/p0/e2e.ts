@@ -9,6 +9,7 @@ import {randomBytes} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 import {Pool} from 'pg';
 import {migrate} from '../migrate';
+import {workerServiceAccount} from '../../packages/integrations/authorized-share';
 const repo=process.cwd(),base=path.resolve('.local/p0-e2e'),project='nipt-p0-tasklist-e2e-20261017';
 if(path.basename(repo)!=='NIPT-CBH-P0-TASKLIST')throw Error('ISOLATED_WORKTREE_REQUIRED');
 await fs.mkdir(base,{recursive:true});
@@ -33,6 +34,11 @@ const env={...process.env,NIPT_MODE:'synthetic',DATABASE_URL:url,NIPT_E2E_AUDIT_
 await fs.cp(path.join(repo,'public'),path.join(repo,'.next/standalone/public'),{recursive:true});
 await fs.cp(path.join(repo,'.next/static'),path.join(repo,'.next/standalone/.next/static'),{recursive:true});
 await fs.mkdir(env.FILE_STORE_ROOT,{recursive:true});await fs.mkdir(path.join(env.SIMULATOR_ROOT,'inbound'),{recursive:true});await fs.mkdir(path.join(env.SIMULATOR_ROOT,'results'),{recursive:true});await fs.writeFile(path.join(env.SIMULATOR_ROOT,'.nipt-synthetic-root'),'NIPT_SYNTHETIC_ONLY_V1');
+// Settings acceptance: a loopback "authorised test share" for the HIS inbound/outbound Settings (never a hospital path), reset per run.
+const hisShare=path.join(base,'data/his-share');await fs.rm(hisShare,{recursive:true,force:true});for(const d of ['in-a','in-b','res','pdf','backup'])await fs.mkdir(path.join(hisShare,d),{recursive:true});
+await fs.writeFile(path.join(hisShare,'.nipt-authorized-test-root'),'NIPT_AUTHORIZED_SYNTHETIC_SHARE_V1');
+const sharePolicy=path.join(base,'data/his-share-policy.json');await fs.writeFile(sharePolicy,JSON.stringify({version:1,grants:[{root:hisShare,purposes:['INBOUND','OUTBOUND'],serviceAccount:workerServiceAccount(),secretRef:null}]}));
+Object.assign(env,{NIPT_HIS_SHARE_POLICY_FILE:sharePolicy,NIPT_E2E_HIS_SHARE_ROOT:hisShare,NIPT_P6_SANDBOX_ENABLED:'yes'});
 const children:ReturnType<typeof spawn>[]=[];
 async function child(label:string,args:string[],wait=false){const log=await fs.open(path.join(base,label+'.log'),'a');const c=spawn(process.execPath,args,{cwd:repo,env,windowsHide:true,stdio:['ignore',log.fd,log.fd]});await log.close();if(wait)return await new Promise<number>(resolve=>c.once('exit',code=>resolve(code??1)));children.push(c);return 0;}
 try{
@@ -40,7 +46,7 @@ try{
  await child('renderer',['--import','tsx','apps/renderer/main.ts']);await child('worker',['--import','tsx','apps/worker/main.ts']);await child('web',['.next/standalone/server.js']);
  for(let i=0;i<120;i++){if(await fetch(origin+'/login').then(r=>r.ok).catch(()=>false))break;if(i===119)throw Error('SYNTHETIC_WEB_START_FAILED');await new Promise(r=>setTimeout(r,250));}
  const requested=(process.env.NIPT_P0_E2E_SPECS??'p4-task-list.spec.ts').split(',');
- const allowed=['be-date-input.spec.ts','foundation.spec.ts','p2.spec.ts','p3-inbound.spec.ts','p4-lab.spec.ts','p4-task-list.spec.ts','p4b-pooling.spec.ts','p4c-sequencing.spec.ts','p5-results.spec.ts','p5h-bulk.spec.ts','p6-sandbox.spec.ts','p7-result-parity.spec.ts','p8-installed.spec.ts','workbook-f52-approved.spec.ts','zz-p2-doctor-loading-race.spec.ts'];
+ const allowed=['be-date-input.spec.ts','foundation.spec.ts','p2.spec.ts','p3-inbound.spec.ts','p4-lab.spec.ts','p4-task-list.spec.ts','p4b-pooling.spec.ts','p4c-sequencing.spec.ts','p5-results.spec.ts','p5h-bulk.spec.ts','p6-sandbox.spec.ts','p7-result-parity.spec.ts','p8-installed.spec.ts','settings-operational.spec.ts','workbook-f52-approved.spec.ts','zz-p2-doctor-loading-race.spec.ts'];
  if(requested.some(x=>!allowed.includes(x)))throw Error('UNAPPROVED_E2E_SPEC');
  const code=await child('playwright',['node_modules/@playwright/test/cli.js','test',...requested.map(s=>'tests/e2e/'+s),...(process.env.NIPT_P0_E2E_GREP?['--grep',process.env.NIPT_P0_E2E_GREP]:[]),...process.argv.slice(2)],true);
  await fs.writeFile(path.join(base,'evidence.json'),JSON.stringify({exitCode:code,specs:requested,project,origin,database,databasePort:19629,mode:'synthetic',localOnly:true}));console.log(JSON.stringify({exitCode:code,artifactDirectory:base}));process.exitCode=code;

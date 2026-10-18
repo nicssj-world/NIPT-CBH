@@ -30,7 +30,7 @@ it('100 upgrades a populated 099 database without touching existing link history
   await f.run(async t=>results.decideLink(t,f.u.certifier,{versionId,decision:'REJECT',reason:'Pre-100 rejected once',expectedRowVersion:await rv()}));
   await f.run(async t=>results.proposeLink(t,f.u.staff,{versionId,roundId:c.roundId,attemptId:c.attemptId,reason:'Pre-100 manual proposal again',expectedRowVersion:await rv()}));
   await f.run(async t=>results.decideLink(t,f.u.certifier,{versionId,decision:'APPROVE',reason:'Pre-100 approved by a second person',expectedRowVersion:await rv()}));
-  const snapshot=async()=>({links:(await db.query("SELECT sequence,event,mode,outcome,reason,actor_id FROM result_link_event ORDER BY sequence")).rows,version:(await db.query('SELECT state,link_mode,row_version,round_id FROM result_report_version WHERE id=$1',[versionId])).rows});
+  const snapshot=async()=>({links:(await db.query<{event:string}>("SELECT sequence,event,mode,outcome,reason,actor_id FROM result_link_event ORDER BY sequence")).rows,version:(await db.query('SELECT state,link_mode,row_version,round_id FROM result_report_version WHERE id=$1',[versionId])).rows});
   const pre=await snapshot();expect(pre.links.map(l=>l.event)).toEqual(['PROPOSED','REJECTED','PROPOSED','APPROVED']);
   await migrate(db); // full bundle: applies only 100
   const ledger=(await db.query<{checksum:string}>("SELECT checksum FROM schema_migration WHERE name='100_p5a_unique_auto_link.sql'")).rows[0].checksum;

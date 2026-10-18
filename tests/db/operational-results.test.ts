@@ -140,6 +140,12 @@ it.each(['MANUAL_STEPS','OWNER_P5_SINGLE_CONFIRMATION'] as const)('accepted oper
   const share=path.join(f.base,'outbound');await fs.mkdir(share);for(const name of ['res','pdf','backup'])await fs.mkdir(path.join(share,name));
   const policy=path.join(f.base,'policy.json');await fs.writeFile(policy,JSON.stringify({version:1,grants:[{root:share,purposes:['OUTBOUND'],serviceAccount:workerServiceAccount(),secretRef:null,mode:'operational'}]}));vi.stubEnv('NIPT_HIS_SHARE_POLICY_FILE',policy);
   const admin=await addUser(f.db,'APP_ADMIN','test.outbound.admin');
+  // Settings acceptance: the operational consumer refuses a configuration without a certifier HIS mapping or production authority.
+  const destinations={...SETTINGS.his_outbound.default,enabled:true,target:'AUTHORIZED_SHARE' as const,productionAuthorized:true,resDestinationPath:path.join(share,'res'),pdfDestinationPath:path.join(share,'pdf'),backupPath:path.join(share,'backup'),resProfile:{...syntheticProfile,syntheticOnly:false as const,version:'TEST-OP-1'}};
+  for(const [value,code] of [[{...destinations,certifierHisMappings:{}},'CERTIFIER_HIS_MAPPING_REQUIRED'],[{...destinations,productionAuthorized:false,certifierHisMappings:{[f.u.certifier.id]:'TESTMT^ผู้ทดสอบ'}},'OPERATIONAL_OUTBOUND_CONFIGURATION_REQUIRED']] as const){
+   const id=await proposeSetting(f.db,admin,'his_outbound',value,'Operational guard probe');await validateSetting(f.db,admin,id,async()=>true);await approveSetting(f.db,f.u.approver,id);await activateSetting(f.db,f.u.approver,id);
+   await expect(reserveReleasedResult(f.db,released.releaseId!,f.store)).rejects.toThrow(code);
+  }
   const setting=await proposeSetting(f.db,admin,'his_outbound',{...SETTINGS.his_outbound.default,enabled:true,target:'AUTHORIZED_SHARE',productionAuthorized:true,resDestinationPath:path.join(share,'res'),pdfDestinationPath:path.join(share,'pdf'),backupPath:path.join(share,'backup'),resProfile:{...syntheticProfile,syntheticOnly:false,version:'TEST-OP-1'},certifierHisMappings:{[f.u.certifier.id]:'TESTMT^ผู้ทดสอบ'}},'Operational test destinations');
   await validateSetting(f.db,admin,setting,async()=>true);await approveSetting(f.db,f.u.approver,setting);await activateSetting(f.db,f.u.approver,setting);
   // Exercise the deployed worker privilege boundary, rather than the database owner.

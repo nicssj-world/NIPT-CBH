@@ -47,6 +47,10 @@ async function walk(access:Awaited<ReturnType<typeof folderAccess>>,recursive:bo
  await visit('',0);return {found,folders,truncated};
 }
 
+/** Settings validation of result_management.pdfSourcePath (used by the Settings API before a draft can be approved). */
+export async function resultFolderSettingValid(root:string,setting:string){
+ try{const access=await folderAccess(root,setting);return (await fs.stat(access.base)).isDirectory();}catch{return false;}
+}
 /** Test Path: marker → folder exists → listable → count result files. Counts and codes only, no file names or contents. */
 export async function testResultFolder(root:string,setting:string,o:{recursive:boolean;maxFiles:number}){
  const checks:{code:string;passed:boolean}[]=[],report={passed:false,checks,files:0,folders:0,errorCode:null as string|null};
