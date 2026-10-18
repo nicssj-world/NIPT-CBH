@@ -4,7 +4,7 @@
  *  restart/crash recovery, the installed operational journey, backup, restore (and activation), failed and successful upgrades,
  *  rollback gates, DR restore with forward migration, uninstall. Writes evidence.json; exits non-zero on the first failed step. */
 import {execFileSync,spawnSync} from 'node:child_process';
-import {existsSync,readFileSync,writeFileSync,mkdirSync,rmSync,appendFileSync} from 'node:fs';
+import {existsSync,readFileSync,writeFileSync,mkdirSync,rmSync,appendFileSync,cpSync} from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import assert from 'node:assert/strict';
@@ -238,6 +238,17 @@ try{
   const gone=cli('package','uninstall',['--confirm',name,'--remove-data']);assert.equal(gone.dataRetained,false);assert.ok(!existsSync(root));
   await sleep(1500);assert.equal(processesFor(path.dirname(root)),'0');
   return {keepData:true,removed:true,leftoverProcesses:0};
+ });
+ await step('S16','the installed CLI can remove its own installation (it runs from inside the root)',async()=>{
+  const sandbox=path.join(base,'rehearsal-'+stamp,'selfremove'),r2=path.join(sandbox,'root');mkdirSync(path.join(r2,'runtime','node'),{recursive:true});mkdirSync(path.join(r2,'admin'));mkdirSync(path.join(r2,'config'));
+  cpSync(path.join(pkgDir('1.0.0'),'payload','runtime','node','node.exe'),path.join(r2,'runtime','node','node.exe'));
+  for(const f of ['nipt-admin.mjs','lib.mjs'])cpSync(path.join(pkgDir('1.0.0'),'installer',f),path.join(r2,'admin',f));
+  writeFileSync(path.join(r2,'config','nipt.json'),JSON.stringify({instance:'p8win-selfremove',mode:'operational',database:'nipt_operational_selfremove',ports:{postgres:19870,web:19871,https:19872,renderer:19873},origin:'https://localhost:19872',taskMode:'user',testEnvironmentOnly:true}));
+  writeFileSync(path.join(r2,'install-state.json'),JSON.stringify({status:'INSTALLED_NOT_ACCEPTED',current:{version:'1.0.0'},history:[]}));
+  const r=spawnSync(path.join(r2,'runtime','node','node.exe'),[path.join(r2,'admin','nipt-admin.mjs'),'uninstall','--root',r2,'--confirm','root','--remove-data'],{encoding:'utf8',windowsHide:true});
+  const out=JSON.parse(r.stdout);assert.equal(out.uninstalled,true);assert.equal(out.finalRemoval,'SCHEDULED_AFTER_EXIT');
+  await until(()=>!existsSync(r2),'SELF_REMOVAL',30000);
+  return {selfRemoved:true};
  });
  const evidence=finish(true);
  process.stdout.write(JSON.stringify({passed:evidence.passed,steps:steps.map(s=>[s.id,s.ok,Math.round(s.ms/1000)+'s']),evidence:path.join(evidenceDir,'evidence.json')})+'\n');

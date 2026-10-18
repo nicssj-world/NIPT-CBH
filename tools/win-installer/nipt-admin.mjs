@@ -410,10 +410,12 @@ async function uninstall(){
  if(args.confirm!==path.basename(L.root))fail('CONFIRM_WITH_ROOT_FOLDER_NAME_REQUIRED');
  await stopServices(L);unregisterTask(c);
  const keep=!args['remove-data'];
- if(keep){for(const d of [L.releases,L.runtime,path.join(L.root,'admin')])rmSync(d,{recursive:true,force:true});rmSync(path.join(L.root,'nipt.cmd'),{force:true});const s=stateOf(L);s.status='UNINSTALLED_DATA_RETAINED';saveState(L,s);return {uninstalled:true,dataRetained:true,root:L.root};}
+ const own=path.resolve(process.execPath).toLowerCase().startsWith(L.root.toLowerCase()+path.sep);
+ if(keep){for(const d of [L.releases,path.join(L.root,'admin')])rmSync(d,{recursive:true,force:true});
+  if(existsSync(L.runtime))for(const e of readdirSync(L.runtime))if(!(own&&e==='node'))rmSync(path.join(L.runtime,e),{recursive:true,force:true}); // the running node.exe cannot delete itself
+  rmSync(path.join(L.root,'nipt.cmd'),{force:true});const s=stateOf(L);s.status='UNINSTALLED_DATA_RETAINED';saveState(L,s);return {uninstalled:true,dataRetained:true,root:L.root};}
  // The installed CLI runs from its own runtime folder, which Windows will not let it delete: remove everything else now and
  // let a detached cmd delete the rest after this process exits.
- const own=path.resolve(process.execPath).toLowerCase().startsWith(L.root.toLowerCase()+path.sep);
  if(own){
   for(const e of readdirSync(L.root))if(e!=='runtime')rmSync(path.join(L.root,e),{recursive:true,force:true});
   for(const e of readdirSync(L.runtime))if(e!=='node')rmSync(path.join(L.runtime,e),{recursive:true,force:true});
