@@ -3,12 +3,16 @@
 export const FIELD_INVENTORY_STATUS = "SEED_UNVERIFIED_F4";
 export type FieldClass = "CI" | "CN" | "PR";
 export type FieldKind = "TRANSFER" | "CHECK" | "TEXT" | "DATE" | "LOT" | "TIME_RANGE" | "NUMBER";
-export type FieldDef = { id: string; item: string; form: "F2" | "F3"; scope: "SHEET" | "SLOT" | "BATCH"; kind: FieldKind; cls: FieldClass; label: string; source: string; required: (sheet: number) => boolean };
+// `optional`: recordable on the sheet but never needed for completeness (informational).
+export type FieldDef = { id: string; item: string; form: "F2" | "F3"; scope: "SHEET" | "SLOT" | "BATCH"; kind: FieldKind; cls: FieldClass; label: string; source: string; required: (sheet: number) => boolean; optional?: boolean };
 const always = () => true;
 const f2 = (id: string, item: string, kind: FieldKind, cls: FieldClass, label: string, source: string, required: (sheet: number) => boolean = always, scope: FieldDef["scope"] = "SHEET"): FieldDef => ({ id, item, form: "F2", scope, kind, cls, label, source, required });
 
 export const FIELDS: FieldDef[] = [
-  f2("F2-02", "", "DATE", "PR", "วัน/เดือน/ปีที่ปฏิบัติงานจริง", "TL!A4:B4"),
+  // OD-S (Owner 2026-10-18): F2-02 = actual Library Preparation date (B4). Control IDs stay on the planned date locked at execution start (OD-T);
+  // a different actual date needs a short reason (OD-E). F2-03 = actual DNA Extraction date, information only, bound to no master cell.
+  f2("F2-02", "", "DATE", "PR", "วันที่ทำ Library Preparation จริง", "TL!A4:B4"),
+  { ...f2("F2-03", "", "DATE", "PR", "วันที่ทำ DNA Extraction จริง (ข้อมูลประกอบ ไม่ใช้สร้างรหัส)", "— (ไม่มีช่องใน Master)"), optional: true },
   f2("F2-05", "", "TEXT", "PR", "ผู้ปฏิบัติงานจริง", "TL!I5"),
   f2("F2-11", "", "TRANSFER", "CI", "✓ ตรวจ Lab number บนหลอดเทียบ Task List ก่อน/หลังดูดลง Strip", "TL!E9:E16, K9:K16; WI-T-BM16 §10.5", always, "SLOT"),
   f2("F2-13", "", "LOT", "PR", "Extraction Lot no. / Exp. date ที่ใช้จริง", "TL!A17"),
@@ -47,4 +51,4 @@ export function fieldDef(id: string, item = ""): FieldDef {
   return def;
 }
 /** Required sheet-scope F2 fields (everything except the per-slot transfer check). */
-export const requiredSheetFields = (sheet: number) => FIELDS.filter(f => f.form === "F2" && f.scope === "SHEET" && f.required(sheet));
+export const requiredSheetFields = (sheet: number) => FIELDS.filter(f => f.form === "F2" && f.scope === "SHEET" && f.required(sheet) && !f.optional);

@@ -14,7 +14,7 @@ it('AT-PREWORK-01/02: F2 Pre-work has positions, IDs, control code and only empt
  expect(html).toContain('ใบงานก่อนปฏิบัติ (Pre-work)');expect(html).not.toContain('✓ ก่อน');expect(html.match(/class="box"/g)!.length).toBeGreaterThanOrEqual(7);
  expect(html).toContain('ข้อมูลที่วางแผน (ไม่ใช่ค่าที่ใช้จริง)');expect(html).toContain('OD-08:CLINICAL_RULES_NOT_APPROVED');
  // M1: planned expiry is on the document, dates in BE (OD-C); the control ID stays Gregorian.
- expect(html).toContain('วันที่ 12/10/2569');expect(html).toContain('Extraction Lot SYN-EXT-01 / Exp. 31/12/2569');expect(html).toContain('Library Lot SYN-LIB-01 / Exp. —');
+ expect(html).toContain('วันที่ทำ Library Preparation 12/10/2569');expect(html).toContain('Extraction Lot SYN-EXT-01 / Exp. 31/12/2569');expect(html).toContain('Library Lot SYN-LIB-01 / Exp. —');
  expect(html).not.toMatch(/<script|<img|https?:\/\//);
 });
 it('Completed shows only recorded values with source and disposition text; working copy and status marks are derivatives',()=>{

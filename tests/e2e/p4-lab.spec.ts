@@ -93,7 +93,7 @@ test("P4 journey: labels (4 stickers/8 halves) → batch → plan check → fina
  await expect(page.getByRole("row",{name:/^1 A1/}).getByText("PC")).toBeVisible();
  await axe(page);
  // Plan → plan check (not pipetting evidence) → Finalize Gate → immutable snapshot.
- {const today=new Date(Date.now()+7*3600000).toISOString().slice(0,10).split("-");const planDate=page.getByLabel("วันที่ปฏิบัติงานที่วางแผน (ใช้สร้างรหัส Control)");await planDate.fill(`${today[2]}/${today[1]}/${Number(today[0])+543}`);await planDate.blur();} // BE input (Owner decision, Plan Rev 3.4 §7)
+ {const today=new Date(Date.now()+7*3600000).toISOString().slice(0,10).split("-");const planDate=page.getByLabel("วันที่ทำ Library Preparation ที่วางแผน (ใช้สร้างรหัส Control)");await planDate.fill(`${today[2]}/${today[1]}/${Number(today[0])+543}`);await planDate.blur();} // BE input (Owner decision, Plan Rev 3.4 §7)
  await page.getByRole("button",{name:"บันทึกข้อมูลแผน"}).click();await expect(page.getByRole("status")).toContainText("บันทึกข้อมูลแผนแล้ว");
  await page.getByRole("button",{name:"ยืนยันแผนตำแหน่ง"}).click();
  const check=page.getByRole("dialog",{name:/ยืนยันแผนตำแหน่ง/});await expect(check.getByText("ไม่ใช่การยืนยันว่าดูดตัวอย่างแล้ว")).toBeVisible();

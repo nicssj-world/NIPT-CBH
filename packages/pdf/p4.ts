@@ -19,7 +19,9 @@ const common={docCode:short,revision:z.number().int().min(1),runLabel:z.string()
 export const p4DocumentSchema=z.discriminatedUnion('form',[
  z.strictObject({form:z.literal('F2'),kind:z.enum(['PRE_WORK','COMPLETED']),...common,sheetNumber:z.number().int().min(1).max(3),strips:z.strictObject({s1:short,s2:short}),controlInstruction:text,
   plan:z.strictObject({workDate:short,operator:short,extractionLot:short,extractionExpiry:short,libraryLot:short,libraryExpiry:short}),rows:z.array(f2Row).length(16),checklist:z.array(z.strictObject({key:short,label:text})).max(40),execution:z.array(execEntry).max(80),
-  startedAt:short.nullable(),pendingGovernance:z.array(short).max(10)}),
+  startedAt:short.nullable(),pendingGovernance:z.array(short).max(10),
+  // OD-S/E: which date the control IDs use, and any actual Library date that differs (with its reason). OD-B: uncontrolled draft preview.
+  dateBasis:text.optional(),draft:z.literal(true).optional()}),
  z.strictObject({form:z.literal('F3'),kind:z.enum(['PRE_WORK','COMPLETED']),...common,rows:z.array(qcRow).length(48),standards:z.array(execEntry).max(4),operator:execEntry.nullable(),criteria:z.array(text).max(4),summary:short})
 ]);
 export type P4Document=z.infer<typeof p4DocumentSchema>;
@@ -40,9 +42,10 @@ export function worksheetHtml(doc:P4Document){
    return `<tr class="${r.kind.toLowerCase()}"><td class="pos">${r.slot}<br><small>${e(r.plate)}</small></td><td>${id}${r.kind==='PATIENT'?`<br><small>LN Halos ${e(r.lnHalos)} · ${e(r.round)}${r.repeat?' · Repeat':''}</small>`:''}</td><td class="pos">${r.barcode}</td><td>${check}</td></tr>`;});
   const half=(a:number)=>`<table><thead><tr><th class="pos">ตน. / Plate</th><th>Sample ID (${e(a===0?doc.strips.s1:doc.strips.s2)})</th><th class="pos">Barcode</th><th>✓ ตรวจ Lab number</th></tr></thead><tbody>${rows.slice(a*8,a*8+8).join('')}</tbody></table>`;
   const checklist=doc.checklist.map(c=>`<li>${pre?box:doc.execution.some(x=>x.label===c.label)?'✓':'☐'} ${e(c.label)}</li>`).join('');
-  const exec=pre?`<table class="write"><tr><th>วันที่ปฏิบัติงานจริง</th><td></td><th>ผู้ปฏิบัติงานจริง</th><td></td></tr><tr><th>Extraction Lot / Exp. (ใช้จริง)</th><td></td><th>Library Lot / Exp. (ใช้จริง)</th><td></td></tr><tr><th>เวลาเริ่ม Script</th><td></td><th>เวลาจบ Script</th><td></td></tr></table>`
+  const exec=pre?`<table class="write"><tr><th>วันที่ทำ Library Preparation จริง</th><td></td><th>ผู้ปฏิบัติงานจริง</th><td></td></tr><tr><th>วันที่ทำ DNA Extraction จริง</th><td></td><th></th><td></td></tr><tr><th>Extraction Lot / Exp. (ใช้จริง)</th><td></td><th>Library Lot / Exp. (ใช้จริง)</th><td></td></tr><tr><th>เวลาเริ่ม Script</th><td></td><th>เวลาจบ Script</th><td></td></tr></table>`
    :`<table><thead><tr><th>รายการ</th><th>ค่า</th><th>ที่มา</th><th>เวลาเหตุการณ์</th><th>เวลากรอก</th><th>ผู้กรอก / ผู้ตรวจ</th></tr></thead><tbody>${doc.execution.map(x=>`<tr><td>${e(x.label)}</td><td>${e(x.value)}</td><td>${x.source==='PAPER_TRANSCRIPTION'?'กระดาษ':'บันทึกตรง'}</td><td>${e(x.eventTime)}</td><td>${e(x.recordedAt)}</td><td>${e(x.recordedBy)} / ${e(x.verifiedBy)}</td></tr>`).join('')}</tbody></table>`;
-  body=`<p class="instruction">${e(doc.controlInstruction)}</p><div class="plan"><b>ข้อมูลที่วางแผน (ไม่ใช่ค่าที่ใช้จริง):</b> วันที่ ${e(doc.plan.workDate)} · ผู้ปฏิบัติ ${e(doc.plan.operator)} · Extraction Lot ${e(doc.plan.extractionLot)} / Exp. ${e(doc.plan.extractionExpiry)} · Library Lot ${e(doc.plan.libraryLot)} / Exp. ${e(doc.plan.libraryExpiry)}</div>
+  body=`<p class="instruction">${e(doc.controlInstruction)}</p><div class="plan"><b>ข้อมูลที่วางแผน (ไม่ใช่ค่าที่ใช้จริง):</b> วันที่ทำ Library Preparation ${e(doc.plan.workDate)} · ผู้ปฏิบัติ ${e(doc.plan.operator)} · Extraction Lot ${e(doc.plan.extractionLot)} / Exp. ${e(doc.plan.extractionExpiry)} · Library Lot ${e(doc.plan.libraryLot)} / Exp. ${e(doc.plan.libraryExpiry)}</div>
+   ${doc.dateBasis?`<p class="basis"><b>${e(doc.dateBasis)}</b></p>`:''}
    ${doc.pendingGovernance.length?`<p class="pending">ข้อมูลจำลอง: ผ่าน Gate ภายใต้นโยบายจำลองที่ยังรอการตัดสิน (${doc.pendingGovernance.map(e).join(', ')}) — ห้ามใช้ทางคลินิก</p>`:''}
    <h2>แผนผังตัวอย่าง</h2>${half(0)}${half(1)}<h2>บันทึกการปฏิบัติ${pre?' (เขียนระหว่างปฏิบัติงาน)':''}</h2>${!pre&&doc.startedAt?`<p>เริ่มปฏิบัติ (เวลาที่ Server บันทึก): ${e(doc.startedAt)}</p>`:''}${exec}<h2>Checklist ตาม WI-T-BM18</h2><ul class="checklist">${checklist}</ul>`;
  }else{
@@ -58,6 +61,7 @@ export function worksheetHtml(doc:P4Document){
  }
  const copy=doc.copy?.kind==='WORKING_COPY'?`<div class="band">สำเนาใช้งานเลขที่ ${doc.copy.copyNumber} — ${e(doc.docCode)} Rev ${doc.revision} — Original SHA-256 ${e(doc.copy.originalHash.slice(0,16))}… — พิมพ์โดย ${e(doc.copy.printedBy)} ${e(doc.copy.printedAt)}</div>`
   :doc.copy?.kind==='STATUS_MARKED'?`<div class="mark">${e(doc.copy.status)} — ${e(doc.copy.statusReason)} — อ่านอ้างอิงเท่านั้น ห้ามใช้ปฏิบัติงาน (Original ${e(doc.copy.originalHash.slice(0,16))}…)</div>`:'';
+ const draft=doc.form==='F2'&&doc.draft?'<div class="mark">ฉบับร่าง (DRAFT) — ไม่ใช่เอกสารควบคุม ห้ามใช้ปฏิบัติงาน · ค่าที่วางแผนก่อน Finalize อาจเปลี่ยนได้</div>':'';
  return `<!doctype html><html lang="th"><head><meta charset="utf-8"><title>${e(doc.docCode)}</title><style>
  *{box-sizing:border-box}body{font:10pt Latin,Thai,sans-serif;color:#111;margin:0}h1{font-size:14pt;margin:0 0 2mm}h2{font-size:11pt;margin:4mm 0 2mm}
  .head{display:flex;justify-content:space-between;gap:4mm;border-bottom:1px solid #444;padding-bottom:2mm;margin-bottom:3mm}.synthetic{border:2px solid #111;padding:1mm 3mm;font-weight:700}
@@ -65,11 +69,12 @@ export function worksheetHtml(doc:P4Document){
  th.pos,td.pos{width:16mm;text-align:center}.id{font-size:12pt;font-weight:700;letter-spacing:.04em}tr.control td{background:#e8e8e8}tr.empty td{color:#555}.tag{border:1px solid #111;padding:0 1.5mm;font-weight:700}
  .box{display:inline-block;width:5mm;height:5mm;border:1px solid #111;vertical-align:middle}.line{display:inline-block;width:30mm;height:7mm;border-bottom:1px solid #111}
  table.write td{height:9mm}.checklist{list-style:none;padding:0;columns:2;margin:0}.checklist li{break-inside:avoid;margin-bottom:1.5mm}
- .plan,.instruction{margin:0 0 2mm}.pending{border:1px dashed #111;padding:1.5mm}.band{border:2px solid #111;padding:1.5mm;margin-bottom:3mm;font-weight:700}
+ .plan,.instruction,.basis{margin:0 0 2mm}.pending{border:1px dashed #111;padding:1.5mm}.band{border:2px solid #111;padding:1.5mm;margin-bottom:3mm;font-weight:700}
  .mark{border:3px double #111;padding:2mm;margin-bottom:3mm;font-weight:700;font-size:12pt;text-align:center}small{font-size:8pt}
- </style></head><body>${copy}<div class="head"><div><h1>${title}</h1><div>${e(doc.runLabel)} · ${e(kindText)}</div></div><div class="synthetic">ข้อมูลจำลอง — ไม่ใช้ทางคลินิก</div></div>${body}</body></html>`;
+ body.draft::before{content:'DRAFT';position:fixed;top:40%;left:18%;font-size:110pt;font-weight:700;color:rgba(0,0,0,.08);transform:rotate(-25deg)}
+ </style></head><body${draft?' class="draft"':''}>${draft}${copy}<div class="head"><div><h1>${title}</h1><div>${e(doc.runLabel)} · ${e(kindText)}</div></div><div class="synthetic">ข้อมูลจำลอง — ไม่ใช้ทางคลินิก</div></div>${body}</body></html>`;
 }
-const footer=(doc:P4Document)=>`<div style="width:100%;margin:0 10mm;font:8px Arial,sans-serif;color:#111;border-top:1px solid #777;padding-top:3px;line-height:11px">${e(doc.runLabel)} · ${e(doc.form)} ${e(doc.kind)} · DocID ${e(doc.docCode)} Rev ${doc.revision} · Template ${e(doc.templateVersion)} · Snapshot ${e(doc.snapshotRevision)} · Field inventory ${e(doc.fieldInventory)}<br>สถานะ ณ ตอนออก: ${e(doc.kind)} · ออกเมื่อ ${e(doc.issuedAt)} โดย ${e(doc.issuedBy)} · SYNTHETIC — NOT FOR CLINICAL USE · หน้า <span class="pageNumber"></span>/<span class="totalPages"></span></div>`;
+const footer=(doc:P4Document)=>`<div style="width:100%;margin:0 10mm;font:8px Arial,sans-serif;color:#111;border-top:1px solid #777;padding-top:3px;line-height:11px">${doc.form==='F2'&&doc.draft?'DRAFT PREVIEW — NOT A CONTROLLED DOCUMENT · ':''}${e(doc.runLabel)} · ${e(doc.form)} ${e(doc.kind)} · DocID ${e(doc.docCode)} Rev ${doc.revision} · Template ${e(doc.templateVersion)} · Snapshot ${e(doc.snapshotRevision)} · Field inventory ${e(doc.fieldInventory)}<br>สถานะ ณ ตอนออก: ${e(doc.kind)} · ออกเมื่อ ${e(doc.issuedAt)} โดย ${e(doc.issuedBy)} · SYNTHETIC — NOT FOR CLINICAL USE · หน้า <span class="pageNumber"></span>/<span class="totalPages"></span></div>`;
 export async function renderP4Pdf(input:P4Document){
  const doc=p4DocumentSchema.parse(input);
  const font=async(file:string)=>(await readFile(path.resolve(file))).toString('base64');

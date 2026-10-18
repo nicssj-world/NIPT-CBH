@@ -70,10 +70,16 @@ export async function listBatches(db:Queryable,user:Staff){
 }
 
 /** The eligible FIFO queue head and the earlier eligible work a selection would overtake (single source for assign and preview). */
+async function eligibleQueue(db:Queryable,user:Staff,policy:Awaited<ReturnType<typeof pendingPolicy>>['policy']){
+ return (await attemptFacts(db,"a.state='Ready' AND c.current_round_id=a.round_id AND c.registration_origin<>'HISTORICAL'",[])).filter(r=>caseVisible(user,r)&&assignmentDecision(r,policy).eligible).sort(fifo);
+}
 async function fifoOvertaken(db:Queryable,user:Staff,attemptIds:string[],policy:Awaited<ReturnType<typeof pendingPolicy>>['policy']){
- const queue=(await attemptFacts(db,"a.state='Ready' AND c.current_round_id=a.round_id AND c.registration_origin<>'HISTORICAL'",[])).filter(r=>caseVisible(user,r)&&assignmentDecision(r,policy).eligible).sort(fifo);
- const chosen=new Set(attemptIds);
- return {head:queue.slice(0,chosen.size).map(r=>r.attempt_id),overtaken:queue.slice(0,queue.findLastIndex(r=>chosen.has(r.attempt_id))+1).filter(r=>!chosen.has(r.attempt_id))};
+ const queue=await eligibleQueue(db,user,policy);
+ const chosen=new Set(attemptIds),head=queue.slice(0,chosen.size).map(r=>r.attempt_id);
+ const overtaken=queue.slice(0,queue.findLastIndex(r=>chosen.has(r.attempt_id))+1).filter(r=>!chosen.has(r.attempt_id));
+ // OD-A: when every selected sample that goes ahead is Urgent, its own recorded Urgent reason stands for the override reason.
+ const overtakers=queue.filter(r=>chosen.has(r.attempt_id)&&!head.includes(r.attempt_id));
+ return {head,overtaken,urgentReasonCovers:overtaken.length>0&&overtakers.length>0&&overtakers.every(r=>r.urgent&&!!r.urgent_reason)};
 }
 /** Read-only (P0-3): tells the user before submitting whether a selection overtakes FIFO and so needs a recorded reason. */
 export async function previewAssignment(db:Queryable,user:Staff,input:unknown){
@@ -82,13 +88,13 @@ export async function previewAssignment(db:Queryable,user:Staff,input:unknown){
  const {policy}=await pendingPolicy(db);
  const selected=await attemptFacts(db,'a.id=ANY($1::uuid[])',[d.attemptIds]);
  if(selected.length!==d.attemptIds.length||selected.some(r=>!caseVisible(user,r)))throw new LabError('NOT_FOUND',404);
- const {overtaken}=await fifoOvertaken(db,user,d.attemptIds,policy);
- return {overtaken:overtaken.length,reasonRequired:overtaken.length>0};
+ const {overtaken,urgentReasonCovers}=await fifoOvertaken(db,user,d.attemptIds,policy);
+ return {overtaken:overtaken.length,reasonRequired:overtaken.length>0&&!urgentReasonCovers,urgentReasonReused:urgentReasonCovers};
 }
 /** Assignment Gate (BG-01..07 + BG-08A/09A) per attempt, in this transaction; FIFO proposal skips control slots. */
 export async function assignToBatch(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'batch.assign');
- const d=z.strictObject({batchId:uuid,expectedVersion:z.number().int().min(0),attemptIds:z.array(uuid).min(1).max(45).refine(v=>new Set(v).size===v.length,'DUPLICATE_ATTEMPT'),queueOverrideReason:reasonText.optional()}).parse(input);
+ const d=z.strictObject({batchId:uuid,expectedVersion:z.number().int().min(0),attemptIds:z.array(uuid).min(1).max(45).refine(v=>new Set(v).size===v.length,'DUPLICATE_ATTEMPT'),queueOverrideReason:reasonText.optional(),sheetNumber:z.number().int().min(1).max(3).optional()}).parse(input);
  const b=await lockBatch(db,d.batchId,d.expectedVersion);
  const {policy}=await pendingPolicy(db);
  // Lock order: attempts by id, then their cases (shared with redraw/receipt via the case row).
@@ -96,10 +102,12 @@ export async function assignToBatch(db:Queryable,user:Staff,input:unknown){
  const selected=await attemptFacts(db,'a.id=ANY($1::uuid[])',[d.attemptIds]);
  if(selected.length!==d.attemptIds.length||selected.some(r=>!caseVisible(user,r)))throw new LabError('NOT_FOUND',404);
  // FIFO is a proposal, not a rule — overtaking eligible earlier work needs a recorded reason (§12.9 ขั้น 3–4).
- const {head,overtaken}=await fifoOvertaken(db,user,d.attemptIds,policy);
- if(overtaken.length&&!d.queueOverrideReason)throw new LabError('QUEUE_OVERRIDE_REASON_REQUIRED',422,{overtaken:overtaken.length});
+ const {head,overtaken,urgentReasonCovers}=await fifoOvertaken(db,user,d.attemptIds,policy);
+ if(overtaken.length&&!d.queueOverrideReason&&!urgentReasonCovers)throw new LabError('QUEUE_OVERRIDE_REASON_REQUIRED',422,{overtaken:overtaken.length});
+ // OD-G: the user may choose the destination Task; slot, control and eligibility rules are unchanged.
+ if(d.sheetNumber&&!EDITABLE.includes((await sheetOf(db,b.id,d.sheetNumber)).state))throw new LabError('PLACEMENT_LOCKED',409);
  const free=(await db.query<{slot_number:number;sheet_number:number}>(`SELECT s.slot_number,s.sheet_number FROM lab_batch_slot s JOIN lab_task_sheet t ON t.batch_id=s.batch_id AND t.sheet_number=s.sheet_number
-  WHERE s.batch_id=$1 AND s.control_type IS NULL AND t.state IN ('Draft','PlanChecked','Amended') AND NOT EXISTS(SELECT 1 FROM lab_slot_assignment a WHERE a.batch_id=s.batch_id AND a.slot_number=s.slot_number AND a.removed_at IS NULL) ORDER BY s.slot_number`,[b.id])).rows;
+  WHERE s.batch_id=$1 AND s.control_type IS NULL AND t.state IN ('Draft','PlanChecked','Amended') AND ($2::int IS NULL OR s.sheet_number=$2) AND NOT EXISTS(SELECT 1 FROM lab_slot_assignment a WHERE a.batch_id=s.batch_id AND a.slot_number=s.slot_number AND a.removed_at IS NULL) ORDER BY s.slot_number`,[b.id,d.sheetNumber??null])).rows;
  const placed:{attemptId:string;slot:number;printedSampleId:string}[]=[],rejected:{attemptId:string;failed:string[];pending:string[]}[]=[];
  // Slots are proposed in the order the user saw the selected rows (Receive Date Sorting Owner Lock §2.3), never click order.
  const byId=new Map(selected.map(r=>[r.attempt_id,r]));
@@ -112,7 +120,7 @@ export async function assignToBatch(db:Queryable,user:Staff,input:unknown){
   await db.query('INSERT INTO lab_slot_assignment(batch_id,slot_number,attempt_id,assigned_by) VALUES($1,$2,$3,$4)',[b.id,slot.slot_number,r.attempt_id,user.id]);
   await setAttemptState(db,user,{id:r.attempt_id,case_id:r.case_id,state:r.attempt_state},'Assigned',{batchId:b.id,slot:slot.slot_number,gateRuleVersion:GATE_RULE_VERSION,syntheticPendingAccepted:g.syntheticPendingAccepted,pending:g.pending});
   if(r.repeat_order_id)await db.query("UPDATE repeat_work_order SET state='RepeatInProgress' WHERE id=$1 AND state='RepeatPendingBatch'",[r.repeat_order_id]);
-  if(overtaken.length&&!head.includes(r.attempt_id))await attemptEvent(db,user,{attemptId:r.attempt_id,caseId:r.case_id,type:'QUEUE_OVERRIDE',reason:d.queueOverrideReason,details:{batchId:b.id,overtaken:overtaken.length}});
+  if(overtaken.length&&!head.includes(r.attempt_id))await attemptEvent(db,user,{attemptId:r.attempt_id,caseId:r.case_id,type:'QUEUE_OVERRIDE',reason:d.queueOverrideReason??r.urgent_reason??undefined,details:{batchId:b.id,overtaken:overtaken.length,...(d.queueOverrideReason?{}:{reasonSource:'URGENT_REASON'})}});
   await caseEvent(db,user,r.case_id,'LAB_ASSIGNED_TO_BATCH',{runLabel:b.run_label,slot:slot.slot_number});
   placed.push({attemptId:r.attempt_id,slot:slot.slot_number,printedSampleId:id.id!});
  }
@@ -122,6 +130,33 @@ export async function assignToBatch(db:Queryable,user:Staff,input:unknown){
  return {placed,rejected,version};
 }
 
+/** G07 read-only: what "เติมตัวอย่างจากคิว" would place into this Task — the eligible FIFO head, up to the Task's empty patient slots (max 15). */
+export async function previewFill(db:Queryable,user:Staff,input:unknown){
+ await assertSession(db,user);need(user,'batch.assign');
+ const d=z.strictObject({batchId:uuid,sheetNumber:z.number().int().min(1).max(3)}).parse(input);
+ return fillProposal(db,user,d.batchId,d.sheetNumber);
+}
+async function fillProposal(db:Queryable,user:Staff,batchId:string,sheetNumber:number){
+ const s=await sheetOf(db,batchId,sheetNumber,false);
+ if(!EDITABLE.includes(s.state))throw new LabError('PLACEMENT_LOCKED',409);
+ const free=(await db.query<{n:number}>(`SELECT count(*)::int n FROM lab_batch_slot s WHERE s.batch_id=$1 AND s.sheet_number=$2 AND s.control_type IS NULL
+  AND NOT EXISTS(SELECT 1 FROM lab_slot_assignment a WHERE a.batch_id=s.batch_id AND a.slot_number=s.slot_number AND a.removed_at IS NULL)`,[batchId,sheetNumber])).rows[0].n;
+ const {policy}=await pendingPolicy(db),queue=await eligibleQueue(db,user,policy);
+ const take=queue.slice(0,Math.min(free,15));
+ return {sheetNumber,freeSlots:free,queueSize:queue.length,candidates:take.map(r=>({attemptId:r.attempt_id,hisLn:r.ln,labelCode:r.ln_halos?specimenDisplayCode(r.ln_halos,r.pregnancy,r.ln_halos_resampling):null,printedSampleId:candidatePrintedId(r).id,receivedAt:r.received_at?.toISOString()??null,roundNumber:r.round_number,urgent:r.urgent}))};
+}
+/** G07 "เติมตัวอย่างจากคิว": places exactly the previewed FIFO head into the chosen Task's empty slots through the normal Assignment Gate.
+ * If the queue or the Task changed since the preview, nothing is placed and the user reviews the new proposal. Never triggered by PET receipt. */
+export async function fillFromQueue(db:Queryable,user:Staff,input:unknown){
+ await assertSession(db,user);need(user,'batch.assign');
+ const d=z.strictObject({batchId:uuid,expectedVersion:z.number().int().min(0),sheetNumber:z.number().int().min(1).max(3),attemptIds:z.array(uuid).min(1).max(15).refine(v=>new Set(v).size===v.length,'DUPLICATE_ATTEMPT')}).parse(input);
+ const b=await lockBatch(db,d.batchId,d.expectedVersion);await sheetOf(db,b.id,d.sheetNumber);
+ const now=await fillProposal(db,user,b.id,d.sheetNumber);
+ if(now.candidates.map(c=>c.attemptId).join()!==d.attemptIds.join())throw new LabError('FILL_PROPOSAL_CHANGED',409,{proposal:now});
+ const r=await assignToBatch(db,user,{batchId:b.id,expectedVersion:d.expectedVersion,attemptIds:d.attemptIds,sheetNumber:d.sheetNumber});
+ await batchEvent(db,user,b.id,'FIFO_FILL',d.sheetNumber,null,{count:r.placed.length});
+ return r;
+}
 async function liveAssignment(db:Queryable,batchId:string,slot:number){
  return (await db.query<{id:string;attempt_id:string;case_id:string;state:string;repeat_order_id:string|null}>('SELECT s.id,s.attempt_id,a.case_id,a.state,a.repeat_order_id FROM lab_slot_assignment s JOIN analytical_attempt a ON a.id=s.attempt_id WHERE s.batch_id=$1 AND s.slot_number=$2 AND s.removed_at IS NULL FOR UPDATE OF s,a',[batchId,slot])).rows[0];
 }

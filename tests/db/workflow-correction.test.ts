@@ -42,7 +42,7 @@ it('GA ≥ 22+0 is a warning only: shown on the worklist and slot, never changes
  expect(w.attempts.map(a=>[a.roundId,a.category])).toEqual(before); // same order and same gate outcome
  // Overtaking still needs a reason with or without the GA warning; the FIFO head needs none.
  const b=await run(t=>batch.createBatch(t,u.staff));const newerAttempt=await attemptOf(q(),newer.roundId);
- expect(await run(t=>batch.previewAssignment(t,u.staff,{attemptIds:[newerAttempt.id]}))).toEqual({overtaken:1,reasonRequired:true});
+ expect(await run(t=>batch.previewAssignment(t,u.staff,{attemptIds:[newerAttempt.id]}))).toEqual({overtaken:1,reasonRequired:true,urgentReasonReused:false});
  const placed=await run(t=>batch.assignToBatch(t,u.staff,{batchId:b.batchId,expectedVersion:0,attemptIds:[newerAttempt.id],queueOverrideReason:'จำลอง ผู้ใช้เลือกแทรกคิว'}));
  const slot=(await run(t=>batch.batchDetail(t,u.staff,b.batchId))).slots.find(s=>s.slot===placed.placed[0].slot)!;
  expect(slot.assignment?.ga).toMatchObject({weeks:22,remainder:0,warning:true});

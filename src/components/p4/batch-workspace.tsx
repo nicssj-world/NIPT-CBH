@@ -1,5 +1,5 @@
 "use client";
-import {useState,type KeyboardEvent} from "react";
+import {useCallback,useEffect,useState,type KeyboardEvent} from "react";
 import Link from "next/link";
 import {useSearchParams} from "next/navigation";
 import {Dialog,csrf} from "../p2/shared";
@@ -101,7 +101,7 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
    <ol className="stepper" aria-label="ขั้นตอนของ Task List">{STEPS.map((s,i)=>{const idx=STEPS.indexOf(sheet.state==="Amended"?"Draft":sheet.state);return <li key={s} aria-current={s===sheet.state?"step":undefined} className={i<idx?"done":i===idx?"current":""}>{STEP_TEXT[s]}</li>;})}</ol>
    {sheet.state==="Amended"&&<p className="notice warning-notice">อยู่ระหว่าง Controlled amendment — ใบงานเดิมถูกระงับใช้ แก้แผนแล้วยืนยัน/Finalize ใหม่ (สร้าง Revision ใหม่ ของเดิมไม่ถูกแก้)</p>}
    <TaskContext w={w} sheet={sheet} sheetNo={sheetNo}/>
-   <h2>แผนผังตัวอย่าง — ตำแหน่ง {(sheetNo-1)*16+1}–{sheetNo*16}</h2>
+   <div className="row"><h2>แผนผังตัวอย่าง — ตำแหน่ง {(sheetNo-1)*16+1}–{sheetNo*16}</h2>{editable&&w.allowed.assign&&<button className="button secondary" type="button" disabled={busy||sheetStats(w.slots,sheetNo).empty===0} onClick={()=>setDialog({type:"fill"})}>เติมตัวอย่างจากคิว</button>}</div>
    <div className="plate">{[0,1].map(strip=><table key={strip} className="data-table plate-table"><caption>Strip {strip===0?"S1":"S2"} (ตำแหน่ง {(sheetNo-1)*16+1+strip*8}–{(sheetNo-1)*16+8+strip*8})</caption>
     <thead><tr><th scope="col">ตน. / Plate</th><th scope="col">Barcode</th><th scope="col">Sample ID / Control</th><th scope="col">{started?"✓ ตรวจก่อน/หลังดูด":"จัดการ"}</th></tr></thead>
     <tbody>{slots.slice(strip*8,strip*8+8).map(s=><tr key={s.slot} className={s.control?"control-row":s.assignment?"":"empty-row"}>
@@ -110,7 +110,7 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
      <td>{editable&&s.assignment&&w.allowed.draft?<div className="row-actions"><button className="button small secondary" type="button" onClick={()=>setDialog({type:"move",slot:s.slot})}>ย้าย/สลับ</button><button className="button small secondary" type="button" onClick={()=>setDialog({type:"remove",slot:s.slot})}>ถอดออก</button></div>
       :started&&(s.control||s.assignment)?<TransferCell status={transfer(s.slot)} canRecord={sheet.state==="InExecution"||sheet.state==="ExecutionRecorded"} canDispose={w.allowed.dispositionPropose} onRecord={()=>setDialog({type:"transfer",slot:s.slot})} onDispose={()=>setDialog({type:"dispose",slot:s.slot})}/>:"—"}</td></tr>)}</tbody></table>)}</div>
    {editable&&<PlanForm key={`${sheet.id}:${w.batch.version}`} sheet={sheet} disabled={busy||!w.allowed.draft} onDirty={setPlanDirty} onSave={async d=>{const ok=await act("updatePlan",{sheetNumber:sheetNo,...d},"บันทึกข้อมูลแผนแล้ว");if(ok)setPlanDirty(false);return ok;}}/>}
-   {!editable&&<dl className="plan-dl"><dt>ข้อมูลที่วางแผน</dt><dd>วันที่ {displayBe(sheet.planned_work_date)} · ผู้ปฏิบัติ {sheet.planned_operator??"—"} · Extraction Lot {sheet.planned_extraction_lot??"—"} / Exp. {displayBe(sheet.planned_extraction_expiry)} · Library Lot {sheet.planned_library_lot??"—"} / Exp. {displayBe(sheet.planned_library_expiry)}</dd><dt>Placement revision</dt><dd>{sheet.placement_revision} {w.snapshots.filter(x=>x.sheet_number===sheetNo).map(x=><span key={x.id} className="mono small"> r{x.revision}:{x.content_hash.slice(0,12)}</span>)}</dd>
+   {!editable&&<dl className="plan-dl"><dt>ข้อมูลที่วางแผน</dt><dd>วันที่ทำ Library Preparation {displayBe(sheet.planned_work_date)} · ผู้ปฏิบัติ {sheet.planned_operator??"—"} · Extraction Lot {sheet.planned_extraction_lot??"—"} / Exp. {displayBe(sheet.planned_extraction_expiry)} · Library Lot {sheet.planned_library_lot??"—"} / Exp. {displayBe(sheet.planned_library_expiry)}</dd><dt>Placement revision</dt><dd>{sheet.placement_revision} {w.snapshots.filter(x=>x.sheet_number===sheetNo).map(x=><span key={x.id} className="mono small"> r{x.revision}:{x.content_hash.slice(0,12)}</span>)}</dd>
     {sheet.execution_started_at&&<><dt>เริ่มปฏิบัติ (เวลาที่ Server บันทึก)</dt><dd>{bkk(sheet.execution_started_at)}</dd></>}</dl>}
    <div className="action-bar">
     {(sheet.state==="Draft"||sheet.state==="Amended")&&w.allowed.finalize&&<button className="button" type="button" disabled={busy} onClick={()=>setDialog({type:"plancheck"})}>ยืนยันแผนตำแหน่ง</button>}
@@ -127,6 +127,8 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
      <button className="button secondary" type="button" disabled={busy} onClick={()=>void taskPdf(sheetNo,"view")}>ดูตัวอย่าง PDF Task List {sheetNo}</button>
      <button className="button secondary" type="button" disabled={busy} onClick={()=>void taskPdf(sheetNo,"download")}>ดาวน์โหลด PDF Task List {sheetNo}</button>
      <span className="help">สำเนาตรวจทานจาก Excel Master — ไม่ใช่เอกสารควบคุม (เอกสารควบคุมคือใบงาน Pre-work / Completed ด้านล่าง)</span></>
+    :editable&&w.allowed.draft?<><button className="button secondary" type="button" disabled={busy} onClick={()=>void labPdf(`/api/p4/batches/${w.batch.id}/draft-pdf`,{sheetNumber:sheetNo}).catch(e=>setMsg({ok:false,text:failureText(e)}))}>ดูตัวอย่าง PDF ฉบับร่าง (DRAFT)</button>
+     <span className="help">ฉบับร่างก่อน Finalize มีลายน้ำ DRAFT — ไม่ใช่เอกสารควบคุม ไม่มีเลขเอกสาร และใช้ปฏิบัติงานไม่ได้ · PDF จาก Excel Master พร้อมเมื่อ Finalize แล้ว</span></>
     :<span className="help">PDF ของ Task List {sheetNo} พร้อมเมื่อ Finalize Placement แล้ว</span>}
    </div>
    {sheet.state==="PlanChecked"&&<p className="help">การยืนยันแผนคือการตรวจแผนบนจอ ไม่ใช่หลักฐานว่าดูดตัวอย่างแล้ว · Finalize จะประเมิน Finalize Gate ใหม่ทุกตัวอย่าง — ถ้าตัวใดไม่ผ่านจะไม่ Finalize ทั้ง Sheet</p>}
@@ -160,7 +162,7 @@ function TaskContext({w,sheet,sheetNo}:{w:Workspace;sheet:Sheet;sheetNo:number})
    <div><dt>Run</dt><dd className="mono">{w.batch.runLabel} · {strips.s1} · {strips.s2}</dd></div>
    <div><dt>ตัวอย่างผู้ป่วย</dt><dd>{st.placed}/{st.capacity} · ว่าง {st.empty}</dd></div>
    <div><dt>Control</dt><dd>{st.control?<><span className="badge">{st.control.controlLabel}</span> <span className="mono">{st.control.controlCode??"รอวันที่ปฏิบัติงาน"}</span></>:"—"}</dd></div>
-   <div><dt>วันที่ปฏิบัติงาน (วางแผน)</dt><dd>{displayBe(sheet.planned_work_date)} · ผู้ปฏิบัติ {sheet.planned_operator??"—"}</dd></div>
+   <div><dt>วันที่ทำ Library Preparation (วางแผน)</dt><dd>{displayBe(sheet.planned_work_date)} · ผู้ปฏิบัติ {sheet.planned_operator??"—"}</dd></div>
    <div><dt>Extraction / Library Lot</dt><dd>{sheet.planned_extraction_lot??"—"} / Exp. {displayBe(sheet.planned_extraction_expiry)} · {sheet.planned_library_lot??"—"} / Exp. {displayBe(sheet.planned_library_expiry)}</dd></div>
   </dl>
  </section>;
@@ -178,7 +180,7 @@ function PlanForm({sheet,disabled,onSave,onDirty}:{sheet:Sheet;disabled:boolean;
   ?<ThaiDateInput id={`plan-${k}`} value={d[k]} onChange={v=>{if(v!==d[k])set(k,v);}}/>
   :<input id={`plan-${k}`} type={type} value={d[k]} onChange={e=>set(k,e.target.value)} maxLength={80}/>}</div>;
  const n=(v:string)=>v.trim()?v.trim():null;
- return <fieldset className="plan-form"><legend>ข้อมูลที่วางแผน (พิมพ์แยกจากช่อง “ใช้จริง” — ไม่ใช่หลักฐานการปฏิบัติ)</legend><div className="form-grid">{f("plannedWorkDate","วันที่ปฏิบัติงานที่วางแผน (ใช้สร้างรหัส Control)","date")}{f("plannedOperator","ผู้ปฏิบัติที่วางแผน")}{f("plannedExtractionLot","Extraction Lot (ถ้าทราบ)")}{f("plannedExtractionExpiry","Extraction Exp.","date")}{f("plannedLibraryLot","Library Lot (ถ้าทราบ)")}{f("plannedLibraryExpiry","Library Exp.","date")}</div>
+ return <fieldset className="plan-form"><legend>ข้อมูลที่วางแผน (พิมพ์แยกจากช่อง “ใช้จริง” — ไม่ใช่หลักฐานการปฏิบัติ)</legend><div className="form-grid">{f("plannedWorkDate","วันที่ทำ Library Preparation ที่วางแผน (ใช้สร้างรหัส Control)","date")}{f("plannedOperator","ผู้ปฏิบัติที่วางแผน")}{f("plannedExtractionLot","Extraction Lot (ถ้าทราบ)")}{f("plannedExtractionExpiry","Extraction Exp.","date")}{f("plannedLibraryLot","Library Lot (ถ้าทราบ)")}{f("plannedLibraryExpiry","Library Exp.","date")}</div>
   <button className="button secondary" type="button" disabled={disabled||!d.plannedWorkDate} onClick={()=>onSave({plannedWorkDate:d.plannedWorkDate,plannedOperator:n(d.plannedOperator),plannedExtractionLot:n(d.plannedExtractionLot),plannedExtractionExpiry:n(d.plannedExtractionExpiry),plannedLibraryLot:n(d.plannedLibraryLot),plannedLibraryExpiry:n(d.plannedLibraryExpiry)})}>บันทึกข้อมูลแผน</button></fieldset>;
 }
 type Act=(action:string,data?:Record<string,unknown>,ok?:string)=>Promise<boolean>;
@@ -193,15 +195,15 @@ function SourceControls({copies,value,onChange}:{copies:{id:string;label:string}
  </fieldset>;
 }
 const sourcePayload=(v:{source:string;copyId:string;eventTime:string;notRecorded:boolean})=>v.source==="DIRECT_ENTRY"?{source:"DIRECT_ENTRY"}:{source:"PAPER_TRANSCRIPTION",documentCopyId:v.copyId,...(v.notRecorded?{eventPrecision:"NOT_RECORDED"}:{eventTime:new Date(v.eventTime).toISOString(),eventPrecision:"MINUTE"})};
-function valueInput(kind:string,v:Record<string,string>,set:(v:Record<string,string>)=>void,id:string){
+function valueInput(kind:string,v:Record<string,string>,set:(v:Record<string,string>)=>void,id:string,planned?:string|null){
  if(kind==="CHECK")return <label className="check-label"><input id={id} type="checkbox" checked={v.checked==="true"} onChange={e=>set({checked:String(e.target.checked)})}/> ทำแล้ว</label>;
- if(kind==="DATE")return <ThaiDateInput id={id} value={v.date??""} onChange={x=>set({date:x})}/>;
+ if(kind==="DATE")return <div className="stack"><ThaiDateInput id={id} value={v.date??""} onChange={x=>set({...v,date:x})}/>{planned&&v.date&&v.date!==planned&&<><p className="notice warning-notice" role="note">ต่างจากวันที่วางแผน {displayBe(planned)} ที่ใช้สร้างรหัส Control — รหัส Control คงเดิม (ล็อกเมื่อเริ่มปฏิบัติงาน) ระบุเหตุผลสั้น ๆ</p><input aria-label="เหตุผลที่วันที่ต่างจากแผน" placeholder="เหตุผลที่วันที่ต่างจากแผน (อย่างน้อย 8 ตัวอักษร)" value={v.deviationReason??""} maxLength={500} onChange={e=>set({...v,deviationReason:e.target.value})}/></>}</div>;
  if(kind==="LOT")return <div className="row"><input id={id} aria-label="Lot no." placeholder="Lot no." value={v.lot??""} onChange={e=>set({...v,lot:e.target.value})}/><ThaiDateInput aria-label="Exp. date" value={v.expiry??""} onChange={x=>set({...v,expiry:x})}/></div>;
  if(kind==="TIME_RANGE")return <div className="row"><input id={id} type="time" aria-label="เวลาเริ่ม" value={v.start??""} onChange={e=>set({...v,start:e.target.value})}/><input type="time" aria-label="เวลาจบ" value={v.end??""} onChange={e=>set({...v,end:e.target.value})}/></div>;
  if(kind==="NUMBER")return <input id={id} inputMode="decimal" value={v.value??""} onChange={e=>set({value:e.target.value})} aria-describedby={`${id}-unit`}/>;
  return <input id={id} value={v.text??""} onChange={e=>set({text:e.target.value})} maxLength={120}/>;
 }
-const toValue=(kind:string,v:Record<string,string>)=>kind==="CHECK"?(v.checked==="true"?{checked:true}:null):kind==="DATE"?(v.date?{date:v.date}:null):kind==="LOT"?(v.lot&&v.expiry?{lot:v.lot,expiry:v.expiry}:null):kind==="TIME_RANGE"?(v.start&&v.end?{start:v.start,end:v.end}:null):kind==="NUMBER"?(/^\d{1,4}(\.\d{1,3})?$/.test(v.value??"")?{value:v.value,unit:"ng/uL"}:null):(v.text?.trim()?{text:v.text.trim()}:null);
+const toValue=(kind:string,v:Record<string,string>)=>kind==="CHECK"?(v.checked==="true"?{checked:true}:null):kind==="DATE"?(v.date?{date:v.date,...(v.deviationReason?.trim()?{deviationReason:v.deviationReason.trim()}:{})}:null):kind==="LOT"?(v.lot&&v.expiry?{lot:v.lot,expiry:v.expiry}:null):kind==="TIME_RANGE"?(v.start&&v.end?{start:v.start,end:v.end}:null):kind==="NUMBER"?(/^\d{1,4}(\.\d{1,3})?$/.test(v.value??"")?{value:v.value,unit:"ng/uL"}:null):(v.text?.trim()?{text:v.text.trim()}:null);
 function ExecutionPanel({w,sheet,comp,copies,busy,act,userId}:{w:Workspace;sheet:Sheet;comp:Workspace["completeness"][number];copies:Copy[];busy:boolean;act:Act;userId:string}){
  const fields=w.fields.filter(f=>f.form==="F2"&&f.scope==="SHEET"&&f.sheets.includes(sheet.sheet_number));
  const obs=w.observations.filter(o=>o.sheetId===sheet.id);
@@ -214,7 +216,7 @@ function ExecutionPanel({w,sheet,comp,copies,busy,act,userId}:{w:Workspace;sheet
    <tbody>{fields.map(f=>{const key=f.id+":"+f.item,o=obs.find(x=>x.fieldId===f.id&&x.item===f.item),id=`f-${f.id}-${f.item}`;const value=toValue(f.kind,vals[key]??{});
     return <tr key={key}><th scope="row"><label htmlFor={id}>{f.label}</label><div className="small muted">{f.id}{f.item?` · ${f.item}`:""} · {f.cls}</div></th><td>{o?<>{o.valueText}<div className="small muted">{o.source==="PAPER_TRANSCRIPTION"?"กระดาษ":"บันทึกตรง"} · เหตุการณ์ {o.eventPrecision==="NOT_RECORDED"?"ไม่ได้บันทึกบนเอกสาร":bkk(o.eventTime)} · กรอก {bkk(o.recordedAt)} {o.recorder}</div></>:"—"}</td>
      <td>{o?<span className={`status ${o.status==="Verified"?"good":o.status==="Discrepancy"?"bad":"warning"}`}>{o.status==="Verified"?`ทวนสอบแล้ว (${o.reviewer})`:o.status==="Discrepancy"?"ไม่ตรง — ต้องแก้":"รอทวนสอบ"}</span>:<span className="status warning">ยังไม่บันทึก</span>}</td>
-     <td>{canEnter&&(!o||o.status!=="Verified"||sheet.state==="InExecution"||sheet.state==="ExecutionRecorded")?<div className="row">{valueInput(f.kind,vals[key]??{},v=>setVals({...vals,[key]:v}),id)}
+     <td>{canEnter&&(!o||o.status!=="Verified"||sheet.state==="InExecution"||sheet.state==="ExecutionRecorded")?<div className="row">{valueInput(f.kind,vals[key]??{},v=>setVals({...vals,[key]:v}),id,f.id==="F2-02"?sheet.planned_work_date:null)}
       {o&&<input aria-label="เหตุผลการแก้ไข" placeholder="เหตุผลการแก้ไข" value={fix[key]??""} onChange={e=>setFix({...fix,[key]:e.target.value})}/>}
       <button className="button small" type="button" disabled={busy||!value||(src.source==="PAPER_TRANSCRIPTION"&&(!src.copyId||(!src.notRecorded&&!src.eventTime)))||(!!o&&(fix[key]??"").trim().length<8)} onClick={async()=>{if(await act("record",{sheetNumber:sheet.sheet_number,fieldId:f.id,item:f.item,value,...sourcePayload(src),...(o?{supersedesId:o.id,correctionReason:fix[key]}:{})},o?"บันทึกค่าแก้ไขแล้ว (ค่าเดิมเก็บไว้)":"บันทึกแล้ว — รอผู้อื่นทวนสอบ"))setVals({...vals,[key]:{}});}}>{o?"แก้ไข":"บันทึก"}</button></div>:null}</td></tr>;})}</tbody></table></div>
   <ReviewPanel w={w} obs={w.observations.filter(o=>o.sheetId===sheet.id)} act={act} busy={busy} userId={userId}/>
@@ -295,7 +297,32 @@ function WorkspaceDialog({dialog,w,sheetNo,busy,act,close,setMsg,reload}:{dialog
   <div className="dialog-actions"><button className="button" type="button" disabled={busy||!code||reason.trim().length<8} onClick={()=>run("proposeDisposition",{slot:slot.slot,stage,disposition:disp,reasonCode:code,note:reason},"เสนอ Disposition แล้ว — รอผู้อื่นยืนยัน")}>เสนอ</button></div></div></Dialog>;
  if(dialog.type==="amend")return <Dialog title={`Controlled amendment — Task List ${sheetNo}`} onClose={close}><div className="stack"><p>ใบงาน Pre-work ที่ออกแล้วจะถูก “ระงับใช้” และสำเนาใช้งานทุกฉบับต้องถูกเรียกคืนก่อนเริ่มงาน Snapshot และ PDF เดิมไม่ถูกแก้</p><label htmlFor="am-reason">เหตุผล</label><textarea id="am-reason" rows={3} value={reason} onChange={e=>setReason(e.target.value)}/>
   <div className="dialog-actions"><button className="button" type="button" disabled={busy||reason.trim().length<8} onClick={()=>run("amend",{sheetNumber:sheetNo,reason},"เปิด Controlled amendment แล้ว")}>ยืนยัน</button></div></div></Dialog>;
+ if(dialog.type==="fill")return <FillDialog w={w} sheetNo={sheetNo} close={close} setMsg={setMsg} reload={reload}/>;
  if(dialog.type==="cancel")return <Dialog title={`ยกเลิก ${w.batch.runLabel}`} onClose={close}><div className="stack"><p>ยกเลิกได้เฉพาะก่อนเริ่มปฏิบัติ ตัวอย่างที่ยังไม่เคย Finalize กลับคิวพร้อมเข้าตรวจ ส่วนที่ Finalize แล้วเป็น “Batch ถูกยกเลิก” และต้องสั่งตรวจซ้ำ เลข Run ไม่ถูกนำกลับมาใช้</p><label htmlFor="cx-reason">เหตุผล</label><textarea id="cx-reason" rows={3} value={reason} onChange={e=>setReason(e.target.value)}/>
   <div className="dialog-actions"><button className="button" type="button" disabled={busy||reason.trim().length<8} onClick={()=>run("cancel",{reason},"ยกเลิก Batch แล้ว")}>ยืนยันยกเลิก</button></div></div></Dialog>;
  return null;
+}
+
+type FillProposal={sheetNumber:number;freeSlots:number;queueSize:number;candidates:{attemptId:string;hisLn:string;labelCode:string|null;printedSampleId:string|null;receivedAt:string|null;roundNumber:number;urgent:boolean}[]};
+/** G07: fills the selected Task's empty patient slots from the eligible FIFO queue after showing exactly what will be placed. */
+function FillDialog({w,sheetNo,close,setMsg,reload}:{w:Workspace;sheetNo:number;close:()=>void;setMsg:(m:{ok:boolean;text:string;details?:unknown})=>void;reload:()=>Promise<void>}){
+ const [p,setP]=useState<FillProposal|null>(null),[error,setError]=useState(""),[busy,setBusy]=useState(false);
+ const batchId=w.batch.id;
+ const load=useCallback(async()=>{setError("");try{setP(await labApi<FillProposal>(`/api/p4/batches/${batchId}`,{action:"previewFill",sheetNumber:sheetNo}));}catch(e){setError(failureText(e));}},[batchId,sheetNo]);
+ useEffect(()=>{void Promise.resolve().then(load);},[load]);
+ async function confirm(){if(!p)return;setBusy(true);setError("");
+  try{const r=await labApi<{placed:unknown[];rejected:unknown[]}>(`/api/p4/batches/${w.batch.id}`,{action:"fill",expectedVersion:w.batch.version,sheetNumber:sheetNo,attemptIds:p.candidates.map(c=>c.attemptId)});
+   await reload();setMsg({ok:true,text:`เติมตัวอย่างจากคิวลง Task List ${sheetNo} แล้ว ${r.placed.length} รายการ${r.rejected.length?` · ไม่ผ่าน Gate ${r.rejected.length} รายการ`:""}`,details:r.rejected.length?r.rejected:undefined});close();}
+  catch(e){if(e instanceof LabFailure&&["FILL_PROPOSAL_CHANGED","VERSION_CONFLICT"].includes(e.code)){await reload();await load();setError("คิวหรือ Task เปลี่ยนไประหว่างนี้ — แสดงรายการล่าสุดแล้ว กรุณาตรวจอีกครั้ง");}else setError(failureText(e));}
+  finally{setBusy(false);}}
+ return <Dialog title={`เติมตัวอย่างจากคิว — Task List ${sheetNo}`} onClose={close}><div className="stack">
+  <p className="help">เติมเฉพาะตัวอย่างที่พร้อมเข้าตรวจและผ่าน Gate ตามลำดับรับสิ่งส่งตรวจ (FIFO) ลงช่องว่างของ Task นี้เท่านั้น ไม่แตะช่อง Control (1/25/40) และไม่เปลี่ยน LN Halos หรือรหัส — ต้องการเลือกเองหรือแทรกคิว ให้เลือกจากคิวงาน Lab</p>
+  {!p&&!error&&<div className="skeleton" role="status" aria-label="กำลังโหลดรายการ"/>}
+  {p&&<p role="status"><strong>จะเติม {p.candidates.length} รายการ</strong> · ช่องว่าง {p.freeSlots} · ในคิวที่พร้อม {p.queueSize}</p>}
+  {p&&p.candidates.length>0&&<div className="table-wrap"><table className="data-table"><caption className="sr-only">รายการที่จะเติม</caption><thead><tr><th scope="col">ลำดับ</th><th scope="col">ตัวอย่าง</th><th scope="col">LN (HIS)</th><th scope="col">รับเมื่อ</th></tr></thead>
+   <tbody>{p.candidates.map((c,i)=><tr key={c.attemptId}><td>{i+1}</td><td><span className="mono strong">{c.printedSampleId??c.labelCode??"—"}</span>{c.roundNumber>1&&<span className="badge warning">เจาะซ้ำ</span>}{c.urgent&&<span className="badge danger">ด่วน</span>}</td><td className="mono">{c.hisLn}</td><td>{bkk(c.receivedAt)}</td></tr>)}</tbody></table></div>}
+  {p&&p.candidates.length===0&&<p className="empty-state">{p.freeSlots===0?"Task นี้ไม่มีช่องว่างแล้ว":"ไม่มีตัวอย่างที่พร้อมเข้าตรวจในคิว"}</p>}
+  {error&&<p className="notice" role="alert">{error}</p>}
+  <div className="dialog-actions"><button className="button" type="button" disabled={busy||!p||p.candidates.length===0} onClick={()=>void confirm()}>{busy?"กำลังเติม…":`ยืนยันเติม ${p?.candidates.length??0} รายการ`}</button><button className="button secondary" type="button" onClick={close}>ยกเลิก</button></div>
+ </div></Dialog>;
 }

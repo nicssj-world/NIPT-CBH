@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {compareReceive,READY_QUEUE_DEFAULT_SORT} from './receive-sort';
 import {operationalDataEnabled} from '../security/runtime';
 import type {Queryable} from '../db/connection';
 import {appendAudit} from '../db/audit';
@@ -103,8 +104,9 @@ export function candidatePrintedId(r:AttemptRow){
 export function assignmentDecision(r:AttemptRow,policy:PendingPolicy){
  return decide(assignmentPredicates({...commonFacts(r),attemptState:r.attempt_state,hasActiveSlot:r.slot_batch_id!==null,onHold:r.hold,resumeDecisionRequired:r.resume_decision_required,repeatOrderState:r.repeat_state,printedIdAvailable:candidatePrintedId(r).status}),policy);
 }
-/** FIFO proposal: Urgent first, then specimen-round receipt time (Repeat keeps the original receipt time), then attempt creation. */
-export const fifo=(a:AttemptRow,b:AttemptRow)=>Number(b.urgent)-Number(a.urgent)||(a.received_at?.getTime()??0)-(b.received_at?.getTime()??0)||a.attempt_created_at.getTime()-b.attempt_created_at.getTime()||a.attempt_id.localeCompare(b.attempt_id);
+/** FIFO = the Ready Queue display order: specimen-round receipt time ASC (Repeat keeps the original receipt time), immutable tie keys.
+ * OD-A (Owner 2026-10-18): Urgent is a badge and never jumps the queue by itself; it only lets its own recorded reason stand for a manual override. */
+export const fifo=(a:AttemptRow,b:AttemptRow)=>compareReceive({receivedAt:a.received_at,keys:[a.ln,a.attempt_id]},{receivedAt:b.received_at,keys:[b.ln,b.attempt_id]},READY_QUEUE_DEFAULT_SORT);
 /** GA ≥ 22+0 notice (Owner: warning only). EDD from the latest verified Request of this round; collection date from the HIS receipt
  * evidence when present, otherwise the Request. Same arithmetic as P2 `calculations()`. Display only: no gate, FIFO, urgent or override reads it. */
 export const GA_WARNING_DAYS=22*7;

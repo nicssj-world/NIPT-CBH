@@ -189,3 +189,32 @@ test("P0-3: choosing a sample out of FIFO order shows the reason requirement bef
  expect(await fixtureQuery("SELECT e.reason FROM attempt_event e JOIN analytical_attempt a ON a.id=e.attempt_id WHERE a.round_id=$1 AND e.event_type='QUEUE_OVERRIDE'",[cases[1].roundId])).toEqual([{reason:"จำลอง ผู้ใช้เลือกแทรกคิว"}]);
  await axe(page);
 });
+test("G07 + OD-B: 'เติมตัวอย่างจากคิว' previews then fills the selected Task from FIFO; DRAFT preview PDF before Finalize",async({page})=>{
+ test.setTimeout(180000);
+ await readyCases(3);
+ await page.setViewportSize({width:1440,height:1000});await login(page,"synthetic.lab");await page.goto("/lab");
+ const batchId=await freshBatch(page);
+ await page.goto(`/lab/batches/${batchId}?task=2`);
+ await expect(page.getByRole("tab",{name:/Task List 2/})).toHaveAttribute("aria-selected","true");
+ await page.getByRole("button",{name:"เติมตัวอย่างจากคิว"}).click();
+ const dialog=page.getByRole("dialog",{name:"เติมตัวอย่างจากคิว — Task List 2"});
+ const summary=dialog.getByRole("status").filter({hasText:"จะเติม"});await expect(summary).toBeVisible();
+ const n=Number((await summary.innerText()).match(/จะเติม (\d+) รายการ/)![1]);expect(n).toBeGreaterThanOrEqual(3);expect(n).toBeLessThanOrEqual(15);
+ const listed=await dialog.getByRole("row").count();expect(listed).toBe(n+1);
+ await axe(page);
+ await dialog.getByRole("button",{name:`ยืนยันเติม ${n} รายการ`}).click();
+ await expect(page.getByRole("status").filter({hasText:`เติมตัวอย่างจากคิวลง Task List 2 แล้ว ${n} รายการ`})).toBeVisible();
+ // Placed only into Task 2 patient slots, never the NC control (25), in receive-time order; Task 1/3 untouched.
+ const placed=await fixtureQuery<{slot_number:number;received_at:Date}>("SELECT s.slot_number,r.received_at FROM lab_slot_assignment s JOIN analytical_attempt a ON a.id=s.attempt_id JOIN specimen_round r ON r.id=a.round_id WHERE s.batch_id=$1 AND s.removed_at IS NULL ORDER BY s.slot_number",[batchId]);
+ expect(placed).toHaveLength(n);expect(placed.every(p=>p.slot_number>=17&&p.slot_number<=32&&p.slot_number!==25)).toBe(true);
+ expect(placed.map(p=>p.received_at.getTime())).toEqual([...placed.map(p=>p.received_at.getTime())].sort((a,b)=>a-b));
+ await expect(page.getByRole("tab",{name:/Task List 2/})).toContainText(`ผู้ป่วย ${n}/15`);
+ // OD-B: uncontrolled DRAFT preview of the not-yet-finalized Task.
+ const popup=page.waitForEvent("popup");
+ await page.getByRole("button",{name:"ดูตัวอย่าง PDF ฉบับร่าง (DRAFT)"}).click();
+ await (await popup).close();
+ const r=await labPost(page,`/api/p4/batches/${batchId}/draft-pdf`,{sheetNumber:2});
+ expect(r.ok(),await r.text().catch(()=>"")).toBe(true);expect(r.headers()["content-type"]).toBe("application/pdf");expect(r.headers()["x-document-status"]).toBe("DRAFT_PREVIEW");
+ expect((await r.body()).subarray(0,5).toString()).toBe("%PDF-");
+ expect(await fixtureQuery("SELECT 1 FROM lab_document WHERE batch_id=$1",[batchId])).toEqual([]);
+});

@@ -6,11 +6,11 @@ import type {FileStore} from '../storage';
 import {authorize} from '../security/policy';
 import {contentHash} from '../p2/service';
 import {P4_TEMPLATE_VERSION,type P4Document} from '../pdf/p4';
-import {CONTROL_LABEL,getSheetNumber,getPlatePosition,stripLabels,controlTypeOf} from './rules';
+import {CONTROL_LABEL,getSheetNumber,getPlatePosition,stripLabels,controlTypeOf,formatPrintedControlId} from './rules';
 import {FIELDS,FIELD_INVENTORY_STATUS,fieldDef,requiredSheetFields,type FieldDef} from './fields';
 import {qc1Candidates,QC1_CRITERIA} from './qc';
-import {LabError,uuid,reasonText,need,assertSession,audit,caseEvent,attemptEvent,setAttemptState,DISPOSITION_REASONS,type Staff} from './core';
-import {lockBatch,sheetOf,latestSnapshot,FINALIZED,type PlacementPayload} from './batch';
+import {LabError,uuid,reasonText,need,assertSession,audit,caseEvent,attemptEvent,setAttemptState,attemptFacts,candidatePrintedId,caseVisible,DISPOSITION_REASONS,type Staff} from './core';
+import {lockBatch,sheetOf,latestSnapshot,FINALIZED,EDITABLE,type PlacementPayload} from './batch';
 import {isNativeIssue,type NativeIssuePort} from '../workbook/controlled';
 import {labelNativeCopy} from '../workbook/controlled-copy';
 import {isoDate,bangkokIsoDay,displayBe} from '../domain/thai-date';
@@ -22,13 +22,13 @@ const VALUE:Record<FieldDef['kind'],z.ZodType>={
  TRANSFER:z.strictObject({before:z.literal(true),after:z.literal(true)}),
  CHECK:z.strictObject({checked:z.literal(true)}),
  TEXT:z.strictObject({text:z.string().trim().min(1).max(120).refine(no13)}),
- DATE:z.strictObject({date:isoDate}),
+ DATE:z.strictObject({date:isoDate,deviationReason:reasonText.optional()}),
  LOT:z.strictObject({lot:z.string().trim().min(1).max(60).refine(no13),expiry:isoDate}),
  TIME_RANGE:z.strictObject({start:hhmm,end:hhmm}).refine(v=>v.start<=v.end,'END_BEFORE_START'),
  NUMBER:z.strictObject({value:z.string().regex(/^\d{1,4}(\.\d{1,3})?$/),unit:z.literal('ng/uL')})
 };
 export function valueText(def:FieldDef,v:Record<string,unknown>){
- switch(def.kind){case 'TRANSFER':return '✓ ก่อนดูด / ✓ หลังดูด';case 'CHECK':return '✓';case 'TEXT':return String(v.text);case 'DATE':return displayBe(String(v.date));
+ switch(def.kind){case 'TRANSFER':return '✓ ก่อนดูด / ✓ หลังดูด';case 'CHECK':return '✓';case 'TEXT':return String(v.text);case 'DATE':return displayBe(String(v.date))+(v.deviationReason?` — ต่างจากวันที่วางแผนที่ใช้สร้างรหัส Control (รหัสคงเดิม) เหตุผล: ${String(v.deviationReason)}`:'');
   case 'LOT':return `${v.lot} / Exp. ${displayBe(String(v.expiry))}`;case 'TIME_RANGE':return `${v.start}–${v.end}`;case 'NUMBER':return `${v.value} ng/µL`;}
 }
 type Obs={id:string;batch_id:string;sheet_id:string|null;slot_number:number|null;field_id:string;item:string;value:Record<string,unknown>;source:'PAPER_TRANSCRIPTION'|'DIRECT_ENTRY';event_time:Date|null;event_time_precision:string;recorded_at:Date;recorded_by:string;status:string;recorder:string;reviewer:string|null};
@@ -56,6 +56,14 @@ export async function recordObservation(db:Queryable,user:Staff,input:unknown){
  if(def.form==='F2'&&d.slot&&getSheetNumber(d.slot)!==sheetNumber)throw new LabError('SLOT_NOT_IN_SHEET',422);
  const sheet=sheetNumber?await sheetOf(db,b.id,sheetNumber):d.slot?await sheetOf(db,b.id,getSheetNumber(d.slot)):null;
  if(def.form==='F2'&&sheet&&!def.required(sheet.sheet_number))throw new LabError('FIELD_NOT_ON_THIS_SHEET',422);
+ // OD-E / OD-T (Owner 2026-10-18): control IDs were fixed from the planned Library date when execution started and never change.
+ // An actual Library Preparation date (F2-02) that differs keeps them and must carry a short reason; no other field carries one.
+ if(value.deviationReason!==undefined&&d.fieldId!=='F2-02')throw new LabError('DEVIATION_REASON_NOT_APPLICABLE',422);
+ if(d.fieldId==='F2-02'&&sheet&&FINALIZED.includes(sheet.state)){
+  const planned=(await latestSnapshot(db,sheet.id)).payload.plan.workDate;
+  if(planned&&value.date!==planned&&!value.deviationReason)throw new LabError('LIBRARY_DATE_DEVIATION_REASON_REQUIRED',422,{plannedWorkDate:planned});
+  if(planned&&value.date===planned&&value.deviationReason!==undefined)throw new LabError('DEVIATION_REASON_NOT_APPLICABLE',422);
+ }
  if(d.slot&&sheet){
   if(!FINALIZED.includes(sheet.state))throw new LabError('SHEET_NOT_FINALIZED',409);
   const snap=await latestSnapshot(db,sheet.id);if(!inUse(snap.payload).some(s=>s.slot===d.slot))throw new LabError('SLOT_NOT_IN_USE',409);
@@ -212,8 +220,15 @@ async function f2Document(db:Queryable,batchId:string,sheetNumber:number,kind:'P
  const execution=obs.filter(o=>o.field_id!=='F2-11').map(o=>{const def=fieldDef(o.field_id,o.item);return {label:def.label,value:valueText(def,o.value),source:o.source,eventTime:o.event_time_precision==='NOT_RECORDED'?'ไม่ได้บันทึกบนเอกสาร':th(o.event_time),recordedAt:th(o.recorded_at),recordedBy:o.recorder,verifiedBy:o.reviewer??''};});
  const doc:P4Document={form:'F2',kind,...meta,issuedAt:th(meta.issuedAt),runLabel:b.run_label,templateVersion:P4_TEMPLATE_VERSION,fieldInventory:FIELD_INVENTORY_STATUS,snapshotRevision:`Placement r${snap.revision} ${snap.content_hash.slice(0,12)}`,copy:null,synthetic:true,
   sheetNumber,strips:stripLabels(b.run_label,sheetNumber as 1),controlInstruction:CONTROL_INSTRUCTION[sheetNumber],plan:{workDate:displayBe(p.plan.workDate),operator:p.plan.operator??'—',extractionLot:p.plan.extractionLot??'—',extractionExpiry:displayBe(p.plan.extractionExpiry),libraryLot:p.plan.libraryLot??'—',libraryExpiry:displayBe(p.plan.libraryExpiry)},
-  rows,checklist,execution,startedAt:kind==='COMPLETED'?th(s.execution_started_at):null,pendingGovernance:p.gate.pendingAccepted};
+  rows,checklist,execution,startedAt:kind==='COMPLETED'?th(s.execution_started_at):null,pendingGovernance:p.gate.pendingAccepted,dateBasis:await dateBasisText(db,batchId,s.id,p.plan.workDate,kind)};
  return {doc,snapshotRef:snap.id};
+}
+/** OD-S/T/E (Owner 2026-10-18): states unambiguously which date the control IDs carry and, on Completed, any actual Library date that differs. */
+async function dateBasisText(db:Queryable,batchId:string,sheetId:string,planned:string|null,kind:'PRE_WORK'|'COMPLETED'){
+ if(!planned)return undefined;
+ const dev=kind==='COMPLETED'?await libraryDateDeviation(db,batchId,sheetId):null;
+ return dev?`รหัส Control สร้างจากวันที่ทำ Library Preparation ที่วางแผน ${displayBe(planned)} (ล็อกเมื่อเริ่มปฏิบัติงาน) · วันที่ทำ Library Preparation จริง ${displayBe(dev.actualLibraryDate)} · เหตุผล: ${dev.reason}`
+  :`รหัส Control สร้างจากวันที่ทำ Library Preparation ${displayBe(planned)}${kind==='COMPLETED'?' (ตรงกับวันที่ทำจริง)':' (วางแผน)'}`;
 }
 async function f3Document(db:Queryable,batchId:string,kind:'PRE_WORK'|'COMPLETED',meta:{docCode:string;revision:number;issuedAt:Date;issuedBy:string}):Promise<{doc:P4Document;included:string[]}>{
  const b=(await db.query<{run_label:string}>('SELECT run_label FROM lab_batch WHERE id=$1',[batchId])).rows[0];const q=await qcCompleteness(db,batchId);
@@ -245,6 +260,38 @@ async function storeDocument(db:Queryable,user:Staff,deps:DocDeps,x:{batchId:str
 }
 async function nextRevision(db:Queryable,batchId:string,form:string,kind:string,sheetId:string|null){
  return (await db.query<{n:number}>('SELECT COALESCE(max(revision),0)+1 n FROM lab_document WHERE batch_id=$1 AND form=$2 AND kind=$3 AND sheet_id IS NOT DISTINCT FROM $4',[batchId,form,kind,sheetId])).rows[0].n;
+}
+/** The verified F2-02 that differs from the planned (control-ID) date of the latest Placement snapshot, if any. */
+export async function libraryDateDeviation(db:Queryable,batchId:string,sheetId:string){
+ const plan=(await latestSnapshot(db,sheetId)).payload.plan;
+ const o=(await liveObservations(db,batchId)).find(x=>x.sheet_id===sheetId&&x.field_id==='F2-02'&&x.status==='Verified');
+ return o&&plan.workDate&&o.value.date!==plan.workDate?{plannedWorkDate:plan.workDate,actualLibraryDate:String(o.value.date),reason:String(o.value.deviationReason??'')}:null;
+}
+/**
+ * OD-B (Owner 2026-10-18): uncontrolled F2 preview of a Task that is not finalized yet, built from its live plan and slots.
+ * DRAFT watermark, no DocID series, never stored as a lab_document and never usable as a working copy; audited as a preview.
+ */
+export async function previewDraftF2(db:Queryable,user:Staff,input:unknown,deps:Pick<DocDeps,'render'>){
+ await assertSession(db,user);need(user,'batch.draft');
+ const d=z.strictObject({batchId:uuid,sheetNumber:z.number().int().min(1).max(3)}).parse(input);
+ const b=(await db.query<{id:string;run_label:string}>("SELECT id,run_label FROM lab_batch WHERE id=$1 AND state<>'Cancelled'",[d.batchId])).rows[0];if(!b)throw new LabError('NOT_FOUND',404);
+ const s=await sheetOf(db,b.id,d.sheetNumber,false);
+ if(!EDITABLE.includes(s.state))throw new LabError('DRAFT_PREVIEW_ONLY_BEFORE_FINALIZE',409);
+ const facts=await attemptFacts(db,'a.id IN (SELECT attempt_id FROM lab_slot_assignment WHERE batch_id=$1 AND removed_at IS NULL)',[b.id]);
+ const lo=(d.sheetNumber-1)*16+1,date=s.planned_work_date;
+ const rows=Array.from({length:16},(_,i)=>{const slot=lo+i,control=controlTypeOf(slot),f=facts.find(x=>x.slot_number===slot);
+  if(control)return {slot,plate:getPlatePosition(slot),barcode:slot,kind:'CONTROL' as const,control:CONTROL_LABEL[control] as 'PC',printedId:date?formatPrintedControlId(control,date):'(ยังไม่ระบุวันที่ Library Preparation)',lnHalos:'',round:'',repeat:false,transfer:null};
+  if(!f)return {slot,plate:getPlatePosition(slot),barcode:slot,kind:'EMPTY' as const,control:null,printedId:'',lnHalos:'',round:'',repeat:false,transfer:null};
+  const visible=caseVisible(user,f);
+  return {slot,plate:getPlatePosition(slot),barcode:slot,kind:'PATIENT' as const,control:null,printedId:visible?f.printed_sample_id??candidatePrintedId(f).id??'—':'(ไม่มีสิทธิ์ดู)',lnHalos:visible?f.ln_halos??'':'',round:`รอบที่ ${f.round_number}`,repeat:f.repeat_order_id!==null,transfer:null};});
+ const doc:P4Document={form:'F2',kind:'PRE_WORK',docCode:`DRAFT-${b.run_label.replace('/','-')}-TL${d.sheetNumber}`,revision:1,issuedAt:th(new Date()),issuedBy:await displayName(db,user.id),runLabel:b.run_label,templateVersion:P4_TEMPLATE_VERSION,fieldInventory:FIELD_INVENTORY_STATUS,
+  snapshotRevision:'ยังไม่ Finalize — ไม่มี Snapshot',copy:null,synthetic:true,sheetNumber:d.sheetNumber,strips:stripLabels(b.run_label,d.sheetNumber as 1),controlInstruction:CONTROL_INSTRUCTION[d.sheetNumber],
+  plan:{workDate:displayBe(date),operator:s.planned_operator??'—',extractionLot:s.planned_extraction_lot??'—',extractionExpiry:displayBe(s.planned_extraction_expiry),libraryLot:s.planned_library_lot??'—',libraryExpiry:displayBe(s.planned_library_expiry)},
+  rows,checklist:FIELDS.filter(f=>f.form==='F2'&&f.kind==='CHECK'&&f.required(d.sheetNumber)).map(f=>({key:`${f.id}${f.item?':'+f.item:''}`,label:f.label})),execution:[],startedAt:null,pendingGovernance:[],
+  dateBasis:date?`รหัส Control จะสร้างจากวันที่ทำ Library Preparation ที่วางแผน ${displayBe(date)} เมื่อ Finalize`:'ยังไม่ระบุวันที่ทำ Library Preparation — ยังสร้างรหัส Control ไม่ได้',draft:true};
+ const bytes=await deps.render(doc);if(!bytes.subarray(0,5).equals(Buffer.from('%PDF-')))throw new LabError('RENDERER_INVALID_PDF',502);
+ await audit(db,user,'LAB_DRAFT_PREVIEW','lab_batch',b.id,{outcome:'F2_DRAFT_PREVIEW',count:d.sheetNumber});
+ return {bytes,fileName:`${doc.docCode}.pdf`};
 }
 /** F2 Pre-work from the Placement snapshot — before any pipetting; only blank boxes for execution data (AT-PREWORK-01/02). */
 export async function issuePreWork(db:Queryable,user:Staff,input:unknown,deps:DocDeps){
@@ -281,6 +328,9 @@ export async function issueCompleted(db:Queryable,user:Staff,input:unknown,deps:
  const d=z.strictObject({batchId:uuid,expectedVersion:z.number().int().min(0),sheetNumber:z.number().int().min(1).max(3)}).parse(input);
  const b=await lockBatch(db,d.batchId,d.expectedVersion);const s=await sheetOf(db,b.id,d.sheetNumber);
  if(s.state!=='ExecutionVerified')throw new LabError('EXECUTION_VERIFICATION_REQUIRED',409);
+ // OD-E2: the approved native master has one date cell (B4). A native Completed whose B4 (actual Library date) differs from the date inside
+ // the control IDs would be ambiguous, and an annex is a controlled-format change that QA must accept first. Chromium documents state the basis.
+ if(await operationalWorkflow(db)&&await libraryDateDeviation(db,b.id,s.id))throw new LabError('LIBRARY_DATE_DEVIATION_ANNEX_PENDING_QA',409);
  const code=docCode(b.run_label,'F2',d.sheetNumber),revision=await nextRevision(db,b.id,'F2','COMPLETED',s.id);
  const {doc}=await f2Document(db,b.id,d.sheetNumber,'COMPLETED',{docCode:code,revision,issuedAt:new Date(),issuedBy:await displayName(db,user.id)});
  const r=await storeDocument(db,user,deps,{batchId:b.id,sheetId:s.id,form:'F2',kind:'COMPLETED',code,revision,doc,supersedes:null});

@@ -14,13 +14,13 @@ const q=()=>db as unknown as Queryable,run=<T>(fn:(t:Queryable)=>Promise<T>)=>tx
 it('preview reports the same overtaken count that assign enforces; FIFO head needs no reason; override is recorded',async()=>{
  await setPendingPolicy(q(),u,'PROCEED_SYNTHETIC_LABELLED');
  const ids:string[]=[];for(let i=0;i<3;i++){const c=await run(t=>syntheticCase(t,u));await run(t=>receiveS1(t,c,new Date(Date.now()-(3-i)*60000)));ids.push((await attemptOf(q(),c.roundId)).id);}
- expect(await run(t=>batch.previewAssignment(t,u.staff,{attemptIds:[ids[0]]}))).toEqual({overtaken:0,reasonRequired:false});
- expect(await run(t=>batch.previewAssignment(t,u.staff,{attemptIds:[ids[2]]}))).toEqual({overtaken:2,reasonRequired:true});
+ expect(await run(t=>batch.previewAssignment(t,u.staff,{attemptIds:[ids[0]]}))).toEqual({overtaken:0,reasonRequired:false,urgentReasonReused:false});
+ expect(await run(t=>batch.previewAssignment(t,u.staff,{attemptIds:[ids[2]]}))).toEqual({overtaken:2,reasonRequired:true,urgentReasonReused:false});
  await expect(run(t=>batch.previewAssignment(t,u.anc,{attemptIds:[ids[2]]}))).rejects.toMatchObject({code:'FORBIDDEN'});
  const b=await run(t=>batch.createBatch(t,u.staff));
  await expect(run(t=>batch.assignToBatch(t,u.staff,{batchId:b.batchId,expectedVersion:0,attemptIds:[ids[2]]}))).rejects.toMatchObject({code:'QUEUE_OVERRIDE_REASON_REQUIRED',details:{overtaken:2}});
  const r=await run(t=>batch.assignToBatch(t,u.staff,{batchId:b.batchId,expectedVersion:0,attemptIds:[ids[2]],queueOverrideReason:'จำลอง ผู้ใช้เลือกแทรกคิว'}));
  expect(r.placed).toHaveLength(1);
  expect((await db.query<{type:string;reason:string}>("SELECT event_type type,reason FROM attempt_event WHERE attempt_id=$1 AND event_type='QUEUE_OVERRIDE'",[ids[2]])).rows).toEqual([{type:'QUEUE_OVERRIDE',reason:'จำลอง ผู้ใช้เลือกแทรกคิว'}]);
- expect(await run(t=>batch.previewAssignment(t,u.staff,{attemptIds:[ids[0]]}))).toEqual({overtaken:0,reasonRequired:false}); // placed work leaves the queue
+ expect(await run(t=>batch.previewAssignment(t,u.staff,{attemptIds:[ids[0]]}))).toEqual({overtaken:0,reasonRequired:false,urgentReasonReused:false}); // placed work leaves the queue
 });
