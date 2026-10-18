@@ -105,6 +105,12 @@ function psql(L,c,sql,{db=c.database}={}){
  return run(pgExe(L,'psql'),['-h','127.0.0.1','-p',String(c.ports.postgres),'-U','nipt_migrator','-d',db,'-X','-A','-t','-v','ON_ERROR_STOP=1','-c',sql],{env:{...process.env,PGPASSWORD:readSecret(L,'db-password')}}).trim();
 }
 
+
+// psql on Windows terminates lines with CRLF: parse tolerantly so a trailing CR can never turn a matching checksum into a mismatch.
+function ledgerOf(L,c,db=c.database){
+ return psql(L,c,"SELECT name||'|'||checksum FROM schema_migration ORDER BY name",{db}).split(String.fromCharCode(10)).map(l=>l.trim()).filter(Boolean).map(l=>{const [name,checksum]=l.split('|');return {name,checksum};});
+}
+
 // ───────────────────────────── environment for application tools ─────────────────────────────
 function appEnv(L,c,st,extra={}){
  const files=c.filesRoot??L.files,master=c.masterWorkbook?(c.masterPath??path.join(L.master,'approved-master.xlsx')):undefined;
@@ -317,7 +323,7 @@ async function restore(){
  if(!args.activate){await startServices(L,c);await waitHealthy(L,c);return {...result,activated:false,note:'restored database is quarantined and not in use; inspect then rerun with --activate --confirm-source-fenced yes'};}
  if(args['confirm-source-fenced']!=='yes'){await startServices(L,c);fail('SOURCE_FENCE_CONFIRMATION_REQUIRED');}
  const releaseNow=await readJson(path.join(releaseDir(L,st.current.version),'release.json'));
- const restoredLedger=psql(L,c,"SELECT name||'|'||checksum FROM schema_migration ORDER BY name",{db:database}).split(String.fromCharCode(10)).filter(Boolean).map(l=>{const [name,checksum]=l.split('|');return {name,checksum};});
+ const restoredLedger=ledgerOf(L,c,database);
  const restoredCompat=schemaCompatibility({ledger:restoredLedger,releaseMigrations:releaseNow.migrations});
  if(!restoredCompat.compatibleWithDatabase){await startServices(L,c);fail('RESTORE_BACKUP_NEWER_THAN_RELEASE',restoredCompat);}
  const a=nodeIn(L,ops,[path.join('tools','win-installer','ops-restore.mjs'),'activate',destination],{...env,RESTORE_SOURCE_FENCED:'yes'});
