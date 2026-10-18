@@ -39,6 +39,12 @@ const hisShare=path.join(base,'data/his-share');await fs.rm(hisShare,{recursive:
 await fs.writeFile(path.join(hisShare,'.nipt-authorized-test-root'),'NIPT_AUTHORIZED_SYNTHETIC_SHARE_V1');
 const sharePolicy=path.join(base,'data/his-share-policy.json');await fs.writeFile(sharePolicy,JSON.stringify({version:1,grants:[{root:hisShare,purposes:['INBOUND','OUTBOUND'],serviceAccount:workerServiceAccount(),secretRef:null}]}));
 Object.assign(env,{NIPT_HIS_SHARE_POLICY_FILE:sharePolicy,NIPT_E2E_HIS_SHARE_ROOT:hisShare,NIPT_P6_SANDBOX_ENABLED:'yes'});
+// ANC form preview: installation registry of the Owner-supplied DCC reference PDFs (read in place, never copied into the repository).
+const formSrc=process.env.NIPT_ANC_FORM_SOURCE_DIR??'C:/Users/User/OneDrive/Desktop/NIPT-Audit',formFiles={request:'FM-WI-T-BM17_01 ใบขอส่งตรวจคัดกรอง CBH-NIPT.pdf',consent:'FM-WI-T-BM17_02 เอกสารยินยอมรับการตรวจคัดกรอง CBH-NIPT(1).pdf'};
+try{const {createHash}=await import('node:crypto');const entry=async(name:string,code:string,page:string)=>{const p=path.join(formSrc,name);return {path:p,sha256:createHash('sha256').update(await fs.readFile(p)).digest('hex'),docCode:code,page};};
+ const set=async(id:string,label:string)=>({id,label,layout:'BM17-2026-10',dccStatus:'REFERENCE_NOT_DCC_APPROVED',request:await entry(formFiles.request,'Fm-WI-T-BM17/01','1 / 2'),consent:await entry(formFiles.consent,'Fm-WI-T-BM17/02','2 / 2')});
+ const registry=path.join(base,'data/forms-registry.json');await fs.writeFile(registry,JSON.stringify({version:1,sets:[await set('CBH-BM17-REF-2026-10-18','Owner reference 2026-10-18'),await set('CBH-BM17-SECOND-SET','Second set id, same bytes (Settings test)')]}));
+ Object.assign(env,{NIPT_ANC_FORM_REGISTRY:registry});}catch{/* forms not available on this machine: ANC form specs skip */}
 const children:ReturnType<typeof spawn>[]=[];
 async function child(label:string,args:string[],wait=false){const log=await fs.open(path.join(base,label+'.log'),'a');const c=spawn(process.execPath,args,{cwd:repo,env,windowsHide:true,stdio:['ignore',log.fd,log.fd]});await log.close();if(wait)return await new Promise<number>(resolve=>c.once('exit',code=>resolve(code??1)));children.push(c);return 0;}
 try{
@@ -46,7 +52,7 @@ try{
  await child('renderer',['--import','tsx','apps/renderer/main.ts']);await child('worker',['--import','tsx','apps/worker/main.ts']);await child('web',['.next/standalone/server.js']);
  for(let i=0;i<120;i++){if(await fetch(origin+'/login').then(r=>r.ok).catch(()=>false))break;if(i===119)throw Error('SYNTHETIC_WEB_START_FAILED');await new Promise(r=>setTimeout(r,250));}
  const requested=(process.env.NIPT_P0_E2E_SPECS??'p4-task-list.spec.ts').split(',');
- const allowed=['be-date-input.spec.ts','foundation.spec.ts','p2.spec.ts','p3-inbound.spec.ts','p4-lab.spec.ts','p4-task-list.spec.ts','p4b-pooling.spec.ts','p4c-sequencing.spec.ts','p5-results.spec.ts','p5h-bulk.spec.ts','p6-sandbox.spec.ts','p7-result-parity.spec.ts','p8-installed.spec.ts','settings-operational.spec.ts','p5-case-upload.spec.ts','workbook-f52-approved.spec.ts','zz-p2-doctor-loading-race.spec.ts'];
+ const allowed=['be-date-input.spec.ts','foundation.spec.ts','p2.spec.ts','p3-inbound.spec.ts','p4-lab.spec.ts','p4-task-list.spec.ts','p4b-pooling.spec.ts','p4c-sequencing.spec.ts','p5-results.spec.ts','p5h-bulk.spec.ts','p6-sandbox.spec.ts','p7-result-parity.spec.ts','p8-installed.spec.ts','settings-operational.spec.ts','p5-case-upload.spec.ts','anc-forms.spec.ts','workbook-f52-approved.spec.ts','zz-p2-doctor-loading-race.spec.ts'];
  if(requested.some(x=>!allowed.includes(x)))throw Error('UNAPPROVED_E2E_SPEC');
  const code=await child('playwright',['node_modules/@playwright/test/cli.js','test',...requested.map(s=>'tests/e2e/'+s),...(process.env.NIPT_P0_E2E_GREP?['--grep',process.env.NIPT_P0_E2E_GREP]:[]),...process.argv.slice(2)],true);
  await fs.writeFile(path.join(base,'evidence.json'),JSON.stringify({exitCode:code,specs:requested,project,origin,database,databasePort:19629,mode:'synthetic',localOnly:true}));console.log(JSON.stringify({exitCode:code,artifactDirectory:base}));process.exitCode=code;

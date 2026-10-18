@@ -42,6 +42,19 @@ All eight questions of the earlier packet were approved by the Owner on 2026-10-
 3. **Lab/QA sign-off of the F2 field inventory** (still SEED_UNVERIFIED), including the new F2-03.
 4. **OD-R2 S3+ redraw rule** — operational orders beyond S2 stay refused.
 
+## ANC Request + Consent auto-fill preview (Owner 2026-10-18)
+
+The Request (Fm-WI-T-BM17/01) and Consent (/02) previews are filled from recorded data over the unchanged DCC PDFs. They are DRAFT only. See [anc-forms-autofill.md](anc-forms-autofill.md).
+
+- **Ordering doctor:** comes from the Doctor Registry selection on the request; consent preparation is locked to that doctor.
+- **OD-06 consumer:** `request_consent.templateVersion` selects the template set.
+- **Open items:**
+  - DCC approval of electronic fill;
+  - item 8 wording and the entitlement source;
+  - printed names in the consent;
+  - a physical print test;
+  - OD-06 channel mode.
+
 ## Two Final Result PDF channels (Owner 2026-10-18)
 
 - **Fallback (implemented):** "อัปโหลด PDF ผลตรวจ" on the case page. It checks against the selected round/attempt, refuses identity conflicts, shares the same intake/import/linkage/P5-B path, prevents duplicates across channels, and works while the Worker is down. See [p5-two-pdf-channels.md](p5-two-pdf-channels.md).

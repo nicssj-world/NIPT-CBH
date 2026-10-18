@@ -11,9 +11,9 @@ export const SETTING_FORMS:Record<SettingKey,SettingForm>={
  general:{key:"general",title:"ทั่วไป",summary:"ชื่อระบบและเขตเวลา (เขตเวลาล็อกเป็น Asia/Bangkok)",phase:"P1",fields:[
   {name:"systemName",label:"ชื่อระบบ",help:"Active Revision แสดงบน Sidebar เท่านั้น ไม่แก้เอกสารหรือ Clinical Provenance ความยาวไม่เกิน 80 ตัวอักษร",kind:"text",max:80},
   {name:"timezone",label:"เขตเวลา",help:"ล็อกไว้ตาม Baseline — วันที่และเวลาทั้งหมดใช้เวลาไทย",kind:"locked",lockedBy:"LOCKED Baseline"}]},
- request_consent:{key:"request_consent",title:"ANC / ใบขอส่งตรวจและความยินยอม",summary:"รุ่นแบบฟอร์มและช่องทางที่เปิดใช้",phase:"P2",fields:[
-  {name:"templateVersion",label:"รุ่นแบบฟอร์ม FM-01/FM-02",help:"รุ่นจำลองจนกว่า DCC อนุมัติแบบฟอร์มจริง",kind:"text"},
-  {name:"mode",label:"ช่องทางที่เปิดใช้",help:"การผสมช่องทางเป็นการตัดสินใจ OD-06",kind:"select",options:[{value:"ELECTRONIC",label:"อิเล็กทรอนิกส์"},{value:"PAPER",label:"กระดาษ"},{value:"MIXED",label:"ผสม (รอ OD-06)"}]}]},
+ request_consent:{key:"request_consent",title:"ANC / ใบขอส่งตรวจและความยินยอม",summary:"ชุดแบบฟอร์ม DCC ที่ใช้สร้าง Preview ใบขอส่งตรวจ (Fm-WI-T-BM17/01) และใบยินยอม (Fm-WI-T-BM17/02)",phase:"P2",fields:[
+  {name:"templateVersion",label:"ชุดแบบฟอร์มที่ใช้งาน (Request + Consent)",help:"รหัสชุดแบบฟอร์มในทะเบียนแบบฟอร์มที่ติดตั้ง (NIPT_ANC_FORM_REGISTRY) — ระบบตรวจไฟล์และ SHA-256 ก่อนผ่านการทดสอบร่าง ชุดที่ยังไม่ผ่าน DCC จะแสดงเป็นฉบับร่างเท่านั้น",kind:"text",max:64},
+  {name:"mode",label:"ช่องทางที่เปิดใช้",help:"ช่องทางใบขอส่งตรวจ/ความยินยอมเป็นการตัดสินใจ OD-06 — ยังไม่เปลี่ยนจากหน้านี้",kind:"locked",lockedBy:"OD-06 HOLD"}]},
  doctor_registry:{key:"doctor_registry",title:"ทะเบียนแพทย์ ANC",summary:"รุ่นทะเบียนแพทย์ (Maker-Checker ในหน้าทะเบียนแพทย์)",phase:"P2",fields:[
   {name:"version",label:"รุ่นทะเบียน",help:"ข้อมูลแพทย์ ใบอนุญาต และลายเซ็นจัดการในหน้า ทะเบียนแพทย์จำลอง",kind:"text"}]},
  security:{key:"security",title:"ผู้ใช้ / บทบาท / สิทธิ์",summary:"นโยบาย Session และการล็อกบัญชี (ค่าตาม Baseline)",phase:"P1",fields:[

@@ -33,11 +33,11 @@ export function SettingsEditor(){
  const category=catalog.find(c=>c.key===key),form=forms[key];
  const rows=useMemo(()=>coverage.filter(c=>c.category===CATEGORY_NO[category?.category??""]),[coverage,category]);
  const set=(name:string,v:unknown)=>{setValue(x=>({...x,[name]:v}));setDirty(true);};
- const editable=!!category?.canPropose&&!['storage_backup','request_consent','doctor_registry'].includes(key);
+ const editable=!!category?.canPropose&&!['storage_backup','doctor_registry'].includes(key);
  const input=(f:FieldSpec)=>{const id=`setting-${f.name}`,v=value[f.name],help=<p id={`${id}-help`} className="help">{f.help}{f.unit?` · หน่วย: ${f.unit}`:""}</p>;
   if(f.kind==='res-profile')return <HisProfileFields key={f.name} value={v} editable={editable} onChange={v=>set(f.name,v)}/>;
   if(f.kind==='his-certifiers')return <HisCertifierFields key={f.name} value={v} users={certifierUsers} editable={editable} onChange={v=>set(f.name,v)}/>;
-  const unused=(key==='request_consent')||(key==='doctor_registry'&&f.name==='version')||(key==='laboratory'&&['templateVersion','formulaVersion'].includes(f.name));
+  const unused=(key==='doctor_registry'&&f.name==='version')||(key==='laboratory'&&['templateVersion','formulaVersion'].includes(f.name));
   if(f.kind==="locked"||unused||key==='storage_backup')return <div className="field locked" key={f.name}><label htmlFor={id}>{f.label}<span className="locked-tag">{unused?(key==='laboratory'?'METADATA ONLY · บันทึกใน Batch ไม่เปลี่ยน Template/สูตรควบคุม':'NOT IMPLEMENTED · ยังไม่มี Runtime Consumer ของค่านี้'):key==='storage_backup'?'INSTALLATION-OWNED · ค่าในเว็บไม่มีผลต่อ Retention':f.lockedBy}</span></label><input id={id} value={v===null||v===undefined?"ไม่มีค่า":String(v)} readOnly aria-readonly="true" aria-describedby={`${id}-help`}/>{help}</div>;
   if(f.kind==="boolean")return <div className="field" key={f.name}><label className="check-label"><input type="checkbox" checked={v===true} disabled={!editable} onChange={e=>set(f.name,e.target.checked)} aria-describedby={`${id}-help`}/> {f.label}</label>{help}</div>;
   if(f.kind==="select")return <div className="field" key={f.name}><label htmlFor={id}>{f.label}<Required/></label><select id={id} value={v===undefined||v===null?"":String(v)} disabled={!editable} onChange={e=>set(f.name,e.target.value===""?(f.name==="round2SpecimenDatePolicy"?null:undefined):e.target.value)} aria-describedby={`${id}-help`}>{v===undefined&&<option value="">— ไม่กำหนด —</option>}{f.options!.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select>{help}</div>;

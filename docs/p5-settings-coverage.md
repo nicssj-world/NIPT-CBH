@@ -12,7 +12,7 @@ Installation-owned = operator/deployment responsibility; Locked = intentional fi
 | # | หมวด | Implemented | Partial | Missing | Deferred | HOLD | Installation-owned | Locked |
 | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1 | General | 2 | 0 | 0 | 0 | 0 | 2 | 3 |
-| 2 | ANC / Request & Consent | 0 | 2 | 1 | 0 | 6 | 0 | 0 |
+| 2 | ANC / Request & Consent | 1 | 1 | 1 | 0 | 6 | 0 | 0 |
 | 3 | ANC Doctors | 1 | 1 | 0 | 0 | 0 | 0 | 0 |
 | 4 | User / Role / Permission | 1 | 0 | 0 | 0 | 1 | 0 | 3 |
 | 5 | HIS Inbound | 8 | 1 | 0 | 0 | 1 | 0 | 2 |
@@ -39,8 +39,8 @@ Installation-owned = operator/deployment responsibility; Locked = intentional fi
 | รายการ | Plan | NIPTY | NIPT CBH | สถานะ | Phase | หมายเหตุ |
 | --- | --- | --- | --- | --- | --- | --- |
 | ชุดฟิลด์บังคับ (ยืนยัน vs ก่อน Batch) | §13.2 #2 | — | packages/p2/schema.ts | Partial | P2 | บังคับในโค้ด ยังไม่เป็น Setting แบบมีรุ่น |
-| รุ่นแบบฟอร์ม FM-01/FM-02 | §13.2 #2 | — | request_consent.templateVersion | Partial | P2 | Stored revision has no templateVersion consumer; editor labels NOT IMPLEMENTED/read-only. P2 uses documentTemplate(), including operational templates; DCC-controlled |
-| ช่องทางที่เปิดใช้และการผสม | §13.2 #2 (OD-06) | — | request_consent.mode | HOLD | P2 | Global request_consent.mode has no active runtime consumer; Web/API read-only NOT IMPLEMENTED. Existing case-specific request/consent modes and OD-06 guards retained |
+| รุ่นแบบฟอร์ม FM-01/FM-02 | §13.2 #2 | — | request_consent.templateVersion + packages/forms/registry.ts + packages/p2/forms.ts | Implemented | P2 | OD-06 consumer 2026-10-18: selects the installed, hash-verified DCC template set (Fm-WI-T-BM17/01 + /02) used by the ANC form preview; maker-checker + Worker-free validation; still a DRAFT preview until DCC approves electronic use |
+| ช่องทางที่เปิดใช้และการผสม | §13.2 #2 (OD-06) | — | request_consent.mode | HOLD | P2 | Global request_consent.mode stays OD-06 HOLD: shown locked; a change is refused (CONSENT_MODE_PENDING_OD06). Case-specific request/consent modes and OD-06 guards retained |
 | ตัวระบุขั้นต่ำตอนลงทะเบียน | §13.2 #2 (OD-15) | — | — | HOLD | P2 | OD-15 |
 | Paper path P1/P2/P3 + ผู้ตรวจ | §13.2 #2 (OD-06) | — | p2_paper_review | HOLD | P2 | กลไกมี นโยบายรอ OD-06 |
 | เกณฑ์ระยะเวลาเตือน | §13.2 #2 | — | — | Missing | P2 | ยังไม่มี |

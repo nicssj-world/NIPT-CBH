@@ -8,7 +8,9 @@ import {cancelObsoleteInboundScans} from '../jobs/obsolete-scans';
 type Revision = { id: string; setting_key: string; risk: string; value: unknown; state: string; created_by: string; approved_by: string | null; test_passed: boolean; version: number };
 export async function proposeSetting(db: Queryable, user: Principal, key: string, value: unknown, reason: string, previousId?: string): Promise<string> {
   if(key==='storage_backup')throw Error('INSTALLATION_OWNED_SETTING');
-  if(['request_consent','doctor_registry'].includes(key))throw Error('SETTING_RUNTIME_CONSUMER_UNAVAILABLE');
+  if(key==='doctor_registry')throw Error('SETTING_RUNTIME_CONSUMER_UNAVAILABLE');
+  // OD-06: only the template set is a live choice here; the request/consent channel mode stays as it is until OD-06 is decided.
+  if(key==='request_consent'&&(value as {mode?:unknown})?.mode!==(((await readActiveSettings(db)).request_consent as {mode?:string}|undefined)?.mode??SETTINGS.request_consent.default.mode))throw Error('CONSENT_MODE_PENDING_OD06');
   const d = settingDefinition(key);
   const validated = d.schema.parse(value);
   requirePermission(user, d.risk === "CLINICAL" ? "settings.clinical.propose" : d.risk === "INTEGRATION" ? "settings.integration.propose" : "settings.general.change", {}, d.risk === "GENERAL" || d.risk === "SECURITY" ? "write" : "propose");
@@ -46,7 +48,7 @@ export async function activateSetting(db: Queryable, user: Principal, id: string
   const r = (await db.query<Revision>("SELECT * FROM settings_revision WHERE id=$1 FOR UPDATE", [id])).rows[0];
   if (!r) throw new Error("SETTING_NOT_FOUND");
   if(r.setting_key==='storage_backup')throw Error('INSTALLATION_OWNED_SETTING');
-  if(['request_consent','doctor_registry'].includes(r.setting_key))throw Error('SETTING_RUNTIME_CONSUMER_UNAVAILABLE');
+  if(r.setting_key==='doctor_registry')throw Error('SETTING_RUNTIME_CONSUMER_UNAVAILABLE');
   const regulated = ["INTEGRATION", "CLINICAL"].includes(r.risk);
   requirePermission(user, regulated ? "settings.approve" : "settings.general.change", { actorId: regulated ? r.created_by : undefined }, regulated ? "approve" : "write");
   if (!r.test_passed || (regulated && (!r.approved_by || r.approved_by === r.created_by)) || !["Validated", "Approved"].includes(r.state)) throw new Error("SETTING_APPROVAL_REQUIRED");

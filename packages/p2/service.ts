@@ -137,6 +137,9 @@ export async function preparePaper(db:Queryable,user:Staff,id:string,input:unkno
 export async function prepareConsent(db:Queryable,user:Staff,id:string,input:unknown){
  const d=z.strictObject({doctorVersionId:uuid,representativeRequired:z.boolean(),reason:syntheticText.refine(v=>v.length>0)}).parse(input),c=await activeCase(db,user,id,'consent.prepare'),w=await workspace(db,c,user);
  if(d.representativeRequired)throw new P2Error('REPRESENTATIVE_REQUIRES_PAPER',422);if(w.consent_mode!=='Electronic')throw new P2Error('CONSENT_PAPER_MODE');
+ // Owner Lock 2026-10-18: the consent names the same ordering doctor the ANC nurse chose on this round's request.
+ if(!w.draft.ordering.doctorVersionId)throw new P2Error('ORDERING_DOCTOR_REQUIRED',422);
+ if(d.doctorVersionId!==w.draft.ordering.doctorVersionId)throw new P2Error('CONSENT_DOCTOR_MUST_MATCH_REQUEST',409);
  const doctor=await activeDoctor(db,d.doctorVersionId,c.unit_id);
  const r=await revision(db,user,c,'CONSENT',{identity:{caseId:c.id,ln:c.ln,hn:c.hn,roundId:c.current_round_id,roundNumber:c.round_number},workspaceVersion:w.version,clauses:operationalDataEnabled()?consentClauses.map(c=>c.replace(/^จำลอง: /,'')):consentClauses,doctor,requestDraft:w.draft,preparerId:user.id,representativeRequired:false,caption:operationalDataEnabled()?'authorized stored signature, not freshly signed':'authorized synthetic stored signature, not freshly signed',synthetic:!operationalDataEnabled(),unapproved:true,unsigned:true},d.reason);await event(db,user,id,'P2_CONSENT_PREPARED');return r;
 }

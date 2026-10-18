@@ -41,7 +41,8 @@ describe('Settings → consumer',()=>{
   expect(SETTING_FORMS.security.fields.every(f=>f.kind==='locked')).toBe(true);
  });
  it('2/3/9 request_consent, doctor_registry version and storage_backup have no runtime consumer: read-only and refused with a clear reason',async()=>{
-  await expect(proposeSetting(db,admin,'request_consent',SETTINGS.request_consent.default,'No consumer')).rejects.toThrow('SETTING_RUNTIME_CONSUMER_UNAVAILABLE');
+  // request_consent now has a consumer (ANC form preview, tests/db/anc-forms.test.ts); it is a clinical setting, proposed by a certifier.
+  await expect(proposeSetting(db,admin,'request_consent',SETTINGS.request_consent.default,'Clinical setting')).rejects.toThrow('FORBIDDEN');
   await expect(proposeSetting(db,admin,'doctor_registry',SETTINGS.doctor_registry.default,'No consumer')).rejects.toThrow('SETTING_RUNTIME_CONSUMER_UNAVAILABLE');
   await expect(proposeSetting(db,admin,'storage_backup',SETTINGS.storage_backup.default,'Installation owned')).rejects.toThrow('INSTALLATION_OWNED_SETTING');
  });

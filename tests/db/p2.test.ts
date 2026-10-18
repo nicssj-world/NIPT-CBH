@@ -13,7 +13,9 @@ async function tx<T>(fn:()=>Promise<T>){await db.query('BEGIN');try{const r=awai
 async function newCase(ln:string,origin:'ANC'|'LAB_DIRECT'='ANC',user:Staff=anc){return tx(async()=>{const r=await registerP2(db,user,{ln,hn:'009900001',unitId:unit,origin,idempotencyKey:'SYNTHETIC_REGISTER_'+ln,...(origin==='LAB_DIRECT'?{identifierSource:'TUBE_LABEL'}:{})},key);return r.caseId!;});}
 async function doctor(){const d=await tx(()=>doctorAction(db,admin,{action:'propose',doctorKey:'SYNTHETIC-DR-A',name:'SYNTHETIC doctor',unitId:unit,effectiveFrom:'2020-01-01T00:00:00Z',authorization:'SYNTHETIC authorization',vector}));await tx(()=>doctorAction(db,checker,{action:'approve',id:d.id,reason:'SYNTHETIC checked'}));return String(d.id);}
 function completeDraft(doctorId:string){const d=structuredClone(emptyRequest);d.patient.syntheticName='SYNTHETIC PATIENT';d.patient.dob='2000-01-01';Object.assign(d.pregnancy,{type:'Singleton',edd:'2027-01-01',collectionDate:'2026-08-01',collectionSource:'ANC',weightKg:60,heightCm:160,vanishingTwin:'No',fetalSex:'DoNotWant',sca:'DoNotWant'});for(const k of ['transfusion4months','heparin24h','immune1month','albumin4weeks','exogenousDna4weeks'] as const)d.history[k].answer='No';Object.assign(d.history,{cancerTreatment:'No',gaUnder8:'No',tumor:'No',priorChromosomeTest:'No',otherHistory:'No'});d.ordering.doctorVersionId=doctorId;return d;}
-async function signStart(id=caseId){const d=await tx(()=>prepareConsent(db,anc,id,{doctorVersionId:doctorId,representativeRequired:false,reason:'SYNTHETIC preparation'}));return tx(()=>startSigning(db,anc,id,{documentId:d.id,devicePresent:true,syntheticPatient:true}));}
+// Owner Lock 2026-10-18: consent uses the ordering doctor chosen on the request, so a case without one gets it set first
+// (one request save, so workspace version 1 before the consent is prepared).
+async function signStart(id=caseId){const w=(await db.query<{version:number;draft:ReturnType<typeof completeDraft>}>('SELECT w.version,w.draft FROM p2_workspace w JOIN nipt_case c ON c.current_round_id=w.round_id WHERE c.id=$1',[id])).rows[0];if(w&&!w.draft.ordering.doctorVersionId)await tx(()=>saveRequest(db,anc,id,{expectedVersion:w.version,draft:{...w.draft,ordering:{...w.draft.ordering,doctorVersionId:doctorId}}}));const d=await tx(()=>prepareConsent(db,anc,id,{doctorVersionId:doctorId,representativeRequired:false,reason:'SYNTHETIC preparation'}));return tx(()=>startSigning(db,anc,id,{documentId:d.id,devicePresent:true,syntheticPatient:true}));}
 async function reauthenticate(db:Parameters<typeof reauthenticateBound>[0],user:Staff,input:Record<string,unknown>){return reauthenticateBound(db,user,{...await signingReturnStatus(db,user),...input});}
 const origin='http://localhost:3000';let doctorId:string;
 describe('P2 synthetic PostgreSQL integration',()=>{
@@ -46,8 +48,8 @@ describe('P2 synthetic PostgreSQL integration',()=>{
  for(const action of ['draft','modes','revision','withdraw']){
  const id=await newCase('99000011'+String(['draft','modes','revision','withdraw'].indexOf(action)).padStart(3,'0'));
  const signing=await signStart(id);const csrf={origin,expectedOrigin:origin,token:signing.csrf};for(let item=1;item<=12;item++)await tx(()=>patientAction(db,signing.raw,{action:'acknowledge',item},csrf));await tx(()=>patientAction(db,signing.raw,{action:'complete',decision:'Granted',vector},csrf));
- if(action==='draft')await tx(()=>saveRequest(db,second,id,{expectedVersion:0,draft:completeDraft(doctorId)}));
- if(action==='modes')await tx(()=>setModes(db,second,id,{expectedVersion:0,requestMode:'Electronic',consentMode:'Paper',reason:'SYNTHETIC mode correction'}));
+ if(action==='draft')await tx(()=>saveRequest(db,second,id,{expectedVersion:1,draft:completeDraft(doctorId)}));
+ if(action==='modes')await tx(()=>setModes(db,second,id,{expectedVersion:1,requestMode:'Electronic',consentMode:'Paper',reason:'SYNTHETIC mode correction'}));
  if(action==='revision')await tx(()=>prepareConsent(db,second,id,{doctorVersionId:doctorId,representativeRequired:false,reason:'SYNTHETIC newer revision'}));
  if(action==='withdraw')await tx(()=>withdraw(db,second,id,{reason:'SYNTHETIC withdrawal before return'}));
  expect(await tx(()=>reauthenticate(db,anc,{password:TEST_PASSWORD,attestation:true}))).toEqual({ok:true,consentFinalized:false,reasonCode:'CONSENT_INVALIDATED_BEFORE_ATTESTATION'});
