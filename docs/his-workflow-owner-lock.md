@@ -50,8 +50,8 @@ Do not change the workflow below without written Owner approval. Do not design a
 ### 2.3 External result PDF
 1. **NIPT-CBH is not the NIPT analysis program.** The external program analyses the sample and produces the final report PDF.
 2. NIPT-CBH imports the PDF, matches it to LN, patient, round and attempt, shows it, and handles exceptions (unmatched, conflicting, duplicate, superseded).
-3. The review, QC5 and certification steps exist because of approved Plan v6.2.1 gates and OD-04. They are confirmation of the right report for the right patient before delivery, **not a second clinical analysis**.
-   - Removing or merging any of them changes the release predicate, so it needs Owner approval.
+3. Owner P5-B (2026-10-18): one authorised person gives one confirmation, "ตรวจรับ PDF และยืนยันส่งผล", which records the review, QC5 and certification together. It is confirmation of the right report for the right patient, **not a second clinical analysis**. The release predicate (RG-01…13) is unchanged.
+   - Owner P5-A: a unique, conflict-free match is proposed automatically; it never sends to HIS by itself.
 4. Identity checks, the choice of the correct (latest, non-superseded) report version, and release permissions must never be removed.
 
 ### 2.4 HIS result delivery
@@ -74,8 +74,8 @@ Do not change the workflow below without written Owner approval. Do not design a
 | S2 LN Halos / labels | Same base + R, D before R | `085` issuer, `specimenDisplayCode`, migration 099 | CORRECT | — |
 | S3+ | No silent stuck round | Ordered freely, never receivable | INCOMPLETE | Interim operational block (`REDRAW_BEYOND_S2_PENDING_OD_R2`); rule is OD-R2 |
 | PDF import / parse | Hash dedup, preview, confirm | `packages/results/intake.ts`, `service.ts` `confirmImport` (`Duplicate`) | CORRECT | — |
-| PDF matching | Legacy: unique HN match within date cutoff links automatically | `linkCandidates` only finds rows; every link is propose + second-person approve (D-18) | REDUNDANT vs legacy? | Owner decision P5-A (not changed) |
-| Review → QC5 → certify | Confirm the correct report; OD-04 lets one authorised person review and certify | `recordReview`, `recordQc5`, `certifyAttempt` (RG-01…13) | CORRECT per Plan / OD-04; possible overlap | Owner decision P5-B (not changed) |
+| PDF matching | Legacy: unique HN match within date cutoff links automatically | `autoMatchCandidate` + `proposeAutoMatch`: unique clean match proposed in one click; second person approves (DB rule) | INCOMPLETE (P5-A approved) | Full auto-link needs a migration (separate approval) |
+| Review → QC5 → certify | Confirm the correct report; OD-04 lets one authorised person review and certify | `acceptAndRelease`: one "ตรวจรับ PDF และยืนยันส่งผล" (P5-B approved 2026-10-18) running the same services and RG gates | CORRECT (fixed) | — |
 | Superseded / wrong-patient report | Never delivered | RG-04 cross-check, RG-05 current attempt, RG-12 latest version, revision supersedes | CORRECT | — |
 | Release → outbound | Automatic, released only | `job_outbox` `result_release_completed` → `reserveReleasedResult` (eligibility re-checked) | CORRECT | — |
 | RES / PDF / OK | ZIP contract | `packages/p6/res.ts`, `transfer.ts`, `worker.ts`; legacy goldens in `tests/fixtures/p6` | CORRECT (wire); order PDF→RES→backup→OK is a Plan §10 safety change | — |

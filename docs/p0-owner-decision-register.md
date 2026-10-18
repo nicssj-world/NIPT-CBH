@@ -22,36 +22,25 @@
 | OD-F | GA ≥ 22+0 | OWNER DIRECTION (warning only) | Badge on the worklist and Task slots. EDD comes from the latest verified Request; collection date from HIS receipt, otherwise the Request. No effect on gate, FIFO, urgent or override. Not shown to ANC. |
 | OD-K | Labels before placement | PROPOSAL IMPLEMENTED | Placement is not blocked; the slot shows "ยังไม่พิมพ์ฉลาก" |
 | OD-R2 | S3+ redraw | OPEN (interim block per Rev 3.4 §11A fix 8) | Operational mode refuses an S3+ order with a clear message; nothing existing changes |
-| OD-A | Urgent vs FIFO override reason | OPEN — see Q1 | The urgent flag, set with its own reason and audit, waives the separate override reason (Receive Sorting Lock 2026-10-12 #5; `tests/db/p4-sort.test.ts`). Any other overtaking needs a reason, shown before submit. |
-| OD-B | Draft PDF preview before Finalize | OPEN — see Q2 | Per-Task PDF exists for finalized Tasks only, marked uncontrolled |
-| OD-G | Choose the destination Task | OPEN — see Q3 | Assignment fills the lowest free slot in the order shown on screen |
-| OD-E / OD-E2 | Planned vs actual Library date; Completed-document annotation | OPEN — see Q4 | Existing amendment path before execution; no deviation annex |
-| OD-S / OD-T | Field mapping (`planned_work_date` = Library Prep; F2-02 = actual Library Prep; new F2-03 = Extraction); when a control ID is "in use" | OPEN — see Q5 | Unchanged generic "work date" fields |
-| OD-L | Extra non-blocking date warnings | OPEN — see Q6 | Only hard guards: non-existent date, ISO year ≥ 2400 |
-| P5-A | Automatic PDF linkage for a unique exact match | OPEN — see Q7 | Every link = propose + second person (D-18) |
-| P5-B | Review / QC5 / certification steps | OPEN — see Q8 | Three steps (review, QC5, certify) as approved in Plan v6.2.1 and OD-04 |
+| OD-A | Urgent vs FIFO override reason | **APPROVED 2026-10-18 — implemented** | FIFO is receive-time order only; urgent never jumps the queue or the auto-fill. When every out-of-order sample is urgent, its recorded urgent reason is reused for the override (event `reasonSource=URGENT_REASON`). Any other overtake still needs a reason. |
+| OD-B | Draft PDF preview before Finalize | **APPROVED — implemented** | "ดูตัวอย่าง PDF ฉบับร่าง (DRAFT)" on Draft/PlanChecked/Amended Tasks: DRAFT watermark and footer, no DocID series, never stored as `lab_document`, audited `LAB_DRAFT_PREVIEW`; refused after Finalize |
+| OD-G | Choose the destination Task | **APPROVED — implemented** | Optional Task choice in the assign dialog (default: first empty slot); locked Tasks are refused; Gate, control-slot and FIFO-reason rules unchanged |
+| OD-E / OD-E2 | Actual Library date differs after start | **APPROVED — implemented**; native annex **pending QA format acceptance** | Control IDs kept. F2-02 with a different date requires a short reason (`LIBRARY_DATE_DEVIATION_REASON_REQUIRED`). Chromium F2 Completed prints the basis line (planned date in IDs, actual date, reason). Native master Completed for a deviating sheet is held (`LIBRARY_DATE_DEVIATION_ANNEX_PENDING_QA`) because B4 alone would be ambiguous; pooling/sequencing are not blocked. |
+| OD-S / OD-T | Field mapping and identifier lock | **APPROVED — implemented** | `planned_work_date` labelled planned Library Preparation date (drives control IDs). F2-02 = actual Library Preparation date (B4). New F2-03 = actual DNA Extraction date: optional, informational, bound to no master cell. IDs locked at execution start (existing state machine). Approved master unchanged. Field inventory remains SEED_UNVERIFIED until Lab/QA sign-off. |
+| OD-L | Extra non-blocking date warnings | **APPROVED: none added** | Existing validation only (non-existent date, ISO year ≥ 2400, existing LOT warning) |
+| P5-A | Auto-match a unique, clean PDF | **APPROVED — partly implemented; migration needed for the rest** | Unique, conflict-free candidate (HN, DOB, pregnancy, collection date, GA, lab number; current round, latest live attempt; no name conflict or open revision) is shown as "ระบบจับคู่ได้ชัดเจน 1 รายการ" and proposed in one click. Never sends to HIS. A fully automatic link without a second person is blocked by migration-050 constraints (`link_mode<>'AUTO_PIC'`, `result_link_event.mode='MANUAL_REVIEWED'`, two-person trigger) and needs a new migration — not created (separate approval). |
+| P5-B | One confirmation for review/QC5/certification | **APPROVED — implemented (operational mode)** | "ตรวจรับ PDF และยืนยันส่งผล": one authorised person confirms external-final, identity/values, disclosure (+ abnormal ack); one transaction records review, QC5 and certification through the existing services; all RG gates, identity, version and consent checks unchanged; any failure rolls back. Synthetic mode keeps the separate steps. |
 
-## One decision packet (questions for the Owner)
+## Owner approvals recorded 2026-10-18
 
-Each question changes a business rule or a controlled document. Nothing here has been implemented by guessing.
+All eight questions of the earlier packet were approved by the Owner on 2026-10-18 (see the rows above). G07 "เติมตัวอย่างจากคิว" is implemented: preview, then fill of the selected Task's empty patient slots (max 15) from the eligible FIFO queue through the normal Assignment Gate; controls 1/25/40 untouched; refused when the proposal changed or the Task is finalized; never triggered by PET receipt.
 
-1. **OD-A.** Is a sample marked urgent (with its reason) allowed to go ahead of the queue without a second "overtake" reason (current behaviour)? Or must every overtake, urgent or not, carry its own short reason (your proposal "Urgent ไม่แซง FIFO อัตโนมัติ")?
-2. **OD-B.** May staff open an uncontrolled preview PDF, watermarked "DRAFT – ไม่ใช่เอกสารควบคุม", **before** Finalize? It would have no DocID, would not be issued, and would be audited as a preview.
-3. **OD-G.** May staff choose which Task (1, 2 or 3) a sample goes into? Slot, control and eligibility rules stay the same.
-4. **OD-E / OD-E2.** If the actual Library Preparation date differs from the planned date after work has started, which applies?
-   - (a) Keep the control IDs, and record the actual date with a reason and second-person review.
-   - (b) Stop and repeat.
+## Still needing a decision or acceptance
 
-   When (a) applies, how should the Completed document show it?
-5. **OD-S / OD-T.**
-   - Confirm the field meanings: planned work date = planned Library Preparation date (drives control IDs); F2-02 = actual Library Preparation date; add F2-03 = actual Extraction date (information only).
-   - Confirm that control IDs become fixed at execution start.
-6. **OD-L.** Which non-blocking date warnings do you want? Proposed:
-   - collection date after receipt, or in the future;
-   - planned date before the batch was created;
-   - history date after collection.
-7. **P5-A.** Legacy linked a PDF automatically when exactly one order matched the HN within the date cutoff. Should NIPT-CBH link automatically when a single candidate matches on every check (HN, DOB, pregnancy type, collection date, GA, lab number), and keep two-person review only for exceptions?
-8. **P5-B.** For a linked, fully matching report, may "review" and "QC5" be completed together with "รับรองและส่งผล" in one confirmation by one authorised person (OD-04 already allows the same person)? The identity, version, consent and QC gates stay unchanged.
+1. **Migration approval for P5-A full auto-link** — relax the two migration-050 CHECKs and the link trigger for a system match mode. Without it, the second person still approves each link.
+2. **QA format acceptance for the OD-E2 annex** — how a native Completed shows planned vs actual Library date. Until then such sheets get no native Completed; analysis continues.
+3. **Lab/QA sign-off of the F2 field inventory** (still SEED_UNVERIFIED), including the new F2-03.
+4. **OD-R2 S3+ redraw rule** — operational orders beyond S2 stay refused.
 
 ## External and physical tests (not Owner questions)
 
