@@ -6,7 +6,9 @@ import {describe,it,expect,beforeEach,afterEach} from 'vitest';
 import {resultFixture,receivedCase,importReport,rowVersion,pdfDate,type ResultFixture} from '../helpers/results';
 import * as svc from '../../packages/results/service';
 import {registerIntake,parseIntake} from '../../packages/results/intake';
-import {runResultJob,queueScheduledScan,scheduledScanKey} from '../../packages/results/jobs';
+import {runResultJob} from '../../packages/results/jobs';
+import {SETTINGS} from '../../packages/settings/catalog';
+import {proposeSetting} from '../../packages/settings/service';
 import {syntheticReportPdf} from '../../tools/his-simulator/result-pdf';
 
 // Owner decisions A14 (duplicate = SHA-256; same name + different bytes is reviewed, never skipped or auto-revised) and
@@ -67,26 +69,24 @@ describe('A14 — duplicates by SHA-256, same-name/different-content goes to rev
  });
 });
 
-describe('A23 — scheduled folder scan lists only',()=>{
- it('0 = off; one audited listing job per interval bucket; no actor attached',async()=>{
-  expect(await f.run(t=>queueScheduledScan(t,0))).toBeNull();
-  const now=Date.parse('2026-10-13T08:00:00Z');const id=await f.run(t=>queueScheduledScan(t,5,now));expect(id).toBeTruthy();
-  expect(await f.run(t=>queueScheduledScan(t,5,now+60000))).toBeNull();expect(await f.run(t=>queueScheduledScan(t,5,now+5*60000))).toBeTruthy();
-  const job=(await f.db.query<{kind:string;payload:Record<string,unknown>;idempotency_key:string}>('SELECT kind,payload,idempotency_key FROM job_outbox WHERE id=$1',[id])).rows[0];
-  expect(job).toEqual({kind:'synthetic_result_scan',payload:{trigger:'SCHEDULED'},idempotency_key:scheduledScanKey(5,now)});
-  expect((await f.db.query("SELECT count(*)::int n FROM audit_chain WHERE action='RESULT_SCHEDULED_SCAN_QUEUED'")).rows[0]).toEqual({n:2});
- });
- it('the scheduled job runs the same read-only scan and creates no intake, report, link or release; it can never preview or parse',async()=>{
+describe('Owner 2026-10-18 — result folder scan on demand only (replaces A23 scheduled listing)',()=>{
+ it('a timer cannot be configured; a scheduled job left in the queue is closed without reading the folder',async()=>{
+  await expect(f.run(t=>proposeSetting(t,f.u.certifier,'result_management',{...SETTINGS.result_management.default,scheduledScanMinutes:5},'Try to schedule a scan'))).rejects.toThrow('SCHEDULED_SCAN_DISABLED_OWNER');
   await mkdir(path.join(f.root,'results','2026-10'),{recursive:true});
   await writeFile(path.join(f.root,'results','2026-10','SCHEDULED.pdf'),syntheticReportPdf({kind:'SINGLETON',labNumber:'S',hn:'990000000401',collection:'10-Oct-2026'}));
-  const id=(await f.run(t=>queueScheduledScan(t,5)))!;
-  const out=await runResultJob(f.db as unknown as Pool,id,'synthetic_result_scan',{trigger:'SCHEDULED'},f.root,f.store) as {trigger:string;files:{path:string;status:string}[]};
-  expect(out.trigger).toBe('SCHEDULED');expect(out.files).toEqual([expect.objectContaining({path:'2026-10/SCHEDULED.pdf',status:'NEW'})]);
+  const legacy=(await f.db.query<{id:string}>("INSERT INTO job_outbox(kind,payload,idempotency_key) VALUES('synthetic_result_scan',$1,'p5-scheduled-scan:5:legacy') RETURNING id",[JSON.stringify({trigger:'SCHEDULED'})])).rows[0].id;
+  for(const kind of ['synthetic_result_scan','synthetic_result_preview','synthetic_result_test_path'] as const)
+   expect(await runResultJob(f.db as unknown as Pool,legacy,kind,{trigger:'SCHEDULED'},f.root,f.store)).toEqual({trigger:'SCHEDULED',files:[],folders:0,truncated:false,errorCode:'SCHEDULED_SCAN_DISABLED'});
   for(const t of ['result_intake_file','result_report_version','result_link_event','result_release'])expect((await f.db.query(`SELECT count(*)::int n FROM ${t}`)).rows[0]).toEqual({n:0});
-  await expect(runResultJob(f.db as unknown as Pool,id,'synthetic_result_preview',{trigger:'SCHEDULED',paths:[]},f.root,f.store)).rejects.toThrow('SCHEDULED_SCAN_LIST_ONLY');
-  await expect(runResultJob(f.db as unknown as Pool,id,'synthetic_result_parse',{},f.root,f.store)).rejects.toThrow('ACTOR_REQUIRED');
-  await expect(runResultJob(f.db as unknown as Pool,id,'synthetic_result_test_path',{trigger:'SCHEDULED'},f.root,f.store)).rejects.toThrow('SCHEDULED_SCAN_LIST_ONLY');
-  // Path security is identical to the manual scan: without the synthetic root marker nothing is read.
-  expect(await runResultJob(f.db as unknown as Pool,id,'synthetic_result_scan',{trigger:'SCHEDULED'},path.join(f.base,'not-a-simulator'),f.store)).toMatchObject({passed:false});
+  // The person's "สแกนไฟล์ PDF" runs one read-only scan and reports new / duplicate / error files.
+  const out=await runResultJob(f.db as unknown as Pool,legacy,'synthetic_result_scan',{trigger:'MANUAL'},f.root,f.store) as {trigger:string;files:{path:string;status:string}[]};
+  expect(out.trigger).toBe('MANUAL');expect(out.files).toEqual([expect.objectContaining({path:'2026-10/SCHEDULED.pdf',status:'NEW'})]);
+  await expect(runResultJob(f.db as unknown as Pool,legacy,'synthetic_result_parse',{},f.root,f.store)).rejects.toThrow('ACTOR_REQUIRED');
+  expect(await runResultJob(f.db as unknown as Pool,legacy,'synthetic_result_scan',{trigger:'MANUAL'},path.join(f.base,'not-a-simulator'),f.store)).toMatchObject({passed:false});
+ });
+ it('the Worker no longer contains a result-folder timer; PET inbound and HIS delivery cycles are still there',async()=>{
+  const src=(await import('node:fs/promises')).readFile('packages/jobs/worker.ts','utf8');const s=await src;
+  expect(s).not.toMatch(/scheduledScanMinutes|queueScheduledScan|lastResultScan/);
+  expect(s).toContain("'synthetic_scan'");expect(s).toContain('runP6Cycle(pool())');
  });
 });

@@ -13,6 +13,8 @@ export async function proposeSetting(db: Queryable, user: Principal, key: string
   const validated = d.schema.parse(value);
   requirePermission(user, d.risk === "CLINICAL" ? "settings.clinical.propose" : d.risk === "INTEGRATION" ? "settings.integration.propose" : "settings.general.change", {}, d.risk === "GENERAL" || d.risk === "SECURITY" ? "write" : "propose");
   if(key==='laboratory'&&!previousId){const active=(await readActiveSettings(db)).laboratory??SETTINGS.laboratory.default;for(const field of ['templateVersion','formulaVersion'])if((validated as Record<string,unknown>)[field]!==((active as Record<string,unknown>)[field]??(SETTINGS.laboratory.default as Record<string,unknown>)[field]))throw Error('CONTROLLED_METADATA_READ_ONLY');}
+  // Owner 2026-10-18: the result PDF folder is scanned on demand only; a timer can no longer be configured.
+  if(key==='result_management'&&(validated as {scheduledScanMinutes?:number}).scheduledScanMinutes!==0)throw Error('SCHEDULED_SCAN_DISABLED_OWNER');
   if (!reason.trim() || reason.length > 250) throw new Error("REASON_REQUIRED");
   await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`settings:${key}`]);
   const result = await db.query<{ id: string }>(`INSERT INTO settings_revision(setting_key,version,category,risk,value,state,created_by,reason,previous_revision_id)

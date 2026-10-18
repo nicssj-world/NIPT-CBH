@@ -51,7 +51,7 @@ test("P5 folder workflow: Test Path → Scan → Preview → import, then two-pe
  await expect(page.getByText("ยังไม่ปล่อยผลจริง")).toBeVisible();
  await page.getByRole("button",{name:"ทดสอบโฟลเดอร์"}).click();
  await expect(page.getByLabel("ผลทดสอบโฟลเดอร์")).toContainText("อ่านได้",{timeout:60000});
- await page.getByRole("button",{name:"สแกนโฟลเดอร์"}).click();
+ await page.getByRole("button",{name:"สแกนไฟล์ PDF"}).click();
  const scan=page.getByRole("region",{name:"ไฟล์ที่พบในโฟลเดอร์"});await expect(scan).toContainText(f.file,{timeout:60000});await expect(scan).toContainText(f.folder);
  await page.getByLabel("เลือกไฟล์ใหม่ทั้งหมด").uncheck();await page.getByLabel(`เลือก ${f.file}`).check();
  await axe(page);
@@ -110,7 +110,7 @@ test("A14: same file name with different content is flagged, must be acknowledge
  const run=randomUUID().slice(0,8),name=`SYNTHETIC-SAMENAME-${run}.pdf`,root=path.join(process.env.SIMULATOR_ROOT??"data/simulator","results");
  for(const [folder,hn] of [[`a14-${run}-a`,"990000000611"],[`a14-${run}-b`,"990000000612"]]){await mkdir(path.join(root,folder),{recursive:true});await writeFile(path.join(root,folder,name),syntheticReportPdf({kind:"SINGLETON",labNumber:"26B26101006"+hn.slice(-1)+"-1",hn,collection:"10-Oct-2026"}));}
  await page.setViewportSize({width:1440,height:1000});await login(page,"synthetic.lab");await page.goto("/results");
- await page.getByRole("button",{name:"สแกนโฟลเดอร์"}).click();
+ await page.getByRole("button",{name:"สแกนไฟล์ PDF"}).click();
  const scan=page.getByRole("region",{name:"ไฟล์ที่พบในโฟลเดอร์"});await expect(scan.getByRole("row").filter({hasText:name})).toHaveCount(2,{timeout:60000});
  await page.getByLabel("เลือกไฟล์ใหม่ทั้งหมด").uncheck();for(const box of await page.getByLabel(`เลือก ${name}`).all())await box.check();
  await page.getByRole("button",{name:"Preview ไฟล์ที่เลือก"}).click();
@@ -122,24 +122,21 @@ test("A14: same file name with different content is flagged, must be acknowledge
  await expect(page.getByRole("region",{name:"รายการรายงาน"}).getByRole("row").filter({hasText:name}).first()).toContainText("ชื่อไฟล์ซ้ำ");
 });
 
-test("A23: scheduled scan (maker-checker, default off) only lists new files via the real worker; nothing is imported",async({page})=>{
+test("Owner 2026-10-18: the result folder is scanned only when \"สแกนไฟล์ PDF\" is pressed — once, then it stops",async({page})=>{
  test.setTimeout(150000);
  const db=new Client({connectionString:browserFixtureDatabaseUrl()});await db.connect();
+ const scans=async()=>(await db.query<{n:number}>("SELECT count(*)::int n FROM job_outbox WHERE kind='synthetic_result_scan'")).rows[0].n;
  try{
   await page.setViewportSize({width:1280,height:900});await login(page,"synthetic.lab");await page.goto("/results");
-  await expect(page.getByText("ปิด (0) — สแกนเมื่อกดปุ่มเท่านั้น")).toBeVisible();
-  const before=(await db.query<{n:number}>("SELECT count(*)::int n FROM result_intake_file")).rows[0].n;
-  await setResultSetting({scheduledScanMinutes:5});
-  await expect.poll(async()=>(await db.query("SELECT 1 FROM job_outbox o JOIN integration_job_receipt r ON r.outbox_id=o.id WHERE o.payload->>'trigger'='SCHEDULED'")).rows.length,{timeout:60000}).toBeGreaterThan(0);
-  await page.reload();await expect(page.getByText("ทุก 5 นาที — Worker ค้นหาและแสดงรายการเท่านั้น ไม่นำเข้าอัตโนมัติ")).toBeVisible();
-  await page.getByRole("button",{name:"แสดงรายการจากการสแกนตามรอบ"}).click();
-  await expect(page.getByRole("region",{name:"ไฟล์ที่พบในโฟลเดอร์"}).getByRole("row").nth(1)).toBeVisible();
-  await expect(page.getByText("เลือก 0 ไฟล์")).toBeVisible();
-  expect((await db.query<{n:number}>("SELECT count(*)::int n FROM result_intake_file")).rows[0].n).toBe(before);
-  expect((await db.query("SELECT count(*)::int n FROM result_intake_file i JOIN job_outbox o ON o.id=i.job_id WHERE o.payload->>'trigger'='SCHEDULED'")).rows[0]).toEqual({n:0});
-  expect((await db.query("SELECT count(*)::int n FROM audit_chain WHERE action='RESULT_SCHEDULED_SCAN_QUEUED'")).rows[0].n).toBeGreaterThan(0);
+  await expect(page.getByText('เมื่อกดปุ่ม “สแกนไฟล์ PDF” เท่านั้น')).toBeVisible();
+  await expect(setResultSetting({scheduledScanMinutes:5})).rejects.toThrow("SCHEDULED_SCAN_DISABLED_OWNER");
+  const before=await scans();await page.waitForTimeout(15000);expect(await scans()).toBe(before); // the running Worker does not scan by itself
+  await page.getByRole("button",{name:"สแกนไฟล์ PDF"}).click();
+  const list=page.getByRole("region",{name:"ไฟล์ที่พบในโฟลเดอร์"});await expect(list).toBeVisible({timeout:60000});
+  await expect(list.locator("caption")).toContainText(/พบ \d+ ไฟล์ · ใหม่ \d+ · ซ้ำ \d+ · Error \d+/);
+  await expect.poll(scans,{timeout:60000}).toBe(before+1);await page.waitForTimeout(12000);expect(await scans()).toBe(before+1); // one scan, then it stops
   await axe(page);
- }finally{await setResultSetting({scheduledScanMinutes:0});await db.end();}
+ }finally{await db.end();}
 });
 
 for(const width of [375,768,1280])test(`P5 result workspace is accessible and responsive at ${width}px`,async({page})=>{

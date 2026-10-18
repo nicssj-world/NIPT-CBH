@@ -137,6 +137,8 @@ const reviewed:Record<number,Partial<CoverageItem>>={
  41:{status:'Partial',note:'Native HALOS export/readback + observed import exist in 086; 47-row lock retained; physical device acceptance external'},
  45:{note:'Existing operational receipt/lineage/suffix guards in 084/090 retained; not configurable from Admin'},
  49:{note:'Operational P2 evidence/review guard in 088 exists; clinical acceptance and rule changes remain governed'},
+ 60:{status:'Locked',note:'Owner 2026-10-18 supersedes A23: no timer. The result folder is scanned once per press of "สแกนไฟล์ PDF"; the Worker has no result-folder schedule; a value other than 0 is refused and a queued legacy scheduled job is closed without reading'},
+ 61:{note:'On-demand scan lists only; import happens after Preview and "ยืนยันนำเข้า" by a person, then P5-A or manual matching, then P5-B'},
  64:{note:'PIC (OD-07) stays HOLD. Separately Owner P5-A (2026-10-18, migration 100): result_management.linkageMode = UNIQUE_AUTO_LINK lets the system link only a single clean match (HN + lab number + DOB/pregnancy/collection/GA, no name conflict, empty series); default MANUAL_REVIEWED_ONLY; never releases or sends'},
  63:{note:'Actual parser/template versions are frozen per report. picVersion Setting is not parser selection; Owner/DCC approvals remain external'},
  71:{note:'HOLD_AL5 catalog literal is retained; operational baseline separately enforces p5_release_authorized/current reviewed evidence in 086/088/089. Admin changes do not enable release'},

@@ -46,7 +46,7 @@ All eight questions of the earlier packet were approved by the Owner on 2026-10-
 
 - **Fallback (implemented):** "อัปโหลด PDF ผลตรวจ" on the case page. It checks against the selected round/attempt, refuses identity conflicts, shares the same intake/import/linkage/P5-B path, prevents duplicates across channels, and works while the Worker is down. See [p5-two-pdf-channels.md](p5-two-pdf-channels.md).
 - **Primary folder intake:** Settings, Worker scan and P5-A auto-link at import are implemented.
-- **Needs approval:** an unattended Worker *import*. Either widen `worker_rw` and provision a system account, or add a migration with a SECURITY DEFINER import function. Until then, staff confirm the import on the Results page.
+- **Owner final clarification (2026-10-18): the folder scan is on demand only.** Staff press "สแกนไฟล์ PDF", one scan runs, then it stops. Staff preview and press "ยืนยันนำเข้า". The Worker result-folder timer was removed, and `scheduledScanMinutes` is locked at 0. No unattended import is needed.
 
 ## Settings operational acceptance (2026-10-18)
 

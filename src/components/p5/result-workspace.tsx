@@ -13,10 +13,10 @@ type ScanResult={folder:string;files:ScanFile[];folders:number;truncated:boolean
 type Summary={labNumber:string|null;hn:string|null;collectionDate:string|null;t21:string|null;t18:string|null;t13:string|null;sca:string[]|null;yChromosome:string|null;fetalFraction:number|null;qc:string|null;needsManualReview:boolean;abnormal:boolean;unreadable:string[]};
 type Intake={id:string;file:string;member:string|null;parentId:string|null;container:string|null;state:string;rejectCode:string|null;templateKind:string|null;summary:Summary|null;candidates:number;size:number;nameConflicts?:{versions:{id:string;state:string}[];sameBatch:number}};
 type Row={id:string;kind:string;template_kind:string;state:string;state_changed_at:string;original_name:string;relative_path:string|null;member_name:string|null;hn:string|null;lab:string|null;collection:string|null;round_number:number|null;ln:string|null;proposal:boolean;abnormal:boolean;name_conflict:boolean};
-type Data={page:{number:number;size:number;hasNext:boolean;scope:"BOUNDED_PAGE"};rows:Row[];latestFolder:{folder:string;at:string}|null;intake:{folder:string;scanSubfolders:boolean;acceptZip:boolean;maxUploadMb:number;maxFilesPerScan:number;picVersion:string;scheduledScanMinutes:number;lastScheduled:{result:ScanResult|null;completed_at:string}|null;lastTest:{result:TestResult|null;completed_at:string|null}|null;lastScan:{result:ScanResult|null;completed_at:string|null}|null}};
+type Data={page:{number:number;size:number;hasNext:boolean;scope:"BOUNDED_PAGE"};rows:Row[];latestFolder:{folder:string;at:string}|null;intake:{folder:string;scanSubfolders:boolean;acceptZip:boolean;maxUploadMb:number;maxFilesPerScan:number;picVersion:string;scanMode:"ON_DEMAND";lastTest:{result:TestResult|null;completed_at:string|null}|null;lastScan:{result:ScanResult|null;completed_at:string|null}|null}};
 const BUCKETS=[["unlinked","รอเชื่อมโยง",["Unlinked"]],["conflict","ข้อมูลไม่ตรง",["LinkConflict"]],["blocked","ถูกบล็อกโดย Gate",["ValidationBlocked"]],["pending","รอรับรอง",["PendingCertification"]],["closed","ปิดแล้ว/ใช้ไม่ได้",["RejectedImport","Superseded","Voided","CertifiedReleased"]]] as const;
 const DEFAULT_FILTERS={dateField:"REPORTED",from:"",to:"",q:"",gender:"ALL",qc:"ALL",risk:"ALL"};
-const STEPS=["ทดสอบโฟลเดอร์","สแกนโฟลเดอร์","เลือกไฟล์และ Preview","ยืนยันนำเข้า"];
+const STEPS=["ทดสอบโฟลเดอร์","สแกนไฟล์ PDF","เลือกไฟล์และ Preview","ยืนยันนำเข้า"];
 
 /** Polls the requester's own worker job until its receipt exists. The worker, not the browser, reads the folder. */
 async function waitForJob<T>(id:string,signal:AbortSignal):Promise<Job<T>>{
@@ -66,7 +66,6 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
  const folderMsg=(code:string|null)=>code?(FOLDER_ERROR_TEXT[code]??code):"";
  const conflicted=(i:Intake)=>!!i.nameConflicts&&(i.nameConflicts.versions.length>0||i.nameConflicts.sameBatch>0);
  const unacked=(preview??[]).filter(i=>toImport.has(i.id)&&conflicted(i)&&!acked.has(i.id)).length;
- const sched=data?.intake.lastScheduled?.result;
 
  return <>
   <header className="page-header"><div><h1>ผลตรวจ NIPT</h1><p className="muted">นำเข้าไฟล์ผลจากโฟลเดอร์หรือจากเครื่อง ตรวจทาน เชื่อมโยงกับรอบ/Attempt และประเมิน Gate ก่อนรับรอง</p></div></header>
@@ -84,14 +83,12 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
     <dl className="plan-dl p5-facts">
      <dt>โฟลเดอร์ผล PDF</dt><dd><span className="mono">{data?.intake.folder??"…"}</span>{canSettings&&<> · <Link href="/settings?key=result_management">เปลี่ยนในตั้งค่าระบบ</Link></>}</dd>
      <dt>การสแกน</dt><dd>{data?(data.intake.scanSubfolders?"รวมโฟลเดอร์ย่อย":"เฉพาะโฟลเดอร์หลัก"):"…"} · {data?.intake.acceptZip?".pdf และ .zip":".pdf เท่านั้น"} · ไม่เกิน {data?.intake.maxFilesPerScan??"…"} ไฟล์ · ไฟล์ละไม่เกิน {data?.intake.maxUploadMb??"…"} MB</dd>
-     <dt>สแกนตามรอบเวลา</dt><dd>{!data?"…":data.intake.scheduledScanMinutes===0?"ปิด (0) — สแกนเมื่อกดปุ่มเท่านั้น":`ทุก ${data.intake.scheduledScanMinutes} นาที — Worker ค้นหาและแสดงรายการเท่านั้น ไม่นำเข้าอัตโนมัติ`}
-      {sched&&!sched.errorCode&&<div className="p5-sched">สแกนตามรอบล่าสุด {bkk(data!.intake.lastScheduled!.completed_at)} · พบไฟล์ใหม่ {sched.files.filter(f=>f.status==="NEW").length} ไฟล์ <button type="button" className="button small secondary" onClick={()=>{setScan(sched);setPicked(new Set());setPreview(null);}}>แสดงรายการจากการสแกนตามรอบ</button></div>}
-      {sched?.errorCode&&<div className="help">สแกนตามรอบล่าสุดไม่สำเร็จ: {folderMsg(sched.errorCode)}</div>}</dd>
+     <dt>การสแกนโฟลเดอร์</dt><dd>เมื่อกดปุ่ม “สแกนไฟล์ PDF” เท่านั้น — สแกนครั้งเดียวแล้วหยุด ระบบไม่สแกนเองตามเวลา</dd>
      <dt>นำเข้าล่าสุดถึงโฟลเดอร์</dt><dd>{data?.latestFolder?<><span className="mono">{data.latestFolder.folder||"(โฟลเดอร์หลัก)"}</span> · {bkk(data.latestFolder.at)}</>:"ยังไม่เคยนำเข้าจากโฟลเดอร์"}</dd>
     </dl>
     <div className="action-bar">
      <button type="button" className="button secondary" onClick={doTest} disabled={!!busy}>{busy==="test"?"Worker กำลังทดสอบ…":"ทดสอบโฟลเดอร์"}</button>
-     <button type="button" className="button" onClick={doScan} disabled={!!busy}>{busy==="scan"?"Worker กำลังสแกน…":"สแกนโฟลเดอร์"}</button>
+     <button type="button" className="button" onClick={doScan} disabled={!!busy}>{busy==="scan"?"Worker กำลังสแกน…":"สแกนไฟล์ PDF"}</button>
     </div>
     <p className="help">Worker อ่านโฟลเดอร์แบบอ่านอย่างเดียว ไม่สร้าง ย้าย หรือลบไฟล์ใด ๆ — ไฟล์จะถูกนำเข้าเมื่อกดยืนยันหลัง Preview เท่านั้น</p>
     {test&&<div className="p5-test" aria-label="ผลทดสอบโฟลเดอร์">
@@ -101,7 +98,7 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
     {scan&&(scan.errorCode?<p className="notice" role="alert">สแกนไม่สำเร็จ: {folderMsg(scan.errorCode)}</p>:
      <div className="stack">
       <div className="table-wrap" role="region" aria-label="ไฟล์ที่พบในโฟลเดอร์" tabIndex={0}>
-       <table className="data-table p5-scan"><caption>พบ {scan.files.length} ไฟล์ · ใหม่ {newFiles.length} ไฟล์{scan.truncated?` · แสดงไม่เกิน ${data?.intake.maxFilesPerScan} ไฟล์ — ย้ายไฟล์เก่าออกหรือปรับการตั้งค่า`:""}</caption>
+       <table className="data-table p5-scan"><caption>พบ {scan.files.length} ไฟล์ · ใหม่ {newFiles.length} · ซ้ำ {scan.files.filter(f=>f.status==="IMPORTED"||f.status==="DUPLICATE_IN_SCAN").length} · Error {scan.files.filter(f=>["TOO_LARGE","ZIP_NOT_ACCEPTED","EMPTY"].includes(f.status)).length}{scan.truncated?` · แสดงไม่เกิน ${data?.intake.maxFilesPerScan} ไฟล์ — ย้ายไฟล์เก่าออกหรือปรับการตั้งค่า`:""}</caption>
         <thead><tr><th scope="col"><input type="checkbox" aria-label="เลือกไฟล์ใหม่ทั้งหมด" checked={newFiles.length>0&&newFiles.every(f=>picked.has(f.path))} onChange={e=>setPicked(e.target.checked?new Set(newFiles.map(f=>f.path)):new Set())} disabled={!newFiles.length}/></th><th scope="col">ไฟล์</th><th scope="col">โฟลเดอร์ย่อย</th><th scope="col" className="num">ขนาด</th><th scope="col">แก้ไขล่าสุด</th><th scope="col">สถานะ</th></tr></thead>
         <tbody>{scan.files.length?scan.files.map(f=><tr key={f.path} className={picked.has(f.path)?"selected":""}>
          <td><input type="checkbox" aria-label={`เลือก ${f.name}`} checked={picked.has(f.path)} disabled={f.status!=="NEW"&&f.status!=="DUPLICATE_IN_SCAN"} onChange={e=>setPicked(p=>toggle(p,f.path,e.target.checked))}/></td>

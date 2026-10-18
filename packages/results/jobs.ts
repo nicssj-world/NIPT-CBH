@@ -1,8 +1,7 @@
 import {z} from 'zod';
 import type {Pool} from 'pg';
 import type {FileStore} from '../storage';
-import {withTransaction,type Queryable} from '../db/connection';
-import {appendAudit} from '../db/audit';
+import {withTransaction} from '../db/connection';
 import {testResultFolder,scanResultFolder,previewFolderFiles,FolderError} from './folder';
 import {parseIntake} from './intake';
 import {resultSettings,limitsOf,type P5JobKind} from './service';
@@ -13,8 +12,8 @@ const payloadSchema=z.object({actorId:z.uuid().optional(),trigger:z.enum(['MANUA
 const EXPECTED=/^(SHARE_[A-Z_]+|UNSAFE_SHARE_PATH|SIMULATOR_PATH_REQUIRED|SIMULATOR_ROOT_REQUIRED|SIMULATOR_MARKER_REQUIRED|UNSAFE_PATH|SYMLINK_PROHIBITED|NOT_DIRECTORY|PATH_ESCAPE|RESULT_FILE_REQUIRED|NETWORK_PATH_PROHIBITED)$/;
 export async function runResultJob(pool:Pool,id:string,kind:P5JobKind,rawPayload:unknown,root:string,store:FileStore):Promise<Record<string,unknown>>{
  const payload=payloadSchema.parse(rawPayload??{}),s=await resultSettings(pool),limits=limitsOf(s);
- // A scheduled job has no person behind it: it may only list. Preview/parse always belong to the person who asked for them.
- if(payload.trigger==='SCHEDULED'&&kind!=='synthetic_result_scan')throw Error('SCHEDULED_SCAN_LIST_ONLY');
+ // Owner 2026-10-18: scanning is on demand only. A scheduled job left in the queue from before is closed without reading the folder.
+ if(payload.trigger==='SCHEDULED')return {trigger:'SCHEDULED',files:[],folders:0,truncated:false,errorCode:'SCHEDULED_SCAN_DISABLED'};
  if(kind!=='synthetic_result_scan'&&kind!=='synthetic_result_test_path'&&!payload.actorId)throw Error('ACTOR_REQUIRED');
  try{
   if(kind==='synthetic_result_test_path')return {...await testResultFolder(root,s.pdfSourcePath,{recursive:s.scanSubfolders,maxFiles:s.maxFilesPerScan}),folder:s.pdfSourcePath};
@@ -27,13 +26,4 @@ export async function runResultJob(pool:Pool,id:string,kind:P5JobKind,rawPayload
   if(e instanceof FolderError||EXPECTED.test(code)||code==='FOLDER_NOT_FOUND')return {passed:false,errorCode:code,folder:s.pdfSourcePath};
   throw e;
  }
-}
-
-/** A23 scheduled folder scan: 0 = off. One listing job per interval bucket (idempotent across worker restarts), audited, no actor. */
-export const scheduledScanKey=(minutes:number,now:number)=>`p5-scheduled-scan:${minutes}:${Math.floor(now/(minutes*60000))}`;
-export async function queueScheduledScan(db:Queryable,minutes:number,now=Date.now()){
- if(!Number.isInteger(minutes)||minutes<=0)return null;
- const r=(await db.query<{id:string}>("INSERT INTO job_outbox(kind,payload,idempotency_key) VALUES('synthetic_result_scan',$1,$2) ON CONFLICT(idempotency_key) DO NOTHING RETURNING id",[JSON.stringify({trigger:'SCHEDULED'}),scheduledScanKey(minutes,now)])).rows[0];
- if(r)await appendAudit(db,{action:'RESULT_SCHEDULED_SCAN_QUEUED',resourceType:'JOB',resourceId:r.id,details:{count:minutes,outcome:'LIST_ONLY',synthetic:true}});
- return r?.id??null;
 }

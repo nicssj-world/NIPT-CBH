@@ -19,6 +19,7 @@ export const SETTINGS_MESSAGES:Record<string,string>={
  HIS_ACTIVE_SETTINGS_REQUIRED:"ยังไม่มีรุ่นที่เปิดใช้งานสำหรับ HIS หมวดนี้",
  HIS_CONFIGURATION_CHANGED:"รุ่นการตั้งค่าเปลี่ยนไปแล้ว กรุณาโหลดหน้าใหม่แล้วทดสอบอีกครั้ง",
  INVALID_OPERATION:"คำสั่งไม่ถูกต้อง",
+ SCHEDULED_SCAN_DISABLED_OWNER:"การสแกนโฟลเดอร์ผล PDF ตามรอบเวลาถูกปิดตาม Owner — สแกนเมื่อกดปุ่ม สแกนไฟล์ PDF เท่านั้น ค่าต้องเป็น 0",
 };
 /** Thai message for a settings failure, naming the labelled fields of a schema error; null when another handler owns it. */
 export function settingsErrorMessage(error:unknown,key?:string):string|null{

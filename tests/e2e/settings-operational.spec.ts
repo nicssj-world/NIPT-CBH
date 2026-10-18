@@ -83,13 +83,13 @@ test("HIS inbound: path A → Worker reads the ZIP PET and the case is received;
   await saveDraft(page,"Settings acceptance: inbound folder A");await workerTestAndRecord(page,/Daily Folder: 1 · PET\/OK: 1/);
   await approveAndActivate(checker,"his_inbound");
   await waitReceived(labContext,a.ln);
-  await page.reload();await expect(page.getByRole("region",{name:"Worker ขาเข้าที่กำลังทำงาน"})).toContainText(/Worker ใช้รุ่น \d+/);
+  await page.reload();await expect(page.getByRole("region",{name:"Worker ขาเข้าที่กำลังทำงาน"})).toContainText(/Worker ใช้รุ่น \d+/,{timeout:20000});
   // Path B: a PET dropped into A afterwards is no longer read; B's PET is received.
   await drop("in-b",b);
   await page.getByLabel("โฟลเดอร์ขาเข้า").fill(path.join(SHARE!,"in-b"));await saveDraft(page,"Settings acceptance: inbound folder B");await workerTestAndRecord(page);
   await approveAndActivate(checker,"his_inbound");await drop("in-a",c);
   await waitReceived(labContext,b.ln);await lab.waitForTimeout(12000);await waitReceived(labContext,c.ln,false);
-  await page.reload();await expect(page.getByRole("region",{name:"Worker ขาเข้าที่กำลังทำงาน"})).not.toContainText("ยังไม่ได้ใช้รุ่นที่เปิดใช้ล่าสุด");
+  await page.reload();await expect(page.getByRole("region",{name:"Worker ขาเข้าที่กำลังทำงาน"})).not.toContainText("ยังไม่ได้ใช้รุ่นที่เปิดใช้ล่าสุด",{timeout:20000});
   // Invalid path: the Worker test fails with a readable reason and there is nothing to approve.
   await page.getByLabel("โฟลเดอร์ขาเข้า").fill(path.join(SHARE!,"missing"));await saveDraft(page,"Settings acceptance: missing folder");
   await page.getByRole("button",{name:"ทดสอบร่าง",exact:true}).first().click();

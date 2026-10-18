@@ -42,15 +42,26 @@ Both channels use the same intake, quarantine, parser, file store, report versio
 
 **Limitation.** `result_intake_file.source` stays `UPLOAD`: its CHECK allows only FOLDER / UPLOAD. A dedicated column value `MANUAL_UPLOAD` would need a new migration, which is not approved. So the channel is recorded in the version event and audit instead.
 
-## 3. Primary: automatic folder intake — status
+## 3. Primary: folder intake, on demand only (Owner final clarification 2026-10-18)
 
-| Requirement | Status |
-|---|---|
-| Folder set in Settings, scanned by the Worker | Implemented (Settings acceptance) |
-| Worker **imports** without a person | **Blocked — needs approval.** The Worker DB role `worker_rw` deliberately cannot create report versions, link events or gate evaluations (`packages/db/roles.sql`). Every intake and import also needs an accountable `app_user`. An unattended import needs one of two things: (a) widening `worker_rw` plus a provisioned system account, or (b) a new migration with a narrow SECURITY DEFINER import function. Neither is approved, so neither was done. |
-| Auto-match when clear | Implemented (P5-A) at import |
-| Unmatched → staff match from the pending list | Existing Results page queue (`Unlinked` / `LinkConflict`) |
-| No auto-release / auto-send | Enforced |
+**Flow:**
+1. Staff place the PDFs in the folder configured in Settings (`result_management.pdfSourcePath`).
+2. On the Results page they press **"สแกนไฟล์ PDF"**. That queues exactly one read-only scan job for the Worker.
+3. The list shows found / new / duplicate / error counts. Staff select files and see the Preview.
+4. **"ยืนยันนำเข้า"** imports them. P5-A links clean matches; anything else goes to manual matching.
+5. P5-B is still required before HIS.
+
+**When the scan ends:** it stops. Nothing scans again until the button is pressed again.
+
+**Changes made:**
+- The Worker's result-folder timer (A23 scheduled listing) was **removed** from the Worker cycle. The PET inbound scan and the HIS delivery cycle are untouched.
+- `result_management.scheduledScanMinutes` is shown as locked. Any value other than 0 is refused (`SCHEDULED_SCAN_DISABLED_OWNER`). An old stored value has no effect, because nothing reads it any more.
+- A scheduled scan job still in the queue from before is closed without reading the folder (`SCHEDULED_SCAN_DISABLED`).
+- The button is renamed "สแกนไฟล์ PDF". The scan caption shows found / new / duplicate / error counts.
+
+**No migration.**
+
+The earlier note that "unattended Worker import needs approval" no longer applies: the Owner has decided that import is a person's action after the on-demand scan.
 
 ## 4. Tests
 

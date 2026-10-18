@@ -45,9 +45,7 @@ export async function intakeContext(db:Queryable,user:Staff){
  const s=await resultSettings(db);
  const jobs=(await db.query<{kind:string;id:string;result:Record<string,unknown>|null;created_at:Date;completed_at:Date|null}>(
   "SELECT DISTINCT ON(o.kind) o.kind,o.id,r.result,o.created_at,r.completed_at FROM job_outbox o LEFT JOIN integration_job_receipt r ON r.outbox_id=o.id WHERE o.kind IN ('synthetic_result_test_path','synthetic_result_scan') AND o.payload->>'actorId'=$1 ORDER BY o.kind,o.created_at DESC",[user.id])).rows;
- // A23: the latest completed listing-only scheduled scan, shared by everyone allowed to import (it contains no parsed values).
- const scheduled=(await db.query<{result:Record<string,unknown>;completed_at:Date}>("SELECT r.result,r.completed_at FROM job_outbox o JOIN integration_job_receipt r ON r.outbox_id=o.id WHERE o.kind='synthetic_result_scan' AND o.payload->>'trigger'='SCHEDULED' ORDER BY r.completed_at DESC LIMIT 1")).rows[0]??null;
- return {folder:s.pdfSourcePath,scanSubfolders:s.scanSubfolders,acceptZip:s.acceptZip,maxUploadMb:s.maxUploadMb,maxFilesPerScan:s.maxFilesPerScan,picVersion:s.picVersion,scheduledScanMinutes:s.scheduledScanMinutes,lastScheduled:scheduled,
+ return {folder:s.pdfSourcePath,scanSubfolders:s.scanSubfolders,acceptZip:s.acceptZip,maxUploadMb:s.maxUploadMb,maxFilesPerScan:s.maxFilesPerScan,picVersion:s.picVersion,scanMode:'ON_DEMAND' as const,
   lastTest:jobs.find(j=>j.kind==='synthetic_result_test_path')??null,lastScan:jobs.find(j=>j.kind==='synthetic_result_scan')??null};
 }
 export const pdfResponse=(bytes:Buffer,sha:string,inline:boolean,name:string)=>new NextResponse(new Uint8Array(bytes),{headers:{"Content-Type":inline?"application/pdf":"application/octet-stream",

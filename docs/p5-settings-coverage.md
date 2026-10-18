@@ -17,7 +17,7 @@ Installation-owned = operator/deployment responsibility; Locked = intentional fi
 | 4 | User / Role / Permission | 1 | 0 | 0 | 0 | 1 | 0 | 3 |
 | 5 | HIS Inbound | 8 | 1 | 0 | 0 | 1 | 0 | 2 |
 | 6 | Laboratory | 1 | 3 | 1 | 0 | 11 | 0 | 0 |
-| 7 | Result Management | 16 | 1 | 0 | 0 | 8 | 0 | 0 |
+| 7 | Result Management | 15 | 1 | 0 | 0 | 8 | 0 | 1 |
 | 8 | HIS Outbound / CFS | 10 | 0 | 0 | 0 | 2 | 0 | 0 |
 | 9 | Storage / NAS / Backup | 0 | 1 | 0 | 0 | 0 | 5 | 0 |
 | 10 | Notifications / System / Audit | 1 | 1 | 3 | 1 | 1 | 1 | 0 |
@@ -115,8 +115,8 @@ Installation-owned = operator/deployment responsibility; Locked = intentional fi
 | Test Path (จาก Worker) | §13.2 #7 | test_path / test_all_paths | synthetic_result_test_path (Worker) | Implemented | P5 | — |
 | Parse ไฟล์ตัวอย่าง (Dry-run) | §13.2 #7 | /import/pdf/preview | Preview ก่อนยืนยันนำเข้า | Implemented | P5 | Preview ไม่สร้างรายงานจนกว่าจะยืนยัน |
 | โฟลเดอร์ที่นำเข้าล่าสุด | — | get_latest_pdf_source_folder | หน้า ผลตรวจ | Implemented | P5 | — |
-| สแกนโฟลเดอร์ผลตามรอบเวลา (ค้นหาและแสดงรายการเท่านั้น) | Owner A23 | auto_scan_min | result_management.scheduledScanMinutes | Implemented | P5 | Owner A23: 0 = ปิด (ค่าเริ่มต้น); เปิดได้เฉพาะผ่าน Maker-Checker; Worker อ่านอย่างเดียว |
-| ห้ามนำเข้า/เชื่อมโยง/รับรอง/ปล่อยผลอัตโนมัติจากการสแกน | Owner A23 | — | SCHEDULED_SCAN_LIST_ONLY (Worker) | Implemented | P5 | บังคับในโค้ดและทดสอบว่าการสแกนตามรอบไม่สร้าง Intake/Report |
+| สแกนโฟลเดอร์ผลตามรอบเวลา (ค้นหาและแสดงรายการเท่านั้น) | Owner A23 | auto_scan_min | result_management.scheduledScanMinutes | Locked | P5 | Owner 2026-10-18 supersedes A23: no timer. The result folder is scanned once per press of "สแกนไฟล์ PDF"; the Worker has no result-folder schedule; a value other than 0 is refused and a queued legacy scheduled job is closed without reading |
+| ห้ามนำเข้า/เชื่อมโยง/รับรอง/ปล่อยผลอัตโนมัติจากการสแกน | Owner A23 | — | SCHEDULED_SCAN_LIST_ONLY (Worker) | Implemented | P5 | On-demand scan lists only; import happens after Preview and "ยืนยันนำเข้า" by a person, then P5-A or manual matching, then P5-B |
 | ตรวจไฟล์ซ้ำด้วย SHA-256 + เตือนชื่อซ้ำเนื้อหาต่าง | Owner A14 | file_hash, raw_filename (import_log) | result_report_version.sha256 + nameConflicts + result_link_event.name_review | Implemented | P5 | Owner A14: ไม่ข้ามเพราะชื่อซ้ำ; ต้องรับทราบตอนนำเข้าและจัดประเภทใหม่/ฉบับแก้ไขโดยสองคน |
 | รุ่น Template / Parser | §13.2 #7 | — | PARSER_VERSION, TEMPLATE_VERSIONS | Partial | P5 | Actual parser/template versions are frozen per report. picVersion Setting is not parser selection; Owner/DCC approvals remain external |
 | PIC version | §13.2 #7 (OD-07) | — | result_management.picVersion | HOLD | P5 | PIC (OD-07) stays HOLD. Separately Owner P5-A (2026-10-18, migration 100): result_management.linkageMode = UNIQUE_AUTO_LINK lets the system link only a single clean match (HN + lab number + DOB/pregnancy/collection/GA, no name conflict, empty series); default MANUAL_REVIEWED_ONLY; never releases or sends |
