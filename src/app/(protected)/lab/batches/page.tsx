@@ -15,7 +15,7 @@ export default async function BatchesPage(){
   <header className="page-header"><div><h1>Batch / Task List</h1><p className="muted">1 Batch = 48 ตำแหน่ง = Task List 1 (1–16), 2 (17–32), 3 (33–48) · Control PC 1, NC 25, Blank 40 · เลข Run รูปแบบ RunNNN/ปี (Genomic-CBH)</p></div>
    <div className="row"><Link className="button secondary" href="/lab">กลับไปคิวงาน</Link>{authorize(user,"batch.draft")&&<CreateBatchButton/>}</div></header>
   <section className="panel">{rows.length===0?<p className="empty-state">ยังไม่มี Batch — เลือกตัวอย่างจากคิวงานแล้วกด “เพิ่มเข้า Batch”</p>:
-   <div className="table-wrap"><table className="data-table"><thead><tr><th scope="col">Run</th><th scope="col">สถานะ</th><th scope="col">ตัวอย่าง</th><th scope="col">Task List 1 / 2 / 3</th><th scope="col">สร้างเมื่อ</th></tr></thead>
+   <div className="table-wrap" role="region" aria-label="รายการ Run" tabIndex={0}><table className="data-table"><thead><tr><th scope="col">Run</th><th scope="col">สถานะ</th><th scope="col">ตัวอย่าง</th><th scope="col">Task List 1 / 2 / 3</th><th scope="col">สร้างเมื่อ</th></tr></thead>
     <tbody>{rows.map(b=><tr key={b.id}><td><Link href={`/lab/batches/${b.id}`} className="mono strong">{b.run_label}</Link></td><td>{STATE[b.state]??b.state}</td><td>{b.samples}</td><td>{b.sheet_states.map(s=>SHEET[s]??s).join(" / ")}</td><td>{new Date(b.created_at).toLocaleString("th-TH",{timeZone:"Asia/Bangkok",dateStyle:"short",timeStyle:"short"})}</td></tr>)}</tbody></table></div>}</section>
  </>;
 }

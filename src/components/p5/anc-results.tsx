@@ -1,6 +1,10 @@
 "use client";
 import {useEffect,useState} from "react";
 import {labApi,failureText,bkk} from "../p4/lab-api";
+import {formatBe} from "../../../packages/domain/thai-date";
+
+// Owner decision (Plan Rev 3.4 §7): user-facing dates are Buddhist Era.
+const be=(iso:string)=>{try{return formatBe(iso.slice(0,10));}catch{return iso;}};
 
 type Release={id:string;kind:string;state:string;certified_at:string;revised:boolean};
 type Round={id:string;number:number;state:string;current:boolean;collectionDate:string|null;redraw:{reasonCode:string;label:string;requestedAt:string}|null;result:Release|null;notices:Release[];history:{id:string;kind:string;state:string}[]};
@@ -19,14 +23,14 @@ export function AncResults({caseId}:{caseId:string}){
   {error&&<p className="notice" role="alert">{error}</p>}
   {!d?<div className="skeleton" role="status" aria-busy="true" aria-label="กำลังโหลดผลตรวจ"/>:<>
    {current&&<div className="stack">
-    <p><strong>รอบที่ {current.number}</strong> (รอบปัจจุบัน){current.collectionDate?` · เก็บตัวอย่าง ${current.collectionDate}`:""}</p>
+    <p><strong>รอบที่ {current.number}</strong> (รอบปัจจุบัน){current.collectionDate?` · เก็บตัวอย่าง ${be(current.collectionDate)}`:""}</p>
     {current.redraw&&<p><span className="badge warning">ต้องเก็บตัวอย่างใหม่ — รอบที่ {current.number+1}</span> {current.redraw.label}</p>}
     {current.result?<p>{releaseLink(current.result,"เปิดผลตรวจ")}{current.result.revised&&<span className="badge">แก้ไขแล้ว</span>}</p>
      :<p className="empty-state">ยังไม่มีผลตรวจที่ปล่อยสำหรับรอบนี้{d.releaseHold?" — ระบบยังไม่เปิดการปล่อยผล (ข้อมูลจำลอง)":""}</p>}
     {current.notices.map(n=><p key={n.id}>{releaseLink(n,"เปิดหนังสือแจ้ง")} <span className="badge warning">หนังสือแจ้ง — ไม่ใช่ผลตรวจ</span></p>)}
    </div>}
    {earlier.length>0&&<details className="p5-history"><summary>ประวัติรอบก่อน ({earlier.length})</summary>
-    <ul className="timeline">{earlier.map(r=><li key={r.id}><div className="row"><strong>รอบที่ {r.number}</strong>{r.collectionDate&&<span>เก็บ {r.collectionDate}</span>}</div>
+    <ul className="timeline">{earlier.map(r=><li key={r.id}><div className="row"><strong>รอบที่ {r.number}</strong>{r.collectionDate&&<span>เก็บ {be(r.collectionDate)}</span>}</div>
      {r.redraw&&<div><span className="badge warning">สั่งเก็บตัวอย่างใหม่</span> {r.redraw.label} · {bkk(r.redraw.requestedAt)}</div>}
      {r.notices.map(n=><div key={n.id}>{releaseLink(n,"เปิดหนังสือแจ้ง")} <span className="badge warning">หนังสือแจ้ง — ไม่ใช่ผลตรวจ</span></div>)}
      {r.result&&<div>{releaseLink(r.result,"เปิดผลตรวจของรอบนี้")}</div>}

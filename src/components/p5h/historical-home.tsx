@@ -45,7 +45,7 @@ export function HistoricalHome({canImport}:{canImport:boolean}){
   </section>
   <section className="panel" aria-labelledby="hist-list"><h2 id="hist-list">ชุดนำเข้า</h2>
    {!data?<p role="status">กำลังโหลด…</p>:!data.batches.length?<p>ยังไม่มีชุดนำเข้า</p>:
-    <div className="table-wrap"><table className="data-table"><caption className="sr-only">ชุดนำเข้าข้อมูลย้อนหลัง</caption><thead><tr><th scope="col">ไฟล์ตาราง</th><th scope="col">สถานะ</th><th scope="col">แถว</th><th scope="col">ต้องแก้</th><th scope="col">รอรับรอง</th><th scope="col">นำเข้าแล้ว</th><th scope="col">อัปโหลดเมื่อ</th></tr></thead>
+    <div className="table-wrap" role="region" aria-label="ชุดนำเข้าข้อมูลย้อนหลัง" tabIndex={0}><table className="data-table"><caption className="sr-only">ชุดนำเข้าข้อมูลย้อนหลัง</caption><thead><tr><th scope="col">ไฟล์ตาราง</th><th scope="col">สถานะ</th><th scope="col">แถว</th><th scope="col">ต้องแก้</th><th scope="col">รอรับรอง</th><th scope="col">นำเข้าแล้ว</th><th scope="col">อัปโหลดเมื่อ</th></tr></thead>
      <tbody>{data.batches.map(b=><tr key={b.id}><td><Link href={`/historical/${b.id}`}>{b.table_name}</Link></td><td>{BATCH_TEXT[b.state]??b.state}{b.error_code?` (${b.error_code})`:""}</td><td>{b.row_count??"—"}</td><td>{b.needs_attention}</td><td>{b.submitted}</td><td>{b.promoted}</td><td>{bkk(b.created_at)}</td></tr>)}</tbody></table></div>}
   </section>
  </>;

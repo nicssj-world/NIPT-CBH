@@ -62,7 +62,7 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
      {can.assign&&tab==="READY"&&<button className="button" type="button" disabled={!chosen.length} onClick={()=>setDialog({type:"assign",samples:chosen})}>เพิ่มเข้า Batch ({chosen.length})</button>}
     </div>
     {attempts.length===0?<p className="empty-state">ไม่มีรายการในคิวนี้{q?" ที่ตรงกับคำค้น":""}</p>:
-    <div className="table-wrap"><table className="data-table">
+    <div className="table-wrap" role="region" aria-label="รายการงาน Lab" tabIndex={0}><table className="data-table">
      <caption className="sr-only">รายการตัวอย่าง เรียงตามวันที่/เวลารับสิ่งส่งตรวจ ({sort==="asc"?"เก่าไปใหม่ — FIFO":"ใหม่ไปเก่า"})</caption>
      <thead><tr><th scope="col"><input type="checkbox" aria-label="เลือกทั้งหมดที่แสดง" checked={allShown} onChange={()=>setSelected(allShown?new Set():new Set(attempts.map(a=>a.attemptId)))}/></th><th scope="col">LN (HIS)</th><th scope="col">LN Halos / Sample ID</th><th scope="col" aria-sort={sort==="asc"?"ascending":"descending"}><button type="button" className="sort-button" aria-label={`วันที่/เวลารับสิ่งส่งตรวจ เรียง${sort==="asc"?"เก่าไปใหม่":"ใหม่ไปเก่า"} กดเพื่อสลับ`} onClick={()=>setSort(sort==="asc"?"desc":"asc")}>วันที่/เวลารับ <span aria-hidden="true">{sort==="asc"?"↑":"↓"}</span></button></th><th scope="col">รอบ</th><th scope="col">สถานะ / Gate</th><th scope="col">ฉลาก</th><th scope="col">Batch</th><th scope="col">จัดการ</th></tr></thead>
      <tbody>{attempts.map(a=><tr key={a.attemptId} className={selected.has(a.attemptId)?"selected":undefined}>
@@ -96,7 +96,7 @@ function RowActions({a,can,open}:{a:Attempt;can:Can;open:(type:string)=>void}){
 }
 function ExpectedTable({operational,rows,can,open}:{operational:boolean;rows:Expected[];can:Can;open:(t:string,r:Expected)=>void}){
  if(!rows.length)return <p className="empty-state">ไม่มีรอบเจาะซ้ำที่รอรับ</p>;
- return <div className="table-wrap"><table className="data-table"><caption className="sr-only">{operational?"รอบเจาะซ้ำที่รอ PET ใหม่จาก HIS (LN เดิม)":"รอบเจาะซ้ำที่รอรับ (ชุดจำลอง)"}</caption>
+ return <div className="table-wrap" role="region" aria-label="รอบเจาะซ้ำที่รอ PET ใหม่" tabIndex={0}><table className="data-table"><caption className="sr-only">{operational?"รอบเจาะซ้ำที่รอ PET ใหม่จาก HIS (LN เดิม)":"รอบเจาะซ้ำที่รอรับ (ชุดจำลอง)"}</caption>
   <thead><tr><th scope="col">LN (HIS เดิม)</th><th scope="col">รอบ</th><th scope="col">LN Halos รอบก่อน</th><th scope="col">สั่งเมื่อ / เหตุผล</th><th scope="col">จัดการ</th></tr></thead>
   <tbody>{rows.map(r=><tr key={r.roundId}><td className="mono">{r.hisLn}</td><td>รอบที่ {r.roundNumber} <span className="badge warning">ต้องเก็บตัวอย่างใหม่</span></td><td className="mono">{r.previousLnHalos??"—"}</td><td>{bkk(r.requestedAt)} · {r.reasonCode}</td>
    <td><div className="row-actions">{operational?<span className="badge">รอ PET ใหม่จาก HIS</span>:can.receive&&<button className="button small" type="button" onClick={()=>open("receive",r)}>รับตัวอย่างเจาะซ้ำ (ชุดจำลอง)</button>}{can.redrawCancel&&<button className="button small secondary" type="button" onClick={()=>open("cancelRedraw",r)}>ยกเลิกคำสั่ง</button>}</div></td></tr>)}</tbody></table>
@@ -104,7 +104,7 @@ function ExpectedTable({operational,rows,can,open}:{operational:boolean;rows:Exp
 }
 function MissingTable({rows,can,open}:{rows:Missing[];can:Can;open:(t:string,r:Missing)=>void}){
  if(!rows.length)return <p className="empty-state">ทุกรอบที่รับแล้วมี LN Halos</p>;
- return <div className="table-wrap"><table className="data-table"><caption className="sr-only">รอบที่รับก่อนเปิดใช้ P4 และยังไม่มี LN Halos</caption><thead><tr><th scope="col">LN (HIS)</th><th scope="col">รอบ</th><th scope="col">รับเมื่อ</th><th scope="col">จัดการ</th></tr></thead>
+ return <div className="table-wrap" role="region" aria-label="รอบที่รับก่อนเปิดใช้ P4" tabIndex={0}><table className="data-table"><caption className="sr-only">รอบที่รับก่อนเปิดใช้ P4 และยังไม่มี LN Halos</caption><thead><tr><th scope="col">LN (HIS)</th><th scope="col">รอบ</th><th scope="col">รับเมื่อ</th><th scope="col">จัดการ</th></tr></thead>
   <tbody>{rows.map(r=><tr key={r.roundId}><td className="mono">{r.hisLn}</td><td>รอบที่ {r.roundNumber}</td><td>{SOURCE[r.receivedSource]} {bkk(r.receivedAt)}</td><td>{can.receive&&<button className="button small" type="button" onClick={()=>open("recover",r)}>ออก LN Halos จากการรับเดิม</button>}</td></tr>)}</tbody></table></div>;
 }
 type BatchView={batch:{id:string;runLabel:string;state:string;version:number}};

@@ -379,7 +379,8 @@ input::placeholder,textarea::placeholder {color:var(--color-muted);opacity:1;}
 .task-context dl {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,16rem),1fr));gap:var(--space-2) var(--space-6);margin:0;}
 .task-context dt {font-size:.875rem;color:var(--color-muted);}
 .task-context dd {margin:0;overflow-wrap:anywhere;}
-.pdf-frame{width:100%;height:28rem;border:1px solid var(--border)}
+/* Case-page PDF checks use a shorter frame; the P2 preview and P5 review keep --pdf-height (regression from 91ae52c). */
+.case-pdf-frame{--pdf-height:28rem;}
 /* Run Photo Evidence — optional evidence of a Run. Thumbnails reserve their box (no layout shift); the original is only
    loaded in the viewer. Status and coverage always carry text; colour is supplemental. */
 .photo-capture {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-3);margin-bottom:var(--space-4);}
@@ -458,6 +459,52 @@ input::placeholder,textarea::placeholder {color:var(--color-muted);opacity:1;}
  .photo-viewer-body{grid-template-columns:1fr;overflow:auto;}.photo-side{border-left:0;border-top:1px solid var(--color-line);overflow:visible;}.photo-stage img{max-height:70dvh;}}
 @media(max-width:600px){.photo-capture{grid-template-columns:1fr;}.photo-fields,.photo-search{grid-template-columns:1fr;}.photo-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-3);}
  .photo-card figcaption{padding:var(--space-2);font-size:13px;}.photo-viewer{width:100%;max-height:100dvh;border-radius:0;}.photo-viewer-body{max-height:100dvh;}.photo-side{padding:var(--space-4);}}
-@media(max-width:600px){:is(.photo-fields,.photo-search,.photo-side) .be-date-open{width:auto;}.photo-stage-bar .button{width:auto;flex:1 1 40%;}}
+@media(max-width:600px){.photo-stage-bar .button{width:auto;flex:1 1 40%;}}
 .photo-thumb .photo-placeholder.failed {color:var(--color-danger);}
 @media(prefers-reduced-motion:reduce){.photo-thumb:hover img{transform:none;}}
+
+/* Project-wide UX pass 2026-10-19 (Impeccable audit/polish). Layout only; existing tokens; no workflow change. */
+/* Shared BE date control: the calendar button keeps its own width everywhere (the mobile `.button{width:100%}` rule
+   squeezed the date text to ~26 px on every page that uses ThaiDateInput / ThaiDateTimeInput). */
+.be-date-row .be-date-open {width:auto;flex:0 0 auto;}
+.be-date-row input {min-width:7.5em;}
+/* A checkbox label stays one line with its box even inside .stack / fieldset / form grids. */
+label.check-label,:is(.stack,fieldset,.form-grid) > label.check-label,fieldset label.check-label {display:flex;align-items:center;gap:var(--space-3);font-weight:400;}
+/* Search rows: buttons line up with the input, not with the helper text under it. */
+/* Single-field search rows (registry) have helper text under the input: start-align and offset the buttons by the label.
+   Multi-field filters (P5 queue) keep bottom alignment so wrapped buttons do not get extra space. */
+.search-form:not(:has(> .field ~ .field)) {align-items:flex-start;}
+.search-form:not(:has(> .field ~ .field)) > .button {margin-top:calc(14px * 1.65 + var(--space-2));}
+.retry-button {margin:var(--space-3) 0 var(--space-6);}
+/* Excel workbook editor. */
+.workbook-sheets {display:grid;margin:var(--space-4) 0 var(--space-6);border-top:1px solid var(--color-line);}
+.workbook-sheets details {border-bottom:1px solid var(--color-line);}
+.workbook-sheets summary {cursor:pointer;min-height:48px;display:flex;align-items:center;font-weight:600;}
+.workbook-sheets details[open] {padding-bottom:var(--space-6);}
+.workbook-actions {align-items:flex-end;}
+.workbook-sheet-picker {display:grid;gap:var(--space-2);flex:1 1 16rem;margin:0;}
+.workbook-history {margin-top:var(--space-8);}
+.save-status:empty {display:none;}
+@media(max-width:600px){.search-form:not(:has(> .field ~ .field)) > .button {margin-top:0;}.workbook-sheet-picker{flex-basis:100%;}}
+/* Overview shortcuts: one row of destinations, text first; wraps to two columns on tablet and one on phones. */
+.quick-actions {margin-bottom:var(--space-6);}
+.quick-actions ul {list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr));gap:var(--space-3);}
+.quick-actions a {display:flex;align-items:flex-start;gap:var(--space-3);min-height:64px;padding:var(--space-4);border:1px solid var(--color-line);border-radius:12px;background:var(--color-surface);color:var(--color-ink);text-decoration:none;}
+.quick-actions a:hover {border-color:var(--color-brand);background:color-mix(in srgb,var(--info-bg) 55%,var(--color-surface));}
+.quick-actions a svg {color:var(--color-brand);margin-top:3px;}
+.quick-actions a > span {display:grid;gap:2px;min-width:0;}
+.quick-actions strong {font-weight:600;color:var(--color-brand);}
+.quick-actions .muted {font-size:13px;line-height:1.5;}
+/* Settings: the selected category is a state, not keyboard focus; admin sub-navigation gets touch-size links. */
+.settings-groups button[aria-current=page] {outline:0;background:var(--info-bg);border-color:var(--color-brand);color:var(--color-brand);font-weight:600;}
+.settings-groups button[aria-current=page]:focus-visible {outline:3px solid var(--color-focus);outline-offset:3px;}
+.admin-nav a {display:inline-flex;align-items:center;min-height:44px;padding:var(--space-2) var(--space-3);border-radius:8px;text-decoration:none;font-weight:500;}
+.admin-nav a:hover {background:var(--raised);}
+.admin-nav a[aria-current=page] {background:var(--info-bg);color:var(--color-brand);font-weight:600;}
+.quick-actions li {display:flex;}
+.quick-actions a {flex:1 1 auto;}
+/* Flex summaries lose the native disclosure triangle; draw one from the text colour (rotates when open). */
+.workbook-sheets summary {gap:var(--space-3);list-style:none;}
+.workbook-sheets summary::-webkit-details-marker {display:none;}
+.workbook-sheets summary::before {content:"";width:8px;height:8px;flex-shrink:0;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);transition:transform .15s ease-out;}
+.workbook-sheets details[open] > summary::before {transform:rotate(45deg);}

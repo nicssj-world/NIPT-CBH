@@ -55,7 +55,7 @@ export function StorageSettings({initial}:{initial:StorageOverview}){
   </section>:<p className="notice warning-notice">การเปลี่ยน Storage Path ทำได้โดยผู้ดูแลระบบ (APP_ADMIN / IT_OPERATOR) เท่านั้น</p>}
   <section className="panel" aria-labelledby={id+"-h"}>
    <h2 id={id+"-h"}>ประวัติที่เก็บภาพ</h2>
-   {!initial.roots.length?<div className="empty-state"><p>ยังไม่มีภาพในระบบ</p></div>:<div className="table-wrap"><table className="data-table"><caption>ที่เก็บเดิมยังใช้เปิดภาพที่บันทึกไว้ในที่เก็บนั้น</caption>
+   {!initial.roots.length?<div className="empty-state"><p>ยังไม่มีภาพในระบบ</p></div>:<div className="table-wrap" role="region" aria-label="ที่เก็บภาพเดิม" tabIndex={0}><table className="data-table"><caption>ที่เก็บเดิมยังใช้เปิดภาพที่บันทึกไว้ในที่เก็บนั้น</caption>
     <thead><tr><th scope="col">สถานะ</th><th scope="col">Path</th><th scope="col">ภาพ</th><th scope="col">ใช้ตั้งแต่</th><th scope="col">หยุดรับภาพใหม่</th></tr></thead>
     <tbody>{initial.roots.map(r=><tr key={r.id}><td><span className={`status ${r.state==="Active"?"good":""}`}>{r.state==="Active"?"ใช้งาน":"เก็บภาพเดิม"}</span></td><td>{r.path?<span className="storage-path">{r.path}</span>:"—"}{r.source==="INSTALLATION_DEFAULT"&&<span className="badge neutral">ค่าเริ่มต้น</span>}</td><td>{r.photos} · {formatBytes(r.bytes)}</td><td>{bkk(r.createdAt)}</td><td>{r.retiredAt?bkk(r.retiredAt):"—"}</td></tr>)}</tbody></table></div>}
   </section>

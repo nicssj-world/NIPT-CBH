@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import {AdminNavLink as Link} from '../../../components/admin-nav-link';
 import {currentUser} from '../../../server/http';
 import {authorize} from '../../../../packages/security/policy';
 import {canReadAdministration} from '../../../../packages/admin/service';

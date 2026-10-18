@@ -58,7 +58,7 @@ export function HistoricalBatch({id,canImport,canReview}:{id:string;canImport:bo
 
    <section className="panel" aria-labelledby="hist-step2"><h2 id="hist-step2">② ตรวจสอบรายการ</h2>
     <label className="check"><input type="checkbox" checked={onlyProblems} onChange={e=>setOnlyProblems(e.target.checked)}/> แสดงเฉพาะแถวที่ต้องแก้ไข ({counts.problem})</label>
-    <div className="table-wrap"><table className="data-table"><caption className="sr-only">รายการที่นำเข้า</caption><thead><tr><th scope="col">แถว</th><th scope="col">LN</th><th scope="col">HN / ชื่อ</th><th scope="col">PDF</th><th scope="col">สถานะ</th><th scope="col">สิ่งที่ต้องแก้ / ข้อสังเกต</th><th scope="col"><span className="sr-only">การทำงาน</span></th></tr></thead>
+    <div className="table-wrap" role="region" aria-label="รายการที่นำเข้า" tabIndex={0}><table className="data-table"><caption className="sr-only">รายการที่นำเข้า</caption><thead><tr><th scope="col">แถว</th><th scope="col">LN</th><th scope="col">HN / ชื่อ</th><th scope="col">PDF</th><th scope="col">สถานะ</th><th scope="col">สิ่งที่ต้องแก้ / ข้อสังเกต</th><th scope="col"><span className="sr-only">การทำงาน</span></th></tr></thead>
      <tbody>{shown.map(r=><Fragment key={r.id}>
       <tr><td>{r.rowNo}</td><td>{r.ln}</td><td>{r.identifiers.hn} · {r.identifiers.name}</td><td>{r.pdfName??"—"}</td>
        <td><span className={`status ${STATE_TONE[r.state]??""}`}>{STATE_TEXT[r.state]??r.state}</span></td>
@@ -77,7 +77,7 @@ export function HistoricalBatch({id,canImport,canReview}:{id:string;canImport:bo
    <section className="panel" aria-labelledby="hist-step3"><h2 id="hist-step3">③ ผู้ตรวจตรวจกับต้นฉบับและยืนยันเป็นชุด</h2>
     {!canReview?<p>ขั้นตอนนี้ทำได้เฉพาะผู้ตรวจ (Historical Verifier) ที่ไม่ใช่ผู้นำเข้าหรือผู้แก้ไขแถวนั้น</p>:<>
      <p className="hint">ตรวจแต่ละแถวกับเอกสารต้นฉบับ แล้วติ๊กทุกข้อก่อน ระบบไม่มีปุ่มติ๊กทั้งชุดโดยตั้งใจ — แถวที่ไม่ได้ติ๊กครบจะไม่ถูกยืนยัน</p>
-     <div className="table-wrap"><table className="data-table"><caption className="sr-only">แถวที่พร้อมให้ผู้ตรวจรับรอง</caption><thead><tr><th scope="col">แถว</th><th scope="col">เคส</th><th scope="col">หลักฐาน</th><th scope="col">ตรวจกับต้นฉบับ</th></tr></thead>
+     <div className="table-wrap" role="region" aria-label="แถวที่พร้อมให้ผู้ตรวจรับรอง" tabIndex={0}><table className="data-table"><caption className="sr-only">แถวที่พร้อมให้ผู้ตรวจรับรอง</caption><thead><tr><th scope="col">แถว</th><th scope="col">เคส</th><th scope="col">หลักฐาน</th><th scope="col">ตรวจกับต้นฉบับ</th></tr></thead>
       <tbody>{rows.filter(r=>r.state==="Submitted").map(r=>{const c=checkOf(r.id),f=pdfFileId(r);return <tr key={r.id}>
        <td>{r.rowNo}</td>
        <td><strong>LN {r.ln}</strong><br/>HN {r.identifiers.hn}<br/>{r.identifiers.name}<br/>เกิด {r.identifiers.dob??"ไม่ปรากฏในหลักฐาน"}</td>

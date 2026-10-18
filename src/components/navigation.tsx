@@ -2,7 +2,7 @@
 import Link from "next/link";
 import {usePathname,useRouter} from "next/navigation";
 import {useState} from "react";
-function NavigationIcon({href}:{href:string}){
+export function NavigationIcon({href}:{href:string}){
  const paths:Record<string,string>={"/":"M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z","/cases":"M7 3h10v3H7zM5 5H3v17h18V5h-2M7 11h10M7 15h10","/inbound":"M3 6h7l2 3h9v12H3z","/lab":"M9 3h6M10 3v7L4 20h16l-6-10V3M7 15h10","/lab/batches":"M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z","/lab/photos":"M3 8h3.5l2-3h7l2 3H21v11H3zM12 10.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7","/results":"M6 2h8l4 4v16H6zM14 2v5h4M9 12h6M9 16h6","/doctors":"M5 3v6a5 5 0 0 0 10 0V3M3 3h4m6 0h4M10 14v3a4 4 0 0 0 8 0v-4","/historical":"M4 4v6h6M4 9a8 8 0 1 1 0 7M12 7v5l3 2","/health":"M2 12h4l3-8 5 16 3-8h5","/settings":"M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"};
  return <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[href]??paths["/cases"]}/></svg>;
 }
