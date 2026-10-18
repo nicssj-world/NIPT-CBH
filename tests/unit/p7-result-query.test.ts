@@ -4,7 +4,7 @@ import {parseReport} from '../../packages/results/parser';
 
 describe('P7 bounded result query and safe CSV',()=>{
  it('validates dates, bounds, state and risk without accepting SQL fragments',()=>{
-  expect(parseResultQuery({})).toMatchObject({page:1,pageSize:100,risk:'ALL',bucket:'all'});
+  expect(parseResultQuery({})).toMatchObject({page:1,pageSize:50,risk:'ALL',bucket:'all'});
   for(const q of [{from:'2026-02-30'},{from:'2026-10-12',to:'2026-10-01'},{pageSize:'301'},{risk:"LOW' OR TRUE"},{bucket:'secret'},{page:'-1'}])expect(()=>parseResultQuery(q)).toThrow();
  });
  it('filters before stable bounded pagination and uses Bangkok import dates',()=>{

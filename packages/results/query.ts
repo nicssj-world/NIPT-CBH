@@ -5,7 +5,7 @@ import type {Parsed} from './parser';
 
 export const RESULT_BUCKETS={all:[],unlinked:['Unlinked'],conflict:['LinkConflict'],blocked:['ValidationBlocked'],pending:['PendingCertification'],closed:['RejectedImport','Superseded','Voided','CertifiedReleased']} as const;
 const iso=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(s=>{const d=new Date(s+'T00:00:00Z');return !Number.isNaN(d.getTime())&&d.toISOString().slice(0,10)===s;});
-const schema=z.strictObject({dateField:z.enum(['IMPORTED','REPORTED']).default('IMPORTED'),q:z.string().trim().max(100).refine(s=>!/[\u0000-\u001f\u007f]/.test(s)).default(''),gender:z.enum(['ALL','Male','Female','UNKNOWN']).default('ALL'),qc:z.enum(['ALL','PASS','FAIL','UNKNOWN']).default('ALL'),from:iso.optional(),to:iso.optional(),risk:z.enum(['ALL','HIGH','LOW','UNKNOWN']).default('ALL'),bucket:z.enum(['all','unlinked','conflict','blocked','pending','closed']).default('all'),page:z.coerce.number().int().min(1).max(10000).default(1),pageSize:z.coerce.number().int().min(1).max(300).default(100)}).refine(q=>!q.from||!q.to||q.from<=q.to,{message:'DATE_RANGE_INVALID',path:['to']});
+const schema=z.strictObject({dateField:z.enum(['IMPORTED','REPORTED']).default('IMPORTED'),q:z.string().trim().max(100).refine(s=>!/[\u0000-\u001f\u007f]/.test(s)).default(''),gender:z.enum(['ALL','Male','Female','UNKNOWN']).default('ALL'),qc:z.enum(['ALL','PASS','FAIL','UNKNOWN']).default('ALL'),from:iso.optional(),to:iso.optional(),risk:z.enum(['ALL','HIGH','LOW','UNKNOWN']).default('ALL'),bucket:z.enum(['all','unlinked','conflict','blocked','pending','closed']).default('all'),page:z.coerce.number().int().min(1).max(10000).default(1),pageSize:z.coerce.number().int().min(1).max(300).default(50)}).refine(q=>!q.from||!q.to||q.from<=q.to,{message:'DATE_RANGE_INVALID',path:['to']});
 export const parseResultQuery=(input:unknown)=>schema.parse(input);
 /** Patient search is permitted only in a CSRF-protected JSON POST body, never a URL. */
 export function publicResultQuery(params:URLSearchParams){if(params.has('q'))throw new LabError('PRIVATE_QUERY_REQUIRES_POST',400);return Object.fromEntries(params);}
@@ -44,6 +44,9 @@ export function resultQuerySql(q:ResultQuery){
  if(q.risk!=='ALL')where.push(`(${riskSql})=${param(q.risk)}`);
  // P5H reports have a different evidence/lifecycle contract and do not enter the live P5 queue/export.
  where.push("(v.case_id IS NULL OR EXISTS(SELECT 1 FROM nipt_case c WHERE c.id=v.case_id AND c.registration_origin<>'HISTORICAL'))");
+ // Same FROM/WHERE for the exact total (filter parameters only: LIMIT/OFFSET are appended below).
+ const countValues=[...values];
+ const countText=`SELECT count(*)::text n FROM result_report_version v JOIN result_intake_file i ON i.id=v.intake_file_id LEFT JOIN specimen_round r ON r.id=v.round_id LEFT JOIN case_ln l ON l.id=r.case_ln_id WHERE ${where.join(' AND ')}`;
  const text=`SELECT v.id,v.sha256,v.parser_version,v.template_version,v.parsed,v.kind,v.template_kind,v.state,v.imported_at,v.state_changed_at,i.original_name,i.relative_path,i.member_name,
  v.parsed->'identifiers'->'hn'->>'value' hn,v.parsed->'identifiers'->'labNumber'->>'value' lab,v.parsed->'identifiers'->'collectionDate'->>'value' collection,
  r.round_number,l.ln,(v.parsed->>'abnormal')::boolean abnormal,v.row_version,(${riskSql}) risk,
@@ -51,13 +54,18 @@ export function resultQuerySql(q:ResultQuery){
  EXISTS(SELECT 1 FROM result_link_event e WHERE e.version_id=v.id AND e.event='PROPOSED' AND NOT EXISTS(SELECT 1 FROM result_link_event y WHERE y.version_id=v.id AND y.event IN ('APPROVED','REJECTED','UNLINKED') AND y.sequence>e.sequence)) proposal
  FROM result_report_version v JOIN result_intake_file i ON i.id=v.intake_file_id LEFT JOIN specimen_round r ON r.id=v.round_id LEFT JOIN case_ln l ON l.id=r.case_ln_id
  WHERE ${where.join(' AND ')} ORDER BY v.state_changed_at DESC,v.id DESC LIMIT ${param(q.pageSize+1)} OFFSET ${param((q.page-1)*q.pageSize)}`;
- return {text,values};
+ return {text,values,countText,countValues};
 }
 export type ResultRow={sha256?:string;parser_version?:string;template_version?:string;parsed?:Parsed;name_conflict?:boolean;proposal?:boolean;abnormal?:boolean;row_version?:number;state_changed_at?:Date|string;kind?:string;id:string;state:string;risk:Risk;hn:string|null;lab:string|null;original_name:string;member_name:string|null;relative_path:string|null;imported_at:Date|string;template_kind:string;ln:string|null;round_number:number|null;collection:string|null};
 export async function queryResults(db:Queryable,user:Staff,input:unknown={}){
- await assertSession(db,user);need(user,'result.review','read');const q=parseResultQuery(input),sql=resultQuerySql(q);
+ await assertSession(db,user);need(user,'result.review','read');
+ const requested=parseResultQuery(input),counting=resultQuerySql(requested);
+ // Exact total of the filtered queue; a page past the end (rows left the queue) answers with the last real page.
+ const total=Number((await db.query<{n:string}>(counting.countText,counting.countValues)).rows[0].n);
+ const totalPages=Math.max(1,Math.ceil(total/requested.pageSize));
+ const q=requested.page>totalPages?{...requested,page:totalPages}:requested,sql=q===requested?counting:resultQuerySql(q);
  const found=(await db.query<ResultRow>(sql.text,sql.values)).rows;
- return {rows:found.slice(0,q.pageSize),page:{number:q.page,size:q.pageSize,hasNext:found.length>q.pageSize,scope:'BOUNDED_PAGE' as const},filters:q};
+ return {rows:found.slice(0,q.pageSize),page:{number:q.page,size:q.pageSize,hasNext:found.length>q.pageSize,total,totalPages,scope:'BOUNDED_PAGE' as const},filters:q};
 }
 /** Apostrophe prefixes are literal text protection, never ="..." formulas. CSV consumers must import IDs as text. */
 export function csvCell(value:unknown){let s=value==null?'':String(value);if(/^[\s\uFEFF]*[=+@-]/u.test(s)||/^0\d+$/.test(s))s="'"+s;return '"'+s.replaceAll('"','""')+'"';}

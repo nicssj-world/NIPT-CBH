@@ -33,7 +33,7 @@ test('P7 result filters, bounded CSV, certifier diagnostic reparse and mobile ac
   await page.getByLabel('ค้นหา HN / เลข Lab / ชื่อที่อ่านได้',{exact:true}).fill(suffix);
   await page.getByLabel('เพศตามค่าที่อ่าน',{exact:true}).selectOption('Female');await page.getByLabel('QC ตามค่าที่อ่าน',{exact:true}).selectOption('PASS');
   await page.getByLabel('ความเสี่ยงตามค่าที่อ่าน').selectOption('LOW');await page.getByRole('button',{name:'ใช้ตัวกรอง',exact:true}).click();
-  const region=page.getByRole('region',{name:'รายการรายงาน',exact:true});await expect(region).toContainText(name);await expect(page.getByText(/จำนวนนี้เฉพาะหน้าปัจจุบัน/)).toBeVisible();
+  const region=page.getByRole('region',{name:'รายการรายงาน',exact:true});await expect(region).toContainText(name);await expect(page.getByText(/CSV มีเฉพาะ \d+ รายการของหน้านี้ \(จากทั้งหมด \d+ รายการที่ตรงตัวกรอง\)/)).toBeVisible();
   const [download]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'ส่งออก CSV เฉพาะหน้านี้'}).click()]);
   const stream=await download.createReadStream();const chunks:Buffer[]=[];for await(const part of stream!)chunks.push(Buffer.from(part));const csv=Buffer.concat(chunks).toString('utf8');expect(csv).toContain(id);expect(csv).toContain("'000000000123");for(const v of ['2026-10-20','Low Risk','Not Detected','12.4','PASS','SYNTHETIC_PARSED_NOT_CERTIFIED'])expect(csv).toContain(v);
   expect(queryRequests.some(r=>r.method==='POST'&&r.body?.q===suffix&&r.body?.action==='query')).toBe(true);

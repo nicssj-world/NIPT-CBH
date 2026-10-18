@@ -3,6 +3,7 @@ import Link from "next/link";
 import {useCallback,useEffect,useMemo,useRef,useState} from "react";
 import {labApi,failureText,bkk} from "../p4/lab-api";
 import {csrf} from "../p2/shared";
+import {Pager} from "../shared/pager";
 import {STATE_TEXT,STATE_TONE,KIND_TEXT,CONTAINER_TEXT,INTAKE_TEXT,SCAN_TEXT,REJECT_TEXT,FOLDER_ERROR_TEXT,CHECK_TEXT,bytes} from "./labels";
 
 type Job<T=Record<string,unknown>>={id:string;kind:string;state:string;result:T|null;intakes:Intake[]};
@@ -13,7 +14,7 @@ type ScanResult={folder:string;files:ScanFile[];folders:number;truncated:boolean
 type Summary={labNumber:string|null;hn:string|null;collectionDate:string|null;t21:string|null;t18:string|null;t13:string|null;sca:string[]|null;yChromosome:string|null;fetalFraction:number|null;qc:string|null;needsManualReview:boolean;abnormal:boolean;unreadable:string[]};
 type Intake={id:string;file:string;member:string|null;parentId:string|null;container:string|null;state:string;rejectCode:string|null;templateKind:string|null;summary:Summary|null;candidates:number;size:number;nameConflicts?:{versions:{id:string;state:string}[];sameBatch:number}};
 type Row={id:string;kind:string;template_kind:string;state:string;state_changed_at:string;original_name:string;relative_path:string|null;member_name:string|null;hn:string|null;lab:string|null;collection:string|null;round_number:number|null;ln:string|null;proposal:boolean;abnormal:boolean;name_conflict:boolean};
-type Data={page:{number:number;size:number;hasNext:boolean;scope:"BOUNDED_PAGE"};rows:Row[];latestFolder:{folder:string;at:string}|null;intake:{folder:string;scanSubfolders:boolean;acceptZip:boolean;maxUploadMb:number;maxFilesPerScan:number;picVersion:string;scanMode:"ON_DEMAND";lastTest:{result:TestResult|null;completed_at:string|null}|null;lastScan:{result:ScanResult|null;completed_at:string|null}|null}};
+type Data={page:{number:number;size:number;hasNext:boolean;total:number;totalPages:number;scope:"BOUNDED_PAGE"};rows:Row[];latestFolder:{folder:string;at:string}|null;intake:{folder:string;scanSubfolders:boolean;acceptZip:boolean;maxUploadMb:number;maxFilesPerScan:number;picVersion:string;scanMode:"ON_DEMAND";lastTest:{result:TestResult|null;completed_at:string|null}|null;lastScan:{result:ScanResult|null;completed_at:string|null}|null}};
 const BUCKETS=[["unlinked","รอเชื่อมโยง",["Unlinked"]],["conflict","ข้อมูลไม่ตรง",["LinkConflict"]],["blocked","ถูกบล็อกโดย Gate",["ValidationBlocked"]],["pending","รอรับรอง",["PendingCertification"]],["closed","ปิดแล้ว/ใช้ไม่ได้",["RejectedImport","Superseded","Voided","CertifiedReleased"]]] as const;
 const DEFAULT_FILTERS={dateField:"REPORTED",from:"",to:"",q:"",gender:"ALL",qc:"ALL",risk:"ALL"};
 const STEPS=["ทดสอบโฟลเดอร์","สแกนไฟล์ PDF","เลือกไฟล์และ Preview","ยืนยันนำเข้า"];
@@ -35,8 +36,8 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
  const [tab,setTab]=useState<"folder"|"upload">("folder"),[bucket,setBucket]=useState<string>("unlinked");
  const [busy,setBusy]=useState<string|null>(null),[test,setTest]=useState<TestResult|null>(null),[scan,setScan]=useState<ScanResult|null>(null),[picked,setPicked]=useState<Set<string>>(new Set());
  const [preview,setPreview]=useState<Intake[]|null>(null),[toImport,setToImport]=useState<Set<string>>(new Set()),[acked,setAcked]=useState<Set<string>>(new Set()),[uploadRejected,setUploadRejected]=useState<{name:string;code:string}[]>([]);
- const [draftFilters,setDraftFilters]=useState(DEFAULT_FILTERS),[filters,setFilters]=useState(DEFAULT_FILTERS),[page,setPage]=useState(1),[queueLoading,setQueueLoading]=useState(false);
- const query=useMemo(()=>({bucket,...filters,...(!filters.from?{from:undefined}:{}),...(!filters.to?{to:undefined}:{}),page,pageSize:100}),[bucket,filters,page]);
+ const [draftFilters,setDraftFilters]=useState(DEFAULT_FILTERS),[filters,setFilters]=useState(DEFAULT_FILTERS),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50),[queueLoading,setQueueLoading]=useState(false);
+ const query=useMemo(()=>({bucket,...filters,...(!filters.from?{from:undefined}:{}),...(!filters.to?{to:undefined}:{}),page,pageSize}),[bucket,filters,page,pageSize]);
  const loadSequence=useRef(0);
  const abort=useRef<AbortController|null>(null),fileInput=useRef<HTMLInputElement>(null);
  const load=useCallback(async()=>{const seq=++loadSequence.current;setQueueLoading(true);setData(null);try{const d=await labApi<Data>("/api/p5/results",{action:"query",...query});if(seq!==loadSequence.current)return;setData(d);setTest(t=>t??d.intake.lastTest?.result??null);setScan(s=>s??d.intake.lastScan?.result??null);setError("");}catch(e){if(seq===loadSequence.current)setError(failureText(e));}finally{if(seq===loadSequence.current)setQueueLoading(false);}},[query]);
@@ -154,12 +155,8 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
    </form>
    <p className="help">ตัวกรองอ้างอิงค่าที่ Parser อ่านได้ ไม่ใช่การรับรองผล — ค่าที่ไม่รู้จักหรืออ่านไม่ครบเป็น Unknown</p>
    <div className="tabs" role="tablist" aria-label="สถานะรายงาน">{BUCKETS.map(([key,label])=><button key={key} type="button" role="tab" className="tab" aria-selected={bucket===key} onClick={()=>{setBucket(key);setPage(1);}}>{label}</button>)}</div>
-   <p className="help" role="status">{queueLoading?"กำลังโหลดคิว…":data?`หน้าที่ ${data.page.number} · แสดง ${data.rows.length} รายการ (สูงสุด ${data.page.size} ต่อหน้า)${data.page.hasNext?" · ยังมีหน้าถัดไป":""} — จำนวนนี้เฉพาะหน้าปัจจุบัน`:"โหลดคิวไม่สำเร็จ — ลองใช้ตัวกรองอีกครั้ง"}</p>
-   <div className="action-bar">
-    <button type="button" className="button secondary" disabled={queueLoading||page===1} onClick={()=>setPage(p=>p-1)}>หน้าก่อนหน้า</button>
-    <button type="button" className="button secondary" disabled={queueLoading||!data?.page.hasNext} onClick={()=>setPage(p=>p+1)}>หน้าถัดไป</button>
-    {canExport&&<button type="button" className="button secondary" disabled={queueLoading||!data||!!busy} onClick={doExport}>{busy==="csv"?"กำลังส่งออก…":"ส่งออก CSV เฉพาะหน้านี้"}</button>}
-   </div>
+   {queueLoading&&<p className="help" role="status">กำลังโหลดคิว…</p>}{!queueLoading&&!data&&<p className="help" role="status">โหลดคิวไม่สำเร็จ — ลองใช้ตัวกรองอีกครั้ง</p>}
+   {canExport&&<div className="action-bar"><button type="button" className="button secondary" disabled={queueLoading||!data||!!busy} onClick={doExport}>{busy==="csv"?"กำลังส่งออก…":"ส่งออก CSV เฉพาะหน้านี้"}</button>{data&&<span className="help">CSV มีเฉพาะ {data.rows.length} รายการของหน้านี้ (จากทั้งหมด {data.page.total} รายการที่ตรงตัวกรอง) — ส่งออกทีละหน้า</span>}</div>}
    <div className="table-wrap" role="region" aria-label="รายการรายงาน" tabIndex={0}>
     <table className="data-table p5-queue"><thead><tr><th scope="col">ไฟล์</th><th scope="col">ชนิด</th><th scope="col">HN · เลข Lab</th><th scope="col">วันที่เก็บ</th><th scope="col">LN · รอบ</th><th scope="col">สถานะ</th><th scope="col">อัปเดต</th><th scope="col"><span className="sr-only">เปิด</span></th></tr></thead>
      <tbody>{!data?<tr><td colSpan={8} className="empty-row">{queueLoading?"กำลังโหลด…":"โหลดคิวไม่สำเร็จ"}</td></tr>:rows.length?rows.map(r=><tr key={r.id}>
@@ -169,6 +166,7 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
       <td><Link className="button small secondary" href={`/results/${r.id}`}>เปิด</Link></td></tr>)
       :<tr><td colSpan={8} className="empty-row">ไม่มีรายการในสถานะนี้</td></tr>}</tbody></table>
    </div>
+   {data&&<Pager label="คิวผลตรวจ" page={data.page.number} pageSize={data.page.size} total={data.page.total} totalPages={data.page.totalPages} busy={queueLoading} onPage={setPage} onSize={n=>{setPageSize(n);setPage(1);}}/>}
   </section>
  </>;
 }
