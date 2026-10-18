@@ -1,6 +1,6 @@
 # Run Photo Evidence (ภาพประจำ Run)
 
-Branch `feat/run-photo-evidence`, based on `6d6e41c` (Go-Live readiness HEAD of `feat/task-list-parity-p0`). Migration `102_run_photo_evidence.sql`, SHA-256 (LF) `f11c8080b172e2628404c0a8d6476ae1d5c77e625d917c0e72c75836009b03f9`, forward only. It has been applied only to disposable synthetic databases (PGlite and the isolated e2e PostgreSQL). It has **not** been applied to Production.
+Branch `feat/run-photo-evidence`, based on `6d6e41c` (Go-Live readiness HEAD of `feat/task-list-parity-p0`). Migration `103_run_photo_evidence.sql` (filed as 102 on the source branch; renumbered to 103 on integration because Consent refusal owns 102, content and checksum unchanged), SHA-256 (LF) `f11c8080b172e2628404c0a8d6476ae1d5c77e625d917c0e72c75836009b03f9`, forward only. It has been applied only to disposable synthetic databases (PGlite and the isolated e2e PostgreSQL). It has **not** been applied to Production.
 
 ## FINAL OWNER LOCK: photos are optional
 
@@ -89,4 +89,4 @@ Known pre-existing issue (not changed here): below 600 px the global `.button{wi
 - A real **Windows service account** that differs from the interactive user, plus the ACL errors seen through it.
 - **Real phones** on the hospital Wi-Fi/LAN: Android Chrome and iOS Safari camera capture, HEIC handling and large-photo upload times. Browser camera capture was emulated with file inputs in Playwright Chromium.
 - The **hospital backup/DR schedule** for the photo roots, and a restore drill on the target server.
-- Production migration authorisation for `102_run_photo_evidence.sql`.
+- Production migration authorisation for `103_run_photo_evidence.sql`.

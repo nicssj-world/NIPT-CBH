@@ -55,8 +55,25 @@ Existing 001–070 migration bytes are unchanged from ad66ab4. Ordered applicati
 
 Migration082 is an additive correction to the P4 LN Halos issuer on current 001–081 bases. It keeps YYBYYMMDDNNN with the actual Bangkok issuance date, but changes NNN from daily to monthly allocation (001–999, no wrap). On upgraded synthetic databases it seeds the monthly allocation counter from every pre-existing daily allocation, including retired numbers. No previously issued LN Halos, placement snapshot, printed sample ID, document or historical patient record is rewritten. The existing audit-chain-before-month-counter lock order and receipt-only trigger are preserved. Current production Genomic-CBH historical renumbering is a separate migration; NIPT-CBH remains synthetic and must not ingest real patient identifiers.
 
+## Integrated forward sequence 096–103 — disposable synthetic only
+
+None of 096–103 has been applied to Production (`main` stops at 095). The runner (`tools/migrate.ts`) keys the ledger by file name, applies files in lexicographic order, and refuses a ledger row that is missing from the bundle or a gap before the last applied file (forward-only).
+
+| Migration | SHA-256 (LF) | Source |
+| --- | --- | --- |
+| 096_admin_settings.sql | 7fd92f0c29468d5663ba2c540bf8fc698545ddfa0704e430144e3a6bcd106e70 | Admin settings |
+| 097_admin_recovery.sql | 61e3da7b7e12a79d4bbb1419a2f9b08cdd65818423805e46bed2aa77cfa9ca18 | Admin recovery |
+| 098_admin_target_enrollment.sql | 11fa99b5cd25ed72f06be755f2fc7f627beba7f862fafa58f50aa5f16162da05 | Admin target enrollment |
+| 099_label_printed_code_resampling.sql | 810a0c1bde5f9a7b932ed299eaaf41b30faf4114432bcd9a62099d639d30e696 | P0 Task List parity |
+| 100_p5a_unique_auto_link.sql | 151f406056c1fd9133c7cc5b6dd813f7b198da4f1f9d71f35895a47b76ada9c7 | P0 Task List parity |
+| 101_p2_paper_consent_marker.sql | 224edf370e95065d8b4b55dd550df2ee39efc2ceeb3268729d144ab9064c3391 | Paper Consent marker (docs/p2-paper-consent.md) |
+| 102_p2_paper_consent_refusal.sql | b808f2e22ca0e48188452a6c22ea8ffd3f36f45eea292638ff6d9a09e6c5761d | Paper Consent refusal (docs/p2-paper-consent.md) |
+| 103_run_photo_evidence.sql | f11c8080b172e2628404c0a8d6476ae1d5c77e625d917c0e72c75836009b03f9 | Run Photo Evidence (docs/run-photo-evidence.md) |
+
+**Integration 2026-10-18 (102 collision).** `feat/task-list-parity-p0` and `feat/run-photo-evidence` both added a migration numbered 102. The Consent file keeps 102. The photo file was renamed to 103 with byte-identical content (same checksum). The two migrations share no objects: 103 creates only `run_photo*` tables, views, triggers and functions and references `lab_batch` and `app_user`, which exist long before 102. A synthetic database that was migrated on the photo branch records `102_run_photo_evidence.sql` in its ledger. The runner rejects it ("Applied migration missing from bundle"), so throw it away and rebuild. Those runs were never Production applies.
+
 ## Run Photo Evidence — disposable synthetic only
 
 | Migration | SHA-256 (LF) | Boundary |
 | --- | --- | --- |
-| 102_run_photo_evidence.sql | f11c8080b172e2628404c0a8d6476ae1d5c77e625d917c0e72c75836009b03f9 | Additive photo evidence tables only; no existing object changed; nothing in the clinical workflow references them (photos never gate work). See docs/run-photo-evidence.md |
+| 103_run_photo_evidence.sql | f11c8080b172e2628404c0a8d6476ae1d5c77e625d917c0e72c75836009b03f9 | Additive photo evidence tables only; no existing object changed; nothing in the clinical workflow references them (photos never gate work). See docs/run-photo-evidence.md |

@@ -95,7 +95,7 @@ const rows = {
   "settings.clinical.propose": "---P-----",
   "settings.approve": "----A----",
   "secret.write": "-----YY--",
-  // Run Photo Evidence (migration 102): optional evidence of a Run, readable with the Lab worksheet. LAB_STAFF manage their
+  // Run Photo Evidence (migration 103): optional evidence of a Run, readable with the Lab worksheet. LAB_STAFF manage their
   // own uploads; LAB_CERTIFIER may correct any upload (service rule). The storage path is an installation/admin concern.
   "photo.read": "--YY---R-",
   "photo.upload": "--YY-----",
