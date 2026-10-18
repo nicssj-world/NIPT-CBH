@@ -23,7 +23,8 @@
     "worker": "tsx apps/worker/main.ts",
     "renderer": "tsx apps/renderer/main.ts",
     "simulator": "tsx tools/his-simulator/main.ts",
-    "guard": "tsx tools/source-guard.ts"
+    "guard": "tsx tools/source-guard.ts",
+    "photos": "tsx tools/run-photos.ts"
   },
   "dependencies": {
     "@fontsource/noto-sans": "5.3.0",

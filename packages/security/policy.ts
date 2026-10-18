@@ -94,7 +94,13 @@ const rows = {
   "settings.integration.propose": "-----PP--",
   "settings.clinical.propose": "---P-----",
   "settings.approve": "----A----",
-  "secret.write": "-----YY--"
+  "secret.write": "-----YY--",
+  // Run Photo Evidence (migration 102): optional evidence of a Run, readable with the Lab worksheet. LAB_STAFF manage their
+  // own uploads; LAB_CERTIFIER may correct any upload (service rule). The storage path is an installation/admin concern.
+  "photo.read": "--YY---R-",
+  "photo.upload": "--YY-----",
+  "photo.manage": "--YY-----",
+  "photo.storage.configure": "-----YY--"
 } as const;
 export const PERMISSION_MATRIX = rows;
 export type Action = keyof typeof rows;

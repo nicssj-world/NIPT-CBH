@@ -6,4 +6,6 @@ export function proxy(request:NextRequest){
  const h=new Headers(request.headers);h.set("x-nonce",nonce);h.set("Content-Security-Policy",csp);
  const response=NextResponse.next({request:{headers:h}});response.headers.set("Content-Security-Policy",csp);return response;
 }
-export const config={matcher:["/((?!_next/static|_next/image|favicon.ico|api/p4/label-sheet/).*)"]};
+// The Run photo upload is excluded: the proxy would buffer and silently cut request bodies above 10 MB (phone photos are
+// larger), and the JSON-only route needs no page CSP. The route authenticates, checks CSRF and caps the body itself.
+export const config={matcher:["/((?!_next/static|_next/image|favicon.ico|api/p4/label-sheet/|api/run-photos/upload).*)"]};

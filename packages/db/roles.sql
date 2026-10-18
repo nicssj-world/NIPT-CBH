@@ -96,3 +96,8 @@ REVOKE UPDATE,DELETE,TRUNCATE ON result_query_export_evidence,result_reparse_evi
 GRANT SELECT ON result_query_export_evidence,result_reparse_evidence TO report_ro;
 
 GRANT EXECUTE ON FUNCTION nipt_runtime_quarantined() TO app_rw,worker_rw,report_ro;
+-- Run Photo Evidence (migration 102): optional evidence only; history is append-only and photos are never deleted.
+GRANT SELECT,INSERT,UPDATE ON run_photo_storage_root,run_photo TO app_rw;
+GRANT SELECT,INSERT ON run_photo_root_location,run_photo_event TO app_rw;
+GRANT SELECT ON run_photo_root_current TO app_rw;
+GRANT SELECT ON run_photo,run_photo_event TO report_ro;

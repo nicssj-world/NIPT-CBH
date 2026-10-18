@@ -54,3 +54,9 @@ Migration070 is the additive P5H restricted synthetic Historical Backfill schema
 Existing 001–070 migration bytes are unchanged from ad66ab4. Ordered application and ledger checksums were verified on fresh native/PGlite databases, and all113public tables/ledger rows restored in the native DR drill. Runtime grants are reapplied separately; no Production apply or ledger repair.
 
 Migration082 is an additive correction to the P4 LN Halos issuer on current 001–081 bases. It keeps YYBYYMMDDNNN with the actual Bangkok issuance date, but changes NNN from daily to monthly allocation (001–999, no wrap). On upgraded synthetic databases it seeds the monthly allocation counter from every pre-existing daily allocation, including retired numbers. No previously issued LN Halos, placement snapshot, printed sample ID, document or historical patient record is rewritten. The existing audit-chain-before-month-counter lock order and receipt-only trigger are preserved. Current production Genomic-CBH historical renumbering is a separate migration; NIPT-CBH remains synthetic and must not ingest real patient identifiers.
+
+## Run Photo Evidence — disposable synthetic only
+
+| Migration | SHA-256 (LF) | Boundary |
+| --- | --- | --- |
+| 102_run_photo_evidence.sql | f11c8080b172e2628404c0a8d6476ae1d5c77e625d917c0e72c75836009b03f9 | Additive photo evidence tables only; no existing object changed; nothing in the clinical workflow references them (photos never gate work). See docs/run-photo-evidence.md |
