@@ -98,7 +98,8 @@ async function stopServices(L,{keepDatabase=false}={}){
 // ───────────────────────────── postgres helpers ─────────────────────────────
 const pgExe=(L,n)=>path.join(L.pgBin,n+'.exe');
 const pgRunning=L=>{try{run(pgExe(L,'pg_ctl'),['status','-D',L.pgdata]);return true;}catch{return false;}};
-function pgStart(L,c){if(pgRunning(L))return;run(pgExe(L,'pg_ctl'),['start','-D',L.pgdata,'-l',path.join(L.logs,'postgres.log'),'-o',`-p ${c.ports.postgres} -h 127.0.0.1`,'-w','-t','60']);}
+// stdio must be ignored: the detached postgres inherits pipes, and execFileSync would wait for them to close (i.e. until PostgreSQL exits).
+function pgStart(L,c){if(pgRunning(L))return;execFileSync(pgExe(L,'pg_ctl'),['start','-D',L.pgdata,'-l',path.join(L.logs,'postgres.log'),'-o',`-p ${c.ports.postgres} -h 127.0.0.1`,'-w','-t','60'],{windowsHide:true,stdio:'ignore'});}
 function pgStop(L){if(pgRunning(L))run(pgExe(L,'pg_ctl'),['stop','-D',L.pgdata,'-m','fast','-w','-t','60']);}
 function psql(L,c,sql,{db=c.database}={}){
  return run(pgExe(L,'psql'),['-h','127.0.0.1','-p',String(c.ports.postgres),'-U','nipt_migrator','-d',db,'-X','-A','-t','-v','ON_ERROR_STOP=1','-c',sql],{env:{...process.env,PGPASSWORD:readSecret(L,'db-password')}}).trim();
