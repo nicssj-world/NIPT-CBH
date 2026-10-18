@@ -25,7 +25,7 @@ export function Pager(p:PagerProps){
  return <nav className="pager" aria-label={`การแบ่งหน้า${p.label}`}>
   <p className="pager-summary" role="status" aria-live="polite">{p.total===0?"ไม่มีรายการ":`แสดง ${from}–${to} จาก ${p.total} รายการ · หน้า ${p.page} จาก ${p.totalPages}`}</p>
   <div className="pager-controls">
-   <label className="pager-size" htmlFor={sizeId}>แสดงต่อหน้า<select id={sizeId} value={p.pageSize} disabled={p.busy} onChange={e=>size(Number(e.target.value))}>{sizes.map(n=><option key={n} value={n}>{n}</option>)}</select></label>
+   <label className="pager-size" htmlFor={sizeId}>แสดงต่อหน้า<select id={sizeId} aria-label="แสดงต่อหน้า" value={p.pageSize} disabled={p.busy} onChange={e=>size(Number(e.target.value))}>{sizes.map(n=><option key={n} value={n}>{n}</option>)}</select></label>
    <div className="pager-buttons">
     {nav("«",1,first,"หน้าแรก")}{nav("ก่อนหน้า",p.page-1,first,"หน้าก่อนหน้า")}{nav("ถัดไป",p.page+1,last,"หน้าถัดไป")}{nav("»",p.totalPages,last,"หน้าสุดท้าย")}
    </div>

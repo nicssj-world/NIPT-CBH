@@ -77,3 +77,9 @@ None of 096–103 has been applied to Production (`main` stops at 095). The runn
 | Migration | SHA-256 (LF) | Boundary |
 | --- | --- | --- |
 | 103_run_photo_evidence.sql | f11c8080b172e2628404c0a8d6476ae1d5c77e625d917c0e72c75836009b03f9 | Additive photo evidence tables only; no existing object changed; nothing in the clinical workflow references them (photos never gate work). See docs/run-photo-evidence.md |
+
+## Pagination lookup indexes — disposable synthetic only
+
+| Migration | SHA-256 (LF) | Boundary |
+| --- | --- | --- |
+| 104_pagination_lookup_indexes.sql | baf3f28d290b4ac29a515fa71b97e0da9d8c6c6de701031e6abd10d30027200f | Five `CREATE INDEX IF NOT EXISTS` on round_id lookups (paper review, clinical snapshot, specimen acceptance, collection fact, label print item). Indexes only: no table, column, constraint or data change; forward-only; not applied to Production. Backed by `EXPLAIN` evidence in docs/pagination-performance-2026-10-19.md. |

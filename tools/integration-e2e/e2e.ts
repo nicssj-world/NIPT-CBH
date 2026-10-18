@@ -12,7 +12,7 @@ import {Pool} from 'pg';
 import {migrate} from '../migrate';
 import {workerServiceAccount} from '../../packages/integrations/authorized-share';
 const repo=process.cwd(),base=path.resolve('.local/integration-e2e'),project='nipt-integ-consent-photos-20261018';
-if(!['NIPT-CBH-INTEG-CONSENT-PHOTOS','NIPT-CBH-UX-PROJECTWIDE'].includes(path.basename(repo)))throw Error('ISOLATED_WORKTREE_REQUIRED');
+if(!['NIPT-CBH-INTEG-CONSENT-PHOTOS','NIPT-CBH-UX-PROJECTWIDE','NIPT-CBH-PAGINATION'].includes(path.basename(repo)))throw Error('ISOLATED_WORKTREE_REQUIRED');
 const bootstrapUrl=process.env.NIPT_INTEG_E2E_PG_URL??'';
 if(!/^postgres(ql)?:\/\/[^@]+@127\.0\.0\.1:\d+\/postgres$/.test(bootstrapUrl))throw Error('LOOPBACK_BOOTSTRAP_DATABASE_REQUIRED');
 await fs.mkdir(base,{recursive:true});

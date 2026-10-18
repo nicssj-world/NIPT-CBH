@@ -49,7 +49,8 @@ async function approveAndActivate(checker:Page,key:string){
 let unitId="";
 async function registerCase(context:BrowserContext,ln:string,hn:string){const r=await post(context,"/api/p2/register",{ln,hn,unitId,origin:"ANC",idempotencyKey:randomUUID()});expect(r.ok(),await r.text()).toBe(true);return (await r.json()).caseId as string;}
 async function waitReceived(context:BrowserContext,ln:string,present=true){
- await expect.poll(async()=>{const w=await context.request.get("/api/p4/worklist").then(r=>r.json()) as {attempts:{hisLn:string;receivedAt:string|null}[]};return w.attempts.some(a=>a.hisLn===ln&&!!a.receivedAt);},{timeout:90000,intervals:[1000]}).toBe(present);
+ // The worklist is paged per tab; a received case sits in Ready or Gate-blocked, so search the LN in both tabs.
+ await expect.poll(async()=>{for(const tab of ["READY","GATE_BLOCKED"]){const w=await context.request.get(`/api/p4/worklist?tab=${tab}&q=${encodeURIComponent(ln)}`).then(r=>r.json()) as {attempts:{hisLn:string;receivedAt:string|null}[]};if(w.attempts.some(a=>a.hisLn===ln&&!!a.receivedAt))return true;}return false;},{timeout:90000,intervals:[1000]}).toBe(present);
 }
 
 test("General: a name saved and activated in Settings is what every page shows after reload; invalid values say which field",async({page})=>{
@@ -101,7 +102,7 @@ test("HIS inbound: path A → Worker reads the ZIP PET and the case is received;
   await expect(page.getByRole("button",{name:"บันทึกผลทดสอบผ่านของร่างนี้"})).toHaveCount(0);
   await checker.goto("/settings?key=his_inbound");await expect(checker.getByRole("button",{name:"อนุมัติ (ผู้ตรวจอีกคน)"})).toHaveCount(0);
   // The receive time shown to the lab is the HIS receipt time from the PET (P[21]).
-  const w=await labContext.request.get("/api/p4/worklist").then(r=>r.json()) as {attempts:{hisLn:string;receivedAt:string}[]};
+  const found:{hisLn:string;receivedAt:string}[]=[];for(const tab of ["READY","GATE_BLOCKED"])found.push(...(await labContext.request.get(`/api/p4/worklist?tab=${tab}&q=${encodeURIComponent(a.ln)}`).then(r=>r.json()) as {attempts:{hisLn:string;receivedAt:string}[]}).attempts);const w={attempts:found};
   const at=a.receivedAt;expect(new Date(w.attempts.find(x=>x.hisLn===a.ln)!.receivedAt).toISOString()).toBe(new Date(`${at.slice(0,4)}-${at.slice(4,6)}-${at.slice(6,8)}T${at.slice(8,10)}:${at.slice(10,12)}:${at.slice(12,14)}+07:00`).toISOString());
   expect((await new AxeBuilder({page}).withTags(AA).analyze()).violations).toEqual([]);
  }finally{await ancContext.close();await checkerContext.close();await labContext.close();}

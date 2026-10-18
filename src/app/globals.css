@@ -517,5 +517,5 @@ label.check-label,:is(.stack,fieldset,.form-grid) > label.check-label,fieldset l
 .pager-jump label {margin:0;font-weight:400;}
 .pager-jump input {width:5.5rem;}
 .pager-buttons {display:flex;flex-wrap:wrap;gap:var(--space-2);}
-.pager .button {width:auto;min-width:44px;}
-@media(max-width:600px){.pager-controls {gap:var(--space-3);}.pager-buttons {flex:1 1 100%;}.pager-buttons .button {flex:1 1 0;}}
+.pager .button {width:auto;min-width:44px;white-space:nowrap;}
+@media(max-width:600px){.pager-controls {gap:var(--space-3);}.pager-buttons {flex:1 1 100%;}.pager-buttons .button {flex:1 1 auto;padding-inline:var(--space-3);}}
