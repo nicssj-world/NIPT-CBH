@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
+import {pageFields,clampPage,offsetOf} from '../db/pagination';
 import type {Queryable} from '../db/connection';
 import {appendAudit} from '../db/audit';
 import {lockLn} from '../db/registration';
@@ -225,28 +226,47 @@ export async function stageBatch(db:Queryable,store:FileStore,batchId:string,act
 
 // ---------- Step 2: read and fix ----------
 const ABANDON_STATES=['Draft','NotEligible','Discrepancy'];
-export async function listBatches(db:Queryable,user:Staff){
+const listInput=z.strictObject({...pageFields(25)});
+/** Import batches, newest first, one page at a time. The per-batch row counts are computed only for the batches on the page. */
+export async function listBatches(db:Queryable,user:Staff,raw:unknown={}){
  need(user,'history.read','read');
- return (await db.query(`SELECT b.id,b.state,b.table_name,b.row_count,b.error_code,b.created_at,
-  count(d.*) FILTER(WHERE d.state='Submitted')::int AS submitted,count(d.*) FILTER(WHERE d.state='Promoted')::int AS promoted,
-  count(d.*) FILTER(WHERE d.state IN ('Draft','NotEligible','Discrepancy','Conflict'))::int AS needs_attention
-  FROM historical_batch b LEFT JOIN historical_draft d ON d.batch_id=b.id GROUP BY b.id ORDER BY b.created_at DESC LIMIT 50`)).rows;
+ const f=listInput.parse(raw);
+ const total=Number((await db.query<{n:string}>('SELECT count(*)::text n FROM historical_batch')).rows[0].n);
+ const meta=clampPage(f.page,total,f.pageSize);
+ const batches=(await db.query(`SELECT b.id,b.state,b.table_name,b.row_count,b.error_code,b.created_at,a.submitted,a.promoted,a.needs_attention
+  FROM (SELECT * FROM historical_batch ORDER BY created_at DESC,id DESC LIMIT ${meta.size} OFFSET ${offsetOf(meta)}) b
+  LEFT JOIN LATERAL (SELECT count(*) FILTER(WHERE d.state='Submitted')::int AS submitted,count(*) FILTER(WHERE d.state='Promoted')::int AS promoted,
+    count(*) FILTER(WHERE d.state IN ('Draft','NotEligible','Discrepancy','Conflict'))::int AS needs_attention FROM historical_draft d WHERE d.batch_id=b.id) a ON true
+  ORDER BY b.created_at DESC,b.id DESC`)).rows;
+ return {batches,page:meta};
 }
-export async function getBatch(db:Queryable,user:Staff,id:string){
+const PROBLEM_STATES=['Draft','NotEligible','Discrepancy','Conflict'];
+const batchInput=z.strictObject({view:z.enum(['auto','problems','ready','done','all']).default('all'),q:z.string().trim().max(40).default(''),...pageFields(50,[50,100])});
+/** One batch: its header and files (at most BATCH_LIMITS.files), a summary counted over the WHOLE batch, and one page of rows.
+ * `view` picks the rows (problems = the states that need a fix, ready = Submitted, done = Promoted; `auto` = problems when there are any, else all);
+ * `q` finds a row by LN across the whole batch. The confirm / fix / abandon actions never depend on which rows a page shows. */
+export async function getBatch(db:Queryable,user:Staff,id:string,rawInput:unknown={}){
  need(user,'history.read','read');
+ const input=batchInput.parse(rawInput);
  const b=(await db.query<Record<string,unknown>>('SELECT id,state,created_by,created_at,table_name,row_count,error_code,issues,cutoff_version,policy,staged_at FROM historical_batch WHERE id=$1',[z.uuid().parse(id)])).rows[0];
  if(!b)throw err('NOT_FOUND',404);
  const ctx=await loadContext(db);
+ const sum=(await db.query<{total:number;ready:number;problem:number;done:number}>(`SELECT count(*)::int total,count(*) FILTER(WHERE state='Submitted')::int ready,count(*) FILTER(WHERE state=ANY($2::text[]))::int problem,count(*) FILTER(WHERE state='Promoted')::int done FROM historical_draft WHERE batch_id=$1`,[id,PROBLEM_STATES])).rows[0];
+ const view=input.view==='auto'?(sum.problem>0?'problems':'all'):input.view;
+ const values:unknown[]=[id],where=['d.batch_id=$1'];
+ if(view==='problems'){values.push(PROBLEM_STATES);where.push(`d.state=ANY($${values.length}::text[])`);}else if(view==='ready')where.push("d.state='Submitted'");else if(view==='done')where.push("d.state='Promoted'");
+ if(input.q){values.push(input.q.toLowerCase());where.push(`strpos(lower(d.ln),$${values.length})>0`);}
+ const matched=Number((await db.query<{n:string}>(`SELECT count(*)::text n FROM historical_draft d WHERE ${where.join(' AND ')}`,values)).rows[0].n),meta=clampPage(input.page,matched,input.pageSize);
  const rows=(await db.query<{id:string;row_no:number;ln:string;state:string;version:number;issues:RowIssue[];data:StoredData;contributor_ids:string[];evaluation:{outcome:string;reasons:Reason[];hash:string;cutoff_version:number|null}|null;pdf_name:string|null}>(
   `SELECT d.id,d.row_no,d.ln,d.state,d.version,d.issues,d.data,d.contributor_ids,
    (SELECT json_build_object('outcome',e.outcome,'reasons',e.reasons,'hash',e.hash,'cutoff_version',e.cutoff_version) FROM historical_eligibility_evaluation e WHERE e.id=d.evaluation_id) AS evaluation,
    (SELECT f.original_name FROM historical_batch_file f WHERE f.id=d.pdf_file_id) AS pdf_name
-   FROM historical_draft d WHERE d.batch_id=$1 ORDER BY d.row_no`,[id])).rows;
+   FROM historical_draft d WHERE ${where.join(" AND ")} ORDER BY d.row_no LIMIT ${meta.size} OFFSET ${offsetOf(meta)}`,values)).rows;
  const files=(await db.query("SELECT id,role,original_name,state,reject_code,byte_size FROM historical_batch_file WHERE batch_id=$1 AND role<>'TABLE' ORDER BY created_at,id",[id])).rows;
  await audit(db,user,'HIST_BATCH_VIEWED','HISTORICAL_BATCH',id,'VIEWED',{count:rows.length});
  return {
   batch:b,ready:contextReady(ctx),blockers:[...(ctx.policyConfigured?[]:['ANCHOR_POLICY_NOT_CONFIGURED']),...(ctx.cutoff?[]:['CUTOFF_NOT_CONFIGURED'])],
-  files,
+  files,summary:sum,view,page:meta,
   rows:rows.map(r=>({id:r.id,rowNo:r.row_no,ln:r.ln,state:r.state,version:r.version,issues:r.issues,evaluation:r.evaluation,pdfName:r.pdf_name,
    identifiers:r.data.identifiers,originalLocation:r.data.originalLocation,evidence:r.data.evidence.map(e=>({id:e.id,kind:e.kind,date:e.documentDate,provenance:e.provenance})),events:r.data.events.map(e=>({id:e.id,type:e.type,date:e.date})),
    facts:r.data.facts,pastCertification:r.data.pastCertification,completeness:r.data.completeness,cells:r.data.cells,

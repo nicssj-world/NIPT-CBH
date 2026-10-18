@@ -5,17 +5,18 @@ import {useCallback,useEffect,useRef,useState} from "react";
 import {labApi,failureText,bkk,LabFailure} from "../p4/lab-api";
 import {csrf} from "../p2/shared";
 import {BATCH_TEXT} from "./labels";
+import {Pager} from "../shared/pager";
 
 type BatchRow={id:string;state:string;table_name:string;row_count:number|null;error_code:string|null;created_at:string;submitted:number;promoted:number;needs_attention:number};
-type Home={batches:BatchRow[];ready:boolean;maxRows:number;limits:{files:number}};
+type Home={batches:BatchRow[];page:{number:number;size:number;total:number;totalPages:number};ready:boolean;maxRows:number;limits:{files:number}};
 
 /** Step 1 of the bulk historical import: one table + the PDF / ZIP files. Everything else happens in the background and on the next page. */
 export function HistoricalHome({canImport}:{canImport:boolean}){
  const router=useRouter();
  const [data,setData]=useState<Home|null>(null),[error,setError]=useState(""),[busy,setBusy]=useState(false);
- const [tableName,setTableName]=useState(""),[fileCount,setFileCount]=useState(0);
+ const [tableName,setTableName]=useState(""),[fileCount,setFileCount]=useState(0),[list,setList]=useState({page:1,pageSize:25});
  const table=useRef<HTMLInputElement>(null),files=useRef<HTMLInputElement>(null);
- const load=useCallback(async()=>{try{setData(await labApi<Home>("/api/p5h/batches"));setError("");}catch(e){setError(failureText(e));}},[]);
+ const load=useCallback(async()=>{try{setData(await labApi<Home>(`/api/p5h/batches?page=${list.page}&pageSize=${list.pageSize}`));setError("");}catch(e){setError(failureText(e));}},[list]);
  useEffect(()=>{void Promise.resolve().then(load);},[load]);
  async function upload(){
   const t=table.current?.files?.[0];if(!t){setError("เลือกไฟล์ตาราง (.xlsx หรือ .csv) ก่อน");return;}
@@ -44,9 +45,10 @@ export function HistoricalHome({canImport}:{canImport:boolean}){
    </>:<p>บัญชีนี้ดูรายการได้ แต่ไม่มีสิทธิ์นำเข้า (ต้องมีสิทธิ์ HISTORICAL_ENTRY)</p>}
   </section>
   <section className="panel" aria-labelledby="hist-list"><h2 id="hist-list">ชุดนำเข้า</h2>
-   {!data?<p role="status">กำลังโหลด…</p>:!data.batches.length?<p>ยังไม่มีชุดนำเข้า</p>:
+   {!data?<p role="status">กำลังโหลด…</p>:!data.page.total?<p>ยังไม่มีชุดนำเข้า</p>:<>
     <div className="table-wrap" role="region" aria-label="ชุดนำเข้าข้อมูลย้อนหลัง" tabIndex={0}><table className="data-table"><caption className="sr-only">ชุดนำเข้าข้อมูลย้อนหลัง</caption><thead><tr><th scope="col">ไฟล์ตาราง</th><th scope="col">สถานะ</th><th scope="col">แถว</th><th scope="col">ต้องแก้</th><th scope="col">รอรับรอง</th><th scope="col">นำเข้าแล้ว</th><th scope="col">อัปโหลดเมื่อ</th></tr></thead>
-     <tbody>{data.batches.map(b=><tr key={b.id}><td><Link href={`/historical/${b.id}`}>{b.table_name}</Link></td><td>{BATCH_TEXT[b.state]??b.state}{b.error_code?` (${b.error_code})`:""}</td><td>{b.row_count??"—"}</td><td>{b.needs_attention}</td><td>{b.submitted}</td><td>{b.promoted}</td><td>{bkk(b.created_at)}</td></tr>)}</tbody></table></div>}
+     <tbody>{data.batches.map(b=><tr key={b.id}><td><Link href={`/historical/${b.id}`}>{b.table_name}</Link></td><td>{BATCH_TEXT[b.state]??b.state}{b.error_code?` (${b.error_code})`:""}</td><td>{b.row_count??"—"}</td><td>{b.needs_attention}</td><td>{b.submitted}</td><td>{b.promoted}</td><td>{bkk(b.created_at)}</td></tr>)}</tbody></table></div>
+    <Pager label="ชุดนำเข้าข้อมูลย้อนหลัง" page={data.page.number} pageSize={data.page.size} total={data.page.total} totalPages={data.page.totalPages} onPage={n=>setList(l=>({...l,page:n}))} onSize={n=>setList({page:1,pageSize:n})}/></>}
   </section>
  </>;
 }

@@ -6,7 +6,7 @@ import {protect,readJson} from "../../../../../server/http";
 import {p5hError,p5hMutation,noStore,identityLookupKey} from "../../../../../server/p5h";
 import {resultStore} from "../../../../../server/p5";
 /** Step 2 + 3 data: staged rows with their findings (polled until the worker has finished). */
-export async function GET(request:NextRequest,{params}:{params:Promise<{id:string}>}){try{const user=await protect(request,"history.read",{},"read"),{id}=await params;return NextResponse.json(await withTransaction(db=>getBatch(db,user,id)),{headers:noStore});}catch(e){return p5hError(e);}}
+export async function GET(request:NextRequest,{params}:{params:Promise<{id:string}>}){try{const user=await protect(request,"history.read",{},"read"),{id}=await params;return NextResponse.json(await withTransaction(db=>getBatch(db,user,id,Object.fromEntries(request.nextUrl.searchParams))),{headers:noStore});}catch(e){return p5hError(e);}}
 const fixBody=z.strictObject({action:z.literal("fix"),draftId:z.uuid(),patch:z.record(z.string(),z.string()),reason:z.string()});
 const abandonBody=z.strictObject({action:z.literal("abandon"),draftId:z.uuid(),reason:z.string()});
 export async function POST(request:NextRequest,{params}:{params:Promise<{id:string}>}){return p5hMutation(request,"P5H_BATCH",async user=>{

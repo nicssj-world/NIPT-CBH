@@ -6,7 +6,7 @@ import {p5hError,p5hMutation,noStore} from "../../../../server/p5h";
 import {resultStore} from "../../../../server/p5";
 /** Step 1: list batches / upload the table with the PDF or ZIP files. The worker (not this request) reads and checks them. */
 export async function GET(request:NextRequest){try{const user=await protect(request,"history.read",{},"read");
- return NextResponse.json(await withTransaction(async db=>{const ctx=await loadContext(db);return {batches:await listBatches(db,user),ready:contextReady(ctx),maxRows:ctx.maxRows,limits:{files:BATCH_LIMITS.files}};}),{headers:noStore});}catch(e){return p5hError(e);}}
+ return NextResponse.json(await withTransaction(async db=>{const ctx=await loadContext(db);return {...await listBatches(db,user,Object.fromEntries(request.nextUrl.searchParams)),ready:contextReady(ctx),maxRows:ctx.maxRows,limits:{files:BATCH_LIMITS.files}};}),{headers:noStore});}catch(e){return p5hError(e);}}
 export async function POST(request:NextRequest){return p5hMutation(request,"P5H_UPLOAD",async user=>{
  if(Number(request.headers.get("content-length")??0)>BATCH_LIMITS.totalBytes+1_000_000)throw new Error("UPLOAD_TOO_LARGE");
  const form=await request.formData();

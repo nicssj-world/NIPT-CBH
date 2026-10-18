@@ -5,6 +5,7 @@ import {CONTROL_LABEL,controlTypeOf,formatControlCode,formatPrintedControlId,for
 import {finalizePredicates,decide,GATE_RULE_VERSION} from './gate';
 import {LabError,uuid,reasonText,need,assertSession,audit,caseEvent,attemptEvent,setAttemptState,pendingPolicy,attemptFacts,assignmentDecision,candidatePrintedId,commonFacts,fifo,caseVisible,gestationalAge,BATCH_TEMPLATE,type Staff} from './core';
 import {isoDate} from '../domain/thai-date';
+import {pageFields,clampPage,offsetOf} from '../db/pagination';
 
 export const EDITABLE=['Draft','PlanChecked','Amended'];
 export const FINALIZED=['PlacementFinalized','PreWorkIssued','InExecution','ExecutionRecorded','ExecutionVerified','CompletedIssued'];
@@ -63,10 +64,22 @@ export async function batchDetail(db:Queryable,user:Staff,batchId:string){
  const snapshots=(await db.query('SELECT s.id,t.sheet_number,s.revision,s.content_hash,s.created_at FROM lab_placement_snapshot s JOIN lab_task_sheet t ON t.id=s.sheet_id WHERE s.batch_id=$1 ORDER BY t.sheet_number,s.revision',[b.id])).rows;
  return {batch:{id:b.id,runLabel:b.run_label,state:b.state,version:b.version,templateVersion:b.template_version,formulaVersion:b.formula_version,createdAt:b.created_at,cancelReason:b.cancel_reason},sheets,slots,documents,events,snapshots};
 }
-export async function listBatches(db:Queryable,user:Staff){
+const flagOf=z.union([z.boolean(),z.enum(['0','1','true','false'])]).default(false).transform(v=>v===true||v==='1'||v==='true');
+const runListInput=z.strictObject({q:z.string().trim().max(40).default(''),open:flagOf,...pageFields(25)});
+export type RunListRow={id:string;run_label:string;state:string;version:number;created_at:Date;samples:number;sheet_states:string[]};
+/** Runs, newest first (ties by id), one page at a time with an exact total, so every Run ever created stays reachable.
+ * `q` matches the Run identifier (RunNNN/ปี) as typed in any part ("16", "Run016", "2026"). `open` returns only Runs whose Task Lists can still be
+ * edited - what the "add to Batch" dialog needs - so an old, finished Run can never push an open Draft out of that list. */
+export async function listBatchPage(db:Queryable,user:Staff,raw:unknown={}){
  await assertSession(db,user);need(user,'worksheet.read','read');
- return (await db.query(`SELECT b.id,b.run_label,b.state,b.version,b.created_at,(SELECT count(*) FROM lab_slot_assignment a WHERE a.batch_id=b.id AND a.removed_at IS NULL)::int samples,
-  ARRAY(SELECT t.state FROM lab_task_sheet t WHERE t.batch_id=b.id ORDER BY t.sheet_number) sheet_states FROM lab_batch b ORDER BY b.created_at DESC LIMIT 100`)).rows;
+ const f=runListInput.parse(raw),values:unknown[]=[],where:string[]=['true'];
+ if(f.q){values.push(f.q.toLowerCase());where.push(`strpos(lower(b.run_label),$${values.length})>0`);}
+ if(f.open)where.push(`b.state<>'Cancelled' AND EXISTS(SELECT 1 FROM lab_task_sheet t WHERE t.batch_id=b.id AND t.state=ANY(ARRAY['${EDITABLE.join("','")}']))`);
+ const total=Number((await db.query<{n:string}>(`SELECT count(*)::text n FROM lab_batch b WHERE ${where.join(' AND ')}`,values)).rows[0].n);
+ const meta=clampPage(f.page,total,f.pageSize);
+ const rows=(await db.query<RunListRow>(`SELECT b.id,b.run_label,b.state,b.version,b.created_at,(SELECT count(*) FROM lab_slot_assignment a WHERE a.batch_id=b.id AND a.removed_at IS NULL)::int samples,
+  ARRAY(SELECT t.state FROM lab_task_sheet t WHERE t.batch_id=b.id ORDER BY t.sheet_number) sheet_states FROM lab_batch b WHERE ${where.join(' AND ')} ORDER BY b.created_at DESC,b.id DESC LIMIT ${meta.size} OFFSET ${offsetOf(meta)}`,values)).rows;
+ return {rows,page:meta};
 }
 
 /** The eligible FIFO queue head and the earlier eligible work a selection would overtake (single source for assign and preview). */

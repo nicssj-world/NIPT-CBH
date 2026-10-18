@@ -51,7 +51,7 @@ export async function importBatch(f:HistFixture,rows:SheetRow[],pdfs:{name:strin
  return batchId;
 }
 export const attest=(over: Partial<{lnMatchesOriginal:boolean;anchorDateMatchesOriginal:boolean;pdfBindingMatchesOriginal:boolean;identityMatchesOriginal:boolean;identityIdentifiersChecked:('HN'|'NAME'|'DOB'|'NATIONAL_ID')[]}>={})=>({lnMatchesOriginal:true,anchorDateMatchesOriginal:true,pdfBindingMatchesOriginal:true,identityMatchesOriginal:true,identityIdentifiersChecked:['HN','NAME'] as ('HN'|'NAME'|'DOB'|'NATIONAL_ID')[],...over});
-export async function view(f:HistFixture,batchId:string,as:Staff=f.verifier){return f.run(t=>getBatch(t,as,batchId));}
+export async function view(f:HistFixture,batchId:string,as:Staff=f.verifier){return f.run(t=>getBatch(t,as,batchId,{pageSize:100}));}
 export async function confirmAll(f:HistFixture,batchId:string,as:Staff=f.verifier,key=randomUUID()){
  const v=await view(f,batchId,as);
  const rows=v.rows.filter(r=>r.state==='Submitted').map(r=>({draftId:r.id,version:r.version,attestation:attest()}));
