@@ -55,6 +55,8 @@ export function validateConfig(c){
  need(new Set([p.postgres,p.web,p.https,p.renderer]).size===4,'CONFIG_PORTS_DUPLICATE');
  need(c.testEnvironmentOnly===true,'CONFIG_TEST_ENVIRONMENT_ONLY_REQUIRED');
  need(['user','system'].includes(c.taskMode),'CONFIG_TASK_MODE_INVALID');
+ // The HTTPS front listens on loopback unless IT explicitly publishes it on a LAN address (never PostgreSQL, web or renderer).
+ need(c.httpsHost===undefined||c.httpsHost==='0.0.0.0'||/^(?:\d{1,3}\.){3}\d{1,3}$/.test(c.httpsHost),'CONFIG_HTTPS_HOST_INVALID');
  need(c.excelMode===undefined||['direct','bridge'].includes(c.excelMode),'CONFIG_EXCEL_MODE_INVALID');
  // Excel automation is unsupported in session 0, so a SYSTEM task can only reach Excel through the bridge running in a user session.
  need(!(c.taskMode==='system'&&(c.excelMode??'bridge')==='direct'),'CONFIG_SYSTEM_TASK_REQUIRES_EXCEL_BRIDGE');

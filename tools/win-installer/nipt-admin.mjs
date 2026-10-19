@@ -212,7 +212,8 @@ async function install(){
   origin:String(args.origin??`https://localhost${ports.https===443?'':':'+ports.https}`),taskMode:args['task-mode']==='system'?'system':'user',testEnvironmentOnly:true,
   masterWorkbook:true,
   excelMode:args['excel-mode']==='bridge'?'bridge':args['excel-mode']==='direct'?'direct':(args['task-mode']==='system'?'bridge':'direct'),
-  ...(args['excel-user']?{excelUser:String(args['excel-user'])}:{})
+  ...(args['excel-user']?{excelUser:String(args['excel-user'])}:{}),
+  ...(args['https-host']?{httpsHost:String(args['https-host'])}:{})
  });
  if(config.taskMode==='system'&&!isAdmin())fail('ADMINISTRATOR_REQUIRED_FOR_SYSTEM_TASK');
  say('creating layout');

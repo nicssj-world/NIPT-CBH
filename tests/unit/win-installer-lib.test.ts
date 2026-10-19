@@ -42,6 +42,9 @@ describe('configuration and install root',()=>{
   bad({ports:{postgres:70000,web:1,https:2,renderer:3}},'CONFIG_PORT_INVALID');
   bad({taskMode:'service'},'CONFIG_TASK_MODE_INVALID');
   bad({origin:'http://localhost:1'},'CONFIG_ORIGIN_INVALID');
+  bad({httpsHost:'localhost'},'CONFIG_HTTPS_HOST_INVALID');
+  expect(validateConfig({...goodConfig(),httpsHost:'0.0.0.0'}).httpsHost).toBe('0.0.0.0');
+  expect(validateConfig({...goodConfig(),httpsHost:'10.20.30.40'}).httpsHost).toBe('10.20.30.40');
   bad({excelMode:'service'},'CONFIG_EXCEL_MODE_INVALID');
   bad({taskMode:'system',excelMode:'direct'},'CONFIG_SYSTEM_TASK_REQUIRES_EXCEL_BRIDGE'); // Excel automation is unsupported in session 0
   expect(validateConfig({...goodConfig(),taskMode:'system'}).taskMode).toBe('system');            // excelMode defaults to the bridge for a SYSTEM task

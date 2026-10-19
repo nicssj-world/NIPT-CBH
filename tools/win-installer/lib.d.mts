@@ -9,7 +9,7 @@ export function compareVersions(a:string,b:string):-1|0|1;
 export function sha256Bytes(bytes:Uint8Array):string;
 export function sha256File(file:string):Promise<string>;
 export function layout(root:string):Record<'root'|'releases'|'runtime'|'node'|'pg'|'pgBin'|'browsers'|'data'|'pgdata'|'files'|'inbound'|'outbound'|'master'|'excelSpool'|'secrets'|'config'|'configFile'|'tls'|'logs'|'run'|'stop'|'supervisorLock'|'state'|'backups'|'restores'|'installState'|'credentials',string>;
-export type InstallConfig={instance:string;mode:'operational'|'synthetic';database:string;ports:{postgres:number;web:number;https:number;renderer:number};origin:string;taskMode:'user'|'system';testEnvironmentOnly:true;masterWorkbook?:boolean;excelMode?:'direct'|'bridge';excelUser?:string;filesRoot?:string;masterPath?:string;lastBackupPath?:string};
+export type InstallConfig={instance:string;mode:'operational'|'synthetic';database:string;ports:{postgres:number;web:number;https:number;renderer:number};origin:string;taskMode:'user'|'system';testEnvironmentOnly:true;masterWorkbook?:boolean;excelMode?:'direct'|'bridge';httpsHost?:string;excelUser?:string;filesRoot?:string;masterPath?:string;lastBackupPath?:string};
 export function validateConfig(c:unknown):InstallConfig;
 export function assertSafeRoot(root:string,packageDir:string):string;
 export function portFree(port:number,host?:string):Promise<boolean>;
