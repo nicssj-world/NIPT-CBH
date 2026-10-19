@@ -14,7 +14,10 @@ const sha=(b:Buffer)=>createHash('sha256').update(b).digest('hex');
 type Check={id:string;ok:boolean;detail?:string};
 const files=async(sub:string)=>{try{return (await readdir(path.join(dir,sub))).sort();}catch{return [];}};
 const report:{dir:string;res:unknown[];problems:string[];transfers?:unknown;hisConfirmed?:string;note:string}={dir,res:[],problems:[],note:'Contract conformance of the written files only. HIS acknowledgment is a separate, still unproven condition.'};
-const resNames=(await files('res')).filter(f=>f.endsWith('.res')),okNames=new Set((await files('res')).filter(f=>f.endsWith('.ok'))),pdfNames=await files('pdf'),backupNames=new Set(await files('backup'));
+const resNames=(await files('res')).filter(f=>f.endsWith('.res')),okNames=new Set((await files('res')).filter(f=>f.endsWith('.ok'))),pdfNames=await files('pdf');
+// The Worker keeps a verified copy per release: backup/RELEASE-<id>/{<res>,<pdf>,manifest.json} with the expected hashes and names.
+const releaseCopies:{folder:string;manifest:{pdfHash:string;resHash:string;pdfName:string;resName:string}}[]=[];
+for(const d of await files('backup')){try{releaseCopies.push({folder:path.join(dir,'backup',d),manifest:JSON.parse(await readFile(path.join(dir,'backup',d,'manifest.json'),'utf8'))});}catch{/* not a release folder */}}
 if(!resNames.length)report.problems.push('NO_RES_FILES_FOUND');
 for(const name of resNames){
  const checks:Check[]=[];const add=(id:string,ok:boolean,detail?:string)=>{checks.push({id,ok,detail});if(!ok)report.problems.push(`${name}:${id}`);};
@@ -38,10 +41,12 @@ for(const name of resNames){
  const okName=name.replace(/\.res$/,'.ok');
  add('ok_marker_present',okNames.has(okName));
  if(okNames.has(okName)){const ok=await readFile(path.join(dir,'res',okName));add('ok_marker_is_bom_only',ok.length===2&&ok[0]===255&&ok[1]===254,`${ok.length} bytes`);}
- add('res_backup_copy_identical',backupNames.has(name)&&sha(await readFile(path.join(dir,'backup',name)))===sha(bytes));
+ const copy=releaseCopies.find(c=>c.manifest.resName===name);
+ add('backup_release_folder_with_manifest',!!copy,copy?path.basename(copy.folder):'none');
+ add('res_hash_equals_manifest_and_backup_copy',!!copy&&copy.manifest.resHash===sha(bytes)&&sha(await readFile(path.join(copy.folder,name)).catch(()=>Buffer.alloc(0)))===sha(bytes));
  const pdfMatch=pdfNames.filter(f=>f.endsWith('.pdf')&&f.includes(hn.replace(/[\\/:*?"<>|]/g,'_'))&&f.includes(ln));
  add('pdf_named_for_hn_and_ln',pdfMatch.length>=1,pdfMatch.join(','));
- for(const f of pdfMatch){const b=await readFile(path.join(dir,'pdf',f));add('pdf_header_and_size:'+f,b.subarray(0,5).toString()==='%PDF-'&&(await stat(path.join(dir,'pdf',f))).size>1024);add('pdf_backup_copy_identical:'+f,backupNames.has(f)&&sha(await readFile(path.join(dir,'backup',f)))===sha(b));}
+ for(const f of pdfMatch){const b=await readFile(path.join(dir,'pdf',f));add('pdf_header_and_size:'+f,b.subarray(0,5).toString()==='%PDF-'&&(await stat(path.join(dir,'pdf',f))).size>1024);add('pdf_hash_equals_manifest_and_backup_copy:'+f,!!copy&&copy.manifest.pdfName===f&&copy.manifest.pdfHash===sha(b)&&sha(await readFile(path.join(copy.folder,f)).catch(()=>Buffer.alloc(0)))===sha(b));}
  report.res.push({name,ln,hn,dob,specimenDate:specimen,approval,certifier,accession,checks});
 }
 const dbFile=arg('database-url-file');
