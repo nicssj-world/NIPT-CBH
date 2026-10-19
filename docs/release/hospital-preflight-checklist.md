@@ -26,9 +26,9 @@ Status legend for the sign-off column: `PASS` / `FAIL` / `N/A` with the name and
 
 | ID | Item | How to check | Expected | Result / evidence | Checked by, date |
 |---|---|---|---|---|---|
-| PF-06 | Installation root | host-check `path_root`, `disk_root` | Short local path (e.g. `C:\NIPT-CBH`), ≥ 8 GB free before data, writable by the installer; Thai/space characters tolerated | | |
+| PF-06 | Installation root | host-check `path_root`, `disk_root` | Short local **ASCII-only** path (e.g. `C:\NIPT-CBH`; spaces are fine, Thai characters are refused because PostgreSQL cannot start from them), ≥ 8 GB free before data, writable by the installer | | |
 | PF-07 | Database and file-store location | `data\` under the root unless IT relocates the volume | Local NTFS volume with growth headroom; **never** a network share for `data\pgdata` | | |
-| PF-08 | Backup destination | host-check `path_backup-path` | Local second disk or UNC share writable by the **service account** that runs the scheduled backup; outside `data\` | | |
+| PF-08 | Backup destination | host-check `path_backup-path` | Local second disk or UNC share writable by the **service account** that runs the scheduled backup; outside `data\`. Thai folder names are fine here (tested) | | |
 | PF-09 | Run Photo Evidence storage path | host-check `path_photo-path`; Settings → Run Photo Evidence | Absolute drive/UNC path, writable by the service account; optional allow-list `NIPT_RUN_PHOTO_ALLOWED_ROOTS`; the folder is included in the photo backup plan (see backup runbook) | | |
 | PF-10 | HIS inbound / outbound shares | host-check `path_inbound`, `path_outbound` | Test with the **service account**, not the installing user; ACLs approved by HIS owner (Q-I3). Not exercised against Production by this package | | |
 | PF-11 | Real-time antivirus/EDR | host-check `antivirus_products`, `defender_exclusions` | Hospital security decides; if exclusions are approved apply them to data and photo folders only, never to the application or `secrets\` | | |

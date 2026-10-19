@@ -14,8 +14,9 @@ const stamp=new Date().toISOString().replace(/[-:T]/g,'').slice(0,14);
 const base=path.resolve('.local/p8-win'),evidenceDir=path.join(base,'evidence','rehearsal-'+stamp);mkdirSync(evidenceDir,{recursive:true});
 const onlyIdx=process.argv.indexOf('--only'),only=onlyIdx>=0?process.argv[onlyIdx+1].split(','):undefined; // targeted re-run of independent steps after a fix to code that only they exercise
 const resumeIdx=process.argv.indexOf('--resume'),resume=resumeIdx>=0?path.resolve(process.argv[resumeIdx+1]):undefined; // debugging aid: continue on an existing installation (steps S00-S06 skipped)
-// A Thai folder name with a space exercises PostgreSQL initdb, scheduled-task arguments, cmd quoting, icacls and tsx on a non-ASCII path (--ascii-root to turn it off)
-const root=resume??(flag('ascii-root')?path.join(base,'rehearsal-'+stamp,'root'):path.join(base,'rehearsal-'+stamp,'โรงพยาบาล ทดสอบ','NIPT ติดตั้ง'));
+// The installation root contains a space (like the repository path and C:/Program Files) to exercise initdb, scheduled-task arguments, cmd quoting, icacls and tsx.
+// A non-ASCII root is refused at preflight (S02): PostgreSQL on Windows cannot start from it.
+const root=resume??path.join(base,'rehearsal-'+stamp,'NIPT CBH test');
 const excelModeIdx=process.argv.indexOf('--excel-mode'),excelMode=excelModeIdx>=0?process.argv[excelModeIdx+1]:'direct';
 const ports=[19860,19861,19862,19863];
 const master=process.env.NIPT_TASK_MASTER_PATH??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx';
@@ -39,17 +40,17 @@ async function step(id:string,name:string,fn:()=>Promise<unknown>|unknown){
 function finish(ok:boolean){
  const evidence={format:'NIPT_WINDOWS_INSTALLER_REHEARSAL_V1',environment:'DISPOSABLE_LOCAL_WINDOWS_TEST',passed:ok&&steps.every(s=>s.ok),sourceHead:revision,root,ports,steps,
   notRun:['elevated SYSTEM startup task (session not Administrator)','hospital TLS/DNS/LAN','UNC/SMB shares and service-account ACLs','NAS backup target and key escrow','physical power loss','code-signing/MSI wrapper'],
-  excelMode,rootIsThaiPath:!flag('ascii-root'),clinicalAcceptance:false,hospitalOperationalAcceptance:false,hisConfirmed:false};
+  excelMode,rootContainsSpace:true,clinicalAcceptance:false,hospitalOperationalAcceptance:false,hisConfirmed:false};
  writeFileSync(path.join(evidenceDir,'evidence.json'),JSON.stringify(evidence,null,2));
  return evidence;
 }
 
 // ── CLI access ──
 const packageCli=(v:string,appOnly=false)=>({node:path.join(pkgDir(v,false),'payload','runtime','node','node.exe'),cli:path.join(pkgDir(v,appOnly),'installer','nipt-admin.mjs')});
-function cli(who:'package'|'installed',cmd:string,extra:string[]=[],opts:{allowFail?:boolean;pkg?:string}={}):Record<string,any>{ // eslint-disable-line @typescript-eslint/no-explicit-any
+function cli(who:'package'|'installed',cmd:string,extra:string[]=[],opts:{allowFail?:boolean;pkg?:string;root?:string}={}):Record<string,any>{ // eslint-disable-line @typescript-eslint/no-explicit-any
  const node=who==='package'?packageCli('1.0.0').node:path.join(root,'runtime','node','node.exe');
  const script=who==='package'?path.join(pkgDir('1.0.0'),'installer','nipt-admin.mjs'):path.join(root,'admin','nipt-admin.mjs');
- const r=spawnSync(node,[script,cmd,'--root',root,...extra],{encoding:'utf8',windowsHide:true,maxBuffer:64*1024*1024});
+ const r=spawnSync(node,[script,cmd,'--root',opts.root??root,...extra],{encoding:'utf8',windowsHide:true,maxBuffer:64*1024*1024});
  let json:Record<string,any>={};try{json=JSON.parse(r.stdout);}catch{json={ok:false,error:'UNPARSEABLE_OUTPUT',status:r.status,signal:r.signal,spawnError:r.error?.message,stdout:r.stdout.slice(-800),stderr:r.stderr.slice(-800)};} // eslint-disable-line @typescript-eslint/no-explicit-any
  if(r.status!==0&&!opts.allowFail)throw Error(`${cmd} failed: ${JSON.stringify(json).slice(0,1200)}`);
  return {...json,_status:r.status};
@@ -102,9 +103,11 @@ try{
   const dirty=cli('package','preflight',['--package',pkgDir('1.0.0'),'--public-key',publicKey,'--ports',ports.join(','),'--master-workbook',master],{allowFail:true});
   assert.equal(dirty.ok,false);assert.ok(dirty.checks.some((c:{id:string;ok:boolean})=>c.id==='install_root_empty'&&!c.ok));
   rmSync(path.join(root,'stray.txt'));
+  const thaiRoot=cli('package','preflight',['--package',pkgDir('1.0.0'),'--public-key',publicKey,'--ports',ports.join(','),'--master-workbook',master],{allowFail:true,root:path.join(base,'rehearsal-'+stamp,'โรงพยาบาล ทดสอบ')});
+  assert.equal(thaiRoot.ok,false);assert.ok(thaiRoot.checks.some((c:{id:string;ok:boolean;detail:string})=>c.id==='install_root_safe'&&!c.ok&&c.detail==='INSTALL_ROOT_MUST_BE_ASCII'));
   const noMaster=cli('package','preflight',['--package',pkgDir('1.0.0'),'--public-key',publicKey,'--ports',ports.join(',')],{allowFail:true});
   assert.ok(noMaster.checks.some((c:{id:string;ok:boolean})=>c.id==='master_workbook_sha256'&&!c.ok));
-  return {occupiedPort:'port_web refused',nonEmptyRoot:'install_root_empty refused',masterWorkbookRequired:true};
+  return {occupiedPort:'port_web refused',nonEmptyRoot:'install_root_empty refused',nonAsciiRoot:'INSTALL_ROOT_MUST_BE_ASCII refused',masterWorkbookRequired:true};
  });
 
  await step('S02b','host check (read-only) on this developer host: paths incl. a Thai file name, ports, time, Excel, printer; no FAIL',()=>{
@@ -272,7 +275,7 @@ try{
  });
 
  await step('S13c','scheduled backup: destination set, daily task registered, task executed once by Task Scheduler, a new verified backup appears, task removed',async()=>{
-  const dest=path.join(path.dirname(root),'backups-destination');
+  const dest=path.join(path.dirname(root),'สำรองข้อมูล ทดสอบ'); // a Thai, space-containing destination folder (as a NAS share might be named)
   const set=cli('installed','set-backup-root',['--path',dest]);assert.equal(set.policyUpdated,true);
   const sch=cli('installed','schedule-backup',['--time','03:15']);assert.equal(sch.scheduled,true);
   const before=cli('installed','backups').count;
