@@ -1,6 +1,6 @@
 /** Build the signed Windows offline package from the clean committed source.
  *    tsx tools/win-installer/build-package.ts --version 1.0.0 [--out <dir>] [--app-only] [--skip-build]
- *        [--extra-migration <file.sql>] [--signing-key <private.pem>] [--min-from <version>] [--test-fault web-exits]
+ *        [--extra-migration <file.sql>] [--signing-key <private.pem>] [--min-from <version>] [--test-fault web-exits] [--master-workbook <approved master .xlsx>]
  *  The package is a folder: installer/ (operator CLI), payload/release (app + ops + migrations), payload/runtime (Node, PostgreSQL 17 binaries,
  *  Chromium for the PDF renderer; omitted with --app-only for upgrades), manifest.json + manifest.sig (Ed25519 over every file's SHA-256).
  *  Test environment only: nothing is published, pushed or deployed. `--extra-migration` exists for upgrade rehearsals and is recorded in the manifest. */
@@ -95,6 +95,15 @@ if(!appOnly){
  await cp(pwshHome,path.join(rt,'pwsh'),{recursive:true});
  runtime={pwsh:execFileSync(path.join(pwshHome,'pwsh.exe'),['-NoLogo','-NoProfile','-Command','$PSVersionTable.PSVersion.ToString()'],{encoding:'utf8'}).trim(),node:process.version,postgres:execFileSync(path.join(pgHome,'bin','postgres.exe'),['--version'],{encoding:'utf8'}).trim(),chromium:folder};
  await writeFile(path.join(rt,'runtime.json'),JSON.stringify(runtime));
+}
+
+// 5b. the approved owner master workbook (one-click Setup embeds it so the installation needs nothing else; the hash is checked against the repository manifest)
+const masterArg=arg('master-workbook');
+if(masterArg){
+ const bytes=await readFile(masterArg);
+ const expected=(JSON.parse(await readFile('packages/workbook/master-manifest.json','utf8')) as {sha256:string}).sha256;
+ if(createHash('sha256').update(bytes).digest('hex')!==expected)throw Error('MASTER_WORKBOOK_SHA256_MISMATCH');
+ await mkdir(path.join(out,'payload','master'),{recursive:true});await writeFile(path.join(out,'payload','master','approved-master.xlsx'),bytes);
 }
 
 // 6. installer + documentation

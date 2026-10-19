@@ -6,7 +6,13 @@ import http from 'node:http';
 import {readFileSync} from 'node:fs';
 const port=Number(process.env.NIPT_HTTPS_PORT),upstreamPort=Number(process.env.NIPT_UPSTREAM_PORT),host=process.env.NIPT_HTTPS_HOST??'127.0.0.1';
 if(!Number.isInteger(port)||!Number.isInteger(upstreamPort)||!process.env.NIPT_TLS_PFX||!process.env.NIPT_TLS_PASSPHRASE_FILE){process.stderr.write('HTTPS_PROXY_CONFIG_REQUIRED\n');process.exit(2);}
+const certFile=process.env.NIPT_TLS_CER;
 const server=https.createServer({pfx:readFileSync(process.env.NIPT_TLS_PFX),passphrase:readFileSync(process.env.NIPT_TLS_PASSPHRASE_FILE,'utf8').trim(),minVersion:'TLSv1.2'},(request,response)=>{
+ // the PUBLIC certificate (no key) for clients that need to trust it; the one path served without the application
+ if(request.method==='GET'&&request.url==='/.well-known/nipt-cbh-certificate.cer'&&certFile){
+  try{const body=readFileSync(certFile);response.writeHead(200,{'content-type':'application/pkix-cert','content-disposition':'attachment; filename="nipt-cbh-certificate.cer"','cache-control':'no-store','x-content-type-options':'nosniff'});response.end(body);}catch{response.writeHead(404);response.end();}
+  return;
+ }
  const upstream=http.request({hostname:'127.0.0.1',port:upstreamPort,path:request.url,method:request.method,headers:{...request.headers,'x-forwarded-proto':'https','x-forwarded-host':request.headers.host}},reply=>{
   response.writeHead(reply.statusCode??502,reply.headers);reply.pipe(response);
  });

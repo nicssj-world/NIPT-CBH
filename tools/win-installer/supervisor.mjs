@@ -75,7 +75,7 @@ const services=[
  {name:'renderer',cwd:opsDir,args:['--import',opsRuntimeEnv,'--import','tsx','apps/renderer/main.ts'],env:{RENDERER_HOST:'127.0.0.1',RENDERER_PORT:String(config.ports.renderer)}},
  {name:'worker',cwd:opsDir,ipc:true,args:['--import',opsRuntimeEnv,'--import','tsx','tools/win-installer/service-worker.ts'],env:{DATABASE_URL_FILE:secret('worker-url'),INTEGRATION_PRIVATE_KEY_FILE:secret('integration-private.pem')}},
  {name:'web',cwd:appDir,args:['--import',runtimeEnv,'server.js'],env:{HOSTNAME:'127.0.0.1',PORT:String(config.ports.web),DATABASE_URL_FILE:secret('web-url'),INTEGRATION_PUBLIC_KEY_FILE:secret('integration-public.pem')}},
- {name:'https',cwd:opsDir,args:[path.join(opsDir,'tools','win-installer','https-proxy.mjs')],env:{NIPT_HTTPS_PORT:String(config.ports.https),NIPT_HTTPS_HOST:config.httpsHost??'127.0.0.1',NIPT_UPSTREAM_PORT:String(config.ports.web),NIPT_TLS_PFX:path.join(L.tls,'server.pfx'),NIPT_TLS_PASSPHRASE_FILE:secret('tls-passphrase')}}
+ {name:'https',cwd:opsDir,args:[path.join(opsDir,'tools','win-installer','https-proxy.mjs')],env:{NIPT_HTTPS_PORT:String(config.ports.https),NIPT_HTTPS_HOST:config.lanEnabled?(config.httpsHost??'0.0.0.0'):'127.0.0.1',NIPT_TLS_CER:path.join(L.tls,'server.cer'),NIPT_UPSTREAM_PORT:String(config.ports.web),NIPT_TLS_PFX:path.join(L.tls,'server.pfx'),NIPT_TLS_PASSPHRASE_FILE:secret('tls-passphrase')}}
 ];
 const state={supervisorPid:process.pid,startedAt:new Date().toISOString(),release:installState.current.version,services:{}};
 const writeState=()=>{try{writeFileSync(L.state,JSON.stringify(state,null,2));}catch{/* best effort */}};

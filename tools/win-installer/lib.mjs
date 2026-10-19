@@ -57,6 +57,14 @@ export function validateConfig(c){
  need(['user','system'].includes(c.taskMode),'CONFIG_TASK_MODE_INVALID');
  // The HTTPS front listens on loopback unless IT explicitly publishes it on a LAN address (never PostgreSQL, web or renderer).
  need(c.httpsHost===undefined||c.httpsHost==='0.0.0.0'||/^(?:\d{1,3}\.){3}\d{1,3}$/.test(c.httpsHost),'CONFIG_HTTPS_HOST_INVALID');
+ need(c.host===undefined||isValidHost(c.host),'CONFIG_HOST_INVALID');
+ need(c.lanEnabled===undefined||typeof c.lanEnabled==='boolean','CONFIG_LAN_INVALID');
+ if(c.lanAllow!==undefined)normalizeLanAllow(c.lanAllow);
+ if(c.lanProfiles!==undefined)normalizeLanProfiles(c.lanProfiles);
+ // the published host and the origin must agree: the origin is what users type and what the application accepts
+ need(c.host===undefined||c.origin===undefined||new URL(c.origin).hostname.toLowerCase()===String(c.host).toLowerCase(),'CONFIG_ORIGIN_HOST_MISMATCH');
+ // LAN publication needs a listen address other than loopback, and never an unrestricted wildcard host by accident
+ need(!(c.lanEnabled===true)||(c.host!==undefined&&c.host!=='localhost'&&c.host!=='127.0.0.1'),'CONFIG_LAN_REQUIRES_REAL_HOST');
  need(c.excelMode===undefined||['direct','bridge'].includes(c.excelMode),'CONFIG_EXCEL_MODE_INVALID');
  // Excel automation is unsupported in session 0, so a SYSTEM task can only reach Excel through the bridge running in a user session.
  need(!(c.taskMode==='system'&&(c.excelMode??'bridge')==='direct'),'CONFIG_SYSTEM_TASK_REQUIRES_EXCEL_BRIDGE');
@@ -171,3 +179,55 @@ export function backoffMs(restarts){return Math.min(30000,1000*2**Math.max(0,res
 export function parseLedgerOutput(text){
  return String(text).split(String.fromCharCode(10)).map(l=>l.trim()).filter(Boolean).map(l=>{const [name,checksum]=l.split('|');return {name,checksum};});
 }
+
+// ───────────── hospital LAN access ─────────────
+// One canonical URL: the application accepts exactly one Origin (APP_ORIGIN, Secure cookies, CSRF), so the address users type must be the origin.
+const IPV4=/^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$/;
+export const isIPv4=v=>IPV4.test(String(v));
+/** A DNS name (letters, digits, hyphen, dots; each label 1-63 chars; <=253) or an IPv4 address. Never a URL, port or path. */
+export function isValidHost(v){
+ const h=String(v??'');
+ if(isIPv4(h))return !['0.0.0.0','255.255.255.255'].includes(h)&&!h.startsWith('169.254.');
+ if(/^[0-9.]+$/.test(h))return false; // something that looks like an IPv4 address but is not one (e.g. 300.1.1.1) is not a DNS name either
+ return h.length>0&&h.length<=253&&h.split('.').every(l=>/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(l));
+}
+export const originFor=(host,port)=>`https://${host}${port===443?'':':'+port}`;
+/** Subject alternative names of the server certificate: loopback always, plus the published host (IP or DNS name) and the computer name. */
+export function sanEntries(host,computerName){
+ const out=[{type:'DNS',value:'localhost'},{type:'IP',value:'127.0.0.1'}];
+ const add=(t,v)=>{if(v&&!out.some(e=>e.type===t&&e.value.toLowerCase()===String(v).toLowerCase()))out.push({type:t,value:String(v)});};
+ if(host){if(isIPv4(host))add('IP',host);else add('DNS',host);}
+ if(computerName&&/^[A-Za-z0-9-]{1,63}$/.test(computerName))add('DNS',computerName);
+ return out;
+}
+export const sanText=entries=>'2.5.29.17={text}'+entries.map(e=>(e.type==='IP'?'IPAddress=':'DNS=')+e.value).join('&');
+/** Windows Firewall RemoteAddress scope. Allowed: LocalSubnet, a single IPv4, an IPv4 CIDR or an IPv4 range, comma separated.
+ *  Refused on purpose: Any, *, 0.0.0.0/0, Internet, DefaultGateway... : the rule must name the hospital network. */
+export function normalizeLanAllow(spec){
+ const raw=String(spec??'LocalSubnet').split(',').map(x=>x.trim()).filter(Boolean);
+ if(!raw.length||raw.length>16)throw Error('LAN_ALLOW_INVALID');
+ const ok=t=>{
+  if(t.toLowerCase()==='localsubnet')return 'LocalSubnet';
+  const cidr=/^(.+)\/(\d{1,2})$/.exec(t);
+  if(cidr){const p=+cidr[2];if(isIPv4(cidr[1])&&p>=8&&p<=32&&cidr[1]!=='0.0.0.0')return t;throw Error('LAN_ALLOW_INVALID');}
+  const range=/^(.+)-(.+)$/.exec(t);
+  if(range){if(isIPv4(range[1])&&isIPv4(range[2])&&range[1]!=='0.0.0.0')return t;throw Error('LAN_ALLOW_INVALID');}
+  if(isIPv4(t)&&t!=='0.0.0.0')return t;
+  throw Error('LAN_ALLOW_INVALID');
+ };
+ return [...new Set(raw.map(ok))].join(',');
+}
+export function normalizeLanProfiles(spec){
+ const all=['Domain','Private','Public'];
+ const raw=String(spec??'Domain,Private').split(',').map(x=>x.trim()).filter(Boolean);
+ if(!raw.length||raw.some(x=>!all.includes(x)))throw Error('LAN_PROFILES_INVALID');
+ return all.filter(x=>raw.includes(x)).join(',');
+}
+/** Pick the server's LAN address from the machine's adapters: Up, with a default gateway, not virtual/loopback/link-local. Pure: the caller supplies the data. */
+export function pickLanAddress(adapters){
+ const bad=/(vethernet|wsl|hyper-v|virtualbox|vmware|docker|loopback|bluetooth|tunnel|vpn)/i;
+ const good=(adapters??[]).filter(a=>a&&a.up!==false&&a.gateway&&isIPv4(a.ipv4)&&!String(a.ipv4).startsWith('169.254.')&&!bad.test(String(a.alias??'')+' '+String(a.description??'')));
+ good.sort((a,b)=>(a.metric??9999)-(b.metric??9999));
+ return good[0]??null;
+}
+

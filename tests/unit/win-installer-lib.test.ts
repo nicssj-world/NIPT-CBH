@@ -2,10 +2,11 @@ import {describe,it,expect,beforeAll,afterAll} from 'vitest';
 import {mkdtemp,mkdir,writeFile,rm,symlink} from 'node:fs/promises';
 import {generateKeyPairSync,sign} from 'node:crypto';
 import os from 'node:os';
+import {thaiError,thaiStep,thaiLanWarnings,thaiCheck,THAI_WARNING} from '../../tools/win-installer/setup-messages.mjs';
 import path from 'node:path';
 import {
  parseVersion,compareVersions,layout,validateConfig,assertSafeRoot,directoryHashes,verifyPackage,schemaCompatibility,canRollbackApplicationOnly,
- healthVerdict,backoffMs,parseLedgerOutput,sha256Bytes,INSTALLER_FORMAT,writeJson,readJson,portFree
+ healthVerdict,backoffMs,parseLedgerOutput,isValidHost,isIPv4,originFor,sanEntries,sanText,normalizeLanAllow,normalizeLanProfiles,pickLanAddress,sha256Bytes,INSTALLER_FORMAT,writeJson,readJson,portFree
 } from '../../tools/win-installer/lib.mjs';
 
 // The Windows installer's decisions that must never depend on a live machine: version order, configuration limits, package authenticity,
@@ -176,5 +177,72 @@ describe('state files',()=>{
   await writeJson(f,{a:1});expect(await readJson(f)).toEqual({a:1});
   await expect(readJson(path.join(dir,'missing.json'))).rejects.toThrow();
   expect(sha256Bytes(Buffer.from('abc'))).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+ });
+});
+
+describe('hospital LAN access rules',()=>{
+ it('accepts an IPv4 address or a DNS name as the published host and nothing that is a URL, port, wildcard or link-local address',()=>{
+  for(const ok of ['192.168.1.57','10.20.30.40','nipt.hospital.local','NIPT-SERVER','a.b.c'])expect(isValidHost(ok),ok).toBe(true);
+  for(const bad of ['','0.0.0.0','255.255.255.255','169.254.1.1','http://x','x:443','a/b','-bad.com','bad-.com','a..b','300.1.1.1','host name'])expect(isValidHost(bad),bad).toBe(false);
+  expect(isIPv4('192.168.1.1')).toBe(true);expect(isIPv4('192.168.1')).toBe(false);
+ });
+ it('builds the one canonical origin and the certificate names that must contain it',()=>{
+  expect(originFor('192.168.1.57',443)).toBe('https://192.168.1.57');expect(originFor('nipt.hospital.local',8443)).toBe('https://nipt.hospital.local:8443');
+  const ip=sanEntries('192.168.1.57','NIPT-SRV');expect(ip.map(e=>e.type+':'+e.value)).toEqual(['DNS:localhost','IP:127.0.0.1','IP:192.168.1.57','DNS:NIPT-SRV']);
+  const dns=sanEntries('nipt.hospital.local','NIPT-SRV');expect(dns.map(e=>e.type+':'+e.value)).toEqual(['DNS:localhost','IP:127.0.0.1','DNS:nipt.hospital.local','DNS:NIPT-SRV']);
+  expect(sanEntries('localhost','x y').map(e=>e.value)).toEqual(['localhost','127.0.0.1']);                    // an invalid computer name is dropped, duplicates collapse
+  expect(sanText(ip)).toBe('2.5.29.17={text}DNS=localhost&IPAddress=127.0.0.1&IPAddress=192.168.1.57&DNS=NIPT-SRV');
+ });
+ it('restricts the firewall scope to the hospital network and refuses anything open to the world',()=>{
+  expect(normalizeLanAllow(undefined)).toBe('LocalSubnet');expect(normalizeLanAllow('localsubnet')).toBe('LocalSubnet');
+  expect(normalizeLanAllow('192.168.1.0/24, 10.0.0.0/8, 172.16.5.9, 192.168.2.10-192.168.2.50')).toBe('192.168.1.0/24,10.0.0.0/8,172.16.5.9,192.168.2.10-192.168.2.50');
+  expect(normalizeLanAllow('LocalSubnet,LocalSubnet')).toBe('LocalSubnet');
+  for(const bad of ['Any','*','0.0.0.0/0','0.0.0.0','Internet','DefaultGateway','192.168.1.0/4','192.168.1.0/33','10.0.0.1-','999.1.1.1','',' , '])expect(()=>normalizeLanAllow(bad),bad).toThrow('LAN_ALLOW_INVALID');
+  expect(normalizeLanProfiles(undefined)).toBe('Domain,Private');expect(normalizeLanProfiles('Public,Domain')).toBe('Domain,Public');
+  expect(()=>normalizeLanProfiles('Any')).toThrow('LAN_PROFILES_INVALID');expect(()=>normalizeLanProfiles('')).toThrow('LAN_PROFILES_INVALID');
+ });
+ it('validates the LAN configuration: host and origin agree, LAN needs a real host',()=>{
+  const lan={...goodConfig(),host:'192.168.1.57',origin:'https://192.168.1.57:19852',lanEnabled:true,lanAllow:'LocalSubnet',lanProfiles:'Domain,Private',httpsHost:'0.0.0.0'};
+  expect(validateConfig(lan).host).toBe('192.168.1.57');
+  const bad=(patch:Record<string,unknown>,code:string)=>expect(()=>validateConfig({...lan,...patch}),code).toThrow(code);
+  bad({origin:'https://192.168.1.99:19852'},'CONFIG_ORIGIN_HOST_MISMATCH');
+  bad({host:'localhost',origin:'https://localhost:19852'},'CONFIG_LAN_REQUIRES_REAL_HOST');
+  bad({host:'0.0.0.0'},'CONFIG_HOST_INVALID');bad({lanAllow:'Any'},'LAN_ALLOW_INVALID');bad({lanProfiles:'Everything'},'LAN_PROFILES_INVALID');bad({lanEnabled:'yes'},'CONFIG_LAN_INVALID');
+  expect(validateConfig({...goodConfig()}).instance).toBe('nipt-test');                                       // loopback-only configurations still validate
+ });
+ it('chooses the LAN adapter: up, with a gateway, physical, lowest metric; virtual adapters never',()=>{
+  const adapters=[{alias:'vEthernet (WSL)',ipv4:'172.25.32.1',gateway:'172.25.32.2',metric:5},{alias:'Wi-Fi',ipv4:'192.168.50.7',gateway:'192.168.50.1',metric:50},{alias:'Ethernet',ipv4:'192.168.1.57',gateway:'192.168.1.1',metric:25},{alias:'Ethernet 2',ipv4:'169.254.3.3',gateway:'1.1.1.1',metric:1},{alias:'Ethernet 3',ipv4:'10.9.9.9',gateway:null,metric:2}];
+  expect(pickLanAddress(adapters)?.ipv4).toBe('192.168.1.57');
+  expect(pickLanAddress([{alias:'Docker',ipv4:'10.0.75.1',gateway:'10.0.75.2'}])).toBeNull();expect(pickLanAddress(undefined)).toBeNull();
+ });
+});
+
+describe('Setup messages (Thai, actionable, no technical detail in the dialog)',()=>{
+ it('turns a failed preflight into the reasons the administrator can fix',()=>{
+  const msg=thaiError('PREFLIGHT_FAILED',[{id:'install_root_safe',ok:false,detail:'INSTALL_ROOT_MUST_BE_ASCII'},{id:'port_https',ok:false,detail:'443'},{id:'free_space_8gb',ok:false,detail:'1'},{id:'excel_installed',ok:false,detail:''}]);
+  expect(msg).toContain('ภาษาอังกฤษ');expect(msg).toContain('พอร์ต 443');expect(msg).toContain('8 GB');expect(msg).not.toContain('Excel');   // a missing Excel does not block the installation
+  expect(thaiCheck({id:'package_signature_and_files',detail:'PACKAGE_CHECKSUM_MISMATCH'})).toContain('เสียหาย');
+ });
+ it('never leaks codes or stack text for known and unknown failures, and says when data is safe',()=>{
+  for(const code of ['UPGRADE_FAILED_HEALTH','UPGRADE_SCHEMA_INCOMPATIBLE','SIGNATURE_INVALID','INSTALLED_VERSION_IS_NEWER','LAN_ADDRESS_NOT_FOUND','TIMEOUT_HEALTH_["web"]','SOMETHING_NEW']){
+   const t=thaiError(code,undefined);expect(t,code).toMatch(/[฀-๿]/);expect(t,code).not.toMatch(/Error|undefined|at \w+\(/);
+  }
+  expect(thaiError('UPGRADE_FAILED_HEALTH')).toContain('ข้อมูลเดิมยังอยู่ครบ');expect(thaiError('SOMETHING_NEW')).toContain('Log');
+ });
+ it('maps engine progress lines to Thai steps with a rising percentage',()=>{
+  const lines=['[nipt] creating layout','[nipt] copying runtime and release (offline)','[nipt] generating secrets, certificate and policies','[nipt] initializing the private PostgreSQL cluster','[nipt] migrating the database and creating accounts','[nipt] registering the startup task','[nipt] taking the first verified backup (go-live gate)'];
+  const pct=lines.map(l=>thaiStep(l)!.percent);expect([...pct].sort((a,b)=>a-b)).toEqual(pct);expect(thaiStep('[nipt] something unknown')).toBeNull();
+  expect(thaiStep('[nipt] reusing the retained PostgreSQL cluster')!.text).toContain('เดิม');
+ });
+ it('warns about the real LAN problems and stays silent when everything is in place',()=>{
+  const ok={enabled:true,probe:{reachableFromThisServer:true},firewall:{exists:true},warnings:[],certificateTrustedOnThisServer:true};
+  expect(thaiLanWarnings(ok,{admin:true})).toEqual([]);
+  expect(thaiLanWarnings({...ok,firewall:{exists:false}},{admin:false})).toContain(THAI_WARNING.FIREWALL_NOT_CREATED);
+  expect(thaiLanWarnings({...ok,firewall:{exists:false}},{admin:true})).toContain(THAI_WARNING.FIREWALL_RULE_MISSING);
+  expect(thaiLanWarnings({...ok,probe:{reachableFromThisServer:false}},{admin:true})).toContain(THAI_WARNING.LAN_PROBE_FAILED);
+  expect(thaiLanWarnings({...ok,warnings:['NETWORK_CATEGORY_NOT_COVERED:Public']},{admin:true})).toContain(THAI_WARNING.NETWORK_PUBLIC);
+  expect(thaiLanWarnings({...ok,certificateTrustedOnThisServer:false},{admin:true})).toContain(THAI_WARNING.CERT_NOT_TRUSTED);
+  expect(thaiLanWarnings({...ok,enabled:false,probe:{reachableFromThisServer:false}},{admin:true})).not.toContain(THAI_WARNING.LAN_PROBE_FAILED);
+  expect(thaiLanWarnings(undefined)).toEqual([]);
  });
 });

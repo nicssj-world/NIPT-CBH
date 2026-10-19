@@ -7,10 +7,11 @@ import {randomBytes,randomUUID,generateKeyPairSync} from 'node:crypto';
 import {existsSync,readFileSync,writeFileSync,mkdirSync,rmSync,cpSync,readdirSync,copyFileSync,appendFileSync,statSync} from 'node:fs';
 import https from 'node:https';
 import path from 'node:path';
+import os from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {
  layout,validateConfig,assertSafeRoot,portFree,freeBytes,MIN_FREE_BYTES,verifyPackage,sha256File,readJson,writeJson,compareVersions,
- schemaCompatibility,canRollbackApplicationOnly,healthVerdict,parseLedgerOutput
+ schemaCompatibility,canRollbackApplicationOnly,healthVerdict,parseLedgerOutput,isValidHost,isIPv4,originFor,sanEntries,sanText,normalizeLanAllow,normalizeLanProfiles,pickLanAddress
 } from './lib.mjs';
 
 const SYS=process.env.SystemRoot??'C:\\Windows';
@@ -168,14 +169,17 @@ async function preflight(){
  add('windows',process.platform==='win32',process.platform);
  add('node24',/^v24\./.test(process.version),process.version);
  try{assertSafeRoot(L.root,packageDir);add('install_root_safe',true);}catch(e){add('install_root_safe',false,e.message);}
- add('install_root_empty',!existsSync(L.installState)&&(!existsSync(L.root)||readdirSync(L.root).length===0),existsSync(L.installState)?'already installed':'');
+ const priorState=existsSync(L.installState)?JSON.parse(readFileSync(L.installState,'utf8')):null;
+ add('install_root_empty',(!priorState&&(!existsSync(L.root)||readdirSync(L.root).length===0))||priorState?.status==='UNINSTALLED_DATA_RETAINED',priorState?(priorState.status==='UNINSTALLED_DATA_RETAINED'?'data retained from an earlier uninstall: it will be reused, never recreated':'already installed'):'');
  try{mkdirSync(L.root,{recursive:true});add('free_space_8gb',await freeBytes(L.root)>=MIN_FREE_BYTES,String(await freeBytes(L.root)));}catch(e){add('free_space_8gb',false,e.message);}
- const ports=portsFromArgs();
- for(const [name,port] of Object.entries(ports))add('port_'+name,await portFree(port),String(port));
+ const ports=await resolvePorts();
+ for(const [name,port] of Object.entries(ports))add('port_'+name,await portFree(port,name==='https'&&args.lan==='yes'?'0.0.0.0':'127.0.0.1'),String(port));
+ if(args.lan==='yes'){const h=args.host??detectLan()?.ipv4;add('lan_address',!!h&&isValidHost(h),String(h??'no LAN adapter with a default gateway was found'));}
  let manifest=null;
  try{manifest=await verifyPackage(packageDir,path.resolve(args['public-key']??fail('PUBLIC_KEY_REQUIRED')));add('package_signature_and_files',true,manifest.version);}catch(e){add('package_signature_and_files',false,e.message);}
  add('runtime_in_package',!!manifest?.runtimeIncluded&&existsSync(path.join(packageDir,'payload','runtime','pg','bin','initdb.exe'))&&existsSync(path.join(packageDir,'payload','runtime','node','node.exe')),'');
- if(args['master-workbook']){try{add('master_workbook_sha256',await sha256File(args['master-workbook'])===JSON.parse(readFileSync(path.join(packageDir,'payload','release','ops','packages','workbook','master-manifest.json'),'utf8')).sha256,'');}catch(e){add('master_workbook_sha256',false,e.message);}}
+ const masterFile=args['master-workbook']??path.join(packageDir,'payload','master','approved-master.xlsx');
+ if(existsSync(masterFile)){try{add('master_workbook_sha256',await sha256File(masterFile)===JSON.parse(readFileSync(path.join(packageDir,'payload','release','ops','packages','workbook','master-manifest.json'),'utf8')).sha256,'');}catch(e){add('master_workbook_sha256',false,e.message);}}
  else add('master_workbook_sha256',false,'MASTER_WORKBOOK_REQUIRED (operational backups need the approved master)');
  add('task_scheduler',taskSchedulerAvailable(),'');
  add('powershell7_in_package',existsSync(path.join(packageDir,'payload','runtime','pwsh','pwsh.exe')),'the native Excel export needs PowerShell 7');
@@ -188,6 +192,19 @@ async function preflight(){
 function excelInstalled(){try{run(system32('reg.exe'),['query','HKCR\\Excel.Application\\CurVer']);return true;}catch{return false;}}
 function defaultPrinterPresent(){try{return ps("(Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Windows' -Name Device -ErrorAction Stop).Device").trim().length>0;}catch{return false;}}
 function taskSchedulerAvailable(){try{ps('Get-Command Register-ScheduledTask | Out-Null');return true;}catch{return false;}}
+let autoPortCache=null;
+/** `--ports auto`: PostgreSQL, web and renderer on high loopback ports that are free now; HTTPS on 443 when free, otherwise 8443 (then upwards). */
+async function pickFree(candidates,host,taken){for(const p of candidates)if(!taken.includes(p)&&await portFree(p,host))return p;fail('NO_FREE_PORT',{candidates:[candidates[0],candidates.at(-1)]});}
+async function resolvePorts(){
+ if(args.ports!=='auto')return portsFromArgs();
+ if(autoPortCache)return autoPortCache;
+ const range=(a,n)=>Array.from({length:n},(_,i)=>a+i),taken=[];
+ const postgres=await pickFree(range(55432,40),'127.0.0.1',taken);taken.push(postgres);
+ const web=await pickFree(range(38080,40),'127.0.0.1',taken);taken.push(web);
+ const renderer=await pickFree(range(38200,40),'127.0.0.1',taken);taken.push(renderer);
+ const https=await pickFree([443,...range(8443,20)],args.lan==='yes'?'0.0.0.0':'127.0.0.1',taken);
+ return autoPortCache={postgres,web,https,renderer};
+}
 function portsFromArgs(){
  const raw=String(args.ports??'5432,3000,443,3001').split(',').map(Number);
  if(raw.length!==4||raw.some(n=>!Number.isInteger(n)))fail('PORTS_INVALID');
@@ -206,14 +223,20 @@ async function install(){
  const packageDir=path.resolve(args.package),L=layout(args.root);
  const m=await verifyPackage(packageDir,path.resolve(args['public-key']));
  if(m.testFault)fail('PACKAGE_TEST_FAULT_NOT_ALLOWED');
- const ports=portsFromArgs(),instance=String(args.instance??'nipt-cbh');
+ const masterSource=path.resolve(args['master-workbook']??path.join(packageDir,'payload','master','approved-master.xlsx'));
+ const retained=existsSync(L.installState)&&JSON.parse(readFileSync(L.installState,'utf8')).status==='UNINSTALLED_DATA_RETAINED';
+ const keptConfig=retained?cfgOf(L):null;
+ const ports=keptConfig?keptConfig.ports:await resolvePorts(),instance=keptConfig?keptConfig.instance:String(args.instance??'nipt-cbh');
+ const lanWanted=args.lan==='yes';
+ const detectedLan=lanWanted&&!args.host?detectLan():null;
+ const hostChosen=String(args.host??(lanWanted?(detectedLan?.ipv4??fail('LAN_ADDRESS_NOT_FOUND')):'localhost'));
  const config=validateConfig({
-  instance,mode:'operational',database:String(args.database??`nipt_operational_${instance.replaceAll('-','_')}`).slice(0,60),ports,
-  origin:String(args.origin??`https://localhost${ports.https===443?'':':'+ports.https}`),taskMode:args['task-mode']==='system'?'system':'user',testEnvironmentOnly:true,
+  instance,mode:'operational',database:keptConfig?keptConfig.database:String(args.database??`nipt_operational_${instance.replaceAll('-','_')}`).slice(0,60),ports,
+  origin:String(args.origin??originFor(hostChosen,ports.https)),host:hostChosen,lanEnabled:lanWanted,taskMode:args['task-mode']==='system'?'system':'user',testEnvironmentOnly:true,
   masterWorkbook:true,
   excelMode:args['excel-mode']==='bridge'?'bridge':args['excel-mode']==='direct'?'direct':(args['task-mode']==='system'?'bridge':'direct'),
   ...(args['excel-user']?{excelUser:String(args['excel-user'])}:{}),
-  ...(args['https-host']?{httpsHost:String(args['https-host'])}:{})
+  ...(lanWanted?{httpsHost:String(args['https-host']??'0.0.0.0'),lanAllow:normalizeLanAllow(args['lan-allow']),lanProfiles:normalizeLanProfiles(args['lan-profiles'])}:(args['https-host']?{httpsHost:String(args['https-host'])}:{}))
  });
  if(config.taskMode==='system'&&!isAdmin())fail('ADMINISTRATOR_REQUIRED_FOR_SYSTEM_TASK');
  say('creating layout');
@@ -225,35 +248,39 @@ async function install(){
  cpSync(path.join(packageDir,'payload','release'),target,{recursive:true});
  syncAdmin(L,target);
  await writeJson(L.configFile,config);
- copyFileSync(path.resolve(args['master-workbook']),path.join(L.master,'approved-master.xlsx'));
+ if(!retained)copyFileSync(masterSource,path.join(L.master,'approved-master.xlsx'));
  const release=await readJson(path.join(target,'release.json'));
- const state={format:'NIPT_WINDOWS_INSTALL_STATE_V1',instance,testEnvironmentOnly:true,status:'INSTALLING',current:{version:m.version,revision:m.revision,migrationsSha256:m.migrationsSha256},previous:null,history:[],installedAt:new Date().toISOString(),acceptance:'NOT_ACCEPTED'};
+ const state={retainedHistory:retained?(JSON.parse(readFileSync(L.installState,'utf8')).history??[]):[],format:'NIPT_WINDOWS_INSTALL_STATE_V1',instance,testEnvironmentOnly:true,status:'INSTALLING',current:{version:m.version,revision:m.revision,migrationsSha256:m.migrationsSha256},previous:null,history:[],installedAt:new Date().toISOString(),acceptance:'NOT_ACCEPTED'};
  saveState(L,state);
  say('generating secrets, certificate and policies');
- const credentials=generateSecrets(L,config);
- generateCertificate(L);
+ const credentials=retained?null:generateSecrets(L,config);
+ generateCertificate(L,config);
  writePolicies(L,config);
- say('initializing the private PostgreSQL cluster');
- initCluster(L,config);
+ const trust=args['trust-certificate']==='yes'?trustCertificate(L,config):{trusted:false,reason:'NOT_REQUESTED'};
+ if(trust.trusted)await writeJson(L.configFile,config);
+ say(retained?'reusing the retained PostgreSQL cluster':'initializing the private PostgreSQL cluster');
+ if(!retained)initCluster(L,config);
  pgStart(L,config);
  try{
-  say('migrating the database and creating accounts');
-  const r=nodeIn(L,path.join(target,'ops'),['--import','tsx','tools/win-installer/provision.ts','--root',L.root,'--phase','install'],appEnv(L,config,state));
+  say(retained?'applying forward migrations to the retained database':'migrating the database and creating accounts');
+  const r=nodeIn(L,path.join(target,'ops'),['--import','tsx','tools/win-installer/provision.ts','--root',L.root,'--phase',retained?'migrate':'install'],appEnv(L,config,state));
   if(r.status!==0)fail('PROVISION_FAILED',(r.stderr||r.stdout).slice(-2000));
  }finally{pgStop(L);}
- writeFileSync(L.credentials,credentials,{mode:0o600});
- history(L,state,'INSTALLED',{version:m.version});
+ if(credentials)writeFileSync(L.credentials,credentials,{mode:0o600});
+ history(L,state,retained?'REINSTALLED_ON_RETAINED_DATA':'INSTALLED',{version:m.version});
  state.status='INSTALLED_NOT_ACCEPTED';saveState(L,state);
  say('registering the startup task');
  registerTask(L,config);
  if(bridgeMode(config)){registerBridgeTask(L,config);await startBridge(L,config);}
  await startServices(L,config);
  await waitHealthy(L,config,{timeout:180000});
+ const firewall=ensureFirewall(L,config);
  say('taking the first verified backup (go-live gate)');
  const backup=await takeBackup(L,config);
  await startServices(L,config);
  const health=await healthReport(L,config);
- return {installed:true,root:L.root,version:m.version,url:config.origin,credentials:L.credentials,admin:path.join(L.root,'admin','nipt-admin.mjs'),firstBackup:backup.backupBase,health,migrations:release.migrationCount};
+ const lan=await lanSummary(L,config);
+ return {installed:true,reusedRetainedData:retained,root:L.root,version:m.version,url:config.origin,lan,firewall,trust,credentials:L.credentials,admin:path.join(L.root,'admin','nipt-admin.mjs'),firstBackup:backup.backupBase,health,migrations:release.migrationCount};
 }
 const isAdmin=()=>{try{run(system32('net.exe'),['session']);return true;}catch{return false;}};
 
@@ -275,19 +302,6 @@ function generateSecrets(L,c){
   'renderer-token':rnd(),'identity-lookup.key':randomBytes(32),'backup.key':randomBytes(32),'tls-passphrase':rnd(),'integration-public.pem':publicKey,'integration-private.pem':privateKey,'uat-accounts.json':JSON.stringify(accounts,null,2)};
  for(const [name,value] of Object.entries(files))writeFileSync(secretFile(L,name),value,{flag:'wx',mode:0o600});
  return ['NIPT-CBH WINDOWS INSTALLATION — TEST ENVIRONMENT ONLY — NOT FOR CLINICAL USE',`URL: ${c.origin}/login`,'',...accounts.flatMap(a=>[`Role: ${a.role}`,`Username: ${a.username}`,`Password: ${a.password}`,''])].join('\r\n');
-}
-
-function generateCertificate(L){
- const pass=readSecret(L,'tls-passphrase');
- ps(`$ErrorActionPreference='Stop';`+
-  `$c=New-SelfSignedCertificate -Subject 'CN=localhost' -TextExtension @('2.5.29.17={text}DNS=localhost&IPAddress=127.0.0.1') -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(397) -CertStoreLocation Cert:\\CurrentUser\\My -KeyExportPolicy Exportable;`+
-  `$s=ConvertTo-SecureString -String ${q(pass)} -AsPlainText -Force;`+
-  `Export-PfxCertificate -Cert $c -FilePath ${q(path.join(L.tls,'server.pfx'))} -Password $s | Out-Null;`+
-  `Export-Certificate -Cert $c -FilePath ${q(path.join(L.tls,'server.cer'))} -Type CERT | Out-Null;`+
-  `Remove-Item -Path ('Cert:\\CurrentUser\\My\\'+$c.Thumbprint) -Force`);
- // Node reads PEM for NODE_EXTRA_CA_CERTS
- const der=readFileSync(path.join(L.tls,'server.cer'));
- writeFileSync(path.join(L.tls,'server.pem'),`-----BEGIN CERTIFICATE-----\n${der.toString('base64').match(/.{1,64}/g).join('\n')}\n-----END CERTIFICATE-----\n`);
 }
 
 function writePolicies(L,c){
@@ -319,7 +333,7 @@ async function healthReport(L,c){
  let report={};try{report=JSON.parse((r.stdout||'').trim().split('\n').pop());}catch{report={code:'HEALTH_UNREADABLE'};}
  const httpsOk=await new Promise(res=>{const req=https.get({host:'127.0.0.1',port:c.ports.https,path:'/api/health',ca:readFileSync(path.join(L.tls,'server.pem')),servername:'localhost',timeout:5000},resp=>{let b='';resp.on('data',d=>b+=d);resp.on('end',()=>res(resp.statusCode===200&&JSON.parse(b).status==='ok'));});req.on('error',()=>res(false));req.on('timeout',()=>{req.destroy();res(false);});});
  const verdict=healthVerdict(report,{supervisor:supervisorPid(L)!==null,https:httpsOk,excelBridge:bridgeMode(c)?bridgeStatus(L).alive:undefined});
- return {...verdict,release:st.current.version,details:{workerAlive:report.workerAlive,heartbeatAgeSeconds:report.heartbeatAgeSeconds,backlog:report.backlog,webReachable:report.webReachable,rendererReachable:report.rendererReachable,https:httpsOk,excelBridge:bridgeMode(c)?bridgeStatus(L).state:'NOT_USED_DIRECT_EXCEL',backupStatus:report.backupStatus,migrationsMatch:report.migrationsMatch,auditValid:report.auditValid,rolesRestricted:report.rolesRestricted,quarantined:report.quarantined,clinicalAcceptance:false,hospitalOperationalAcceptance:false}};
+ return {...verdict,release:st.current.version,details:{lanUrl:c.origin,lanEnabled:!!c.lanEnabled,workerAlive:report.workerAlive,heartbeatAgeSeconds:report.heartbeatAgeSeconds,backlog:report.backlog,webReachable:report.webReachable,rendererReachable:report.rendererReachable,https:httpsOk,excelBridge:bridgeMode(c)?bridgeStatus(L).state:'NOT_USED_DIRECT_EXCEL',backupStatus:report.backupStatus,migrationsMatch:report.migrationsMatch,auditValid:report.auditValid,rolesRestricted:report.rolesRestricted,quarantined:report.quarantined,clinicalAcceptance:false,hospitalOperationalAcceptance:false}};
 }
 const healthTimeout=(d=180000)=>Number(args['health-timeout-seconds'])>0?Number(args['health-timeout-seconds'])*1000:d;
 async function waitHealthy(L,c,{timeout=120000}={}){
@@ -465,7 +479,7 @@ async function rollback(){const L=layout(args.root),c=cfgOf(L);return rollbackIn
 async function uninstall(){
  const L=layout(args.root),c=cfgOf(L);
  if(args.confirm!==path.basename(L.root))fail('CONFIRM_WITH_ROOT_FOLDER_NAME_REQUIRED');
- await stopServices(L);if(bridgeMode(c))await stopBridge(L,c);unregisterTask(c);unregisterBridgeTask(c);unscheduleBackup();
+ await stopServices(L);if(bridgeMode(c))await stopBridge(L,c);unregisterTask(c);unregisterBridgeTask(c);unscheduleBackup();removeFirewall(c);untrustCertificate(c);
  const keep=!args['remove-data'];
  const own=path.resolve(process.execPath).toLowerCase().startsWith(L.root.toLowerCase()+path.sep);
  if(keep){for(const d of [L.releases,path.join(L.root,'admin')])rmSync(d,{recursive:true,force:true});
@@ -490,6 +504,117 @@ async function status(){
  return {instance:c.instance,status:st.status,release:st.current,previous:st.previous,supervisorPid:supervisorPid(L),task:taskInfo(c),postgresRunning:pgRunning(L),services:(await readJson(L.state,{})).services??{},lastBackup:c.lastBackupPath??null};
 }
 
+
+// ───────────────────────────── hospital LAN access ─────────────────────────────
+// The HTTPS front is the ONLY listener that may leave the machine; PostgreSQL, the web process and the renderer stay on loopback.
+// The published address (IP or DNS name) is the application origin: users must type exactly that URL.
+const firewallRuleName=c=>`NIPT-CBH HTTPS (${c.instance})`;
+function detectLan(){
+ const raw=ps("$r=@(Get-NetIPConfiguration | Where-Object {$_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up'} | ForEach-Object {[pscustomobject]@{alias=$_.InterfaceAlias;description=$_.InterfaceDescription;ipv4=@($_.IPv4Address)[0].IPAddress;gateway=@($_.IPv4DefaultGateway)[0].NextHop;metric=[int]$_.NetIPv4Interface.InterfaceMetric;category=[string]$_.NetProfile.NetworkCategory}});ConvertTo-Json -InputObject $r -Compress");
+ let adapters=[];try{adapters=JSON.parse(raw);}catch{/* none */}
+ return pickLanAddress(Array.isArray(adapters)?adapters:[adapters]);
+}
+function firewallState(c){
+ try{
+  return JSON.parse(ps(`$r=Get-NetFirewallRule -DisplayName ${q(firewallRuleName(c))} -ErrorAction Stop;$p=$r|Get-NetFirewallPortFilter;$a=$r|Get-NetFirewallAddressFilter;$g=$r|Get-NetFirewallApplicationFilter;[pscustomobject]@{exists=$true;enabled=[string]$r.Enabled;profile=[string]$r.Profile;direction=[string]$r.Direction;action=[string]$r.Action;localPort=[string]$p.LocalPort;remoteAddress=(@($a.RemoteAddress) -join ',');program=[string]$g.Program}|ConvertTo-Json -Compress`));
+ }catch{return {exists:false};}
+}
+function ensureFirewall(L,c){
+ if(!c.lanEnabled)return {created:false,reason:'LAN_DISABLED'};
+ if(!isAdmin())return {created:false,reason:'ADMINISTRATOR_REQUIRED'};
+ const profiles=normalizeLanProfiles(c.lanProfiles),allow=normalizeLanAllow(c.lanAllow),name=firewallRuleName(c);
+ ps(`$ErrorActionPreference='Stop';Get-NetFirewallRule -DisplayName ${q(name)} -ErrorAction SilentlyContinue | Remove-NetFirewallRule;`+
+  `New-NetFirewallRule -DisplayName ${q(name)} -Description 'NIPT-CBH HTTPS front only. Limited to the hospital network; never PostgreSQL, web or renderer.' -Direction Inbound -Action Allow -Protocol TCP -LocalPort ${c.ports.https} -Profile ${profiles} -RemoteAddress ${allow} -Program ${q(L.node)} | Out-Null`);
+ return {created:true,name,profiles,remoteAddress:allow,port:c.ports.https,program:L.node};
+}
+function removeFirewall(c){try{if(isAdmin())ps(`Get-NetFirewallRule -DisplayName ${q(firewallRuleName(c))} -ErrorAction SilentlyContinue | Remove-NetFirewallRule`);}catch{/* best effort */}}
+function generateCertificate(L,c){
+ const pass=readSecret(L,'tls-passphrase'),host=c.host??'localhost',san=sanText(sanEntries(c.host,os.hostname()));
+ ps(`$ErrorActionPreference='Stop';`+
+  `$c=New-SelfSignedCertificate -Subject ${q('CN='+host)} -TextExtension @(${q(san)}) -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(397) -CertStoreLocation Cert:\\CurrentUser\\My -KeyExportPolicy Exportable;`+
+  `$s=ConvertTo-SecureString -String ${q(pass)} -AsPlainText -Force;`+
+  `Export-PfxCertificate -Cert $c -FilePath ${q(path.join(L.tls,'server.pfx'))} -Password $s | Out-Null;`+
+  `Export-Certificate -Cert $c -FilePath ${q(path.join(L.tls,'server.cer'))} -Type CERT | Out-Null;`+
+  `Remove-Item -Path ('Cert:\\CurrentUser\\My\\'+$c.Thumbprint) -Force`);
+ const der=readFileSync(path.join(L.tls,'server.cer'));
+ writeFileSync(path.join(L.tls,'server.pem'),`-----BEGIN CERTIFICATE-----\n${der.toString('base64').match(/.{1,64}/g).join('\n')}\n-----END CERTIFICATE-----\n`);
+}
+/** Trusting the installation's own certificate on THIS machine only (LocalMachine\Root, needs Administrator). Recorded by thumbprint and removed on uninstall. */
+function trustCertificate(L,c){
+ if(!isAdmin())return {trusted:false,reason:'ADMINISTRATOR_REQUIRED'};
+ const thumb=ps(`(Import-Certificate -FilePath ${q(path.join(L.tls,'server.cer'))} -CertStoreLocation Cert:\\LocalMachine\\Root).Thumbprint`).trim();
+ if(!/^[A-F0-9]{40}$/i.test(thumb))return {trusted:false,reason:'IMPORT_FAILED'};
+ c.trustedCertThumbprint=thumb;return {trusted:true,thumbprint:thumb};
+}
+function untrustCertificate(c){
+ if(!c.trustedCertThumbprint||!/^[A-F0-9]{40}$/i.test(c.trustedCertThumbprint))return {removed:false};
+ try{if(isAdmin()){ps(`Remove-Item -Path ('Cert:\\LocalMachine\\Root\\'+${q(c.trustedCertThumbprint)}) -Force -ErrorAction Stop`);delete c.trustedCertThumbprint;return {removed:true};}}catch{/* reported */}
+ return {removed:false,reason:'ADMINISTRATOR_REQUIRED_OR_ALREADY_GONE'};
+}
+/** Checked from the server itself against the published host name or address (not "localhost"): TLS name match, health answer, certificate download. */
+function lanProbe(L,c){
+ const host=c.host??'localhost';
+ return new Promise(resolve=>{
+  const ca=readFileSync(path.join(L.tls,'server.pem'));
+  const opts={host,port:c.ports.https,path:'/api/health',ca,timeout:6000,...(isIPv4(host)?{}:{servername:host})};
+  const req=https.get(opts,resp=>{let b='';resp.on('data',d=>b+=d);resp.on('end',()=>{let ok=false;try{ok=resp.statusCode===200&&JSON.parse(b).status==='ok';}catch{/* not json */}resolve({url:c.origin,reachableFromThisServer:ok,tlsNameMatches:true,statusCode:resp.statusCode});});});
+  req.on('error',e=>resolve({url:c.origin,reachableFromThisServer:false,tlsNameMatches:!/altname|hostname|IP/i.test(e.message),error:e.code??e.message}));
+  req.on('timeout',()=>{req.destroy();resolve({url:c.origin,reachableFromThisServer:false,error:'TIMEOUT'});});
+ });
+}
+async function lanSummary(L,c){
+ const probe=await lanProbe(L,c);
+ const fw=c.lanEnabled?firewallState(c):{exists:false,notApplicable:true};
+ const warnings=[];
+ if(c.lanEnabled){
+  if(!fw.exists)warnings.push('FIREWALL_RULE_MISSING');
+  const net=detectLan();
+  if(net&&!normalizeLanProfiles(c.lanProfiles).split(',').includes(net.category))warnings.push('NETWORK_CATEGORY_NOT_COVERED:'+net.category);
+  if(c.host&&net&&isIPv4(c.host)&&net.ipv4!==c.host)warnings.push('HOST_IS_NOT_THIS_SERVERS_CURRENT_ADDRESS');
+ }
+ return {enabled:!!c.lanEnabled,url:c.origin,host:c.host??'localhost',listenAddress:c.lanEnabled?(c.httpsHost??'0.0.0.0'):'127.0.0.1',port:c.ports.https,allow:c.lanEnabled?normalizeLanAllow(c.lanAllow):null,profiles:c.lanEnabled?normalizeLanProfiles(c.lanProfiles):null,
+  firewall:fw,probe,certificateDownload:c.lanEnabled?`${c.origin}/.well-known/nipt-cbh-certificate.cer`:null,certificateTrustedOnThisServer:!!c.trustedCertThumbprint,warnings,
+  note:'Reachability is checked from this server only. Open the URL from an ANC or Lab computer to prove the network path; the certificate is self-signed unless a hospital certificate was installed.'};
+}
+async function setLan(){
+ const L=layout(args.root),c=cfgOf(L);
+ const rl=args.interactive===true?(await import('node:readline/promises')).createInterface({input:process.stdin,output:process.stderr}):null;
+ const ask=async(q2,def)=>rl?((await rl.question(`${q2} [${def}]: `)).trim()||def):def;
+ try{
+  const detected=detectLan();
+  const lanEnabled=args.lan==='no'?false:args.lan==='yes'?true:rl?((await ask('เปิดให้เครื่องอื่นใน LAN เข้าใช้งาน? (yes/no)',c.lanEnabled?'yes':'yes'))==='yes'):(c.lanEnabled??false);
+  let host=args.host?String(args.host):c.host&&c.host!=='localhost'?c.host:detected?.ipv4;
+  if(lanEnabled&&rl)host=await ask('ที่อยู่ที่ผู้ใช้จะพิมพ์ใน Browser (IP หรือชื่อ DNS)',host??'');
+  if(!lanEnabled)host=args.host?String(args.host):'localhost';
+  if(!isValidHost(host))fail('HOST_INVALID',{host});
+  const allow=normalizeLanAllow(args.allow??(rl?await ask('จำกัดให้เข้าได้เฉพาะ (LocalSubnet หรือ CIDR เช่น 192.168.1.0/24)',c.lanAllow??'LocalSubnet'):(c.lanAllow??'LocalSubnet')));
+  const profiles=normalizeLanProfiles(args.profiles??c.lanProfiles??'Domain,Private');
+  const port=args.port?Number(args.port):c.ports.https;
+  if(!Number.isInteger(port)||port<1||port>65535||[c.ports.postgres,c.ports.web,c.ports.renderer].includes(port))fail('PORT_INVALID');
+  const next={...c,host,lanEnabled,ports:{...c.ports,https:port},origin:originFor(host,port),...(lanEnabled?{httpsHost:'0.0.0.0',lanAllow:allow,lanProfiles:profiles}:{httpsHost:'127.0.0.1'})};
+  validateConfig(next);
+  await stopServices(L);
+  untrustCertificate(next);
+  if(args['cert-pfx']){
+   // a hospital certificate: it must open with its passphrase and name the published host
+   const pfx=path.resolve(String(args['cert-pfx'])),passFile=path.resolve(String(args['cert-passphrase-file']??fail('CERT_PASSPHRASE_FILE_REQUIRED')));
+   const pass=readFileSync(passFile,'utf8').trim();
+   const info=JSON.parse(ps(`$c=New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(${q(pfx)},${q(pass)});[pscustomobject]@{san=(($c.Extensions|Where-Object{$_.Oid.Value -eq '2.5.29.17'}|ForEach-Object{$_.Format($false)}) -join ';');days=[int]($c.NotAfter-(Get-Date)).TotalDays;hasKey=$c.HasPrivateKey}|ConvertTo-Json -Compress`));
+   if(!info.hasKey)fail('CERT_HAS_NO_PRIVATE_KEY');if(info.days<1)fail('CERT_EXPIRED');
+   if(!new RegExp('(DNS Name|IP Address)=?\\s*:?\\s*'+host.replaceAll('.','\\.'),'i').test(info.san))fail('CERT_DOES_NOT_NAME_HOST',{host,san:info.san});
+   copyFileSync(pfx,path.join(L.tls,'server.pfx'));writeFileSync(secretFile(L,'tls-passphrase'),pass,{mode:0o600});
+   ps(`$c=New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(${q(pfx)},${q(pass)});[IO.File]::WriteAllBytes(${q(path.join(L.tls,'server.cer'))},$c.Export('Cert'))`);
+   const der=readFileSync(path.join(L.tls,'server.cer'));writeFileSync(path.join(L.tls,'server.pem'),`-----BEGIN CERTIFICATE-----\n${der.toString('base64').match(/.{1,64}/g).join('\n')}\n-----END CERTIFICATE-----\n`);
+  }else generateCertificate(L,next); // the self-signed test certificate always follows the published host
+  await writeJson(L.configFile,next);
+  const fw=ensureFirewall(L,next);if(!lanEnabled)removeFirewall(next);
+  const trust=args['trust-certificate']==='yes'?trustCertificate(L,next):{trusted:false,reason:'NOT_REQUESTED'};
+  await writeJson(L.configFile,next);
+  await startServices(L,next);await waitHealthy(L,next,{timeout:120000});
+  return {lan:await lanSummary(L,next),firewallAction:fw,trust,note:'Sessions of signed-in users end because the origin changed; they sign in again at the new URL.'};
+ }finally{rl?.close();}
+}
+async function lanStatus(){const L=layout(args.root),c=cfgOf(L);return lanSummary(L,c);}
 
 // ───────────────────────────── backup destination, schedule, DR drill, photo tools ─────────────────────────────
 const backupTaskName=c=>taskName(c)+'-backup';
@@ -571,7 +696,7 @@ const commands={
  status,
  health:async()=>{const L=layout(args.root);return healthReport(L,cfgOf(L));},
  backup,restore,upgrade,rollback,uninstall,
- 'set-backup-root':setBackupRoot,'schedule-backup':scheduleBackup,'unschedule-backup':unscheduleBackup,'backups':backupsList,'dr-drill':drDrill,photos,'host-check':hostCheck
+ 'set-lan':setLan,'lan-status':lanStatus,'set-backup-root':setBackupRoot,'schedule-backup':scheduleBackup,'unschedule-backup':unscheduleBackup,'backups':backupsList,'dr-drill':drDrill,photos,'host-check':hostCheck
 };
 if(!commands[command]){process.stderr.write(`usage: nipt-admin <${Object.keys(commands).join('|')}> --root <dir> [options]\n`);process.exit(2);}
 try{
