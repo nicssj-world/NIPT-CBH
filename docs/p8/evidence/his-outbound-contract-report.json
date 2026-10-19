@@ -1,0 +1,185 @@
+{
+  "dir": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\rehearsal-20261019021230\\NIPT CBH test\\data\\integration\\outbound",
+  "res": [
+    {
+      "name": "261015007701099.res",
+      "ln": "261015007701",
+      "hn": "00007701/69",
+      "dob": "19960331",
+      "specimenDate": "20261019070000^20261019070000",
+      "approval": "20261019092901^20261019092901",
+      "certifier": "LOCALTEST^Test Certifier",
+      "accession": "261015007701118",
+      "checks": [
+        {
+          "id": "wire_structure_and_utf16le_bom",
+          "ok": true
+        },
+        {
+          "id": "ln_consistent_P2_P21_O2",
+          "ok": true,
+          "detail": "261015007701"
+        },
+        {
+          "id": "hn_pattern",
+          "ok": true,
+          "detail": "00007701/69"
+        },
+        {
+          "id": "P7_dob_yyyymmdd_calendar_valid",
+          "ok": true,
+          "detail": "19960331"
+        },
+        {
+          "id": "P23_specimen_date_pair",
+          "ok": true,
+          "detail": "20261019070000^20261019070000"
+        },
+        {
+          "id": "R9_approval_timestamp_pair",
+          "ok": true,
+          "detail": "20261019092901^20261019092901"
+        },
+        {
+          "id": "R10_certifier_hisid_two_parts",
+          "ok": true,
+          "detail": "LOCALTEST^Test Certifier"
+        },
+        {
+          "id": "R11_accession_starts_with_ln",
+          "ok": true,
+          "detail": "261015007701118"
+        },
+        {
+          "id": "res_filename_matches_ln_and_header_time",
+          "ok": true,
+          "detail": "261015007701099.res vs 261015007701099.res"
+        },
+        {
+          "id": "ok_marker_present",
+          "ok": true
+        },
+        {
+          "id": "ok_marker_is_bom_only",
+          "ok": true,
+          "detail": "2 bytes"
+        },
+        {
+          "id": "backup_release_folder_with_manifest",
+          "ok": true,
+          "detail": "RELEASE-b82303da-f08c-4286-b237-068abb57360f"
+        },
+        {
+          "id": "res_hash_equals_manifest_and_backup_copy",
+          "ok": true
+        },
+        {
+          "id": "pdf_named_for_hn_and_ln",
+          "ok": true,
+          "detail": "1_00007701_69__261015007701.pdf"
+        },
+        {
+          "id": "pdf_header_and_size:1_00007701_69__261015007701.pdf",
+          "ok": true
+        },
+        {
+          "id": "pdf_hash_equals_manifest_and_backup_copy:1_00007701_69__261015007701.pdf",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "name": "261015007702098.res",
+      "ln": "261015007702",
+      "hn": "00007702/69",
+      "dob": "19960331",
+      "specimenDate": "20261019070000^20261019070000",
+      "approval": "20261019092852^20261019092852",
+      "certifier": "LOCALTEST^Test Certifier",
+      "accession": "261015007702118",
+      "checks": [
+        {
+          "id": "wire_structure_and_utf16le_bom",
+          "ok": true
+        },
+        {
+          "id": "ln_consistent_P2_P21_O2",
+          "ok": true,
+          "detail": "261015007702"
+        },
+        {
+          "id": "hn_pattern",
+          "ok": true,
+          "detail": "00007702/69"
+        },
+        {
+          "id": "P7_dob_yyyymmdd_calendar_valid",
+          "ok": true,
+          "detail": "19960331"
+        },
+        {
+          "id": "P23_specimen_date_pair",
+          "ok": true,
+          "detail": "20261019070000^20261019070000"
+        },
+        {
+          "id": "R9_approval_timestamp_pair",
+          "ok": true,
+          "detail": "20261019092852^20261019092852"
+        },
+        {
+          "id": "R10_certifier_hisid_two_parts",
+          "ok": true,
+          "detail": "LOCALTEST^Test Certifier"
+        },
+        {
+          "id": "R11_accession_starts_with_ln",
+          "ok": true,
+          "detail": "261015007702118"
+        },
+        {
+          "id": "res_filename_matches_ln_and_header_time",
+          "ok": true,
+          "detail": "261015007702098.res vs 261015007702098.res"
+        },
+        {
+          "id": "ok_marker_present",
+          "ok": true
+        },
+        {
+          "id": "ok_marker_is_bom_only",
+          "ok": true,
+          "detail": "2 bytes"
+        },
+        {
+          "id": "backup_release_folder_with_manifest",
+          "ok": true,
+          "detail": "RELEASE-958e920a-b4f4-47ce-b16d-3338d7e9ef66"
+        },
+        {
+          "id": "res_hash_equals_manifest_and_backup_copy",
+          "ok": true
+        },
+        {
+          "id": "pdf_named_for_hn_and_ln",
+          "ok": true,
+          "detail": "1_00007702_69__261015007702.pdf"
+        },
+        {
+          "id": "pdf_header_and_size:1_00007702_69__261015007702.pdf",
+          "ok": true
+        },
+        {
+          "id": "pdf_hash_equals_manifest_and_backup_copy:1_00007702_69__261015007702.pdf",
+          "ok": true
+        }
+      ]
+    }
+  ],
+  "problems": [],
+  "note": "Contract conformance of the written files only. HIS acknowledgment is a separate, still unproven condition.",
+  "transfers": {
+    "AWAITING_CONFIRMATION": 2
+  },
+  "hisConfirmed": "false (none of the transfers is reported as HIS-confirmed)"
+}

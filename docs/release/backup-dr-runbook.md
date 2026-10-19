@@ -68,7 +68,7 @@ Takes a timed backup, restores it into a quarantined database, verifies, removes
 
 ## 3. Measured on the developer machine (not hospital figures)
 
-See `docs/p8/evidence/windows-rehearsal-*.json`, steps S07, S08, S13, S13b, S13c. The measurements come from a laptop-class host with a local SSD, a local backup folder, 45 test cases, 2 test releases and one test photo; the database was a few tens of MB. Hospital volumes, NAS latency, antivirus scanning and the number of photos will be larger.
+See `docs/p8/evidence/windows-rehearsal-final-direct-22steps.json`, steps S07, S08, S13, S13b, S13c. DR drill (S13b): backup 3.9 s, verified restore 1.9 s, restart to healthy 6.2 s (total 12 s) for 72 MB, 141 tables and 97 files. The measurements come from a developer workstation with a local SSD, a local backup folder, 45 test cases, 2 test releases and a few test photos; the data set was tens of MB. Hospital volumes, NAS latency, antivirus scanning and the number of photos will be larger.
 
 ## 4. Hospital acceptance checklist (to be executed by IT; results blank)
 

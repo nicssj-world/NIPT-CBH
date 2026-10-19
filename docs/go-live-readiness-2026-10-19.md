@@ -97,3 +97,7 @@ Remaining notes:
 - **Mistaken refusal.** A refusal recorded by mistake can be lifted only by a later decisive Granted decision (a verified paper review through the API, or a completed Digital Consent signing). The dialog warns before saving. There is no UI to undo it.
 - **Application vs schema.** The application at this HEAD needs migration 102: the Lab gate reads `p2_consent_latest_decision`. The installer applies migrations before it starts the application, so only the order matters. An application-only rollback to the previous version is safe.
 - **Housekeeping.** The isolated P0 Postgres holds about 130 leftover synthetic databases. They are harmless and are not production.
+
+## Update after the Windows installer and final Release Candidate (2026-10-19)
+
+The "no packaged Windows deployment" blocker above is now **partly closed**: a signed Windows offline package exists and was rehearsed on a developer machine (install, upgrade, rollback gates, backup/restore/fresh activation, crash recovery, uninstall, installed operational journey). It is **not** proven under the SYSTEM account, after a reboot, on a LAN or on hospital infrastructure. The verdict stays **software GO, clinical NO-GO**. See `docs/release/release-candidate-report.md` and `docs/release/outstanding-gap-register.md`.

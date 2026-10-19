@@ -1,0 +1,217 @@
+{
+  "tool": "NIPT-CBH host check",
+  "host": "NICSSJ",
+  "at": "2026-10-19T02:21:11.925Z",
+  "summary": {
+    "PASS": 22,
+    "WARN": 2,
+    "INFO": 10
+  },
+  "results": [
+    {
+      "id": "windows_version",
+      "status": "PASS",
+      "detail": "Microsoft Windows 11 Home 10.0.26300",
+      "remedy": "Windows 10 1809 / Server 2019 or newer is required (Node 24, PostgreSQL 17)."
+    },
+    {
+      "id": "memory",
+      "status": "PASS",
+      "detail": "31.1 GB",
+      "remedy": "Indicative: 8 GB minimum, 16 GB or more recommended (PostgreSQL, web, worker, renderer + Chromium, Excel). IT to confirm sizing."
+    },
+    {
+      "id": "cpu",
+      "status": "PASS",
+      "detail": "16 logical processors",
+      "remedy": "Indicative: 4 or more."
+    },
+    {
+      "id": "administrator",
+      "status": "WARN",
+      "detail": "not elevated",
+      "remedy": "A SYSTEM startup task, a Windows Firewall rule and some ACL changes need an elevated prompt; run the installer as Administrator."
+    },
+    {
+      "id": "account",
+      "status": "INFO",
+      "detail": "User",
+      "remedy": "The installing user owns the secrets folder; with -TaskMode user the services also run as this user."
+    },
+    {
+      "id": "path_root",
+      "status": "PASS",
+      "detail": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\rehearsal-20261019021230\\NIPT CBH test: create/write/read/delete incl. a Thai file name",
+      "remedy": ""
+    },
+    {
+      "id": "disk_root",
+      "status": "PASS",
+      "detail": "155.9 GB free on D:",
+      "remedy": "Indicative: the installation needs about 8 GB before data; plan backups and photos separately."
+    },
+    {
+      "id": "path_backup-path",
+      "status": "PASS",
+      "detail": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\evidence\\rehearsal-20261019021230\\host-check\\backups: create/write/read/delete incl. a Thai file name",
+      "remedy": ""
+    },
+    {
+      "id": "disk_backup-path",
+      "status": "PASS",
+      "detail": "155.9 GB free on D:",
+      "remedy": "Indicative: the installation needs about 8 GB before data; plan backups and photos separately."
+    },
+    {
+      "id": "path_photo-path",
+      "status": "PASS",
+      "detail": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\evidence\\rehearsal-20261019021230\\host-check\\photos: create/write/read/delete incl. a Thai file name",
+      "remedy": ""
+    },
+    {
+      "id": "disk_photo-path",
+      "status": "PASS",
+      "detail": "155.9 GB free on D:",
+      "remedy": "Indicative: the installation needs about 8 GB before data; plan backups and photos separately."
+    },
+    {
+      "id": "path_inbound",
+      "status": "PASS",
+      "detail": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\evidence\\rehearsal-20261019021230\\host-check\\inbound: create/write/read/delete incl. a Thai file name",
+      "remedy": ""
+    },
+    {
+      "id": "disk_inbound",
+      "status": "PASS",
+      "detail": "155.9 GB free on D:",
+      "remedy": "Indicative: the installation needs about 8 GB before data; plan backups and photos separately."
+    },
+    {
+      "id": "path_outbound",
+      "status": "PASS",
+      "detail": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\evidence\\rehearsal-20261019021230\\host-check\\outbound: create/write/read/delete incl. a Thai file name",
+      "remedy": ""
+    },
+    {
+      "id": "disk_outbound",
+      "status": "PASS",
+      "detail": "155.9 GB free on D:",
+      "remedy": "Indicative: the installation needs about 8 GB before data; plan backups and photos separately."
+    },
+    {
+      "id": "long_paths",
+      "status": "PASS",
+      "detail": "LongPathsEnabled registry value",
+      "remedy": "Not required by the installer; keep installation paths short."
+    },
+    {
+      "id": "port_19860",
+      "status": "PASS",
+      "detail": "postgres(loopback) port 19860 free",
+      "remedy": "Choose another port with -Ports or stop the process using it."
+    },
+    {
+      "id": "port_19861",
+      "status": "PASS",
+      "detail": "web(loopback) port 19861 free",
+      "remedy": "Choose another port with -Ports or stop the process using it."
+    },
+    {
+      "id": "port_19862",
+      "status": "PASS",
+      "detail": "https(LAN) port 19862 free",
+      "remedy": "Choose another port with -Ports or stop the process using it."
+    },
+    {
+      "id": "port_19863",
+      "status": "PASS",
+      "detail": "renderer(loopback) port 19863 free",
+      "remedy": "Choose another port with -Ports or stop the process using it."
+    },
+    {
+      "id": "firewall_profiles",
+      "status": "INFO",
+      "detail": "Domain=True, Private=True, Public=True",
+      "remedy": ""
+    },
+    {
+      "id": "firewall_rule_https_lan",
+      "status": "INFO",
+      "detail": "no inbound rule for the HTTPS port (only needed for LAN access)",
+      "remedy": "Elevated: New-NetFirewallRule -DisplayName 'NIPT-CBH HTTPS (LAN)' -Direction Inbound -Protocol TCP -LocalPort 19862 -Action Allow -Profile Domain,Private -RemoteAddress <hospital subnet>. Never open PostgreSQL, web, or renderer ports."
+    },
+    {
+      "id": "ipv4_addresses",
+      "status": "INFO",
+      "detail": "Ethernet:192.168.1.57, vEthernet (WSL (Hyper-V firewall)):172.25.32.1",
+      "remedy": "The HTTPS front listens on 127.0.0.1 by default; LAN publication is a hospital IT decision (set NIPT_HTTPS_HOST)."
+    },
+    {
+      "id": "address_assignment",
+      "status": "WARN",
+      "detail": "vEthernet (WSL (Hyper-V firewall))=Disabled, Ethernet=Enabled",
+      "remedy": "A server should have a static address or a DHCP reservation so the certificate name and clients keep working."
+    },
+    {
+      "id": "dns_hostname",
+      "status": "INFO",
+      "detail": "no --hostname given",
+      "remedy": "Name the hostname users will type."
+    },
+    {
+      "id": "time_sync",
+      "status": "PASS",
+      "detail": "time source: time.windows.com,0x9",
+      "remedy": "Audit timestamps and the 5-second HIS polling depend on synchronized time (domain controller or the hospital NTP server)."
+    },
+    {
+      "id": "time_zone",
+      "status": "PASS",
+      "detail": "SE Asia Standard Time",
+      "remedy": "Receive times and LN Halos month boundaries use Asia/Bangkok; the host time zone should be SE Asia Standard Time."
+    },
+    {
+      "id": "tls_certificate",
+      "status": "INFO",
+      "detail": "no --cert given",
+      "remedy": "Provide the hospital certificate (.cer) to check validity, name and chain."
+    },
+    {
+      "id": "excel_installed",
+      "status": "PASS",
+      "detail": "Excel.Application is registered",
+      "remedy": "Task List PDFs are rendered by the desktop Microsoft Excel (A4, locked template). Install Office/Excel on the host (licensed by the hospital)."
+    },
+    {
+      "id": "excel_session",
+      "status": "INFO",
+      "detail": "Excel automation is not supported from a service or SYSTEM session (session 0). With a SYSTEM startup task use -ExcelMode bridge and a logged-on interactive user running the bridge task; with -TaskMode user the services run in that user session.",
+      "remedy": ""
+    },
+    {
+      "id": "default_printer_current_user",
+      "status": "PASS",
+      "detail": "Adobe PDF,Adobe PDF Converter,Documents\\*.pdf",
+      "remedy": "The export script reads the signed-in user default printer and sets it to A4; the account that runs Excel needs a default printer (a PDF printer is enough). Check it as that account."
+    },
+    {
+      "id": "powershell7",
+      "status": "INFO",
+      "detail": "The package bundles PowerShell 7; the host does not need it.",
+      "remedy": ""
+    },
+    {
+      "id": "antivirus_products",
+      "status": "INFO",
+      "detail": "Windows Defender",
+      "remedy": ""
+    },
+    {
+      "id": "defender_exclusions",
+      "status": "INFO",
+      "detail": "N/A: Must be an administrator to view exclusions",
+      "remedy": "Hospital security decides. Scanning the PostgreSQL data folder and photo roots in real time can slow the database and corrupt nothing; if exclusions are approved, apply them to the data and photo folders only, never to the application or secrets."
+    }
+  ],
+  "note": "Read-only. Indicative thresholds; hospital IT owns sizing and security policy. PASS here is not hospital acceptance."
+}

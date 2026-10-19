@@ -1,0 +1,100 @@
+{
+  "format": "NIPT_WINDOWS_RELEASE_RECORD_V1",
+  "recordedAt": "2026-10-19T03:08:13.767Z",
+  "package": {
+    "name": "nipt-cbh-1.0.0",
+    "path": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\packages\\nipt-cbh-1.0.0",
+    "version": "1.0.0",
+    "runtimeIncluded": true,
+    "fileCount": 23579,
+    "bytes": 1432167021,
+    "manifestSha256": "4d4383d56bbcaa8da7ca744cb62273b3a4a30921ee095990563aae1950644bc3",
+    "signatureSha256": "ce625adf52e1ecfc290106ebd5e55b89361904a1aa10461b9abeecaacb649797",
+    "zip": {
+      "path": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\release\\nipt-cbh-1.0.0-windows-offline.zip",
+      "bytes": 1458626560,
+      "sha256": "8d7c4974231ec12c52a66e4370bd12ba39759a04fadd016fc78532b4ac820758"
+    }
+  },
+  "signature": {
+    "algorithm": "Ed25519",
+    "verified": true,
+    "publicKeySha256": "71db23696fe77fd952bf3a43dab24b0f3076616e1853ea6109b6a4226a9a747c",
+    "note": "Ed25519 package-integrity signing only. This is not Windows Authenticode code-signing and does not establish publisher identity to SmartScreen/AppLocker."
+  },
+  "source": {
+    "revisionInPackage": "dea292765c2083d4adc7def1f1b8d187f18c8bc0",
+    "gitHeadNow": "dea292765c2083d4adc7def1f1b8d187f18c8bc0",
+    "packageRevisionIsAncestorOfHead": true,
+    "baselineTag": "baseline-pre-p8-win-20261019",
+    "baselineIsAncestorOfPackageRevision": true,
+    "note": "The package records the commit it was built from. Commits after that commit may contain only documentation/rehearsal evidence; compare the manifest hash, not the HEAD, to identify the artifact."
+  },
+  "build": {
+    "nextBuildId": "-rIVnaXP7yXpkxRfsalt8",
+    "createdAt": "2026-10-19T09:12:14+07:00"
+  },
+  "runtime": {
+    "pwsh": "7.6.6",
+    "node": "v24.15.0",
+    "postgres": "postgres (PostgreSQL) 17.11",
+    "chromium": "chromium_headless_shell-1248"
+  },
+  "migrations": {
+    "count": 47,
+    "first": "001_foundation.sql",
+    "last": "104_pagination_lookup_indexes.sql",
+    "inventorySha256": "b53b7b4cc0e1a43804899396fa13087c80b6b7c3256bf54246abf0f4245c1276",
+    "files": {
+      "001_foundation.sql": "5d013f4ecd13424373059fb33827ba4cda265b929014a991efee2d0683f18492",
+      "002_security_settings.sql": "4965ec3b918df8769b78cd41696b7c5439b00e8ba77dcb15afa4cbbfc3e5fe6c",
+      "003_web_foundation.sql": "8f47ab63924d1138d457171ce7025632e8041a9d99c4f26f6b9828b456b13b99",
+      "004_integration.sql": "96e1e3c32e6e029bb38ff9dc92194103cdd5735fe0155b4a4aad85fb6fa2aa07",
+      "005_phi_access.sql": "61df4b863c9016b2808276240a6e4c36af71c65ced38b35641199ba82c9c9274",
+      "006_p2_synthetic.sql": "fc48d19774f0f9517db7f271d1d93bcd96493c82a1510a238e8550c4245c5107",
+      "007_p2_consent_document_uniqueness.sql": "51cda447ae029673c920a96234fcbdae430b3b115e84dcdbceb14d00dd5fa1d1",
+      "008_p3_his_inbound.sql": "666c7ebed7839479ba52b40d76080502a03fb34c2bdb5ddc088f15124b4a25cf",
+      "009_p2_p3_registration_identifier_source.sql": "aa98a4723624a2902bd9e28cc223e72dcbc9dac9a2dc5c553ccde0eaaea5a79a",
+      "010_p4_lab_workflow.sql": "0fa7255c0ed7c374fc2353787ac00c32aee29f4199229069109159c3d7762670",
+      "011_p4b_pooling_synthetic.sql": "045c74c3b2cfdf96a81fe573f44a6b05cf8e0097dfa1e0344b931d49c1738429",
+      "012_p4b_pool_cancellation_guard.sql": "5de51c725d72c21955eef327730fa9bcc35bea7f7d36839199b8607a29f9bb00",
+      "013_p4b_system_invalidation_actor.sql": "14ab594dea4d71c82c941a03a41ce9790c261e078f905bb23fbc59e13b47306a",
+      "014_p4c_dnb_sequencing_handoff.sql": "b43654139a1422903428e8d693723e8e5563aad09a68b44ae75c750ede8000e8",
+      "015_p4c_f5_documents.sql": "9fbffa44b8f8d9e68fe68db24b0e0bb9ff3fa06b9fc17a783a9d7e845193f601",
+      "016_p4c_evidence_gates.sql": "70d802b3f05e26785e1f6e116234bbdf716c7b136370f6982f1f31f206a8dea1",
+      "017_p4c_plan_metadata.sql": "378d038163a52a01a141801cae5e3bb5896b28de6b4146636978c923364e798a",
+      "018_p4c_current_preview.sql": "6b3c2cce5d0cc074e717284053bf890a074bb5e7fe6aee5371592baac1f1fcb8",
+      "050_p5_result_management_synthetic.sql": "a90b9cbf8270c7d7c6a08019a4a7ebd5cb4dc227f44dcce5df2aecd1e6f4d092",
+      "051_p5_name_conflict_review.sql": "4f39cd4accca0c04fcb9071c6e709acf663f3cc194c39505617a4719dd4b9570",
+      "060_p6_outbound_synthetic.sql": "27c64eba1ce5bcf55b83d8e1815095bf6558529f89237fdb8f6a558a9ab9cebe",
+      "070_p5h_historical_bulk_import.sql": "f1ac90d7f74431b9d3860c3d9556c8592c38291ad291391338823116a207c71a",
+      "080_p7_closed_clinical_state.sql": "4e9a182a43c4ef895bf35d7b33e1fb787ca5c2bf17356976b7d31fdf4c1d4218",
+      "081_p7_result_maintenance_evidence.sql": "be8bf50b80fe209631e1bbc62623e83d0900c9f9b861bc9b8437bc92af5013a8",
+      "082_p4_monthly_ln_halos.sql": "73e0dcd470de3c45ea36cce3e067c0788f059917d9e3507c5e2e5869dea34ad1",
+      "083_his_source_identity.sql": "56ce4dc5e64ca697d42fe1e89c46c871d47e65ae420023dc7d9a18c2fe729319",
+      "084_operational_runtime.sql": "1923c72629e8ca48e6153b5cabb738e4982994939d6693af8e6d80204622e3f0",
+      "085_resampling_pet_receipt.sql": "201aa2899bbd972b08f31de05f3665de4f57cf24284ed8ea3b2fd50160442a3a",
+      "086_operational_lab_results.sql": "882e185f6101d08fd70e958b7d1c3e7b6b500c65decac5baa7ec7b986f61572c",
+      "087_locked_task_workbook.sql": "8be9d0c128e6108459426cadd3c7a22b5987c370b11bbdd18ea02fc80a4ba795",
+      "088_p2_operational_clinical_review.sql": "749e7bf5d5ebee8e4982fb41079a4a588ba1bafc1658af388db47185914a6f9f",
+      "089_released_result_outbound.sql": "9ed968ab70c435edae1e4fbe736c83b939723e1f1d5bf62374a5449a25ec3412",
+      "090_operational_specimen_acceptance.sql": "f3a4dc44179279e9ddaac3c0fff8f1699684420a563937d98de18633419be7d5",
+      "091_owner_approved_f52_master.sql": "7f10ad6e6a3985df450aeb0999931f63ea3681553591d26d33e45bc2f2cf632c",
+      "092_native_controlled_documents.sql": "c363125fb1ec4eea8263381301000258415e2d3fa787161c8c947ab10aebf657",
+      "093_p6_worker_release_lock.sql": "96e94891801da50597ec23e2db9d802e93e12fc5de882cd97fc9a9653bc1928b",
+      "094_owner_three_sheet_master.sql": "96a36d1628feeb8a57f96d1735b12b48528fafd5f3bd07637944a0d5d4cda8cf",
+      "095_operational_restore_quarantine.sql": "597756b846b2b401f8e138d47cccb1b6f6e94a6df8807b8b9f643ce5a33b80ac",
+      "096_admin_settings.sql": "7fd92f0c29468d5663ba2c540bf8fc698545ddfa0704e430144e3a6bcd106e70",
+      "097_admin_recovery.sql": "61e3da7b7e12a79d4bbb1419a2f9b08cdd65818423805e46bed2aa77cfa9ca18",
+      "098_admin_target_enrollment.sql": "11fa99b5cd25ed72f06be755f2fc7f627beba7f862fafa58f50aa5f16162da05",
+      "099_label_printed_code_resampling.sql": "810a0c1bde5f9a7b932ed299eaaf41b30faf4114432bcd9a62099d639d30e696",
+      "100_p5a_unique_auto_link.sql": "151f406056c1fd9133c7cc5b6dd813f7b198da4f1f9d71f35895a47b76ada9c7",
+      "101_p2_paper_consent_marker.sql": "224edf370e95065d8b4b55dd550df2ee39efc2ceeb3268729d144ab9064c3391",
+      "102_p2_paper_consent_refusal.sql": "b808f2e22ca0e48188452a6c22ea8ffd3f36f45eea292638ff6d9a09e6c5761d",
+      "103_run_photo_evidence.sql": "f11c8080b172e2628404c0a8d6476ae1d5c77e625d917c0e72c75836009b03f9",
+      "104_pagination_lookup_indexes.sql": "baf3f28d290b4ac29a515fa71b97e0da9d8c6c6de701031e6abd10d30027200f"
+    },
+    "extraTestMigration": null
+  },
+  "testEnvironmentOnly": true
+}
