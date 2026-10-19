@@ -200,6 +200,9 @@ begin
 end;
 
 { ---------- already installed / older / newer ---------- }
+procedure ExitProcess(ExitCode: Integer);
+external 'ExitProcess@kernel32.dll stdcall';
+
 function InitializeSetup: Boolean;
 var Root, State, Installed, Origin, NodeExe, Cli: String; Code: Integer;
 begin
@@ -222,6 +225,8 @@ begin
     Origin := JsonString(ReadFileText(Root + '\config\nipt.json'), 'origin');
     SuppressibleMsgBox('มีการติดตั้ง NIPT-CBH เวอร์ชัน ' + Installed + ' อยู่แล้ว ไม่มีการเปลี่ยนแปลงข้อมูลใดๆ' + #13#10 + #13#10 + 'ที่อยู่เปิดระบบ: ' + Origin + #13#10 + 'ใช้ไอคอน NIPT-CBH บนเดสก์ท็อปเพื่อเปิดระบบ', mbInformation, MB_OK, IDOK);
     Result := False;
+    DelTree(ExpandConstant('{tmp}'), True, True, True);
+    ExitProcess(0);                                                   { already installed is a success, not a failure }
   end;
   { older version installed: continue, the engine upgrades in place and keeps the data }
 end;
