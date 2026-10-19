@@ -212,18 +212,23 @@ try{
   return {upgraded:up.to,rolledBackTo:rb.to};
  });
 
- await step('S13','disaster recovery: restore the pre-upgrade backup, activate it (source fenced), migrate forward, health',async()=>{
+ await step('S13','disaster recovery: an older backup is NOT activatable over changed work; a fresh backup is restored and activated (source fenced, health, data equal)',async()=>{
   const oldDatabase=JSON.parse(readFileSync(path.join(root,'config','nipt.json'),'utf8')).database;
-  const refused=cli('installed','restore',['--backup',preUpgradeBackup,'--activate'],{allowFail:true});assert.equal(refused.error,'SOURCE_FENCE_CONFIRMATION_REQUIRED');
-  await healthOk('AFTER_REFUSED_ACTIVATION');
-  const r=cli('installed','restore',['--backup',preUpgradeBackup,'--activate','--confirm-source-fenced','yes']);
-  assert.equal(r.activated,true);assert.deepEqual(r.forwardMigrationsApplied,['105_p8_rehearsal_marker.sql']);
+  // (a) safety gates: no fence confirmation, and a live database that changed since the (pre-upgrade) backup
+  const noFence=cli('installed','restore',['--backup',preUpgradeBackup,'--activate'],{allowFail:true});assert.equal(noFence.error,'SOURCE_FENCE_CONFIRMATION_REQUIRED');
+  const stale=cli('installed','restore',['--backup',preUpgradeBackup,'--activate','--confirm-source-fenced','yes'],{allowFail:true});assert.equal(stale.error,'RESTORE_SOURCE_CHANGED_SINCE_BACKUP');
+  await healthOk('AFTER_REFUSED_ACTIVATIONS');assert.equal(JSON.parse(readFileSync(path.join(root,'config','nipt.json'),'utf8')).database,oldDatabase);assert.equal(psql('SELECT nipt_runtime_quarantined()'),'f');
+  // (b) a recovery drill the tool supports: fresh backup of the unchanged source, restore, activate
+  const fresh=cli('installed','backup').backup.backupBase;const before=dataSnapshot();
+  const r=cli('installed','restore',['--backup',fresh,'--activate','--confirm-source-fenced','yes']);
+  assert.equal(r.activated,true);assert.deepEqual(r.forwardMigrationsApplied,[]);
   const cfg=JSON.parse(readFileSync(path.join(root,'config','nipt.json'),'utf8'));assert.notEqual(cfg.database,oldDatabase);assert.equal(cfg.database,r.database);
   assert.equal(psql('SELECT nipt_runtime_quarantined()',oldDatabase),'t'); // the previous database is fenced
   const h=await healthOk('AFTER_ACTIVATION');const after=dataSnapshot();
-  assert.equal(after.cases,snapshot.cases);assert.equal(after.releases,snapshot.releases);assert.equal(after.transfers,snapshot.transfers);
-  assert.equal(psql('SELECT count(*) FROM p8_rehearsal_marker'),'1');
-  return {activated:r.database,previous:oldDatabase,fenced:true,forward:r.forwardMigrationsApplied,health:h.ok,cases:after.cases};
+  assert.deepEqual(core(after),core(before));assert.equal(psql('SELECT count(*) FROM p8_rehearsal_marker'),'1');
+  // the restored installation can itself be backed up (the chain continues)
+  const again=cli('installed','backup');assert.equal(again.backup.format,'NIPT_OPERATIONAL_BACKUP_V1');await healthOk('AFTER_BACKUP_OF_RESTORED');
+  return {olderBackupRefused:stale.error,activated:r.database,previous:oldDatabase,fenced:true,health:h.ok,cases:after.cases,backupOfRestored:true};
  });
 
  await step('S14','stop is graceful (worker over IPC) and start recovers; no listener remains after stop',async()=>{

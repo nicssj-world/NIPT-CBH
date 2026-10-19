@@ -327,7 +327,12 @@ async function restore(){
  const restoredCompat=schemaCompatibility({ledger:restoredLedger,releaseMigrations:releaseNow.migrations});
  if(!restoredCompat.compatibleWithDatabase){await startServices(L,c);fail('RESTORE_BACKUP_NEWER_THAN_RELEASE',restoredCompat);}
  const a=nodeIn(L,ops,[path.join('tools','win-installer','ops-restore.mjs'),'activate',destination],{...env,RESTORE_SOURCE_FENCED:'yes'});
- if(a.status!==0){await startServices(L,c);fail('ACTIVATION_FAILED',(a.stderr||a.stdout).slice(-2000));}
+ if(a.status!==0){
+  const text=(a.stderr||a.stdout);await startServices(L,c);
+  // The existing activation gate refuses to fence a source that changed after the backup: activating would silently discard that work.
+  if(text.includes('RESTORE_SOURCE_CHANGED_SINCE_BACKUP'))fail('RESTORE_SOURCE_CHANGED_SINCE_BACKUP',{database,destination,note:'the live database changed after this backup; the restored copy stays quarantined for inspection. Activating an older backup discards later work and needs an Owner/IT-authorised procedure.'});
+  fail('ACTIVATION_FAILED',text.slice(-2000));
+ }
  // the application now runs on the restored database and file store
  psql(L,c,`GRANT CREATE ON DATABASE ${database} TO nipt_worker`,{db:'postgres'});
  const previous={database:c.database,filesRoot:c.filesRoot??L.files,masterPath:c.masterPath??null};
