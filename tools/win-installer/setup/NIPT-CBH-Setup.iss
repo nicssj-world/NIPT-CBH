@@ -25,6 +25,7 @@ AppPublisher=NIPT-CBH โรงพยาบาลชลบุรี (รุ่�
 DefaultDirName={autopf}\NIPT-CBH
 DisableDirPage=yes
 DisableProgramGroupPage=yes
+DisableWelcomePage=no
 DisableReadyPage=yes
 DisableReadyMemo=yes
 DisableStartupPrompt=yes
