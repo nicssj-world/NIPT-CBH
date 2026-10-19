@@ -14,7 +14,9 @@ const stamp=new Date().toISOString().replace(/[-:T]/g,'').slice(0,14);
 const base=path.resolve('.local/p8-win'),evidenceDir=path.join(base,'evidence','rehearsal-'+stamp);mkdirSync(evidenceDir,{recursive:true});
 const onlyIdx=process.argv.indexOf('--only'),only=onlyIdx>=0?process.argv[onlyIdx+1].split(','):undefined; // targeted re-run of independent steps after a fix to code that only they exercise
 const resumeIdx=process.argv.indexOf('--resume'),resume=resumeIdx>=0?path.resolve(process.argv[resumeIdx+1]):undefined; // debugging aid: continue on an existing installation (steps S00-S06 skipped)
-const root=resume??path.join(base,'rehearsal-'+stamp,'root');
+// A Thai folder name with a space exercises PostgreSQL initdb, scheduled-task arguments, cmd quoting, icacls and tsx on a non-ASCII path (--ascii-root to turn it off)
+const root=resume??(flag('ascii-root')?path.join(base,'rehearsal-'+stamp,'root'):path.join(base,'rehearsal-'+stamp,'โรงพยาบาล ทดสอบ','NIPT ติดตั้ง'));
+const excelModeIdx=process.argv.indexOf('--excel-mode'),excelMode=excelModeIdx>=0?process.argv[excelModeIdx+1]:'direct';
 const ports=[19860,19861,19862,19863];
 const master=process.env.NIPT_TASK_MASTER_PATH??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx';
 const publicKey=path.join(base,'keys','package-signing-public.pem');
@@ -30,14 +32,14 @@ const tsx=(...a:string[])=>execFileSync(process.execPath,['node_modules/tsx/dist
 async function step(id:string,name:string,fn:()=>Promise<unknown>|unknown){
  const t=Date.now();log(`${id} ${name}`);
  if(only&&!only.includes(id)){steps.push({id,name,ok:true,ms:0,detail:'SKIPPED_NOT_SELECTED'});return;}
- if(resume&&id<='S06'){steps.push({id,name,ok:true,ms:0,detail:'SKIPPED_RESUMED_FROM_EXISTING_ROOT'});return;}
+ if(resume&&id<'S07'){steps.push({id,name,ok:true,ms:0,detail:'SKIPPED_RESUMED_FROM_EXISTING_ROOT'});return;}
  try{const detail=await fn();steps.push({id,name,ok:true,ms:Date.now()-t,detail});}
  catch(e){steps.push({id,name,ok:false,ms:Date.now()-t,detail:{error:(e as Error).message,stack:(e as Error).stack?.split('\n').slice(0,4)}});finish(false);throw e;}
 }
 function finish(ok:boolean){
  const evidence={format:'NIPT_WINDOWS_INSTALLER_REHEARSAL_V1',environment:'DISPOSABLE_LOCAL_WINDOWS_TEST',passed:ok&&steps.every(s=>s.ok),sourceHead:revision,root,ports,steps,
   notRun:['elevated SYSTEM startup task (session not Administrator)','hospital TLS/DNS/LAN','UNC/SMB shares and service-account ACLs','NAS backup target and key escrow','physical power loss','code-signing/MSI wrapper'],
-  clinicalAcceptance:false,hospitalOperationalAcceptance:false,hisConfirmed:false};
+  excelMode,rootIsThaiPath:!flag('ascii-root'),clinicalAcceptance:false,hospitalOperationalAcceptance:false,hisConfirmed:false};
  writeFileSync(path.join(evidenceDir,'evidence.json'),JSON.stringify(evidence,null,2));
  return evidence;
 }
@@ -105,8 +107,15 @@ try{
   return {occupiedPort:'port_web refused',nonEmptyRoot:'install_root_empty refused',masterWorkbookRequired:true};
  });
 
+ await step('S02b','host check (read-only) on this developer host: paths incl. a Thai file name, ports, time, Excel, printer; no FAIL',()=>{
+  const hc=path.join(evidenceDir,'host-check');mkdirSync(hc,{recursive:true});
+  const out=spawnSync(process.execPath,['tools/win-installer/host-check.mjs','--root',root,'--backup-path',path.join(hc,'backups'),'--photo-path',path.join(hc,'photos'),'--inbound',path.join(hc,'inbound'),'--outbound',path.join(hc,'outbound'),'--ports',ports.join(','),'--out',path.join(evidenceDir,'host-check.json'),'--report',path.join(evidenceDir,'host-check.md')],{encoding:'utf8'});
+  const r=JSON.parse(out.stdout.trim().split('\n').pop()!);assert.deepEqual(r.failed,[]);
+  return {summary:r.summary,warned:r.warned};
+ });
+
  await step('S03','install: runtime, PostgreSQL cluster, migrations, accounts, startup task, services, first verified backup',()=>{
-  const r=cli('package','install',['--package',pkgDir('1.0.0'),'--public-key',publicKey,'--ports',ports.join(','),'--instance','p8win-rehearsal','--task-mode','user','--master-workbook',master]);
+  const r=cli('package','install',['--package',pkgDir('1.0.0'),'--public-key',publicKey,'--ports',ports.join(','),'--instance','p8win-rehearsal','--task-mode','user','--excel-mode',excelMode,'--master-workbook',master]);
   assert.equal(r.installed,true);assert.equal(r.health.ok,true);assert.equal(r.health.backupStatus,'CHECKSUM_VERIFIED');
   return {version:r.version,url:r.url,migrations:r.migrations,health:r.health.ok,backup:r.health.backupStatus};
  });
@@ -121,7 +130,8 @@ try{
   assert.equal(psql('SELECT nipt_operational_enabled()'),'t');
   const hba=readFileSync(path.join(root,'data','pgdata','pg_hba.conf'),'utf8');assert.ok(!/\btrust\b/.test(hba.replace(/#.*$/gm,'')),'pg_hba must not use trust');
   assert.equal(JSON.parse(readFileSync(path.join(root,'config','nipt.json'),'utf8')).testEnvironmentOnly,true);
-  return {listening:ports,aclChecked:true,roles,mode:'operational',pgHbaTrust:false};
+  const hs=cli('installed','health');assert.equal(hs.details.excelBridge,excelMode==='bridge'?'idle':'NOT_USED_DIRECT_EXCEL');
+  return {excelMode,excelBridge:hs.details.excelBridge,listening:ports,aclChecked:true,roles,mode:'operational',pgHbaTrust:false};
  });
 
  await step('S05','crash recovery: worker/web killed, then the supervisor itself killed with live children, then started again',async()=>{
@@ -147,6 +157,20 @@ try{
   const out=tsx('tools/win-installer/installed-journey.ts','--root',root,'--out',path.join(evidenceDir,'journey')).trim().split('\n').pop()!;
   const j=JSON.parse(out);assert.equal(j.passed,true);assert.equal(j.counts.cases,'45');assert.equal(j.counts.releases,'2');assert.equal(j.counts.transfers,'2');assert.deepEqual(j.browserErrors,[]);
   return {passed:j.passed,counts:j.counts,events:j.events.length};
+ });
+
+ await step('S06b','HIS outbound files written by the installed Worker conform to the frozen RES/PDF/OK contract; no transfer is reported HIS-confirmed',()=>{
+  const out=tsx('tools/win-installer/his-outbound-verify.ts','--dir',path.join(root,'data','integration','outbound'),'--database-url-file',path.join(root,'secrets','migration-url'),'--out',path.join(evidenceDir,'his-outbound-report.json')).trim().split('\n').pop()!;
+  const r=JSON.parse(out);assert.deepEqual(r.problems,[]);assert.ok(r.files>=2);assert.match(r.hisConfirmed,/^false/);
+  return {resFiles:r.files,hisConfirmed:r.hisConfirmed,transfers:r.transfers};
+ });
+ const photoState=path.join(evidenceDir,'photo-state.json');
+ await step('S06c','Run Photo Evidence: a synthetic photo is uploaded over HTTPS and its original is served byte-identical',()=>{
+  const up=JSON.parse(tsx('tools/win-installer/installed-photo-check.ts','upload','--root',root,'--out',photoState).trim().split('\n').pop()!);
+  const f=JSON.parse(tsx('tools/win-installer/installed-photo-check.ts','fetch','--root',root,'--state',photoState).trim().split('\n').pop()!);
+  assert.equal(f.verified,true);assert.equal(f.sha256,up.sha256);
+  const v=cli('installed','photos',['verify']);assert.equal(v.consistent,true);
+  return {photoId:up.photoId,sha256:up.sha256,bytes:up.bytes,storageConsistent:v.consistent};
  });
 
  let snapshot:Record<string,unknown>={},backup1='';
@@ -228,9 +252,36 @@ try{
   assert.equal(psql('SELECT nipt_runtime_quarantined()',oldDatabase),'t'); // the previous database is fenced
   const h=await healthOk('AFTER_ACTIVATION');const after=dataSnapshot();
   assert.deepEqual(core(after),core(before));assert.equal(psql('SELECT count(*) FROM p8_rehearsal_marker'),'1');
+  // Run Photo Evidence after the activation: the original is still served byte-identical, the storage is consistent, and the root can be pointed at the RESTORED copy
+  const f1=JSON.parse(tsx('tools/win-installer/installed-photo-check.ts','fetch','--root',root,'--state',photoState).trim().split('\n').pop()!);assert.equal(f1.verified,true);
+  assert.equal(cli('installed','photos',['verify']).consistent,true);
+  const rootId=psql("SELECT id FROM run_photo_storage_root WHERE state='Active' LIMIT 1");
+  const restoredPhotos=path.join(r.destination,'files','run-photos');assert.ok(existsSync(restoredPhotos),'the restored file tree must contain the photo root');
+  const rel=cli('installed','photos',['relocate',rootId,restoredPhotos,'DR drill: use the restored photo copy']);assert.equal(rel.verifiedFiles>=1,true);
+  const f2=JSON.parse(tsx('tools/win-installer/installed-photo-check.ts','fetch','--root',root,'--state',photoState).trim().split('\n').pop()!);assert.equal(f2.verified,true);
+  assert.equal(cli('installed','photos',['verify']).consistent,true);
   // the restored installation can itself be backed up (the chain continues)
   const again=cli('installed','backup');assert.equal(again.backup.format,'NIPT_OPERATIONAL_BACKUP_V1');await healthOk('AFTER_BACKUP_OF_RESTORED');
-  return {olderBackupRefused:stale.error,activated:r.database,previous:oldDatabase,fenced:true,health:h.ok,cases:after.cases,backupOfRestored:true};
+  return {olderBackupRefused:stale.error,activated:r.database,previous:oldDatabase,fenced:true,health:h.ok,cases:after.cases,backupOfRestored:true,photoAfterActivation:f1.sha256===f2.sha256,photoRelocatedToRestoredCopy:true};
+ });
+
+ await step('S13b','DR drill: timed backup + verified restore into a quarantined database, nothing activated, drill copy removed (RPO/RTO measurements)',async()=>{
+  const d=cli('installed','dr-drill');assert.equal(d.drill,'COMPLETED_NOT_ACTIVATED');assert.equal(d.restoreVerified,true);assert.equal(d.healthAfter,true);
+  await healthOk('AFTER_DR_DRILL');
+  return {seconds:d.seconds,backupBytes:d.backupBytes,restoredBytes:d.restoredBytes,tables:d.tables,files:d.files};
+ });
+
+ await step('S13c','scheduled backup: destination set, daily task registered, task executed once by Task Scheduler, a new verified backup appears, task removed',async()=>{
+  const dest=path.join(path.dirname(root),'backups-destination');
+  const set=cli('installed','set-backup-root',['--path',dest]);assert.equal(set.policyUpdated,true);
+  const sch=cli('installed','schedule-backup',['--time','03:15']);assert.equal(sch.scheduled,true);
+  const before=cli('installed','backups').count;
+  spawnSync('powershell.exe',['-NoProfile','-Command',"Start-ScheduledTask -TaskName 'nipt-cbh-p8win-rehearsal-backup' -TaskPath '\\NIPT-CBH\\'"],{windowsHide:true});
+  await until(()=>cli('installed','backups',[],{allowFail:true}).count>before,'SCHEDULED_BACKUP_RAN',240000);
+  await healthOk('AFTER_SCHEDULED_BACKUP');
+  const list=cli('installed','backups');assert.ok(list.backupRoot.startsWith(dest));assert.ok(existsSync(list.backups.at(-1).path));
+  assert.equal(cli('installed','unschedule-backup').unscheduled,true);
+  return {backupRoot:list.backupRoot,backupsNow:list.count,ranUnderTaskScheduler:true};
  });
 
  await step('S14','stop is graceful (worker over IPC) and start recovers; no listener remains after stop',async()=>{

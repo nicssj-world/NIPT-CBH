@@ -68,7 +68,7 @@ for(const d of ['apps','packages']){await cp(d,path.join(ops,d),{recursive:true}
 await mkdir(path.join(ops,'db'),{recursive:true});await cp(migrationsDir,path.join(ops,'db','migrations'),{recursive:true});
 await mkdir(path.join(ops,'deploy'),{recursive:true});await cp('deploy/scripts',path.join(ops,'deploy','scripts'),{recursive:true});
 await mkdir(path.join(ops,'tools'),{recursive:true});
-for(const f of ['migrate.ts','migration-checksums.ts','configure-operational.ts','runtime-env.mjs'])await cp(path.join('tools',f),path.join(ops,'tools',f));
+for(const f of ['migrate.ts','migration-checksums.ts','configure-operational.ts','runtime-env.mjs','run-photos.ts'])await cp(path.join('tools',f),path.join(ops,'tools',f));
 await mkdir(path.join(ops,'tools','operational'),{recursive:true});await cp('tools/operational/native-excel-bridge.ps1',path.join(ops,'tools','operational','native-excel-bridge.ps1'));
 for(const d of ['p8','win-installer'])await cp(path.join('tools',d),path.join(ops,'tools',d),{recursive:true,filter:s=>!/build-package\.ts$/.test(s)});
 for(const f of ['package.json','package-lock.json','tsconfig.json'])await cp(f,path.join(ops,f));

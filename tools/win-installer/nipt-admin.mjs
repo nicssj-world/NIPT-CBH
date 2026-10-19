@@ -4,9 +4,10 @@
 // TEST ENVIRONMENT ONLY. Nothing here connects to a HIS, touches a hospital share, applies a Production migration or accepts clinical use.
 import {execFileSync,spawnSync} from 'node:child_process';
 import {randomBytes,randomUUID,generateKeyPairSync} from 'node:crypto';
-import {existsSync,readFileSync,writeFileSync,mkdirSync,rmSync,cpSync,readdirSync,copyFileSync,appendFileSync} from 'node:fs';
+import {existsSync,readFileSync,writeFileSync,mkdirSync,rmSync,cpSync,readdirSync,copyFileSync,appendFileSync,statSync} from 'node:fs';
 import https from 'node:https';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {
  layout,validateConfig,assertSafeRoot,portFree,freeBytes,MIN_FREE_BYTES,verifyPackage,sha256File,readJson,writeJson,compareVersions,
  schemaCompatibility,canRollbackApplicationOnly,healthVerdict,parseLedgerOutput
@@ -298,7 +299,7 @@ function writePolicies(L,c){
 }
 function writeBackupPolicy(L,c){
  const outboundRoots=['res','pdf','backup'].map(n=>({root:path.join(L.outbound,n)}));
- writeFileSync(path.join(L.config,'backup-policy.json'),JSON.stringify({version:1,serviceAccount:whoami(),sourceDatabase:c.database,backupRoot:L.backups,restoreRoot:L.restores,restoreDatabasePrefix:'nipt_operational_restore_',outboundRoots},null,2));
+ writeFileSync(path.join(L.config,'backup-policy.json'),JSON.stringify({version:1,serviceAccount:whoami(),sourceDatabase:c.database,backupRoot:c.backupRoot??L.backups,restoreRoot:L.restores,restoreDatabasePrefix:'nipt_operational_restore_',outboundRoots},null,2));
 }
 
 function initCluster(L,c){
@@ -331,11 +332,11 @@ async function takeBackup(L,c){
  await stopServices(L,{keepDatabase:true});
  pgStart(L,c);
  const env=appEnv(L,c,st,{DATABASE_URL:readSecret(L,'migration-url'),BACKUP_SOURCE_QUIESCENT:'yes'});
- const r=nodeIn(L,ops,[path.join('tools','win-installer','ops-backup.mjs'),'backup',L.backups],env);
+ const r=nodeIn(L,ops,[path.join('tools','win-installer','ops-backup.mjs'),'backup',c.backupRoot??L.backups],env);
  if(r.status!==0)fail('BACKUP_FAILED',(r.stderr||r.stdout).slice(-2000));
  const out=JSON.parse(r.stdout.trim().split('\n').pop());
  c.lastBackupPath=out.backupBase;await writeJson(L.configFile,c);
- const index=await readJson(path.join(L.backups,'index.json'),[]);index.push({...out,release:st.current.version,at:new Date().toISOString()});await writeJson(path.join(L.backups,'index.json'),index);
+ const index=await readJson(path.join(c.backupRoot??L.backups,'index.json'),[]);index.push({...out,release:st.current.version,at:new Date().toISOString()});await writeJson(path.join(c.backupRoot??L.backups,'index.json'),index);
  return out;
 }
 
@@ -463,7 +464,7 @@ async function rollback(){const L=layout(args.root),c=cfgOf(L);return rollbackIn
 async function uninstall(){
  const L=layout(args.root),c=cfgOf(L);
  if(args.confirm!==path.basename(L.root))fail('CONFIRM_WITH_ROOT_FOLDER_NAME_REQUIRED');
- await stopServices(L);if(bridgeMode(c))await stopBridge(L,c);unregisterTask(c);unregisterBridgeTask(c);
+ await stopServices(L);if(bridgeMode(c))await stopBridge(L,c);unregisterTask(c);unregisterBridgeTask(c);unscheduleBackup();
  const keep=!args['remove-data'];
  const own=path.resolve(process.execPath).toLowerCase().startsWith(L.root.toLowerCase()+path.sep);
  if(keep){for(const d of [L.releases,path.join(L.root,'admin')])rmSync(d,{recursive:true,force:true});
@@ -488,6 +489,76 @@ async function status(){
  return {instance:c.instance,status:st.status,release:st.current,previous:st.previous,supervisorPid:supervisorPid(L),task:taskInfo(c),postgresRunning:pgRunning(L),services:(await readJson(L.state,{})).services??{},lastBackup:c.lastBackupPath??null};
 }
 
+
+// ───────────────────────────── backup destination, schedule, DR drill, photo tools ─────────────────────────────
+const backupTaskName=c=>taskName(c)+'-backup';
+async function setBackupRoot(){
+ const L=layout(args.root),c=cfgOf(L),target=path.resolve(String(args.path??fail('PATH_REQUIRED')));
+ if(!/^(?:[a-z]:|\\\\)/i.test(target))fail('BACKUP_ROOT_MUST_BE_A_DRIVE_OR_UNC_PATH');
+ if(target.toLowerCase().startsWith(L.data.toLowerCase()))fail('BACKUP_ROOT_MUST_BE_OUTSIDE_THE_DATA_FOLDER');
+ // prove the account that will run the scheduled backup can write it (the same account as the application task)
+ mkdirSync(target,{recursive:true});const probe=path.join(target,'nipt-write-test-'+process.pid+'.tmp');writeFileSync(probe,'x');rmSync(probe);
+ c.backupRoot=target;await writeJson(L.configFile,c);writeBackupPolicy(L,c);
+ return {backupRoot:target,policyUpdated:true,note:'Run a backup now to prove the destination end to end; the encryption key stays in <root>\\secrets and must be escrowed separately.'};
+}
+function scheduleBackup(){
+ const L=layout(args.root),c=cfgOf(L),at=String(args.time??'02:00');
+ if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(at))fail('TIME_MUST_BE_HH_MM');
+ const user=whoami();
+ const trigger=`New-ScheduledTaskTrigger -Daily -At ${q(at)}`;
+ const principal=c.taskMode==='system'?"New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest":`New-ScheduledTaskPrincipal -UserId ${q(user)} -LogonType Interactive -RunLevel Limited`;
+ ps(`$ErrorActionPreference='Stop';`+
+  `$a=New-ScheduledTaskAction -Execute ${q(L.node)} -Argument ${q(`"${path.join(L.root,'admin','nipt-admin.mjs')}" backup --root "${L.root}"`)} -WorkingDirectory ${q(L.root)};`+
+  `$t=${trigger};`+
+  `$s=New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 3) -StartWhenAvailable -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries;`+
+  `$p=${principal};`+
+  `Register-ScheduledTask -TaskName ${q(backupTaskName(c))} -TaskPath ${q(TASK_PATH)} -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null`);
+ return {scheduled:true,task:TASK_PATH+backupTaskName(c),dailyAt:at,account:c.taskMode==='system'?'SYSTEM':user,note:'The backup stops the applications for its duration (quiescent snapshot). Choose a quiet hour; the achieved RPO is the interval between successful backups, not the schedule.'};
+}
+function unscheduleBackup(){const L=layout(args.root),c=cfgOf(L);void L;try{ps(`Unregister-ScheduledTask -TaskName ${q(backupTaskName(c))} -TaskPath ${q(TASK_PATH)} -Confirm:$false -ErrorAction Stop`);return {unscheduled:true};}catch{return {unscheduled:false,note:'no backup task was registered'};}}
+async function backupsList(){
+ const L=layout(args.root),c=cfgOf(L);
+ const index=await readJson(path.join(c.backupRoot??L.backups,'index.json'),[]);
+ return {backupRoot:c.backupRoot??L.backups,count:index.length,backups:index.map(b=>({at:b.at,release:b.release,files:b.fileCount,path:b.backupBase,manifestSha256:b.manifestSha256})),lastBackupPath:c.lastBackupPath??null};
+}
+const dirBytes=dir=>{let n=0;const walk=d=>{for(const e of readdirSync(d,{withFileTypes:true})){const p=path.join(d,e.name);if(e.isDirectory())walk(p);else n+=statSync(p).size;}};try{walk(dir);}catch{/* gone */}return n;};
+/** Recovery drill: timed quiescent backup, verified restore into a quarantined database, then the drill copy is removed and the services restart.
+ *  Nothing is activated and the live database is never overwritten. The numbers are measurements for RPO/RTO planning on THIS host, not guarantees. */
+async function drDrill(){
+ const L=layout(args.root),c=cfgOf(L),st=stateOf(L),ops=path.join(releaseDir(L,st.current.version),'ops');
+ const t0=Date.now();const lap=()=>Math.round((Date.now()-t0)/100)/10;
+ const backup=await takeBackup(L,c);const afterBackup=lap();
+ const id=randomUUID().replaceAll('-',''),database='nipt_operational_restore_'+id.slice(0,24),destination=path.join(L.restores,id);
+ psql(L,c,`CREATE DATABASE ${database}`,{db:'postgres'});
+ const env=appEnv(L,c,st,{DATABASE_URL:readSecret(L,'migration-url'),RESTORE_DATABASE_URL:urlFor(L,c,'migration-url',database),RESTORE_TO_NEW_OPERATIONAL_DATABASE:'yes'});
+ const r=nodeIn(L,ops,[path.join('tools','win-installer','ops-restore.mjs'),'restore',backup.backupBase,destination],env);
+ const afterRestore=lap();
+ let receipt=null,failure=null;
+ if(r.status===0)receipt=JSON.parse(r.stdout.trim().split('\n').pop());else failure=(r.stderr||r.stdout).slice(-1200);
+ const restoredBytes=dirBytes(destination);
+ // the drill copy is removed; the live database and file store were never touched
+ try{psql(L,c,`DROP DATABASE IF EXISTS ${database}`,{db:'postgres'});}catch{/* reported by the next backup */}
+ rmSync(destination,{recursive:true,force:true});
+ await startServices(L,c);const h=await waitHealthy(L,c);const afterStart=lap();
+ if(failure)fail('DR_DRILL_RESTORE_FAILED',failure);
+ return {drill:'COMPLETED_NOT_ACTIVATED',backupBase:backup.backupBase,backupBytes:dirBytes(backup.backupBase),restoredBytes,tables:receipt.tableCount,files:receipt.fileCount,restoreVerified:receipt.restoreVerified,
+  seconds:{backup:afterBackup,restore:Math.round((afterRestore-afterBackup)*10)/10,restartAndHealthy:Math.round((afterStart-afterRestore)*10)/10,total:afterStart},
+  healthAfter:h.ok,note:'RTO on this host is approximately restore + restart; a rebuilt host adds installation time. RPO is the interval between successful backups. Hospital targets are not defined by this tool.'};
+}
+async function photos(){
+ const L=layout(args.root),c=cfgOf(L),st=stateOf(L),ops=path.join(releaseDir(L,st.current.version),'ops');
+ const sub=args._.slice(1);if(!['verify','backup','relocate','restore'].includes(sub[0]))fail('USAGE_PHOTOS_VERIFY_BACKUP_RESTORE_RELOCATE');
+ const env=appEnv(L,c,st,{DATABASE_URL:readSecret(L,'migration-url')});
+ const r=nodeIn(L,ops,['--import','tsx','tools/run-photos.ts',...sub],env);
+ let out;try{out=JSON.parse(r.stdout);}catch{out={raw:(r.stdout||'').slice(-800),stderr:(r.stderr||'').slice(-800)};}
+ return {exit:r.status,...(Array.isArray(out)?{result:out}:out)};
+}
+function hostCheck(){
+ const script=path.join(path.dirname(fileURLToPath(import.meta.url)),'host-check.mjs');
+ const r=spawnSync(process.execPath,[script,...process.argv.slice(3).filter(a=>a!=='--root'||true)],{encoding:'utf8',windowsHide:true});
+ try{return JSON.parse(r.stdout.trim().split('\n').pop());}catch{return {ok:false,error:'HOST_CHECK_FAILED',stderr:r.stderr.slice(-500)};}
+}
+
 const commands={
  'verify-package':async()=>{const m=await verifyPackage(path.resolve(args.package),path.resolve(args['public-key']));return {ok:true,version:m.version,revision:m.revision,files:Object.keys(m.files).length};},
  preflight,install,
@@ -496,7 +567,8 @@ const commands={
  restart:async()=>{const L=layout(args.root),c=cfgOf(L);await stopServices(L);await startServices(L,c);await waitHealthy(L,c);return {restarted:true};},
  status,
  health:async()=>{const L=layout(args.root);return healthReport(L,cfgOf(L));},
- backup,restore,upgrade,rollback,uninstall
+ backup,restore,upgrade,rollback,uninstall,
+ 'set-backup-root':setBackupRoot,'schedule-backup':scheduleBackup,'unschedule-backup':unscheduleBackup,'backups':backupsList,'dr-drill':drDrill,photos,'host-check':hostCheck
 };
 if(!commands[command]){process.stderr.write(`usage: nipt-admin <${Object.keys(commands).join('|')}> --root <dir> [options]\n`);process.exit(2);}
 try{
