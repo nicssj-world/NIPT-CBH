@@ -272,12 +272,13 @@ async function install(){
  if(credentials)writeFileSync(L.credentials,credentials,{mode:0o600});
  history(L,state,retained?'REINSTALLED_ON_RETAINED_DATA':'INSTALLED',{version:m.version});
  state.status='INSTALLED_NOT_ACCEPTED';saveState(L,state);
+ // the scoped firewall rule exists BEFORE the first start, so Windows never shows its own "allow access" prompt for node.exe
+ const firewall=ensureFirewall(L,config);
  say('registering the startup task');
  registerTask(L,config);
  if(bridgeMode(config)){registerBridgeTask(L,config);await startBridge(L,config);}
  await startServices(L,config);
  await waitHealthy(L,config,{timeout:180000});
- const firewall=ensureFirewall(L,config);
  say('taking the first verified backup (go-live gate)');
  const backup=await takeBackup(L,config);
  await startServices(L,config);

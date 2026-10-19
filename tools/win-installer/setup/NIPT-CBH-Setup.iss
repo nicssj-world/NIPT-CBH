@@ -61,6 +61,7 @@ Name: "thai"; MessagesFile: "compiler:Languages\Thai.isl"
 [Messages]
 WelcomeLabel1=NIPT-CBH Setup {#AppVersion}
 WelcomeLabel2=ติดตั้งระบบ NIPT-CBH สำหรับโรงพยาบาลชลบุรี%n%nกดปุ่ม "ติดตั้ง" เพียงครั้งเดียว ระบบจะติดตั้งและเริ่มทำงานเอง โดยไม่ต้องใช้อินเทอร์เน็ต ไม่ต้องติดตั้ง Node.js, PostgreSQL หรืออื่นๆ เพิ่ม%n%nรุ่นนี้เป็นรุ่นทดลอง (บัญชีผู้ใช้ทดสอบ ข้อมูลสมมติ) ยังไม่ใช่การใช้งานทางคลินิก
+ClickNext=กด "ติดตั้ง" เพื่อเริ่ม หรือกด "ยกเลิก" เพื่อออกจากตัวติดตั้ง
 SetupAppTitle=NIPT-CBH Setup
 SetupWindowTitle=NIPT-CBH Setup %1
 FinishedHeadingLabel=ติดตั้ง NIPT-CBH เสร็จสมบูรณ์
