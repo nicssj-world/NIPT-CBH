@@ -35,11 +35,11 @@ try{
   let batchId:string;try{batchId=(await db.query<{id:string}>("SELECT id FROM lab_batch ORDER BY created_at DESC LIMIT 1")).rows[0].id;}finally{await db.end();}
   const bytes=syntheticJpeg(),thumb=syntheticJpeg(480,360,512);
   const meta={batchId,idempotencyKey:randomUUID().replaceAll('-',''),caption:'installer rehearsal synthetic photo',sampleFrom:1,sampleTo:2,takenOn:new Date(Date.now()+7*3600000).toISOString().slice(0,10)};
-  const res=await context.request.post('/api/run-photos/upload',{headers:{'x-csrf-token':csrf},multipart:{file:{name:'IMG_REHEARSAL.jpg',mimeType:'image/jpeg',buffer:bytes},thumb:{name:'thumb.jpg',mimeType:'image/jpeg',buffer:thumb},meta:JSON.stringify(meta)}});
-  const body=await res.json() as {id?:string;sha256?:string;error?:string};
-  if(res.status()!==201||!body.id||!body.sha256)throw Error('UPLOAD_FAILED_'+res.status()+'_'+JSON.stringify(body).slice(0,200));
+  const res=await context.request.post('/api/run-photos/upload',{headers:{'x-csrf-token':csrf,origin:config.origin},multipart:{file:{name:'IMG_REHEARSAL.jpg',mimeType:'image/jpeg',buffer:bytes},thumb:{name:'thumb.jpg',mimeType:'image/jpeg',buffer:thumb},meta:JSON.stringify(meta)}});
+  const body=await res.json() as {photoId?:string;sha256?:string;error?:string};
+  if(res.status()!==201||!body.photoId||!body.sha256)throw Error('UPLOAD_FAILED_'+res.status()+'_'+JSON.stringify(body).slice(0,200));
   const expected=createHash('sha256').update(bytes).digest('hex');if(body.sha256!==expected)throw Error('UPLOAD_HASH_MISMATCH');
-  const state={photoId:body.id,sha256:expected,batchId,bytes:bytes.length};
+  const state={photoId:body.photoId,sha256:expected,batchId,bytes:bytes.length};
   const out=arg('out');if(out)await writeFile(out,JSON.stringify(state,null,2));process.stdout.write(JSON.stringify(state)+'\n');
  }else{
   const state=JSON.parse(await readFile(arg('state')??'','utf8')) as {photoId:string;sha256:string};

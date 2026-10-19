@@ -33,7 +33,7 @@ const tsx=(...a:string[])=>execFileSync(process.execPath,['node_modules/tsx/dist
 async function step(id:string,name:string,fn:()=>Promise<unknown>|unknown){
  const t=Date.now();log(`${id} ${name}`);
  if(only&&!only.includes(id)){steps.push({id,name,ok:true,ms:0,detail:'SKIPPED_NOT_SELECTED'});return;}
- if(resume&&id<'S06b'){steps.push({id,name,ok:true,ms:0,detail:'SKIPPED_RESUMED_FROM_EXISTING_ROOT'});return;}
+ if(resume&&id<'S06c'){steps.push({id,name,ok:true,ms:0,detail:'SKIPPED_RESUMED_FROM_EXISTING_ROOT'});return;}
  try{const detail=await fn();steps.push({id,name,ok:true,ms:Date.now()-t,detail});}
  catch(e){steps.push({id,name,ok:false,ms:Date.now()-t,detail:{error:(e as Error).message,stack:(e as Error).stack?.split('\n').slice(0,4)}});finish(false);throw e;}
 }
