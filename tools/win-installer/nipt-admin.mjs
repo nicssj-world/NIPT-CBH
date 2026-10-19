@@ -292,6 +292,10 @@ function syncAdmin(L,releaseRoot){
  mkdirSync(dst,{recursive:true});
  for(const f of readdirSync(src))if(/\.(mjs|ps1)$/.test(f))copyFileSync(path.join(src,f),path.join(dst,f));
  writeFileSync(path.join(L.root,'nipt.cmd'),`@echo off\r\n"%~dp0runtime\\node\\node.exe" "%~dp0admin\\nipt-admin.mjs" %* --root "%~dp0."\r\n`);
+ // double-click helpers for the Start menu (the administrator never has to type a command)
+ const cli = '"%~dp0runtime\\node\\node.exe" "%~dp0admin\\nipt-admin.mjs"';
+ writeFileSync(path.join(L.root, 'Set-LAN.cmd'), `@echo off\r\nchcp 65001 >nul\r\n${cli} set-lan --interactive --root "%~dp0."\r\necho.\r\npause\r\n`);
+ writeFileSync(path.join(L.root, 'Status.cmd'), `@echo off\r\nchcp 65001 >nul\r\n${cli} lan-status --root "%~dp0."\r\necho.\r\n${cli} status --root "%~dp0."\r\npause\r\n`);
 }
 
 function generateSecrets(L,c){

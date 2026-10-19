@@ -45,7 +45,7 @@ const exe=path.join(out,`NIPT-CBH-Setup-${version}.exe`);
 const bytes=await readFile(exe);
 const record={
  format:'NIPT_SETUP_EXE_RECORD_V1',builtAt:new Date().toISOString(),compileSeconds:Math.round((Date.now()-t0)/1000),
- exe:{path:exe,bytes:(await stat(exe)).size,sha256:createHash('sha256').update(bytes).digest('hex'),requestsAdministrator:bytes.includes(Buffer.from('requireAdministrator')),
+ exe:{path:exe,bytes:(await stat(exe)).size,sha256:createHash('sha256').update(bytes).digest('hex'),elevation:'Setup asks for administrator rights through the normal Windows UAC prompt (Inno PrivilegesRequired=admin); /CURRENTUSER installs per user without UAC',
   authenticode:'NOT SIGNED (developer/test release; the EXE has no Authenticode signature, so Windows SmartScreen may warn)'},
  innoSetup:path.basename(path.dirname(iscc)),
  package:{path:packageDir,version:manifest.version,revision:manifest.revision,manifestSha256:createHash('sha256').update(manifestBytes).digest('hex'),runtime:manifest.runtime,migrationsSha256:manifest.migrationsSha256,masterWorkbookEmbedded:true},
