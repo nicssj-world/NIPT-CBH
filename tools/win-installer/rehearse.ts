@@ -275,7 +275,8 @@ try{
  });
 
  await step('S13c','scheduled backup: destination set, daily task registered, task executed once by Task Scheduler, a new verified backup appears, task removed',async()=>{
-  const dest=path.join(path.dirname(root),'สำรองข้อมูล ทดสอบ'); // a Thai, space-containing destination folder (as a NAS share might be named)
+  const thai=cli('installed','set-backup-root',['--path',path.join(path.dirname(root),'สำรองข้อมูล ทดสอบ')],{allowFail:true});assert.equal(thai.error,'BACKUP_ROOT_MUST_BE_ASCII'); // pg_dump cannot write there
+  const dest=path.join(path.dirname(root),'Backup Destination'); // ASCII with a space
   const set=cli('installed','set-backup-root',['--path',dest]);assert.equal(set.policyUpdated,true);
   const sch=cli('installed','schedule-backup',['--time','03:15']);assert.equal(sch.scheduled,true);
   const before=cli('installed','backups').count;

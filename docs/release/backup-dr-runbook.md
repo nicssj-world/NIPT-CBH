@@ -19,7 +19,7 @@ Not inside the operational backup: Run Photo files when an administrator moved t
 ```powershell
 nipt.cmd set-backup-root --path \\NAS\share\nipt-backups
 ```
-The command proves the **account running it** can write the folder, refuses locations inside `data\`, and rewrites the backup policy. The scheduled task runs as the installation's task account (SYSTEM or the named user): that account needs Modify on the share (for SYSTEM this means the computer account `DOMAIN\HOSTNAME$`). Test it by running `nipt.cmd backup` from a scheduled task, not only interactively (rehearsal step S13c).
+The command proves the **account running it** can write the folder, refuses locations inside `data\` and paths with non-ASCII characters (`pg_dump.exe` fails on them: `BACKUP_ROOT_MUST_BE_ASCII`), and rewrites the backup policy. The scheduled task runs as the installation's task account (SYSTEM or the named user): that account needs Modify on the share (for SYSTEM this means the computer account `DOMAIN\HOSTNAME$`). Test it by running `nipt.cmd backup` from a scheduled task, not only interactively (rehearsal step S13c).
 
 ### 2.3 Schedule
 ```powershell

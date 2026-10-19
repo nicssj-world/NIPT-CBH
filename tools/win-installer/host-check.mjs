@@ -34,6 +34,7 @@ const paths={root:arg('root'),'backup-path':arg('backup-path'),'photo-path':arg(
 for(const [name,p] of Object.entries(paths)){
  if(!p){add('path_'+name,'INFO','not specified','Name it with --'+name+' to test it.');continue;}
  const abs=path.resolve(p);const unc=abs.startsWith('\\\\');
+ if(name==='backup-path'&&!/^[ -~]+$/.test(abs)){add('path_'+name,'FAIL',abs+': contains characters outside ASCII','pg_dump.exe writes the dump through the ANSI command line and fails on such a path: use an ASCII folder name for the backup destination.');continue;}
  try{
   mkdirSync(abs,{recursive:true});
   const probe=path.join(abs,'nipt-hostcheck-'+process.pid+'.tmp'),thai=path.join(abs,'ทดสอบ ไฟล์ '+process.pid+'.tmp');

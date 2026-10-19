@@ -497,6 +497,8 @@ async function setBackupRoot(){
  const L=layout(args.root),c=cfgOf(L),target=path.resolve(String(args.path??fail('PATH_REQUIRED')));
  if(!/^(?:[a-z]:|\\\\)/i.test(target))fail('BACKUP_ROOT_MUST_BE_A_DRIVE_OR_UNC_PATH');
  if(target.toLowerCase().startsWith(L.data.toLowerCase()))fail('BACKUP_ROOT_MUST_BE_OUTSIDE_THE_DATA_FOLDER');
+ // pg_dump.exe writes its dump file into the backup folder through the ANSI command line: a path the system code page cannot represent makes it fail (found by the rehearsal)
+ if(!/^[ -~]+$/.test(target))fail('BACKUP_ROOT_MUST_BE_ASCII');
  // prove the account that will run the scheduled backup can write it (the same account as the application task)
  mkdirSync(target,{recursive:true});const probe=path.join(target,'nipt-write-test-'+process.pid+'.tmp');writeFileSync(probe,'x');rmSync(probe);
  c.backupRoot=target;await writeJson(L.configFile,c);writeBackupPolicy(L,c);
