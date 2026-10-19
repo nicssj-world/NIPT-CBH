@@ -35,7 +35,10 @@ const fail=(code,detail)=>{const e=Error(code);e.detail=detail;throw e;};
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const whoami=()=>execFileSync(system32('whoami.exe'),[],{encoding:'utf8',windowsHide:true}).trim();
 const run=(file,a,opts={})=>execFileSync(file,a,{windowsHide:true,encoding:'utf8',stdio:['ignore','pipe','pipe'],...opts});
-const ps=(script)=>run(psExe,['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',script]);
+// Windows PowerShell 5.1 started from a PowerShell 7 session inherits PSModulePath entries for PowerShell 7 and then cannot load its own
+// Security module (the Cert: drive disappears). Always give it the Windows PowerShell module path only. (Found when Setup was started from pwsh.)
+const psEnv=()=>({...process.env,PSModulePath:[path.join(process.env.USERPROFILE??'','Documents','WindowsPowerShell','Modules'),path.join(process.env.ProgramFiles??'C:\\Program Files','WindowsPowerShell','Modules'),path.join(SYS,'System32','WindowsPowerShell','v1.0','Modules')].join(';')});
+const ps=(script)=>run(psExe,['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',script],{env:psEnv()});
 const q=s=>`'${String(s).replaceAll("'","''")}'`;
 
 async function waitFor(check,label,ms=120000,step=500){

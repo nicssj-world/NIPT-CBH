@@ -21,7 +21,10 @@ const logFile=path.join(logDir,`setup-${new Date().toISOString().replace(/[:.]/g
 const log=m=>{try{appendFileSync(logFile,`${new Date().toISOString()} ${m}\n`);}catch{/* never stop the install for a log write */}};
 let lastPercent=0;
 const progress=(percent,text)=>{lastPercent=Math.max(lastPercent,percent);log(`PROGRESS ${lastPercent} ${text}`);if(progressFile)try{writeFileSync(progressFile,`\uFEFF${lastPercent}|${text}\r\n`,'utf8');}catch{/* wizard polls this */}};
-const ps=script=>{try{return execFileSync(path.join(SYS,'System32','WindowsPowerShell','v1.0','powershell.exe'),['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',script],{encoding:'utf8',windowsHide:true,stdio:['ignore','pipe','pipe']}).trim();}catch{return null;}};
+// Windows PowerShell 5.1 started from a PowerShell 7 session inherits PSModulePath entries for PowerShell 7 and then cannot load its own
+// Security module (the Cert: drive disappears). Always give it the Windows PowerShell module path only. (Found when Setup was started from pwsh.)
+const psEnv=()=>({...process.env,PSModulePath:[path.join(process.env.USERPROFILE??'','Documents','WindowsPowerShell','Modules'),path.join(process.env.ProgramFiles??'C:\\Program Files','WindowsPowerShell','Modules'),path.join(SYS,'System32','WindowsPowerShell','v1.0','Modules')].join(';')});
+const ps=script=>{try{return execFileSync(path.join(SYS,'System32','WindowsPowerShell','v1.0','powershell.exe'),['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',script],{encoding:'utf8',windowsHide:true,stdio:['ignore','pipe','pipe'],env:psEnv()}).trim();}catch{return null;}};
 const isAdmin=()=>{try{execFileSync(path.join(SYS,'System32','net.exe'),['session'],{windowsHide:true,stdio:'ignore'});return true;}catch{return false;}};
 const whoami=()=>execFileSync(path.join(SYS,'System32','whoami.exe'),[],{encoding:'utf8',windowsHide:true}).trim();
 const excelInstalled=()=>{try{execFileSync(path.join(SYS,'System32','reg.exe'),['query','HKCR\\Excel.Application\\CurVer'],{windowsHide:true,stdio:'ignore'});return true;}catch{return false;}};

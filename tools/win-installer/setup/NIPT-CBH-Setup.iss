@@ -52,7 +52,6 @@ ShowLanguageDialog=no
 WizardSizePercent=130,125
 VersionInfoVersion={#AppVersion}
 VersionInfoDescription=NIPT-CBH Setup (test release)
-DiskSpaceMBLabel=ต้องมีพื้นที่ว่างอย่างน้อย [mb] MB
 ExtraDiskSpaceRequired=8589934592
 
 [Languages]
@@ -323,20 +322,19 @@ begin
   WizardForm.ProgressGauge.Min := 0; WizardForm.ProgressGauge.Max := 100; WizardForm.ProgressGauge.Position := 1;
   Started := Exec(Node, Params, Pkg, SW_HIDE, ewNoWait, Code);
   if not Started then begin FinalOk := False; FinalMessage := 'เริ่มโปรแกรมติดตั้งไม่สำเร็จ (' + SysErrorMessage(Code) + ')'; Exit; end;
+  { wait for the engine; each one-second Exec lets Setup process its window messages so the progress page keeps updating }
   Waited := 0;
-  while (not FileExists(ResultFile)) and (Waited < 3 * 60 * 60 * 10) do begin
-    Sleep(100); Waited := Waited + 1;
-    if (Waited mod 5) = 0 then begin
-      Prog := ReadFileText(ProgFile);
-      P := Pos('|', Prog);
-      if P > 0 then begin
-        Percent := StrToIntDef(Copy(Prog, 1, P - 1), 0);
-        Line := Trim(Copy(Prog, P + 1, Length(Prog)));
-        WizardForm.StatusLabel.Caption := Line;
-        WizardForm.ProgressGauge.Position := Percent;
-      end;
+  while (not FileExists(ResultFile)) and (Waited < 3 * 60 * 60) do begin
+    Exec(ExpandConstant('{cmd}'), '/C ping -n 2 127.0.0.1 >nul', '', SW_HIDE, ewWaitUntilTerminated, Code);
+    Waited := Waited + 1;
+    Prog := ReadFileText(ProgFile);
+    P := Pos('|', Prog);
+    if P > 0 then begin
+      Percent := StrToIntDef(Copy(Prog, 1, P - 1), 0);
+      Line := Trim(Copy(Prog, P + 1, Length(Prog)));
+      WizardForm.StatusLabel.Caption := Line;
+      WizardForm.ProgressGauge.Position := Percent;
     end;
-    Application.ProcessMessages;
   end;
   Sleep(300);
   LoadResult(ResultFile);
@@ -382,7 +380,7 @@ begin
     else begin
       Log('NIPT-CBH engine failed: ' + FinalMessage);
       MsgBox(FinalMessage, mbError, MB_OK);
-      RaiseException('NIPT-CBH installation failed');
+      Abort;
     end;
   end;
 end;
