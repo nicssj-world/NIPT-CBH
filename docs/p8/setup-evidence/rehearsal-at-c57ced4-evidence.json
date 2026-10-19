@@ -1,0 +1,317 @@
+{
+  "format": "NIPT_WINDOWS_INSTALLER_REHEARSAL_V1",
+  "environment": "DISPOSABLE_LOCAL_WINDOWS_TEST",
+  "passed": true,
+  "sourceHead": "c57ced450fab13bfbaf247e0e65c4d51a11b741e",
+  "root": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\rehearsal-20261019075251\\NIPT CBH test",
+  "ports": [
+    19860,
+    19861,
+    19862,
+    19863
+  ],
+  "steps": [
+    {
+      "id": "S00",
+      "name": "build the signed packages from the committed source",
+      "ok": true,
+      "ms": 1,
+      "detail": {}
+    },
+    {
+      "id": "S01",
+      "name": "signature, exact file set, and tamper refusal",
+      "ok": true,
+      "ms": 162479,
+      "detail": {
+        "files": 23579,
+        "tamper": "PACKAGE_CHECKSUM_MISMATCH",
+        "wrongKey": "SIGNATURE_INVALID"
+      }
+    },
+    {
+      "id": "S02",
+      "name": "preflight refuses an occupied port and a non-empty root",
+      "ok": true,
+      "ms": 23950,
+      "detail": {
+        "occupiedPort": "port_web refused",
+        "nonEmptyRoot": "install_root_empty refused",
+        "nonAsciiRoot": "INSTALL_ROOT_MUST_BE_ASCII refused",
+        "masterWorkbookRequired": true
+      }
+    },
+    {
+      "id": "S02b",
+      "name": "host check (read-only) on this developer host: paths incl. a Thai file name, ports, time, Excel, printer; no FAIL",
+      "ok": true,
+      "ms": 8269,
+      "detail": {
+        "summary": {
+          "PASS": 22,
+          "WARN": 2,
+          "INFO": 10
+        },
+        "warned": [
+          "administrator",
+          "address_assignment"
+        ]
+      }
+    },
+    {
+      "id": "S03",
+      "name": "install: runtime, PostgreSQL cluster, migrations, accounts, startup task, services, first verified backup",
+      "ok": true,
+      "ms": 48355,
+      "detail": {
+        "version": "1.0.0",
+        "url": "https://localhost:19862",
+        "migrations": 47,
+        "health": true,
+        "backup": "CHECKSUM_VERIFIED"
+      }
+    },
+    {
+      "id": "S04",
+      "name": "installed facts: listeners, secret ACL, mode, least privilege, task registration",
+      "ok": true,
+      "ms": 1692,
+      "detail": {
+        "excelMode": "direct",
+        "excelBridge": "NOT_USED_DIRECT_EXCEL",
+        "listening": [
+          19860,
+          19861,
+          19862,
+          19863
+        ],
+        "aclChecked": true,
+        "roles": "nipt_web:false,nipt_worker:false",
+        "mode": "operational",
+        "pgHbaTrust": false
+      }
+    },
+    {
+      "id": "S05",
+      "name": "crash recovery: worker/web killed, then the supervisor itself killed with live children, then started again",
+      "ok": true,
+      "ms": 13215,
+      "detail": {
+        "servicesRestarted": true,
+        "supervisorRecovered": true,
+        "childrenSurvivedSupervisorKill": 0,
+        "staleReaped": 0
+      }
+    },
+    {
+      "id": "S06",
+      "name": "installed operational journey (45 test patients, certified release, outbound RES/PDF/backup) over HTTPS",
+      "ok": true,
+      "ms": 413943,
+      "detail": {
+        "passed": true,
+        "counts": {
+          "cases": "45",
+          "releases": "2",
+          "transfers": "2"
+        },
+        "events": 14
+      }
+    },
+    {
+      "id": "S06b",
+      "name": "HIS outbound files written by the installed Worker conform to the frozen RES/PDF/OK contract; no transfer is reported HIS-confirmed",
+      "ok": true,
+      "ms": 195,
+      "detail": {
+        "resFiles": 2,
+        "hisConfirmed": "false (none of the transfers is reported as HIS-confirmed)",
+        "transfers": {
+          "AWAITING_CONFIRMATION": 2
+        }
+      }
+    },
+    {
+      "id": "S06c",
+      "name": "Run Photo Evidence: a synthetic photo is uploaded over HTTPS and its original is served byte-identical",
+      "ok": true,
+      "ms": 2066,
+      "detail": {
+        "photoId": "5f21812f-b824-4bc7-b7fd-c0b34b4fc3b2",
+        "sha256": "50607c1076e0161d4689805564699f1d5fd27bb23d11126eb18cc6a7977d88dc",
+        "bytes": 8237,
+        "storageConsistent": true
+      }
+    },
+    {
+      "id": "S07",
+      "name": "verified encrypted backup of the working installation",
+      "ok": true,
+      "ms": 11273,
+      "detail": {
+        "backup": "operational-1792397046994-11bd0615-b36d-4219-98b6-404b5a10d712",
+        "files": 97,
+        "snapshot": {
+          "cases": 45,
+          "releases": 2,
+          "transfers": 2,
+          "audit": 1234,
+          "lastAudit": "bc99601dce68e32a5a0689cb6e3aa4acbe2ab4e62a0f37f317fb30539fab6bcf",
+          "accounts": 6
+        }
+      }
+    },
+    {
+      "id": "S08",
+      "name": "restore into a new quarantined database; the live installation is untouched",
+      "ok": true,
+      "ms": 6834,
+      "detail": {
+        "database": "nipt_operational_restore_952f76cc670c4eff817874c4",
+        "tables": 140,
+        "files": 97,
+        "casesInRestore": "45"
+      }
+    },
+    {
+      "id": "S09",
+      "name": "upgrade refused/failed safely: tampered package, failing migration, release that cannot start",
+      "ok": true,
+      "ms": 494811,
+      "detail": {
+        "tampered": "refused",
+        "failingMigration": "old release still running",
+        "unhealthyRelease": {
+          "autoRollback": true,
+          "seconds": 209
+        }
+      }
+    },
+    {
+      "id": "S10",
+      "name": "upgrade 1.0.0 → 1.1.0: pre-upgrade backup, forward migration, switch, health, data intact",
+      "ok": true,
+      "ms": 163194,
+      "detail": {
+        "from": "1.0.0",
+        "to": "1.1.0",
+        "migrations": [
+          "105_p8_rehearsal_marker.sql"
+        ],
+        "health": true,
+        "preUpgradeBackup": "operational-1792397696531-1e1e3daa-302d-4a8d-8354-8ae285174c43"
+      }
+    },
+    {
+      "id": "S11",
+      "name": "rollback gate: database newer than the previous release → refused, nothing changes",
+      "ok": true,
+      "ms": 4478,
+      "detail": {
+        "refused": "ROLLBACK_REQUIRES_DATABASE_RESTORE",
+        "newerMigrations": [
+          "105_p8_rehearsal_marker.sql"
+        ]
+      }
+    },
+    {
+      "id": "S12",
+      "name": "application-only upgrade 1.1.0 → 1.1.1 and compatible rollback back to 1.1.0",
+      "ok": true,
+      "ms": 29834,
+      "detail": {
+        "upgraded": "1.1.1",
+        "rolledBackTo": "1.1.0"
+      }
+    },
+    {
+      "id": "S13",
+      "name": "disaster recovery: an older backup is NOT activatable over changed work; a fresh backup is restored and activated (source fenced, health, data equal)",
+      "ok": true,
+      "ms": 35917,
+      "detail": {
+        "olderBackupRefused": "RESTORE_SOURCE_CHANGED_SINCE_BACKUP",
+        "activated": "nipt_operational_restore_dea012db5f214b93bd69697b",
+        "previous": "nipt_operational_p8win_rehearsal",
+        "fenced": true,
+        "health": true,
+        "cases": 45,
+        "backupOfRestored": true,
+        "photoAfterActivation": true,
+        "photoRelocatedToRestoredCopy": true
+      }
+    },
+    {
+      "id": "S13b",
+      "name": "DR drill: timed backup + verified restore into a quarantined database, nothing activated, drill copy removed (RPO/RTO measurements)",
+      "ok": true,
+      "ms": 12140,
+      "detail": {
+        "seconds": {
+          "backup": 4.4,
+          "restore": 2,
+          "restartAndHealthy": 5.3,
+          "total": 11.7
+        },
+        "backupBytes": 72362905,
+        "restoredBytes": 72309392,
+        "tables": 141,
+        "files": 97
+      }
+    },
+    {
+      "id": "S13c",
+      "name": "scheduled backup: destination set, daily task registered, task executed once by Task Scheduler, a new verified backup appears, task removed",
+      "ok": true,
+      "ms": 9730,
+      "detail": {
+        "backupRoot": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\rehearsal-20261019075251\\Backup Destination",
+        "backupsNow": 1,
+        "ranUnderTaskScheduler": true
+      }
+    },
+    {
+      "id": "S14",
+      "name": "stop is graceful (worker over IPC) and start recovers; no listener remains after stop",
+      "ok": true,
+      "ms": 4909,
+      "detail": {
+        "gracefulStop": true,
+        "restart": true
+      }
+    },
+    {
+      "id": "S15",
+      "name": "uninstall keeps data by default, then removes everything on explicit request; no process or listener remains",
+      "ok": true,
+      "ms": 16303,
+      "detail": {
+        "keepData": true,
+        "removed": true,
+        "leftoverProcesses": 0
+      }
+    },
+    {
+      "id": "S16",
+      "name": "the installed CLI can remove its own installation (it runs from inside the root)",
+      "ok": true,
+      "ms": 8099,
+      "detail": {
+        "selfRemoved": true
+      }
+    }
+  ],
+  "notRun": [
+    "elevated SYSTEM startup task (session not Administrator)",
+    "hospital TLS/DNS/LAN",
+    "UNC/SMB shares and service-account ACLs",
+    "NAS backup target and key escrow",
+    "physical power loss",
+    "code-signing/MSI wrapper"
+  ],
+  "excelMode": "direct",
+  "rootContainsSpace": true,
+  "clinicalAcceptance": false,
+  "hospitalOperationalAcceptance": false,
+  "hisConfirmed": false
+}

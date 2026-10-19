@@ -1,0 +1,32 @@
+{
+  "format": "NIPT_SETUP_EXE_RECORD_V1",
+  "builtAt": "2026-10-19T07:23:55.636Z",
+  "compileSeconds": 167,
+  "exe": {
+    "path": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\setup\\NIPT-CBH-Setup-1.0.0.exe",
+    "bytes": 365141601,
+    "sha256": "48b58ef9eaf47ee7ec6153898ba057068c347f8e2eb572d06797806a19190e62",
+    "elevation": "Setup asks for administrator rights through the normal Windows UAC prompt (Inno PrivilegesRequired=admin); /CURRENTUSER installs per user without UAC",
+    "authenticode": "NOT SIGNED (developer/test release; the EXE has no Authenticode signature, so Windows SmartScreen may warn)"
+  },
+  "innoSetup": "Inno Setup 6",
+  "package": {
+    "path": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\setup-packages\\nipt-cbh-1.0.0",
+    "version": "1.0.0",
+    "revision": "c57ced450fab13bfbaf247e0e65c4d51a11b741e",
+    "manifestSha256": "9f7da7dac53e23ae2f18aa46b6bca221b4ded4b553f9401fb81121956dd95e0c",
+    "runtime": {
+      "pwsh": "7.6.6",
+      "node": "v24.15.0",
+      "postgres": "postgres (PostgreSQL) 17.11",
+      "chromium": "chromium_headless_shell-1248"
+    },
+    "migrationsSha256": "b53b7b4cc0e1a43804899396fa13087c80b6b7c3256bf54246abf0f4245c1276",
+    "masterWorkbookEmbedded": true
+  },
+  "source": {
+    "head": "c57ced450fab13bfbaf247e0e65c4d51a11b741e",
+    "baselineTag": "baseline-pre-p8-win-20261019"
+  },
+  "integrity": "The EXE carries the Ed25519-signed package and its public key; the engine verifies signature and the exact file set before it writes anything."
+}
