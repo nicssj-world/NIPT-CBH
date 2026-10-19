@@ -412,7 +412,7 @@ begin
     while Pos('\', Base) > 0 do Base := Copy(Base, Pos('\', Base) + 1, Length(Base));
     Params := '"' + Cli + '" uninstall --root "' + Root + '" --confirm "' + Base + '"';
     if DeleteAllData then Params := Params + ' --remove-data';
-    if FileExists(Node) and FileExists(Cli) then Exec(Node, Params, Root, SW_HIDE, ewWaitUntilTerminated, Code);
-    if DeleteAllData then Sleep(6000);   { the engine removes its own folder after it exits }
+    if FileExists(Node) and FileExists(Cli) then Exec(Node, Params, ExpandConstant('{sys}'), SW_HIDE, ewWaitUntilTerminated, Code);
+    if DeleteAllData then begin Sleep(3000); RemoveDir(Root); end;   { nothing may keep the empty folder }
   end;
 end;
