@@ -50,7 +50,7 @@ UninstallDisplayName=NIPT-CBH {#AppVersion}
 CloseApplications=no
 RestartApplications=no
 ShowLanguageDialog=no
-WizardSizePercent=130,125
+WizardSizePercent=130,150
 VersionInfoVersion={#AppVersion}
 VersionInfoDescription=NIPT-CBH Setup (test release)
 ExtraDiskSpaceRequired=8589934592
@@ -91,6 +91,9 @@ Type: dirifempty; Name: "{autoprograms}\NIPT-CBH"
 Type: filesandordirs; Name: "{code:GetEngineRoot}\runtime"
 
 [Code]
+{ Thai sentences for steps, warnings, errors and failed checks (generated from setup-messages.mjs by build-setup.ts) }
+#include MessagesInc
+
 var
   CopyButton: TNewButton;
   AdvancedCheck: TNewCheckBox;
@@ -279,6 +282,8 @@ begin
     if FinalOk then begin
       WizardForm.FinishedHeadingLabel.Caption := 'ติดตั้ง NIPT-CBH สำเร็จ';
       WizardForm.FinishedLabel.Caption := FinalMessage;
+      WizardForm.FinishedLabel.AdjustHeight;          { long text (URL, certificate link, warnings) must not sit under the check boxes }
+      WizardForm.RunList.Top := WizardForm.FinishedLabel.Top + WizardForm.FinishedLabel.Height + ScaleY(10);
     end;
   end;
 end;
@@ -297,6 +302,36 @@ begin
       SuppressibleMsgBox('ชื่อโฟลเดอร์ติดตั้งต้องเป็นตัวอักษรภาษาอังกฤษ ตัวเลข หรือช่องว่างเท่านั้น (PostgreSQL ใช้ชื่อโฟลเดอร์ภาษาไทยไม่ได้)', mbError, MB_OK, IDOK);
       Result := False;
     end;
+  end;
+end;
+
+{ comma-separated ASCII codes written by Setup -> bullet list of the Thai sentences compiled into this wizard }
+function WarningLines(const Codes: String): String;
+var Rest, Code, T: String; P: Integer;
+begin
+  Result := ''; Rest := Codes;
+  while Rest <> '' do begin
+    P := Pos(',', Rest);
+    if P = 0 then begin Code := Rest; Rest := ''; end
+    else begin Code := Copy(Rest, 1, P - 1); Rest := Copy(Rest, P + 1, Length(Rest)); end;
+    T := WarningText(Code);
+    if T <> '' then Result := Result + #13#10 + '- ' + T;
+  end;
+end;
+
+function CheckLines(const Codes: String): String;
+var Rest, Item, Id, Detail: String; P, Q: Integer;
+begin
+  Result := ''; Rest := Codes;
+  while Rest <> '' do begin
+    P := Pos(',', Rest);
+    if P = 0 then begin Item := Rest; Rest := ''; end
+    else begin Item := Copy(Rest, 1, P - 1); Rest := Copy(Rest, P + 1, Length(Rest)); end;
+    Q := Pos('~', Item);
+    if Q = 0 then begin Id := Item; Detail := ''; end
+    else begin Id := Copy(Item, 1, Q - 1); Detail := Copy(Item, Q + 1, Length(Item)); end;
+    if (Id <> 'excel_installed') and (Id <> 'default_printer_current_user') and (Id <> '') then
+      Result := Result + #13#10 + '- ' + CheckText(Id, Detail);
   end;
 end;
 
@@ -337,8 +372,9 @@ begin
     P := Pos('|', Prog);
     if P > 0 then begin
       Percent := StrToIntDef(Copy(Prog, 1, P - 1), 0);
-      Line := Trim(Copy(Prog, P + 1, Length(Prog)));
-      WizardForm.StatusLabel.Caption := Line;
+      { the file carries only "percent|step number"; the Thai sentence comes from the table compiled into Setup }
+      Line := StepText(StrToIntDef(Trim(Copy(Prog, P + 1, Length(Prog))), -1));
+      if Line <> '' then WizardForm.StatusLabel.Caption := Line;
       WizardForm.ProgressGauge.Position := Percent;
     end;
   end;
@@ -348,10 +384,11 @@ begin
   FinalUrl := ResultValue('url');
   FinalVerified := ResultValue('urlVerified') = 'yes';
   FinalCredentials := ResultValue('credentials');
-  FinalWarnings := ResultValue('warnings');
+  FinalWarnings := WarningLines(ResultValue('warningCodes'));
   if not FinalOk then begin
-    FinalMessage := ResultValue('message');
-    if FinalMessage = '' then FinalMessage := 'การติดตั้งไม่สำเร็จ';
+    FinalMessage := ErrorText(ResultValue('messageCode'));
+    if FinalMessage = '' then FinalMessage := ErrorText('GENERIC');
+    if ResultValue('messageCode') = 'PREFLIGHT_FAILED' then FinalMessage := FinalMessage + CheckLines(ResultValue('checkCodes'));
     FinalMessage := FinalMessage + #13#10 + #13#10 + 'รายละเอียดทางเทคนิค: ' + ResultValue('log');
     Exit;
   end;
@@ -364,7 +401,7 @@ begin
   end else
     FinalMessage := 'ที่อยู่เปิดระบบบนเครื่องนี้: ' + FinalUrl + #13#10 + 'ยังไม่ได้เปิดให้เครื่องอื่นเข้า (โหมด LAN ปิด)';
   FinalMessage := FinalMessage + #13#10 + #13#10 + 'ไฟล์ใบรับรองสำหรับติดตั้งบนเครื่องอื่น (ถ้า Browser เตือน): ' + ResultValue('certificateDownload');
-  if FinalWarnings <> '' then FinalMessage := FinalMessage + #13#10 + #13#10 + 'สิ่งที่ต้องทราบ / ตั้งค่าเพิ่ม:' + #13#10 + '- ' + FinalWarnings;
+  if FinalWarnings <> '' then FinalMessage := FinalMessage + #13#10 + #13#10 + 'สิ่งที่ต้องทราบ / ตั้งค่าเพิ่ม:' + FinalWarnings;
 end;
 
 procedure MakeShortcuts;

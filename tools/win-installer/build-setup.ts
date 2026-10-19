@@ -11,6 +11,7 @@ import {existsSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {parseVersion} from './lib.mjs';
+import {pascalTables} from './setup-messages.mjs';
 
 const arg=(n:string)=>{const i=process.argv.indexOf('--'+n);return i<0?undefined:(process.argv[i+1]&&!process.argv[i+1].startsWith('--')?process.argv[i+1]:'true');};
 const git=(...a:string[])=>execFileSync('git',a,{encoding:'utf8'}).trim();
@@ -38,9 +39,13 @@ const manifest=JSON.parse(manifestBytes.toString());
 if(manifest.revision!==revision)throw Error('PACKAGE_REVISION_DIFFERS_FROM_HEAD (rebuild the package)');
 if(!existsSync(path.join(packageDir,'payload','master','approved-master.xlsx')))throw Error('MASTER_WORKBOOK_NOT_EMBEDDED');
 
+// the Thai sentences the wizard shows for step / warning / error codes (UTF-8 with BOM, included into the Pascal script)
+const messagesInc=path.join(local,'setup-gen','messages.inc');
+await mkdir(path.dirname(messagesInc),{recursive:true});
+await writeFile(messagesInc,'﻿'+pascalTables()+'\r\n','utf8');
 log('compiling '+path.basename(iscc)+' (this takes several minutes: the payload is about 1.4 GB)');
 const t0=Date.now();
-execFileSync(iscc,['/Q',`/DPackageDir=${packageDir}`,`/DKeyFile=${keyFile}`,`/DAppVersion=${version}`,`/DOutDir=${out}`,...(arg('fast')?['/DCompressionFast=1']:[]),path.resolve('tools/win-installer/setup/NIPT-CBH-Setup.iss')],{stdio:['ignore','inherit','inherit']});
+execFileSync(iscc,['/Q',`/DPackageDir=${packageDir}`,`/DKeyFile=${keyFile}`,`/DAppVersion=${version}`,`/DOutDir=${out}`,`/DMessagesInc=${messagesInc}`,...(arg('fast')?['/DCompressionFast=1']:[]),path.resolve('tools/win-installer/setup/NIPT-CBH-Setup.iss')],{stdio:['ignore','inherit','inherit']});
 const exe=path.join(out,`NIPT-CBH-Setup-${version}.exe`);
 const bytes=await readFile(exe);
 const record={

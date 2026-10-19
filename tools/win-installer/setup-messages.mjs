@@ -44,14 +44,24 @@ const CODE={
  SIGNATURE_INVALID:'ลายเซ็นของชุดติดตั้งไม่ถูกต้อง จึงไม่ติดตั้งต่อ',
  PACKAGE_FILESET_MISMATCH:'ไฟล์ติดตั้งไม่ครบหรือมีไฟล์เกิน จึงไม่ติดตั้งต่อ'
 };
+const BUSY_TEXT='ยังมีงานเบื้องหลังค้างอยู่ (มักเกิดหลังระบบหยุดกะทันหัน) จึงยังสำรองข้อมูลก่อนอัปเกรดไม่ได้ ระบบเดิมกลับมาทำงานตามปกติและข้อมูลไม่เสียหาย กรุณารอประมาณ 15 นาทีแล้วเปิดตัวติดตั้งอีกครั้ง';
+const HEALTH_TEXT='ติดตั้งแล้วแต่ระบบยังไม่พร้อมใช้งานภายในเวลาที่กำหนด ระบบจะลบสิ่งที่ติดตั้งค้างไว้ให้ (ถ้าเป็นการติดตั้งใหม่) รายละเอียดอยู่ในไฟล์ Log';
+const GENERIC_TEXT='การติดตั้งไม่สำเร็จ รายละเอียดทางเทคนิคอยู่ในไฟล์ Log ข้อมูลเดิม (ถ้ามี) ไม่ถูกลบ';
+const ERRORS={...CODE,BACKUP_BUSY:BUSY_TEXT,TIMEOUT_HEALTH:HEALTH_TEXT,GENERIC:GENERIC_TEXT};
+// the stable key the wizard uses to show the same sentence from its own table
+export function errorKey(code,detail){
+ if(code==='PREFLIGHT_FAILED'&&Array.isArray(detail)&&detail.some(c=>c.id!=='excel_installed'&&c.id!=='default_printer_current_user'))return 'PREFLIGHT_FAILED';
+ if(code==='BACKUP_FAILED'&&/QUEUE_NOT_QUIESCENT|WORKER_OR_WRITER_NOT_QUIESCENT/.test(String(detail)))return 'BACKUP_BUSY';
+ if(String(code).startsWith('TIMEOUT_HEALTH'))return 'TIMEOUT_HEALTH';
+ return CODE[code]?code:'GENERIC';
+}
 export function thaiError(code,detail){
- if(code==='PREFLIGHT_FAILED'&&Array.isArray(detail)&&detail.length){
+ const key=errorKey(code,detail);
+ if(key==='PREFLIGHT_FAILED'){
   const lines=[...new Set(detail.filter(c=>!(c.id==='excel_installed')&&!(c.id==='default_printer_current_user')).map(thaiCheck))];
-  if(lines.length)return 'ยังติดตั้งไม่ได้ เพราะ:\n- '+lines.join('\n- ');
+  return 'ยังติดตั้งไม่ได้ เพราะ:\n- '+lines.join('\n- ');
  }
- if(code==='BACKUP_FAILED'&&/QUEUE_NOT_QUIESCENT|WORKER_OR_WRITER_NOT_QUIESCENT/.test(String(detail)))return 'ยังมีงานเบื้องหลังค้างอยู่ (มักเกิดหลังระบบหยุดกะทันหัน) จึงยังสำรองข้อมูลก่อนอัปเกรดไม่ได้ ระบบเดิมกลับมาทำงานตามปกติและข้อมูลไม่เสียหาย กรุณารอประมาณ 15 นาทีแล้วเปิดตัวติดตั้งอีกครั้ง';
- if(String(code).startsWith('TIMEOUT_HEALTH'))return 'ติดตั้งแล้วแต่ระบบยังไม่พร้อมใช้งานภายในเวลาที่กำหนด ระบบจะลบสิ่งที่ติดตั้งค้างไว้ให้ (ถ้าเป็นการติดตั้งใหม่) รายละเอียดอยู่ในไฟล์ Log';
- return CODE[code]??'การติดตั้งไม่สำเร็จ รายละเอียดทางเทคนิคอยู่ในไฟล์ Log ข้อมูลเดิม (ถ้ามี) ไม่ถูกลบ';
+ return ERRORS[key];
 }
 const STEPS=[
  ['verifying',5,'กำลังตรวจความสมบูรณ์ของชุดติดตั้ง'],
@@ -69,9 +79,13 @@ const STEPS=[
  ['applying forward migrations (',65,'กำลังปรับปรุงฐานข้อมูล'],
  ['checking the network address',95,'กำลังตรวจที่อยู่สำหรับเครื่องอื่นใน LAN']
 ];
+// texts Setup itself reports (not from the engine); together with STEPS they form the table the wizard shows by index
+const EXTRA_STEP_TEXTS=['กำลังเริ่มการติดตั้ง','กำลังตรวจความพร้อมของเครื่อง','ติดตั้งเวอร์ชันนี้อยู่แล้ว กำลังตรวจสถานะ','พบเวอร์ชันเดิม กำลังอัปเกรดโดยรักษาข้อมูลเดิม','ติดตั้งเสร็จสมบูรณ์'];
+export const STEP_TEXTS=[...STEPS.map(s=>s[2]),...EXTRA_STEP_TEXTS];
+export const stepIndex=text=>STEP_TEXTS.indexOf(text);
 export function thaiStep(line){
  const s=String(line).replace(/^\[nipt\]\s*/,'');
- for(const [needle,percent,text] of STEPS)if(s.includes(needle))return {percent,text};
+ for(const [needle,percent,text] of STEPS)if(s.includes(needle))return {percent,text,index:stepIndex(text)};
  return null;
 }
 export const THAI_WARNING={
@@ -98,4 +112,28 @@ export function thaiLanWarnings(lan,{admin,networkCategory}={}){
  if(lan.enabled&&!lan.certificateTrustedOnThisServer)out.push(THAI_WARNING.CERT_NOT_TRUSTED);
  void networkCategory;
  return [...new Set(out)];
+}
+
+export const warningKey=text=>Object.keys(THAI_WARNING).find(k=>THAI_WARNING[k]===text)??'';
+// Pascal tables for the Inno wizard. The wizard receives only ASCII codes from Setup (step index, warning and error codes) and shows
+// the Thai text from these literals: files read by the wizard are never trusted to carry Thai text.
+const lit=t=>String(t).split('\n').map(p=>`'${p.replace(/'/g,"''")}'`).join(' + #13#10 + ');
+export function pascalTables(){
+ const out=[];
+ out.push('function StepText(Index: Integer): String;','begin',"  Result := '';");
+ STEP_TEXTS.forEach((t,i)=>out.push(`  if Index = ${i} then Result := ${lit(t)};`));
+ out.push('end;','');
+ out.push('function WarningText(const Code: String): String;','begin',"  Result := '';");
+ for(const [k,v] of Object.entries(THAI_WARNING))out.push(`  if Code = '${k}' then Result := ${lit(v)};`);
+ out.push('end;','');
+ out.push('function ErrorText(const Code: String): String;','begin',"  Result := '';");
+ for(const k of Object.keys(ERRORS))out.push(`  if Code = '${k}' then Result := ${lit(ERRORS[k])};`);
+ out.push('end;','');
+ out.push('function CheckText(const Id, Detail: String): String;','begin',"  Result := '';");
+ for(const id of Object.keys(CHECK))out.push(`  if Id = '${id}' then Result := ${lit(CHECK[id])};`);
+ for(const d of Object.keys(ROOT))out.push(`  if (Id = 'install_root_safe') and (Detail = '${d}') then Result := ${lit(ROOT[d])};`);
+ const port=thaiCheck({id:'port_x',detail:'@@D@@'}).split('@@D@@');
+ out.push(`  if Copy(Id, 1, 5) = 'port_' then Result := ${lit(port[0])} + Detail + ${lit(port[1])};`);
+ out.push("  if Result = '' then Result := 'การตรวจสอบก่อนติดตั้งไม่ผ่าน: ' + Id;",'end;','');
+ return out.join('\r\n');
 }

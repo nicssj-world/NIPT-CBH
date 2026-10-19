@@ -2,7 +2,7 @@ import {describe,it,expect,beforeAll,afterAll} from 'vitest';
 import {mkdtemp,mkdir,writeFile,rm,symlink} from 'node:fs/promises';
 import {generateKeyPairSync,sign} from 'node:crypto';
 import os from 'node:os';
-import {thaiError,thaiStep,thaiLanWarnings,thaiCheck,THAI_WARNING} from '../../tools/win-installer/setup-messages.mjs';
+import {thaiError,thaiStep,thaiLanWarnings,thaiCheck,THAI_WARNING,STEP_TEXTS,stepIndex,errorKey,warningKey,pascalTables} from '../../tools/win-installer/setup-messages.mjs';
 import path from 'node:path';
 import {
  parseVersion,compareVersions,layout,validateConfig,assertSafeRoot,directoryHashes,verifyPackage,schemaCompatibility,canRollbackApplicationOnly,
@@ -244,5 +244,23 @@ describe('Setup messages (Thai, actionable, no technical detail in the dialog)',
   expect(thaiLanWarnings({...ok,certificateTrustedOnThisServer:false},{admin:true})).toContain(THAI_WARNING.CERT_NOT_TRUSTED);
   expect(thaiLanWarnings({...ok,enabled:false,probe:{reachableFromThisServer:false}},{admin:true})).not.toContain(THAI_WARNING.LAN_PROBE_FAILED);
   expect(thaiLanWarnings(undefined)).toEqual([]);
+ });
+ it('the wizard receives only ASCII codes and shows Thai text from tables compiled into Setup',()=>{
+  // every progress text maps to a stable index, and the generated Pascal carries the same sentences
+  for(const [i,t] of STEP_TEXTS.entries())expect(stepIndex(t)).toBe(i);
+  expect(stepIndex('not a step')).toBe(-1);
+  expect(thaiStep('[nipt] verifying the package')!.index).toBe(stepIndex(thaiStep('[nipt] verifying the package')!.text));
+  const pas=pascalTables();
+  for(const t of STEP_TEXTS)expect(pas).toContain(t);
+  for(const [k,v] of Object.entries(THAI_WARNING)){expect(warningKey(v)).toBe(k);expect(pas).toContain("Code = '"+k+"'");}
+  expect(errorKey('BACKUP_FAILED','x QUEUE_NOT_QUIESCENT')).toBe('BACKUP_BUSY');
+  expect(errorKey('BACKUP_FAILED','disk full')).toBe('BACKUP_FAILED');
+  expect(errorKey('TIMEOUT_HEALTH_web')).toBe('TIMEOUT_HEALTH');
+  expect(errorKey('SOMETHING_NEW')).toBe('GENERIC');
+  expect(errorKey('PREFLIGHT_FAILED',[{id:'excel_installed'}])).toBe('GENERIC');
+  expect(errorKey('PREFLIGHT_FAILED',[{id:'free_space_8gb'}])).toBe('PREFLIGHT_FAILED');
+  // every generated assignment is a complete statement (a stray quote in a sentence would break the compile)
+  expect(pas.split('\r\n').filter(l=>l.includes(' then Result := ')&&!l.endsWith(';'))).toEqual([]);
+  expect(pas).toContain('function CheckText(const Id, Detail: String): String;');
  });
 });

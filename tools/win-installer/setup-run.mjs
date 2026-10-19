@@ -7,7 +7,7 @@ import {existsSync,readFileSync,writeFileSync,appendFileSync,mkdirSync,rmSync,re
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {compareVersions,layout,verifyPackage,normalizeLanProfiles} from './lib.mjs';
-import {thaiError,thaiStep,thaiLanWarnings,THAI_WARNING} from './setup-messages.mjs';
+import {thaiError,errorKey,thaiStep,thaiLanWarnings,THAI_WARNING,stepIndex,warningKey} from './setup-messages.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url));
 const argv=process.argv.slice(2);
@@ -20,7 +20,7 @@ mkdirSync(logDir,{recursive:true});
 const logFile=path.join(logDir,`setup-${new Date().toISOString().replace(/[:.]/g,'-')}.log`);
 const log=m=>{try{appendFileSync(logFile,`${new Date().toISOString()} ${m}\n`);}catch{/* never stop the install for a log write */}};
 let lastPercent=0;
-const progress=(percent,text)=>{lastPercent=Math.max(lastPercent,percent);log(`PROGRESS ${lastPercent} ${text}`);if(progressFile)try{writeFileSync(progressFile,`\uFEFF${lastPercent}|${text}\r\n`,'utf8');}catch{/* wizard polls this */}};
+const progress=(percent,text)=>{lastPercent=Math.max(lastPercent,percent);log(`PROGRESS ${lastPercent} ${text}`);if(progressFile)try{writeFileSync(progressFile,`${lastPercent}|${stepIndex(text)}\r\n`,'ascii');}catch{/* wizard polls this; ASCII only: the wizard maps the index to Thai text it carries itself */}};
 // Windows PowerShell 5.1 started from a PowerShell 7 session inherits PSModulePath entries for PowerShell 7 and then cannot load its own
 // Security module (the Cert: drive disappears). Always give it the Windows PowerShell module path only. (Found when Setup was started from pwsh.)
 const psEnv=()=>({...process.env,PSModulePath:[path.join(process.env.USERPROFILE??'','Documents','WindowsPowerShell','Modules'),path.join(process.env.ProgramFiles??'C:\\Program Files','WindowsPowerShell','Modules'),path.join(SYS,'System32','WindowsPowerShell','v1.0','Modules')].join(';')});
@@ -32,7 +32,10 @@ const excelInstalled=()=>{try{execFileSync(path.join(SYS,'System32','reg.exe'),[
 function finish(result){
  const flat=v=>String(v??'').replace(/\r?\n/g,' | ');
  const lines=Object.entries({ok:result.ok?'yes':'no',action:result.action,version:result.version,root,url:result.url,urlVerified:result.urlVerified?'yes':'no',lanEnabled:result.lanEnabled?'yes':'no',
-  credentials:result.credentials,excelInstalled:result.excelInstalled?'yes':'no',taskMode:result.taskMode,message:result.message,warnings:(result.warnings??[]).join(' | '),log:logFile,certificateDownload:result.certificateDownload,firewall:result.firewall}).map(([k,v])=>`${k}=${flat(v)}`);
+  credentials:result.credentials,excelInstalled:result.excelInstalled?'yes':'no',taskMode:result.taskMode,message:result.message,warnings:(result.warnings??[]).join(' | '),
+  // ASCII codes for the wizard (it shows its own Thai text for them)
+  warningCodes:(result.warnings??[]).map(warningKey).filter(Boolean).join(','),messageCode:result.code??'',
+  checkCodes:(result.checks??[]).map(c=>`${c.id}~${c.detail??''}`).join(','),log:logFile,certificateDownload:result.certificateDownload,firewall:result.firewall}).map(([k,v])=>`${k}=${flat(v)}`);
  log('RESULT '+JSON.stringify(result));
  if(resultFile)writeFileSync(resultFile,'\uFEFF'+lines.join('\r\n')+'\r\n','utf8'); // BOM: Inno Setup reads UTF-8 only with it
  process.stdout.write(JSON.stringify(result)+'\n');
@@ -68,14 +71,14 @@ try{
  // 1. integrity before anything is written
  progress(4,'กำลังตรวจความสมบูรณ์ของชุดติดตั้ง');
  let manifest;
- try{manifest=await verifyPackage(packageDir,publicKey);}catch(e){log('VERIFY_FAILED '+e.message);finish({ok:false,action:'VERIFY',message:thaiError(e.message)});}
+ try{manifest=await verifyPackage(packageDir,publicKey);}catch(e){log('VERIFY_FAILED '+e.message);finish({ok:false,action:'VERIFY',code:e.message,message:thaiError(e.message)});}
  const state=stateOf();
  const base=path.basename(root);
 
  // 2. what is there already?
  if(state&&state.status!=='UNINSTALLED_DATA_RETAINED'){
   const cmp=compareVersions(manifest.version,state.current.version);
-  if(cmp<0)finish({ok:false,action:'REFUSED',version:state.current.version,message:thaiError('INSTALLED_VERSION_IS_NEWER')});
+  if(cmp<0)finish({ok:false,action:'REFUSED',version:state.current.version,code:'INSTALLED_VERSION_IS_NEWER',message:thaiError('INSTALLED_VERSION_IS_NEWER')});
   if(cmp===0){
    // opening the Setup again never recreates anything: make sure the services are up and report the real address
    progress(60,'ติดตั้งเวอร์ชันนี้อยู่แล้ว กำลังตรวจสถานะ');
@@ -86,7 +89,7 @@ try{
   // upgrade (data is kept; a verified pre-upgrade backup is taken by the engine)
   progress(10,'พบเวอร์ชันเดิม กำลังอัปเกรดโดยรักษาข้อมูลเดิม');
   const r=await engine('upgrade',['--package',packageDir,'--public-key',publicKey,'--health-timeout-seconds','240']);
-  if(r.ok===false||r.error){log('UPGRADE_FAILED '+JSON.stringify(r));finish({ok:false,action:'UPGRADE',version:state.current.version,message:thaiError(r.error,r.detail)});}
+  if(r.ok===false||r.error){log('UPGRADE_FAILED '+JSON.stringify(r));finish({ok:false,action:'UPGRADE',version:state.current.version,code:errorKey(r.error,r.detail),checks:Array.isArray(r.detail)?r.detail:[],message:thaiError(r.error,r.detail)});}
   progress(95,'กำลังตรวจที่อยู่สำหรับเครื่องอื่นใน LAN');
   const lan=await engine('lan-status',[]);
   finish({ok:true,action:'UPGRADED',version:manifest.version,url:lan.url,urlVerified:!!lan.probe?.reachableFromThisServer,lanEnabled:lan.enabled,credentials:L.credentials,excelInstalled:excel,warnings:thaiLanWarnings(lan,{admin}),certificateDownload:lan.certificateDownload,message:`อัปเกรดเป็นเวอร์ชัน ${manifest.version} สำเร็จ ข้อมูลเดิมอยู่ครบ`});
@@ -98,7 +101,7 @@ try{
  if(taskMode==='user'){
   // the startup task must run as the person who is signed in to Windows (Excel and the printer belong to that session)
   const console=ps('(Get-CimInstance Win32_ComputerSystem).UserName');
-  if(console&&console.toLowerCase()!==whoami().toLowerCase()){log(`USER_MISMATCH console=${console} installer=${whoami()}`);finish({ok:false,action:'INSTALL',message:thaiError('INSTALL_USER_IS_NOT_THE_LOGGED_ON_USER')});}
+  if(console&&console.toLowerCase()!==whoami().toLowerCase()){log(`USER_MISMATCH console=${console} installer=${whoami()}`);finish({ok:false,action:'INSTALL',code:'INSTALL_USER_IS_NOT_THE_LOGGED_ON_USER',message:thaiError('INSTALL_USER_IS_NOT_THE_LOGGED_ON_USER')});}
  }
  if(!excel)warnings.push(THAI_WARNING.EXCEL_MISSING);
  else if(!ps("(Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Windows' -Name Device -ErrorAction SilentlyContinue).Device"))warnings.push(THAI_WARNING.PRINTER_MISSING);
@@ -117,7 +120,7 @@ try{
    if(existsSync(L.configFile)||existsSync(L.installState)){await engine('uninstall',['--confirm',base,...(retained?[]:['--remove-data'])]);}
    if(!retained&&!rootExisted&&existsSync(root))for(let i=0;i<5&&existsSync(root);i++){try{rmSync(root,{recursive:true,force:true});}catch{await new Promise(res=>setTimeout(res,1500));}}
   }catch(e){log('CLEANUP_FAILED '+e.message);}
-  finish({ok:false,action:retained?'REINSTALL':'INSTALL',message:thaiError(r.error,r.detail)});
+  finish({ok:false,action:retained?'REINSTALL':'INSTALL',code:errorKey(r.error,r.detail),checks:Array.isArray(r.detail)?r.detail:[],message:thaiError(r.error,r.detail)});
  }
  const lan=r.lan;
  warnings.push(...thaiLanWarnings(lan,{admin}));
@@ -126,5 +129,5 @@ try{
   firewall:lan.firewall?.exists?'created':(admin?'missing':'not created (needs administrator)'),certificateDownload:lan.certificateDownload,warnings:[...new Set(warnings)],message:'ติดตั้งสำเร็จ'});
 }catch(e){
  log('UNEXPECTED '+(e?.stack??e));
- finish({ok:false,action:'UNEXPECTED',message:thaiError('UNEXPECTED')});
+ finish({ok:false,action:'UNEXPECTED',code:'UNEXPECTED',message:thaiError('UNEXPECTED')});
 }
