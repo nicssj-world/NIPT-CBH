@@ -49,6 +49,7 @@ export function thaiError(code,detail){
   const lines=[...new Set(detail.filter(c=>!(c.id==='excel_installed')&&!(c.id==='default_printer_current_user')).map(thaiCheck))];
   if(lines.length)return 'ยังติดตั้งไม่ได้ เพราะ:\n- '+lines.join('\n- ');
  }
+ if(code==='BACKUP_FAILED'&&/QUEUE_NOT_QUIESCENT|WORKER_OR_WRITER_NOT_QUIESCENT/.test(String(detail)))return 'ยังมีงานเบื้องหลังค้างอยู่ (มักเกิดหลังระบบหยุดกะทันหัน) จึงยังสำรองข้อมูลก่อนอัปเกรดไม่ได้ ระบบเดิมกลับมาทำงานตามปกติและข้อมูลไม่เสียหาย กรุณารอประมาณ 15 นาทีแล้วเปิดตัวติดตั้งอีกครั้ง';
  if(String(code).startsWith('TIMEOUT_HEALTH'))return 'ติดตั้งแล้วแต่ระบบยังไม่พร้อมใช้งานภายในเวลาที่กำหนด ระบบจะลบสิ่งที่ติดตั้งค้างไว้ให้ (ถ้าเป็นการติดตั้งใหม่) รายละเอียดอยู่ในไฟล์ Log';
  return CODE[code]??'การติดตั้งไม่สำเร็จ รายละเอียดทางเทคนิคอยู่ในไฟล์ Log ข้อมูลเดิม (ถ้ามี) ไม่ถูกลบ';
 }

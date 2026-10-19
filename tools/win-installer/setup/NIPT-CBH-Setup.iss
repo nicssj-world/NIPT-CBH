@@ -75,7 +75,7 @@ Root: HKA; Subkey: "SOFTWARE\NIPT-CBH"; ValueType: string; ValueName: "InstallRo
 Root: HKA; Subkey: "SOFTWARE\NIPT-CBH"; ValueType: string; ValueName: "Version"; ValueData: "{#AppVersion}"; Flags: uninsdeletekey
 
 [Icons]
-Name: "{autoprograms}\NIPT-CBH\ตั้งค่าที่อยู่ LAN / ใบรับรอง (Set-LAN)"; Filename: "{code:GetEngineRoot}\Set-LAN.cmd"; WorkingDir: "{code:GetEngineRoot}"
+Name: "{autoprograms}\NIPT-CBH\ตั้งค่าที่อยู่ LAN และใบรับรอง (Set-LAN)"; Filename: "{code:GetEngineRoot}\Set-LAN.cmd"; WorkingDir: "{code:GetEngineRoot}"
 Name: "{autoprograms}\NIPT-CBH\ตรวจสถานะระบบ (Status)"; Filename: "{code:GetEngineRoot}\Status.cmd"; WorkingDir: "{code:GetEngineRoot}"
 Name: "{autoprograms}\NIPT-CBH\ถอนการติดตั้ง NIPT-CBH"; Filename: "{uninstallexe}"
 
@@ -385,7 +385,9 @@ begin
     else begin
       Log('NIPT-CBH engine failed: ' + FinalMessage);
       SuppressibleMsgBox(FinalMessage, mbError, MB_OK, IDOK);
-      Abort;
+      DelTree(ExpandConstant('{tmp}
+ipt-package'), True, True, True);
+      ExitProcess(2);                       { a failed install/upgrade must not look like success to the caller }
     end;
   end;
 end;

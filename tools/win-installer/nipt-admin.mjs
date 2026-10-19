@@ -430,7 +430,13 @@ async function upgrade(){
  const compat=schemaCompatibility({ledger,releaseMigrations:newRelease.migrations});
  if(!compat.compatibleWithDatabase)fail('UPGRADE_SCHEMA_INCOMPATIBLE',compat);
  say('pre-upgrade verified backup');
- const pre=await takeBackup(L,c);
+ let pre;
+ try{pre=await takeBackup(L,c);}
+ catch(error){ // nothing was changed yet: leave the installed system running exactly as before
+  say('pre-upgrade backup failed — restarting the installed release unchanged');
+  await startServices(L,c).then(()=>waitHealthy(L,c)).catch(e=>say('restart after failed backup: '+e.message));
+  throw error;
+ }
  // services are stopped; PostgreSQL is running
  say('staging release '+m.version);
  cpSync(path.join(packageDir,'payload','release'),next+'.staging',{recursive:true});
