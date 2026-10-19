@@ -219,8 +219,8 @@ try{
   const stale=cli('installed','restore',['--backup',preUpgradeBackup,'--activate','--confirm-source-fenced','yes'],{allowFail:true});assert.equal(stale.error,'RESTORE_SOURCE_CHANGED_SINCE_BACKUP');
   await healthOk('AFTER_REFUSED_ACTIVATIONS');assert.equal(JSON.parse(readFileSync(path.join(root,'config','nipt.json'),'utf8')).database,oldDatabase);assert.equal(psql('SELECT nipt_runtime_quarantined()'),'f');
   // (b) a recovery drill the tool supports: fresh backup of the unchanged source, restore, activate
-  const fresh=cli('installed','backup').backup.backupBase;const before=dataSnapshot();
-  const r=cli('installed','restore',['--backup',fresh,'--activate','--confirm-source-fenced','yes']);
+  await healthOk('BEFORE_FRESH_RESTORE');const before=dataSnapshot();
+  const r=cli('installed','restore',['--fresh','--activate','--confirm-source-fenced','yes']);
   assert.equal(r.activated,true);assert.deepEqual(r.forwardMigrationsApplied,[]);
   const cfg=JSON.parse(readFileSync(path.join(root,'config','nipt.json'),'utf8'));assert.notEqual(cfg.database,oldDatabase);assert.equal(cfg.database,r.database);
   assert.equal(psql('SELECT nipt_runtime_quarantined()',oldDatabase),'t'); // the previous database is fenced

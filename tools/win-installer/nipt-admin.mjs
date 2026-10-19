@@ -309,9 +309,12 @@ async function backup(){
 
 async function restore(){
  const L=layout(args.root),c=cfgOf(L),st=stateOf(L);
- const backupDir=path.resolve(args.backup??fail('BACKUP_REQUIRED'));
+ if(!args.backup&&args.fresh!==true)fail('BACKUP_REQUIRED');
  const ops=path.join(releaseDir(L,st.current.version),'ops');
  await stopServices(L,{keepDatabase:true});pgStart(L,c);
+ // --fresh: back up the current (quiescent) source first and restore exactly that backup, so nothing can change between backup and activation.
+ // Used for recovery drills and planned moves; an older backup over changed work is refused by the activation gate.
+ const backupDir=args.fresh===true?(await takeBackup(L,c)).backupBase:path.resolve(args.backup);
  const id=randomUUID().replaceAll('-',''),database='nipt_operational_restore_'+id.slice(0,24),destination=path.join(L.restores,id);
  psql(L,c,`CREATE DATABASE ${database}`,{db:'postgres'});
  const restoreUrl=urlFor(L,c,'migration-url',database);
