@@ -18,12 +18,13 @@ Installed layout (`<Root>`, default `C:\NIPT-CBH`):
 
 | Folder | Content |
 |---|---|
-| `runtime\` | Node, PostgreSQL binaries, Chromium (installed once; upgrades must not change them) |
+| `runtime\` | Node, PostgreSQL 17 binaries, Chromium, PowerShell 7 (installed once; upgrades must not change them) |
 | `releases\<version>\` | immutable `app\` and `ops\` of each installed release |
 | `admin\`, `nipt.cmd` | operator CLI of the current release |
 | `data\pgdata`, `data\files`, `data\integration\{inbound,outbound,results}`, `data\master` | database cluster and file stores (never inside a release) |
 | `secrets\` | database passwords/URLs, renderer token, identity key, integration keys, backup key, TLS passphrase, test accounts (ACL: installing user, SYSTEM, Administrators) |
 | `config\` | `nipt.json`, `share-policy.json`, `backup-policy.json`, `tls\` (self-signed PFX + certificate) |
+| `data\excel-spool\` | hand-off folder to the Excel bridge (only with `-ExcelMode bridge`) |
 | `backups\`, `restores\`, `logs\`, `run\` | encrypted backups, restored trees, service logs, supervisor state |
 | `install-state.json` | current/previous release, status, history; `status` stays `INSTALLED_NOT_ACCEPTED` |
 
@@ -42,10 +43,29 @@ One Windows **scheduled task** (`\NIPT-CBH\nipt-cbh-<instance>`; `-TaskMode syst
 | `install` | preflight → copy runtime and release → secrets/TLS/policies → `initdb` → forward migrations → mark operational → least-privilege logins → six test accounts → startup task → start → health → **first verified backup** |
 | `start` / `stop` [`--keep-database`] / `restart` / `status` / `health` | lifecycle and the operator health report (`tools/p8/health.ts`) plus supervisor and HTTPS probes |
 | `backup` | stops the writers, takes the existing quiescent encrypted operational backup, restarts |
+| `set-backup-root --path <drive or UNC folder>` | moves the backup destination (e.g. a NAS share); proves the account can write it and updates the backup policy |
+| `schedule-backup --time HH:mm` / `unschedule-backup` / `backups` | daily scheduled task running `backup`; list of backups with hashes |
+| `dr-drill` | timed backup + verified restore into a quarantined database, nothing activated, drill copy removed: RPO/RTO measurements for this host |
+| `photos verify` / `backup <dir>` / `restore <backup> <rootId> <path>` / `relocate <rootId> <path> <reason>` | Run Photo Evidence maintenance (existing tool) with the installation's environment |
+| `host-check [--backup-path ...] [--photo-path ...] [--inbound ...] [--outbound ...] [--hostname ...] [--cert ...]` | read-only hospital host check (also runnable as `node installer\host-check.mjs` before installation) |
 | `restore (--backup <dir> or --fresh) [--activate --confirm-source-fenced yes]` | restore into a **new quarantined database and file tree**, verify digests/ledger/files; activation fences the source first, then switches the installation to the restored database |
 | `upgrade --package <dir>` | verify, schema-compatibility gate, **pre-upgrade backup**, stage release, forward migrations, switch, start, verify; automatic rollback if the new release is not healthy |
 | `rollback` | switch back to the previous release **only if the database is not newer than that release** |
 | `uninstall --confirm <folder name> [--remove-data]` | stop, remove the task and releases; data kept unless `--remove-data` |
+
+## Excel and the account the services run as
+
+Task List PDFs are rendered by the desktop Microsoft Excel (A4, locked template). Two facts decide how the services may run:
+
+- Excel automation is not supported from a service or SYSTEM session (session 0), and the export script reads the signed-in user's **default printer** (HKCU) and sets it to A4.
+- The export script needs PowerShell 7 (.NET 5+ APIs); the package bundles it, so the host does not need it.
+
+| Mode | When | How Excel is reached |
+|---|---|---|
+| `-ExcelMode direct` (default with `-TaskMode user`) | the services run in an interactive user session that has Excel and a default printer | the web process calls the export script directly |
+| `-ExcelMode bridge` (**required** with `-TaskMode system`) | the services run as SYSTEM at boot | the web process writes the workbook to `data\excel-spool`; a second scheduled task `...-excel-bridge`, running as a **logged-on interactive user** (`-ExcelUser DOMAIN\name`), calls the same export script and returns the PDFs. No network listener. The bridge is restarted by upgrade and rollback and reported in `health` |
+
+The installer refuses a SYSTEM task with direct Excel (`CONFIG_SYSTEM_TASK_REQUIRES_EXCEL_BRIDGE`) and refuses to install when Excel is not registered (`--allow-no-excel yes` overrides for test hosts; Task List PDFs then fail).
 
 ## Safety rules (enforced in code and covered by tests)
 
@@ -55,6 +75,6 @@ One Windows **scheduled task** (`\NIPT-CBH\nipt-cbh-<instance>`; `-TaskMode syst
 - Rollback never edits the schema. If the database is newer than the target release, rollback is refused and the pre-upgrade backup must be restored into a new database.
 - Backup/restore reuse `deploy/scripts/operational-backup.mjs` unchanged (AES-256-GCM, fenced source, fresh targets, table-digest comparison). A backup needs the approved owner master workbook; the installer verifies its SHA-256 and keeps a read-only copy.
 
-## Limits of this rehearsal
+## Limits of the rehearsals
 
-See [windows-installer-runbook.md](windows-installer-runbook.md) (procedures) and the evidence section of [delivery.md](delivery.md) once updated. Not covered: elevated SYSTEM-task install (the rehearsal session was not Administrator), a code-signing certificate or MSI/EXE wrapper, hospital TLS/DNS/LAN publication, UNC/SMB shares and service-account ACLs, hospital PostgreSQL sizing, NAS backup targets and key escrow, physical power-loss tests, antivirus/endpoint policy.
+Procedures: [windows-installer-runbook.md](windows-installer-runbook.md). Evidence: [windows-installer-evidence.md](windows-installer-evidence.md) and the release-candidate documents under `docs/release/`. Not covered by any local rehearsal: elevated SYSTEM-task install (the rehearsal session was not Administrator), a code-signing certificate or MSI/EXE wrapper, hospital TLS/DNS/LAN publication, UNC/SMB shares and service-account ACLs, hospital PostgreSQL sizing, NAS backup targets and key escrow, physical power-loss tests, antivirus/endpoint policy.
