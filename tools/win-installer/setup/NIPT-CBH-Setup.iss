@@ -385,8 +385,7 @@ begin
     else begin
       Log('NIPT-CBH engine failed: ' + FinalMessage);
       SuppressibleMsgBox(FinalMessage, mbError, MB_OK, IDOK);
-      DelTree(ExpandConstant('{tmp}
-ipt-package'), True, True, True);
+      DelTree(ExpandConstant('{tmp}'+chr(92)+'nipt-package'), True, True, True);
       ExitProcess(2);                       { a failed install/upgrade must not look like success to the caller }
     end;
   end;
