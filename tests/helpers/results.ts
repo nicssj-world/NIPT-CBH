@@ -32,8 +32,8 @@ export async function receivedCase(f:ResultFixture,o:{hn?:string;dob?:string;pre
   await t.query("INSERT INTO p2_document_revision(case_id,round_id,kind,version,template_version,payload,content_hash,reason,created_by) VALUES($1,$2,'REQUEST',1,'SYNTHETIC-FM01-v1',$3,$4,'SYNTHETIC_P5',$5)",[c.caseId,c.roundId,JSON.stringify(payload),createHash('sha256').update(JSON.stringify(payload)).digest('hex'),f.u.staff.id]);
   await receiveS1(t,c,new Date(Date.now()-3600000),collection);
  });
- const attempt=(await f.db.query<{id:string}>('SELECT id FROM analytical_attempt WHERE round_id=$1 AND attempt_number=1',[c.roundId])).rows[0].id;
- return {...c,hn,attemptId:attempt,collection};
+ const attempt=(await f.db.query<{id:string;lab_number:string}>('SELECT a.id,coalesce(a.printed_sample_id,n.ln_halos) lab_number FROM analytical_attempt a JOIN specimen_lab_number n ON n.round_id=a.round_id WHERE a.round_id=$1 AND a.attempt_number=1',[c.roundId])).rows[0];
+ return {...c,hn,attemptId:attempt.id,labNumber:attempt.lab_number,collection};
 }
 export const pdfDate=(iso:string)=>{const d=new Date(iso+'T00:00:00Z');return `${String(d.getUTCDate()).padStart(2,'0')}-${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()]}-${d.getUTCFullYear()}`;};
 /** Preview + confirm through the same intake and service code the browser path uses. Returns the new report version id. */

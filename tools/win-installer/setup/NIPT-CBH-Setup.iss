@@ -17,7 +17,7 @@
 #endif
 
 [Setup]
-AppId={{B7E4C2A1-5D3F-4E8A-9C61-0A1B2C3D4E5F}
+AppId={code:GetSetupAppId}
 AppName=NIPT-CBH
 AppVersion={#AppVersion}
 AppVerName=NIPT-CBH {#AppVersion}
@@ -45,11 +45,13 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.17763
 SetupLogging=yes
+Uninstallable=not IsParityRehearsal
 SetupMutex=NIPT-CBH-Setup-Mutex
 UninstallDisplayName=NIPT-CBH {#AppVersion}
 CloseApplications=no
 RestartApplications=no
 ShowLanguageDialog=no
+UsePreviousLanguage=no
 WizardSizePercent=130,150
 VersionInfoVersion={#AppVersion}
 VersionInfoDescription=NIPT-CBH Setup (test release)
@@ -73,13 +75,13 @@ Source: "{#PackageDir}\*"; DestDir: "{tmp}\nipt-package"; Flags: recursesubdirs 
 Source: "{#KeyFile}"; DestDir: "{tmp}\nipt-key"; DestName: "package-signing-public.pem"; Flags: ignoreversion deleteafterinstall
 
 [Registry]
-Root: HKA; Subkey: "SOFTWARE\NIPT-CBH"; ValueType: string; ValueName: "InstallRoot"; ValueData: "{code:GetEngineRoot}"; Flags: uninsdeletekey
-Root: HKA; Subkey: "SOFTWARE\NIPT-CBH"; ValueType: string; ValueName: "Version"; ValueData: "{#AppVersion}"; Flags: uninsdeletekey
+Root: HKA; Subkey: "SOFTWARE\NIPT-CBH"; ValueType: string; ValueName: "InstallRoot"; ValueData: "{code:GetEngineRoot}"; Flags: uninsdeletekey; Check: not IsParityRehearsal
+Root: HKA; Subkey: "SOFTWARE\NIPT-CBH"; ValueType: string; ValueName: "Version"; ValueData: "{#AppVersion}"; Flags: uninsdeletekey; Check: not IsParityRehearsal
 
 [Icons]
-Name: "{autoprograms}\NIPT-CBH\ตั้งค่าที่อยู่ LAN และใบรับรอง (Set-LAN)"; Filename: "{code:GetEngineRoot}\Set-LAN.cmd"; WorkingDir: "{code:GetEngineRoot}"
-Name: "{autoprograms}\NIPT-CBH\ตรวจสถานะระบบ (Status)"; Filename: "{code:GetEngineRoot}\Status.cmd"; WorkingDir: "{code:GetEngineRoot}"
-Name: "{autoprograms}\NIPT-CBH\ถอนการติดตั้ง NIPT-CBH"; Filename: "{uninstallexe}"
+Name: "{autoprograms}\NIPT-CBH\ตั้งค่าที่อยู่ LAN และใบรับรอง (Set-LAN)"; Filename: "{code:GetEngineRoot}\Set-LAN.cmd"; WorkingDir: "{code:GetEngineRoot}"; Check: not IsParityRehearsal
+Name: "{autoprograms}\NIPT-CBH\ตรวจสถานะระบบ (Status)"; Filename: "{code:GetEngineRoot}\Status.cmd"; WorkingDir: "{code:GetEngineRoot}"; Check: not IsParityRehearsal
+Name: "{autoprograms}\NIPT-CBH\ถอนการติดตั้ง NIPT-CBH"; Filename: "{uninstallexe}"; Check: not IsParityRehearsal
 
 [Run]
 Filename: "{code:GetUrl}"; Description: "เปิด NIPT-CBH ตอนนี้"; Flags: postinstall shellexec skipifsilent; Check: UrlIsReady
@@ -120,8 +122,36 @@ begin
   Result := ExpandConstant('{param:' + Name + '|' + Default + '}');
 end;
 
+{ Opt-in test wrapper isolation. Never reads/writes the normal product registration or shortcuts. }
+function IsParityRehearsal: Boolean;
+begin
+  Result := CmdParam('PARITYREHEARSAL', '') <> '';
+end;
+
+function GetSetupAppId(Unused: String): String;
+begin
+  if IsParityRehearsal then Result := 'NIPT-CBH-Parity-' + CmdParam('PARITYREHEARSAL', '')
+  else Result := '{B7E4C2A1-5D3F-4E8A-9C61-0A1B2C3D4E5F}';
+end;
+
+function ValidParityArguments: Boolean;
+var Tag, Root: String; I: Integer;
+begin
+  Tag := CmdParam('PARITYREHEARSAL', ''); Root := CmdParam('ROOT', '');
+  Result := (Length(Tag) >= 6) and (Length(Tag) <= 60);
+  for I := 1 to Length(Tag) do
+    if not (((Tag[I] >= 'a') and (Tag[I] <= 'z')) or ((Tag[I] >= '0') and (Tag[I] <= '9')) or (Tag[I] = '-')) then Result := False;
+  Result := Result and not IsAdminInstallMode and WizardSilent and IsAsciiPath(Root) and
+    (Length(ExtractFileDrive(Root)) = 2) and (CompareText(ExpandFileName(Root), Root) = 0) and
+    (Pos('\.local\p8-win\parity-upgrade-' + Tag, Lowercase(Root)) > 0) and
+    (ExtractFileName(Root) = 'parity-upgrade-' + Tag) and
+    (CompareText(CmdParam('DIR', ''), Root + '\setup-wrapper') = 0) and
+    (CmdParam('LAN', '') = 'no') and (CmdParam('NOTRUST', '') = '1') and (CmdParam('TASKMODE', '') = 'user');
+end;
+
 function GetEngineRoot(Unused: String): String;
 begin
+  if IsParityRehearsal then begin Result := CmdParam('ROOT', ''); Exit; end;
   Result := '';
   if Assigned(RootEdit) and (RootEdit.Text <> '') then Result := RootEdit.Text
   else if not RegQueryStringValue(HKA, 'SOFTWARE\NIPT-CBH', 'InstallRoot', Result) then Result := CmdParam('ROOT', 'C:\NIPT-CBH');
@@ -212,6 +242,11 @@ function InitializeSetup: Boolean;
 var Root, State, Installed, Origin, NodeExe, Cli: String; Code: Integer;
 begin
   Result := True;
+  if IsParityRehearsal then begin
+    Result := ValidParityArguments;
+    if not Result then Log('PARITY_REHEARSAL_ARGUMENTS_INVALID');
+    Exit;
+  end;
   if not RegQueryStringValue(HKA, 'SOFTWARE\NIPT-CBH', 'InstallRoot', Root) then Exit;
   State := ReadFileText(Root + '\install-state.json');
   if State = '' then Exit;
@@ -349,6 +384,7 @@ begin
   ResultFile := Tmp + '\nipt-setup-result.txt';
   ProgFile := Tmp + '\nipt-setup-progress.txt';
   LogDir := ExpandConstant('{commonappdata}\NIPT-CBH\setup-logs');
+  if IsParityRehearsal then LogDir := Root + '\parity-evidence\setup-logs';
   DeleteFile(ResultFile); DeleteFile(ProgFile);
   Params := '"' + Pkg + '\installer\setup-run.mjs" --package "' + Pkg + '" --public-key "' + Tmp + '\nipt-key\package-signing-public.pem" --root "' + Root + '"' +
     ' --result "' + ResultFile + '" --progress "' + ProgFile + '" --log-dir "' + LogDir + '"' +
@@ -408,6 +444,7 @@ end;
 procedure MakeShortcuts;
 var Body: String; Dir: String;
 begin
+  if IsParityRehearsal then Exit;
   if not UrlIsReady then Exit;
   Body := '[InternetShortcut]' + #13#10 + 'URL=' + FinalUrl + #13#10;
   SaveStringToFile(ExpandConstant('{autodesktop}\NIPT-CBH.url'), Body, False);

@@ -12,16 +12,18 @@ import {Pool} from 'pg';
 import {migrate} from '../migrate';
 import {workerServiceAccount} from '../../packages/integrations/authorized-share';
 const repo=process.cwd(),base=path.resolve('.local/integration-e2e'),project='nipt-integ-consent-photos-20261018';
-if(!['NIPT-CBH-INTEG-CONSENT-PHOTOS','NIPT-CBH-UX-PROJECTWIDE','NIPT-CBH-PAGINATION'].includes(path.basename(repo)))throw Error('ISOLATED_WORKTREE_REQUIRED');
+if(!['NIPT-CBH-INTEG-CONSENT-PHOTOS','NIPT-CBH-UX-PROJECTWIDE','NIPT-CBH-PAGINATION','NIPT-CBH-PARITY-REMEDIATION'].includes(path.basename(repo)))throw Error('ISOLATED_WORKTREE_REQUIRED');
 const bootstrapUrl=process.env.NIPT_INTEG_E2E_PG_URL??'';
 if(!/^postgres(ql)?:\/\/[^@]+@127\.0\.0\.1:\d+\/postgres$/.test(bootstrapUrl))throw Error('LOOPBACK_BOOTSTRAP_DATABASE_REQUIRED');
 await fs.mkdir(base,{recursive:true});
-for(const port of [19828,19830])await new Promise<void>((resolve,reject)=>{const server=net.createServer();server.once('error',reject);server.listen(port,'127.0.0.1',()=>server.close(()=>resolve()));});
+const webPort=Number(process.env.NIPT_INTEG_E2E_WEB_PORT??19828),rendererPort=Number(process.env.NIPT_INTEG_E2E_RENDERER_PORT??19830);
+if(![webPort,rendererPort].every(p=>Number.isInteger(p)&&p>1024&&p<65536)||webPort===rendererPort)throw Error('DISTINCT_LOOPBACK_PORTS_REQUIRED');
+for(const port of [webPort,rendererPort])await new Promise<void>((resolve,reject)=>{const server=net.createServer();server.once('error',reject);server.listen(port,'127.0.0.1',()=>server.close(()=>resolve()));});
 // The reserved-browser-database guard (tests/helpers/browser-database.ts) is kept unchanged: the name uses its approved prefix.
 const database='nipt_synthetic_p2_browser_photos_'+randomBytes(6).toString('hex');
 const bootstrap=new Pool({connectionString:bootstrapUrl});
 try{await bootstrap.query('CREATE DATABASE '+database);}finally{await bootstrap.end();}
-const dbUrl=new URL(bootstrapUrl);dbUrl.pathname='/'+database;const url=dbUrl.toString(),origin='http://127.0.0.1:19828';
+const dbUrl=new URL(bootstrapUrl);dbUrl.pathname='/'+database;const url=dbUrl.toString(),origin='http://127.0.0.1:'+webPort;
 process.env.NIPT_MODE='synthetic';const db=new Pool({connectionString:url});try{await migrate(db);}finally{await db.end();}
 execFileSync(process.execPath,['--import',pathToFileURL(path.join(repo,'node_modules/tsx/dist/loader.mjs')).href,path.join(repo,'tools/init-dev.ts')],{cwd:base,windowsHide:true,stdio:'ignore'});
 const key=(name:string)=>path.join(base,'data/keys',name);
@@ -29,7 +31,7 @@ const key=(name:string)=>path.join(base,'data/keys',name);
 // offline test renames). Reset per run.
 const photos=path.join(base,'data/photos');await fs.rm(photos,{recursive:true,force:true});for(const d of ['nas-a','nas-b'])await fs.mkdir(path.join(photos,d),{recursive:true});
 const screens=path.join(base,'screens');await fs.rm(screens,{recursive:true,force:true});await fs.mkdir(screens,{recursive:true});
-const env={...process.env,NIPT_MODE:'synthetic',DATABASE_URL:url,NIPT_E2E_AUDIT_DATABASE_URL:url,APP_ORIGIN:origin,E2E_BASE_URL:origin,HOSTNAME:'127.0.0.1',PORT:'19828',FILE_STORE_ROOT:path.join(base,'data/files'),SIMULATOR_ROOT:path.join(base,'data/simulator'),RENDERER_URL:'http://127.0.0.1:19830',RENDERER_PORT:'19830',RENDERER_TOKEN_FILE:key('renderer-token'),INTEGRATION_PUBLIC_KEY_FILE:key('integration-public.pem'),INTEGRATION_PRIVATE_KEY_FILE:key('integration-private.pem'),IDENTITY_ENCRYPTION_KEY_FILE:key('identity.key'),IDENTITY_LOOKUP_KEY_FILE:key('lookup.key'),BACKUP_KEY_FILE:key('backup.key'),SYNTHETIC_SEED_PASSWORD_FILE:path.join(base,'data/secrets/seed-password'),
+const env={...process.env,NIPT_MODE:'synthetic',DATABASE_URL:url,NIPT_E2E_AUDIT_DATABASE_URL:url,APP_ORIGIN:origin,E2E_BASE_URL:origin,HOSTNAME:'127.0.0.1',PORT:String(webPort),FILE_STORE_ROOT:path.join(base,'data/files'),SIMULATOR_ROOT:path.join(base,'data/simulator'),RENDERER_URL:'http://127.0.0.1:'+rendererPort,RENDERER_PORT:String(rendererPort),RENDERER_TOKEN_FILE:key('renderer-token'),INTEGRATION_PUBLIC_KEY_FILE:key('integration-public.pem'),INTEGRATION_PRIVATE_KEY_FILE:key('integration-private.pem'),IDENTITY_ENCRYPTION_KEY_FILE:key('identity.key'),IDENTITY_LOOKUP_KEY_FILE:key('lookup.key'),BACKUP_KEY_FILE:key('backup.key'),SYNTHETIC_SEED_PASSWORD_FILE:path.join(base,'data/secrets/seed-password'),
  RUN_PHOTO_DEFAULT_ROOT:path.join(photos,'default'),NIPT_E2E_PHOTO_ROOT:photos,NIPT_E2E_SCREEN_DIR:screens,RUN_PHOTO_STORAGE_TIMEOUT_MS:'4000',
  NIPT_TASK_MASTER_PATH:process.env.NIPT_TASK_MASTER_PATH??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx'};
 await fs.cp(path.join(repo,'public'),path.join(repo,'.next/standalone/public'),{recursive:true});

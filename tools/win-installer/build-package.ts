@@ -10,6 +10,7 @@ import {cp,mkdir,readFile,writeFile,readdir,rm,access,lstat} from 'node:fs/promi
 import path from 'node:path';
 import {migrationInventory} from '../../deploy/scripts/release-contract.mjs';
 import {directoryHashes,INSTALLER_FORMAT,parseVersion} from './lib.mjs';
+import {stageFormAssets,FORM_ASSETS} from './form-assets.mjs';
 
 const arg=(n:string)=>{const i=process.argv.indexOf('--'+n);return i<0?undefined:(process.argv[i+1]&&!process.argv[i+1].startsWith('--')?process.argv[i+1]:'true');};
 const git=(...a:string[])=>execFileSync('git',a,{encoding:'utf8'}).trim();
@@ -52,6 +53,8 @@ if(!await exists(path.join(modulesCache,'node_modules','tsx'))){
 
 // 4. stage the release
 const release=path.join(out,'payload','release'),app=path.join(release,'app'),ops=path.join(release,'ops');
+// External originals are required build inputs, verified against pinned hashes and included in the signed file inventory.
+await stageFormAssets(release,{request:arg('anc-request-pdf')??process.env.NIPT_ANC_REQUEST_PDF,consent:arg('anc-consent-pdf')??process.env.NIPT_ANC_CONSENT_PDF});
 await mkdir(app,{recursive:true});await mkdir(ops,{recursive:true});
 log('staging app');
 // Next's standalone output links externalized packages (e.g. argon2) through hashed symlinks; a package must hold real files (creating a symlink needs a privilege on the target).
@@ -74,7 +77,7 @@ for(const d of ['p8','win-installer'])await cp(path.join('tools',d),path.join(op
 for(const f of ['package.json','package-lock.json','tsconfig.json'])await cp(f,path.join(ops,f));
 await cp(path.join(modulesCache,'node_modules'),path.join(ops,'node_modules'),{recursive:true});
 await writeFile(path.join(ops,'build-provenance.json'),JSON.stringify(provenance));
-await writeFile(path.join(release,'release.json'),JSON.stringify({version,revision,buildId,migrationsSha256:inventory.sha256,migrationCount:Object.keys(inventory.files).length,migrations:inventory.files,extraTestMigration:extra?path.basename(extra):null,createdAt:git('log','-1','--format=%cI')},null,2)); // commit time, not wall-clock: packaging the same build twice is byte-identical
+await writeFile(path.join(release,'release.json'),JSON.stringify({version,revision,buildId,formAssets:FORM_ASSETS,migrationsSha256:inventory.sha256,migrationCount:Object.keys(inventory.files).length,migrations:inventory.files,extraTestMigration:extra?path.basename(extra):null,createdAt:git('log','-1','--format=%cI')},null,2)); // commit time, not wall-clock: packaging the same build twice is byte-identical
 
 // 5. runtime (full packages only)
 let runtime:Record<string,string>|undefined;

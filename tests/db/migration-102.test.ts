@@ -20,7 +20,11 @@ it('102 upgrades a 101 database: new decision function, refusal-aware readiness,
   const old=await body('p2_clinical_documents_ready');expect(old).toMatch(/consentMode'='Paper'\s+AND COALESCE/);expect(await body('p2_consent_latest_decision')).toBeUndefined();
   const others=async()=>(await db.query<{proname:string;src:string}>("SELECT proname,prosrc src FROM pg_proc WHERE proname LIKE 'p2\_%' AND proname NOT IN ('p2_clinical_documents_ready','p2_consent_latest_decision') ORDER BY proname")).rows;
   const pre=await others();
-  await migrate(db);
+  // Isolate 101→102 from later migrations that intentionally change other
+  // consent functions; otherwise this assertion tests the whole migration set.
+  await copyFile(path.join('db/migrations','102_p2_paper_consent_refusal.sql'),path.join(before,'102_p2_paper_consent_refusal.sql'));
+  await migrate(db,before);
+  expect((await db.query<{name:string}>('SELECT name FROM schema_migration ORDER BY name')).rows.map(r=>r.name)).toEqual(all.filter(f=>f<'103'));
   const sha=(f:string)=>createHash('sha256').update(readFileSync(path.join('db/migrations',f),'utf8')).digest('hex');
   expect((await db.query<{name:string;checksum:string}>("SELECT name,checksum FROM schema_migration WHERE name IN ('088_p2_operational_clinical_review.sql','101_p2_paper_consent_marker.sql','102_p2_paper_consent_refusal.sql') ORDER BY name")).rows)
    .toEqual(['088_p2_operational_clinical_review.sql','101_p2_paper_consent_marker.sql','102_p2_paper_consent_refusal.sql'].map(name=>({name,checksum:sha(name)})));

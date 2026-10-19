@@ -6,8 +6,9 @@ import * as intake from '../../packages/lab/intake';
 import * as batch from '../../packages/lab/batch';
 import * as rec from '../../packages/lab/records';
 import {FIELDS,requiredSheetFields} from '../../packages/lab/fields';
-import {worksheetHtml} from '../../packages/pdf/p4';
+import {renderDraftTaskPdf} from '../../packages/workbook/draft-preview';
 import type {Queryable} from '../../packages/db/connection';
+vi.mock('../../packages/workbook/draft-preview',()=>({renderDraftTaskPdf:vi.fn(async()=>Buffer.from('%PDF-SYNTHETIC-DRAFT-TEST'))}));
 
 // Owner approval 2026-10-18: OD-A, OD-B, OD-G, OD-E/E2, OD-S/T and G07 (Task List auto-fill). Synthetic PGlite database only.
 let db:PGlite,u:Awaited<ReturnType<typeof labUsers>>,docs:Awaited<ReturnType<typeof docDeps>>;
@@ -92,18 +93,19 @@ describe('OD-B — uncontrolled DRAFT preview before Finalize',()=>{
   const b=await run(t=>batch.createBatch(t,u.staff));
   await run(t=>batch.assignToBatch(t,u.staff,{batchId:b.batchId,expectedVersion:0,attemptIds:[attempts[0].id]}));
   await run(async t=>batch.updateSheetPlan(t,u.staff,{batchId:b.batchId,expectedVersion:await V(b.batchId),sheetNumber:1,plannedWorkDate:'2026-10-18',plannedOperator:'จำลอง ผู้ปฏิบัติ',plannedExtractionLot:null,plannedExtractionExpiry:null,plannedLibraryLot:null,plannedLibraryExpiry:null}));
-  const out=await run(t=>rec.previewDraftF2(t,u.staff,{batchId:b.batchId,sheetNumber:1},docs.deps));
+  const out=await run(t=>rec.previewDraftF2(t,u.staff,{batchId:b.batchId,sheetNumber:1}));
   expect(out.bytes.subarray(0,5).toString()).toBe('%PDF-');
-  const doc=docs.rendered.at(-1)!;if(doc.form!=='F2')throw Error();
-  expect(doc).toMatchObject({draft:true,kind:'PRE_WORK',sheetNumber:1});expect(doc.docCode.startsWith('DRAFT-')).toBe(true);
-  expect(doc.rows[0]).toMatchObject({kind:'CONTROL',printedId:'26N120261018-1'});expect(doc.rows[1].kind).toBe('PATIENT');
-  const html=worksheetHtml(doc);expect(html).toContain('ฉบับร่าง (DRAFT) — ไม่ใช่เอกสารควบคุม');expect(html).toContain('รหัส Control จะสร้างจากวันที่ทำ Library Preparation ที่วางแผน 18/10/2569');
+  const doc=vi.mocked(renderDraftTaskPdf).mock.calls.at(-1)![0];
+  expect(doc).toMatchObject({sheetNumber:1,previewedBy:u.staff.id,plan:{workDate:'18/10/2569',operator:'จำลอง ผู้ปฏิบัติ'}});expect(out.fileName.startsWith('DRAFT-')).toBe(true);
+  expect(doc.rows[0]).toMatchObject({printedId:'26N120261018-1'});expect(doc.rows[1].printedId).not.toBe('');
+  expect(docs.rendered).toHaveLength(0); // The live preview uses the native Task renderer, never the HTML worksheet.
   expect((await db.query<{n:number}>('SELECT count(*)::int n FROM lab_document')).rows[0].n).toBe(0);
+  for(const table of ['lab_document_copy','task_workbook_revision','task_workbook_export'])expect((await db.query<{n:number}>(`SELECT count(*)::int n FROM ${table}`)).rows[0].n).toBe(0);
   expect((await db.query<{n:number}>("SELECT count(*)::int n FROM audit_chain WHERE action='LAB_DRAFT_PREVIEW'")).rows[0].n).toBe(1);
-  await expect(run(t=>rec.previewDraftF2(t,u.anc,{batchId:b.batchId,sheetNumber:1},docs.deps))).rejects.toMatchObject({code:'FORBIDDEN'});
+  await expect(run(t=>rec.previewDraftF2(t,u.anc,{batchId:b.batchId,sheetNumber:1}))).rejects.toMatchObject({code:'FORBIDDEN'});
   await run(async t=>batch.planCheck(t,u.staff,{batchId:b.batchId,expectedVersion:await V(b.batchId),sheetNumber:1,confirm:{controlsAtTemplate:true,identifiersMatch:true,noDuplicates:true}}));
   await run(async t=>batch.finalizeSheet(t,u.staff,{batchId:b.batchId,expectedVersion:await V(b.batchId),sheetNumber:1}));
-  await expect(run(t=>rec.previewDraftF2(t,u.staff,{batchId:b.batchId,sheetNumber:1},docs.deps))).rejects.toMatchObject({code:'DRAFT_PREVIEW_ONLY_BEFORE_FINALIZE'});
+  await expect(run(t=>rec.previewDraftF2(t,u.staff,{batchId:b.batchId,sheetNumber:1}))).rejects.toMatchObject({code:'DRAFT_PREVIEW_ONLY_BEFORE_FINALIZE'});
  });
 });
 

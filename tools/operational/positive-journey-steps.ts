@@ -5,6 +5,8 @@ import path from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import type {Pool} from 'pg';
 import type {Page} from '@playwright/test';
+import {PDFDocument} from 'pdf-lib';
+import {getDocument} from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {lookbackFolders} from '../../packages/inbound/discovery';
 import {workerServiceAccount} from '../../packages/integrations/authorized-share';
 import {proposeSetting,approveSetting,activateSetting} from '../../packages/settings/service';
@@ -19,7 +21,7 @@ import {syntheticReportPdf} from '../his-simulator/result-pdf';
 import {pdfDate} from '../../tests/helpers/results';
 import type {Principal} from '../../packages/security/policy';
 import type {PoolRow,Member} from '../../packages/pooling/service';
-import {SHEETS} from '../../packages/workbook/master';
+import {MASTER_SHA256,SHEETS} from '../../packages/workbook/master';
 import {operationalTestPetBytes} from './test-pet-fixture';
 // The fixture transport accepts heterogeneous JSON endpoints; assertions validate the responses at each workflow step.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -30,6 +32,14 @@ export async function positiveJourney(c:Context){
  const patientIdentity=(index:number)=>({ln:'261015'+String(patientStart+index).padStart(6,'0'),hn:String(patientStart+index).padStart(8,'0')+'/69'});
  const bangkokTime=()=>new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Bangkok',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(new Date()).replace(/:/g,'');
  async function binary(url:string,body:Record<string,unknown>,name:string){const out=await lab.evaluate(async({url,body})=>{const token=document.cookie.split('; ').find(x=>x.startsWith('nipt_csrf='))?.split('=').slice(1).join('=')??'';const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json','x-csrf-token':token},body:JSON.stringify(body)});return {status:r.status,bytes:Array.from(new Uint8Array(await r.arrayBuffer()))};},{url,body});assert.equal(out.status,200,Buffer.from(out.bytes).toString());await fs.writeFile(path.join(base,name),Buffer.from(out.bytes));return Buffer.from(out.bytes);}
+ async function pdfEvidence(bytes:Buffer,fileName:string,pageCount:number,draft:boolean){
+  const pdf=await PDFDocument.load(bytes);assert.equal(pdf.getPageCount(),pageCount,fileName);
+  const loading=getDocument({data:new Uint8Array(bytes),useSystemFonts:false}),document=await loading.promise,pages=[];
+  try{for(let n=1;n<=pageCount;n++){const page=await document.getPage(n),view=page.getViewport({scale:1}),text=(await page.getTextContent()).items.map(i=>'str'in i?i.str:'').join(' '),draftMarkers=(text.match(/\bDRAFT\b/g)??[]).length;assert.ok(Math.abs(view.width-595.28)<2&&Math.abs(view.height-841.89)<2,`${fileName} page ${n}: A4 portrait required`);assert.equal(draftMarkers>0,draft,`${fileName} page ${n}: DRAFT status`);pages.push({page:n,width:view.width,height:view.height,draftMarkers});}}finally{await loading.destroy();}
+  return {fileName,sha256:createHash('sha256').update(bytes).digest('hex'),pageCount,pages,subject:pdf.getSubject()??null};
+ }
+ type PdfEvidence=Awaited<ReturnType<typeof pdfEvidence>>;
+ const draftTasks:{sheetNumber:number;pdf:PdfEvidence;before:Record<string,unknown>;after:Record<string,unknown>}[]=[],completedTasks:{sheetNumber:number;documentId:string;masterSha256:string;pdf:PdfEvidence}[]=[],nativeSheets:{sheet:string;pdf:PdfEvidence}[]=[];
  const day=lookbackFolders(1,new Date())[0],date=`${day.slice(0,4)}-${day.slice(4,6)}-${day.slice(6)}`,folder=path.join(inbound,day),s1ReceivedTime=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Bangkok',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(new Date()).replace(/:/g,'');await fs.mkdir(folder,{recursive:true});
  const outbound=c.localOutboundRoot??path.join(base,'outbound');for(const n of ['res','pdf','backup'])await fs.mkdir(path.join(outbound,n),{recursive:true});
  const workerInboundRoot=c.workerInboundRoot??inbound,workerOutboundRoot=c.workerOutboundRoot??outbound,serviceAccount=c.workerServiceAccountName??workerServiceAccount(),workerOutboundPath=(name:string)=>c.workerOutboundRoot?path.posix.join(workerOutboundRoot,name):path.join(outbound,name);
@@ -45,7 +55,7 @@ export async function positiveJourney(c:Context){
  async function pet(x:{ln:string;hn:string},time:string){await fs.writeFile(path.join(folder,x.ln+'-7.pet'),operationalTestPetBytes({ln:x.ln,hn:x.hn,day,time}));await fs.writeFile(path.join(folder,x.ln+'-7.ok'),Buffer.alloc(0));}
  async function prepare(x:Case,electronic:boolean){
   const url='/api/p2/cases/'+x.caseId;let w=(await api(lab,url)).workspace;
-  if(electronic){if(w.request_mode!=='Electronic'){await api(lab,url,{action:'setModes',expectedVersion:w.version,requestMode:'Electronic',consentMode:'Paper',reason:'LOCAL TEST electronic request with paper consent'});w=(await api(lab,url)).workspace;}const draft=structuredClone(emptyRequest);Object.assign(draft.patient,{syntheticName:'LOCAL TEST PATIENT',dob:'1996-03-31'});Object.assign(draft.pregnancy,{type:'Singleton',edd:new Date(Date.parse(date)+194*86400000).toISOString().slice(0,10),collectionDate:date,collectionTime:'07:00',collectionSource:c.anc?'ANC':'LAB_PAPER',weightKg:60,heightCm:165,vanishingTwin:'No',fetalSex:'Want',sca:'Want'});for(const k of ['transfusion4months','heparin24h','immune1month','albumin4weeks','exogenousDna4weeks'] as const)draft.history[k].answer='No';Object.assign(draft.history,{cancerTreatment:'No',gaUnder8:'No',tumor:'No',priorChromosomeTest:'No',otherHistory:'No'});draft.ordering.doctorVersionId=doctor.id;const saved=await api(lab,url,{action:'saveRequest',expectedVersion:w.version,draft});await api(lab,url,{action:'lockRequest',expectedVersion:saved.version,reason:'LOCAL TEST complete request'});w=(await api(lab,url)).workspace;}
+  if(electronic){if(w.request_mode!=='Electronic'){await api(lab,url,{action:'setModes',expectedVersion:w.version,requestMode:'Electronic',consentMode:'Paper',reason:'LOCAL TEST electronic request with paper consent'});w=(await api(lab,url)).workspace;}const draft=structuredClone(emptyRequest);Object.assign(draft.patient,{syntheticName:'LOCAL TEST PATIENT',dob:'1996-03-31',entitlement:'SELF_PAY'});Object.assign(draft.pregnancy,{type:'Singleton',edd:new Date(Date.parse(date)+194*86400000).toISOString().slice(0,10),collectionDate:date,collectionTime:'07:00',collectionSource:c.anc?'ANC':'LAB_PAPER',weightKg:60,heightCm:165,vanishingTwin:'No',fetalSex:'Want',sca:'Want'});for(const k of ['transfusion4months','heparin24h','immune1month','albumin4weeks','exogenousDna4weeks'] as const)draft.history[k].answer='No';Object.assign(draft.history,{cancerTreatment:'No',gaUnder8:'No',tumor:'No',priorChromosomeTest:'No',otherHistory:'No'});Object.assign(draft.ordering,{doctorVersionId:doctor.id,facility:'LOCAL TEST HOSPITAL',reason:'LOCAL TEST screening request'});const saved=await api(lab,url,{action:'saveRequest',expectedVersion:w.version,draft});await api(lab,url,{action:'lockRequest',expectedVersion:saved.version,reason:'LOCAL TEST complete request'});w=(await api(lab,url)).workspace;}
   await api(lab,url,{action:'setModes',expectedVersion:w.version,requestMode:electronic?'Electronic':'Paper',consentMode:'Paper',reason:'LOCAL TEST paper consent original review'});
   const blank=()=>paperSchema.parse(Object.fromEntries(Object.keys(paperSchema.shape).map(k=>[k,null]))),request=blank(),consent=blank();Object.assign(request,{requestComplete:'Complete',history1to5:'AllNo',ga:'Over10to18',bmi:'AtMost40',vanishingTwin:'None',pregnancyType:'Singleton',fetalSex:'Want',collectionDate:date});Object.assign(consent,{decision:'Granted',signatures:'Complete',representative:'NotRequired'});
   for(const [kind,panel] of (electronic?[['CONSENT',consent]]:[['REQUEST',request],['CONSENT',consent]]) as ['REQUEST'|'CONSENT',typeof request][])await api(certifier,url,{action:'paperReview',kind,templateVersion:kind==='REQUEST'?'CBH-FM01-v1':'CBH-FM02-v1',documentReference:'LOCAL TEST '+kind,panel,location:'LOCAL TEST ROOM',reason:'LOCAL TEST review only',operation:'Review',previousId:null});
@@ -69,10 +79,29 @@ export async function positiveJourney(c:Context){
  await fs.writeFile(path.join(base,'batch-assignment.json'),JSON.stringify({patientStart,batchId,...assignment},null,2));
  assert.equal(assignment.placed.length,45,'ALL_45_ATTEMPTS_MUST_BE_PLACED_BEFORE_EXECUTION');assert.equal(assignment.rejected.length,0,'NO_REJECTED_ATTEMPTS_ALLOWED_BEFORE_EXECUTION');
  const slots=[...Array(48)].map((_,i)=>i+1);
- for(const sheetNumber of [1,2,3]){await p4('updatePlan',{sheetNumber,plannedWorkDate:date,plannedOperator:'LOCAL TEST OPERATOR',plannedExtractionLot:null,plannedExtractionExpiry:null,plannedLibraryLot:null,plannedLibraryExpiry:null});await p4('planCheck',{sheetNumber,confirm:{controlsAtTemplate:true,identifiersMatch:true,noDuplicates:true}});await p4('finalize',{sheetNumber});await p4('issuePreWork',{sheetNumber});await p4('start',{sheetNumber});const ids:string[]=[];const add=async(data:Record<string,unknown>)=>ids.push((await p4('record',{sheetNumber,source:'DIRECT_ENTRY',...data})).id);await add({fieldId:'F2-05',value:{text:'LOCAL TEST OPERATOR'}});await add({fieldId:'F2-02',value:{date}});for(const fieldId of ['F2-13','F2-14'])await add({fieldId,value:{lot:'LOCAL-TEST',expiry:'2099-01-01'}});await add({fieldId:'F2-24',value:{start:'09:00',end:'11:30'}});for(const f of FIELDS.filter(x=>x.form==='F2'&&x.kind==='CHECK'&&x.required(sheetNumber)))await add({fieldId:f.id,item:f.item,value:{checked:true}});for(const slot of slots.filter(n=>Math.floor((n-1)/16)+1===sheetNumber))await add({slot,fieldId:'F2-11',value:{before:true,after:true}});await p4('end',{sheetNumber});await p4('review',{observationIds:ids,result:'Confirmed'},certifier);await p4('verify',{sheetNumber},certifier);}
+ for(const sheetNumber of [1,2,3]){await p4('updatePlan',{sheetNumber,plannedWorkDate:date,plannedOperator:'LOCAL TEST OPERATOR',plannedExtractionLot:null,plannedExtractionExpiry:null,plannedLibraryLot:null,plannedLibraryExpiry:null});await p4('planCheck',{sheetNumber,confirm:{controlsAtTemplate:true,identifiersMatch:true,noDuplicates:true}});
+  const persisted=async()=>(await db.query(`SELECT (SELECT version FROM lab_batch WHERE id=$1) batch_version,
+   (SELECT count(*)::int FROM lab_document WHERE batch_id=$1) issued_documents,
+   (SELECT count(*)::int FROM lab_document_copy c JOIN lab_document d ON d.id=c.document_id WHERE d.batch_id=$1) document_copies,
+   (SELECT count(*)::int FROM lab_placement_snapshot WHERE batch_id=$1) placement_snapshots,
+   (SELECT count(*)::int FROM task_workbook_revision WHERE batch_id=$1) workbook_revisions,
+   (SELECT count(*)::int FROM task_workbook_export e JOIN task_workbook_revision r ON r.id=e.revision_id WHERE r.batch_id=$1) workbook_exports`,[batchId])).rows[0];
+  const before=await persisted(),draftName=`Task-${sheetNumber}-DRAFT-before-finalize.pdf`;
+  // The draft endpoint accepts sheetNumber only; expectedVersion belongs to the later mutation endpoints.
+  const draftBytes=await binary(`/api/p4/batches/${batchId}/draft-pdf`,{sheetNumber},draftName),after=await persisted();
+  assert.deepEqual(after,before,'DRAFT_PREVIEW_MUST_NOT_ISSUE_OR_SAVE_WORKBOOK_OR_CHANGE_BATCH');
+  const draftPdf=await pdfEvidence(draftBytes,draftName,2,true);assert.ok(draftPdf.subject?.includes(MASTER_SHA256),'DRAFT_MASTER_PROVENANCE_REQUIRED');draftTasks.push({sheetNumber,pdf:draftPdf,before,after});
+  await fs.writeFile(path.join(base,'native-draft-before-finalize-evidence.json'),JSON.stringify({batchId,masterSha256:MASTER_SHA256,tasks:draftTasks},null,2));
+  await p4('finalize',{sheetNumber});await p4('issuePreWork',{sheetNumber});await p4('start',{sheetNumber});const ids:string[]=[];const add=async(data:Record<string,unknown>)=>ids.push((await p4('record',{sheetNumber,source:'DIRECT_ENTRY',...data})).id);await add({fieldId:'F2-05',value:{text:'LOCAL TEST OPERATOR'}});await add({fieldId:'F2-02',value:{date}});for(const fieldId of ['F2-13','F2-14'])await add({fieldId,value:{lot:'LOCAL-TEST',expiry:'2099-01-01'}});await add({fieldId:'F2-24',value:{start:'09:00',end:'11:30'}});for(const f of FIELDS.filter(x=>x.form==='F2'&&x.kind==='CHECK'&&x.required(sheetNumber)))await add({fieldId:f.id,item:f.item,value:{checked:true}});for(const slot of slots.filter(n=>Math.floor((n-1)/16)+1===sheetNumber))await add({slot,fieldId:'F2-11',value:{before:true,after:true}});await p4('end',{sheetNumber});await p4('review',{observationIds:ids,result:'Confirmed'},certifier);await p4('verify',{sheetNumber},certifier);}
  const qcPre=await p4('issueQcPreWork');assert.equal((await p4('issueQcPreWork')).id,qcPre.id);
  const ids:string[]=[];for(const slot of slots)ids.push((await p4('record',{slot,fieldId:'F3-03',value:{value:'10',unit:'ng/uL'},source:'DIRECT_ENTRY'})).id);await p4('review',{observationIds:ids,result:'Confirmed'},certifier);for(const x of cases)await p4('decideQc',{attemptId:x.attemptId,decision:'Accepted',criteriaReference:'LOCAL TEST QC1 controlled criteria',reason:'LOCAL TEST measured QC1 review'},certifier);events.push('NATIVE_PREWORK_EXECUTION_SECOND_PERSON_QC1');
- for(const sheetNumber of [1,2,3])await p4('issueCompleted',{sheetNumber});
+ for(const sheetNumber of [1,2,3]){
+  const issued=await p4('issueCompleted',{sheetNumber}),response=await lab.request.get(`/api/p4/documents/${issued.id}`);assert.equal(response.status(),200,await response.text());
+  const bytes=await response.body(),fileName=`Task-${sheetNumber}-Final-COMPLETED-original.pdf`;await fs.writeFile(path.join(base,fileName),bytes);
+  const row=(await db.query("SELECT file_sha256,snapshot FROM lab_document WHERE id=$1 AND batch_id=$2 AND kind='COMPLETED'",[issued.id,batchId])).rows[0];
+  assert.equal(row.snapshot.nativeMaster,true);assert.equal(row.snapshot.masterSha256,MASTER_SHA256);assert.equal(createHash('sha256').update(bytes).digest('hex'),row.file_sha256);
+  completedTasks.push({sheetNumber,documentId:issued.id,masterSha256:row.snapshot.masterSha256,pdf:await pdfEvidence(bytes,fileName,2,false)});
+ }
  const qcIds=[];for(const item of ['STD1','STD2'])qcIds.push((await p4('record',{fieldId:'F3-05',item,value:{value:'10',unit:'ng/uL'},source:'DIRECT_ENTRY'})).id);
  qcIds.push((await p4('record',{fieldId:'F3-01',item:'OPERATOR',value:{text:'LOCAL TEST OPERATOR'},source:'DIRECT_ENTRY'})).id);await p4('review',{observationIds:qcIds,result:'Confirmed'},certifier);
  await p4('issueQcCompleted');
@@ -97,7 +126,18 @@ export async function positiveJourney(c:Context){
  const saved=await api(lab,workbookUrl,{action:'saveDraft',expectedVersion:await version(),expectedRevision:w.draft?.revision??0,values});
  const resumed=await api(lab,workbookUrl);assert.deepEqual(resumed.values,values);assert.equal(Object.keys(values).length,316);
  await binary(workbookUrl,{action:'export',revision:saved.revision,format:'XLSX'},'all-bindings-resumed.xlsx');
- for(const [i,sheet] of SHEETS.entries())if(!workflowOnly||sheet!=='Pooling Table')await binary(workbookUrl,{action:'export',revision:saved.revision,format:'PDF',sheet},`all-bindings-sheet-${i+1}.pdf`);
+ for(const [i,sheet] of SHEETS.entries())if(!workflowOnly||sheet!=='Pooling Table'){
+  const fileName=`all-bindings-sheet-${i+1}.pdf`,bytes=await binary(workbookUrl,{action:'export',revision:saved.revision,format:'PDF',sheet},fileName);
+  nativeSheets.push({sheet,pdf:await pdfEvidence(bytes,fileName,i<3?2:1,false)});
+ }
+ assert.equal(draftTasks.length,3);assert.equal(completedTasks.length,3);assert.equal(nativeSheets.length,workflowOnly?5:6);
+ const comparisons=draftTasks.map(draft=>{
+  const completed=completedTasks.find(t=>t.sheetNumber===draft.sheetNumber)!,exported=nativeSheets.find(t=>t.sheet===SHEETS[draft.sheetNumber-1])!;
+  for(const candidate of [completed.pdf,exported.pdf])assert.ok(candidate.pages.every((p,i)=>Math.abs(p.width-draft.pdf.pages[i].width)<2&&Math.abs(p.height-draft.pdf.pages[i].height)<2),'DRAFT_FINAL_NATIVE_PAGE_GEOMETRY_MUST_MATCH');
+  return {sheetNumber:draft.sheetNumber,draft:draft.pdf,completedOriginal:completed,allBindingsNativeExport:exported,matchingTwoPageA4Geometry:true,draftPreviewPersistedIssuance:false};
+ });
+ await fs.writeFile(path.join(base,'native-draft-final-same-run-comparison.json'),JSON.stringify({batchId,masterSha256:MASTER_SHA256,workbookRevision:saved.revision,workflowOnly,nativeSheets,comparisons,comparisonScope:'Same-run native route artifacts, two-page A4 geometry and draft labels; pixel-level and Owner visual acceptance not asserted'},null,2));
+ events.push('SAME_RUN_NATIVE_TASK_1_2_3_DRAFT_FINAL_TWO_A4_NO_DRAFT_ISSUANCE_COMPARISON');
  events.push(workflowOnly?'ALL_316_BINDINGS_BROWSER_DRAFT_RESUME_XLSX_FIVE_NATIVE_PDFS_POOL_PDF_NOT_RUN':'ALL_314_ORIGINAL_PLUS_2_OBSERVED_BINDINGS_BROWSER_DRAFT_RESUME_XLSX_SIX_NATIVE_PDFS');
  for(const targetCase of [cases[1],primary]){
  const printed=(await db.query('SELECT printed_sample_id FROM analytical_attempt WHERE id=$1',[targetCase.attemptId])).rows[0].printed_sample_id;assert.match(printed,targetCase===primary?/R$/:/-1$/);

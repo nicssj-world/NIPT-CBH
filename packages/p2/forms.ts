@@ -1,3 +1,5 @@
+import {consentAcknowledged} from '../forms/consent-content';
+import {entitlementKind,DCC_REQUEST_CONTRACT} from '../forms/request-contract';
 import {createHash} from 'node:crypto';
 import type {Queryable} from '../db/connection';
 import {appendAudit} from '../db/audit';
@@ -6,7 +8,7 @@ import {readActiveSettings} from '../settings/service';
 import {SETTINGS} from '../settings/catalog';
 import {displayBe,displayBeDateTime} from '../domain/thai-date';
 import {scopedCase,P2Error,type Staff} from './service';
-import {calculations,emptyRequest,type RequestDraft} from './schema';
+import {calculations,emptyRequest,requestIssues,type RequestDraft} from './schema';
 import {loadTemplates,type LoadedTemplates} from '../forms/registry';
 import {requestItems,consentItems,REQUEST_PAGE,CONSENT_PAGE,type RequestFields,type ConsentFields,type Digits8,type Answer,type OverlayPage} from '../forms/layout';
 import {composeForms,fits,textLayout,type overlaySchema} from '../pdf/anc-overlay';
@@ -40,7 +42,7 @@ export async function formSources(db:Queryable,user:Staff,caseId:string){
  const fact=(await db.query<{collection_date:string;collection_time:string|null;source:string}>("SELECT collection_date::text,collection_time,source FROM p2_collection_fact WHERE round_id=$1 ORDER BY sequence DESC LIMIT 1",[c.current_round_id])).rows[0]??null;
  const round=(await db.query<{received_at:Date|null;received_source:string|null}>('SELECT received_at,received_source FROM specimen_round WHERE id=$1',[c.current_round_id])).rows[0];
  const acceptance=(await db.query<{condition:'ACCEPTABLE'|'REJECTED';reason:string;created_at:Date}>('SELECT condition,reason,created_at FROM specimen_acceptance WHERE round_id=$1 ORDER BY created_at DESC LIMIT 1',[c.current_round_id]).catch(()=>({rows:[]}))).rows[0]??null;
- const consentDoc=(await db.query<{id:string;payload:{doctor?:{id?:string;name?:string}}}>("SELECT id,payload FROM p2_document_revision WHERE round_id=$1 AND kind='CONSENT' ORDER BY version DESC LIMIT 1",[c.current_round_id])).rows[0]??null;
+ const consentDoc=(await db.query<{id:string;payload:{doctor?:{id?:string;name?:string};consentContent?:unknown}}>("SELECT id,payload FROM p2_document_revision WHERE round_id=$1 AND kind='CONSENT' ORDER BY version DESC LIMIT 1",[c.current_round_id])).rows[0]??null;
  const final=consentDoc?(await db.query<{payload:{signature?:{decision?:string;signed_at?:string};acknowledgments?:{item:number|string}[]}}>('SELECT payload FROM p2_final_consent WHERE document_id=$1 ORDER BY created_at DESC LIMIT 1',[consentDoc.id])).rows[0]??null:null;
  const paperConsent=(await db.query<{panel:{decision?:string;signatures?:string}}>("SELECT panel FROM p2_paper_review WHERE round_id=$1 AND kind='CONSENT' AND status='Verified' ORDER BY created_at DESC LIMIT 1",[c.current_round_id])).rows[0]??null;
  const revoked=(await db.query('SELECT 1 FROM p2_revocation WHERE case_id=$1 LIMIT 1',[c.id])).rows.length>0;
@@ -54,14 +56,14 @@ export function requestFields(s:Sources):{fields:RequestFields;missing:string[]}
  const d=s.draft,p=d.pregnancy,h=d.history,o=d.ordering,calc=calculations(d),missing:string[]=[];
  const need=<T>(v:T|null|undefined,label:string)=>{if(v===null||v===undefined||v==='')missing.push(label);return v??null;};
  const entitlementText=clean(d.patient.entitlement);
- const entitlement=entitlementText&&/สปสช|NHSO|UC\b/i.test(entitlementText)?'NHSO' as const:entitlementText&&/เรียกเก็บ|ชำระเอง|SELF/i.test(entitlementText)?'SELF_PAY' as const:null;
+ const entitlement=entitlementKind(entitlementText);
  if(!entitlement)missing.push('สิทธิการตรวจ');
  const gpa=p.gravida!==null||p.para!==null||p.abortion!==null&&p.abortion!==undefined?`G${p.gravida??'-'} P${p.para??'-'} A${p.abortion??'-'}`:null;
  const age=ageOn(d.patient.dob,p.collectionDate??bangkokToday());
  const doctorName=s.doctor?.active?s.doctor.name:null;if(!doctorName)missing.push(s.doctor?'แพทย์ผู้สั่งตรวจ (ทะเบียนแพทย์ไม่ active)':'แพทย์ผู้สั่งตรวจ');
  const coordinator=[clean(o.coordinator),clean(o.phone)].filter(Boolean).join(' / ')||null;
  const fields:RequestFields={
-  name:need(clean(d.patient.syntheticName),'ชื่อ-นามสกุล'),hn:need(s.c.hn,'HN'),nationalId:clean(d.patient.identifier),
+  name:need(clean(d.patient.syntheticName),'ชื่อ-นามสกุล'),hn:need(s.c.hn,'HN'),nationalId:d.patient.identifierType==='ThaiNationalId'||!operationalDataEnabled()&&d.patient.identifierType==='Synthetic'?clean(d.patient.identifier):null,
   dob:beDigits(need(d.patient.dob,'วันเกิด')),age:age!==null&&age>=0?String(age):null,weight:fmt(p.weightKg,1),height:fmt(p.heightCm,0),bmi:fmt(calc.bmi,1),
   entitlement,reason:need(clean(o.reason),'เหตุผลในการส่งตรวจ'),facility:need(clean(o.facility),'โรงพยาบาล/คลินิก'),doctor:doctorName,coordinatorPhone:coordinator,email:clean(o.email),
   ultrasound:beDigits(p.ultrasoundDate),edd:beDigits(need(p.edd,'วันกำหนดคลอด')),
@@ -69,9 +71,9 @@ export function requestFields(s:Sources):{fields:RequestFields;missing:string[]}
   pregnancyType:p.type==='Singleton'||p.type==='Twins'?p.type:null,vanishing:yesNo(p.vanishingTwin),
   vanishingGa:p.vanishingTwin==='Yes'&&p.vanishingGaDays!==null?`${Math.floor(p.vanishingGaDays/7)}+${p.vanishingGaDays%7} สป.`:null,drawAfter8:p.vanishingTwin==='Yes'&&p.drawEightWeeksAfterLoss==='Yes',
   art:yesNo(p.art),pregnancyNumber:p.gravida!==null?String(p.gravida):null,gpa,
-  history:[yesNo(h.transfusion4months.answer),yesNo(h.heparin24h.answer),yesNo(h.immune1month.answer),yesNo(h.cancerTreatment),yesNo(h.gaUnder8),yesNo(h.tumor),yesNo(h.priorChromosomeTest)],
-  priorMethod:h.priorChromosomeTest==='Yes'?clean(h.priorTestMethod):null,priorResult:h.priorChromosomeTest==='Yes'?clean(h.priorTestResult):null,
-  item8:h.otherHistory==='Yes'?clean(h.otherDetails):null,
+  history:[yesNo(h.transfusion4months.answer),yesNo(h.heparin24h.answer),yesNo(h.immune1month.answer),d.documentContractVersion===DCC_REQUEST_CONTRACT?yesNo(h.cancerTreatment):null,yesNo(h.gaUnder8),yesNo(h.tumor),d.documentContractVersion===DCC_REQUEST_CONTRACT?yesNo(h.priorChromosomeTest):null],
+  priorMethod:d.documentContractVersion===DCC_REQUEST_CONTRACT&&h.priorChromosomeTest==='Yes'?clean(h.priorTestMethod):null,priorResult:d.documentContractVersion===DCC_REQUEST_CONTRACT&&h.priorChromosomeTest==='Yes'?clean(h.priorTestResult):null,
+  item8:d.documentContractVersion===DCC_REQUEST_CONTRACT&&h.otherHistory==='Yes'?clean(h.otherDetails):null,
   // Fetal sex is printed only for a singleton and only as recorded; twins never get a sex choice.
   fetalSex:p.type==='Singleton'&&(p.fetalSex==='Want'||p.fetalSex==='DoNotWant')?p.fetalSex:null,
   // Staff sections only from events that happened: the recorded collection fact, the HIS PET receipt, the Lab specimen check.
@@ -83,19 +85,20 @@ export function requestFields(s:Sources):{fields:RequestFields;missing:string[]}
  };
  for(const [i,a] of fields.history.entries())if(a===null)missing.push(`ประวัติข้อ ${i+1}`);
  if(fields.pregnancyType===null)missing.push('ครรภ์เดี่ยว/แฝด');
- return {fields,missing};
+ return {fields,missing:operationalDataEnabled()?[...new Set(requestIssues(d).concat(missing.includes('ครรภ์เดี่ยว/แฝด')?['pregnancy.type']:[],!doctorName?['ordering.doctorVersionId']:[]))]:missing};
 }
-export function consentFields(s:Sources):{fields:ConsentFields;status:'UNSIGNED'|'SIGNED_ELECTRONIC'|'PAPER_VERIFIED'|'PAPER_SELECTED'|'PAPER_REFUSED'|'REVOKED';doctorMismatch:boolean}{
+export function consentFields(s:Sources):{fields:ConsentFields;status:'UNSIGNED'|'SIGNED_ELECTRONIC'|'PAPER_VERIFIED'|'PAPER_SELECTED'|'PAPER_REFUSED'|'REVOKED'|'LEGACY_ELECTRONIC';doctorMismatch:boolean}{
+ const currentContent=consentAcknowledged((s.consentDoc?.payload as {consentContent?:unknown}|undefined)?.consentContent,s.final?.payload);
  const sig=s.final?.payload.signature,acks=new Set((s.final?.payload.acknowledgments??[]).map(a=>Number(a.item)));
- const decision=sig?.decision==='Granted'||sig?.decision==='Declined'?sig.decision:s.paperConsent?.panel.decision==='Granted'||s.paperConsent?.panel.decision==='Declined'?s.paperConsent.panel.decision as 'Granted'|'Declined':null;
+ const decision=currentContent&&sig?.decision==='Granted'||currentContent&&sig?.decision==='Declined'?sig!.decision:s.paperConsent?.panel.decision==='Granted'||s.paperConsent?.panel.decision==='Declined'?s.paperConsent.panel.decision as 'Granted'|'Declined':null;
  const doctorMismatch=!!(s.consentDoc?.payload.doctor?.id&&s.doctor&&s.consentDoc.payload.doctor.id!==s.doctor.id);
  return {fields:{patientName:clean(s.draft.patient.syntheticName),doctor:s.doctor?.active&&!doctorMismatch?s.doctor.name:null,
    // "เข้าใจแล้ว" only for clauses acknowledged in a completed signing session (p2_consent_ack → final consent); never from a preview.
-   acknowledged:Array.from({length:12},(_,i)=>!!sig&&acks.has(i+1)&&acks.size===12),
-   decision,patientSignedDate:sig?.signed_at?displayBe(new Date(new Date(sig.signed_at).getTime()+7*3600000).toISOString().slice(0,10),''):null},
-  status:s.revoked?'REVOKED':s.paperRefused?'PAPER_REFUSED':sig?'SIGNED_ELECTRONIC':s.paperConsent?'PAPER_VERIFIED':s.consentMode==='Paper'?'PAPER_SELECTED':'UNSIGNED',doctorMismatch};
+   acknowledged:Array.from({length:12},(_,i)=>currentContent&&!!sig&&acks.has(i+1)&&acks.size===12),
+   decision,patientSignedDate:currentContent&&sig?.signed_at?displayBe(new Date(new Date(sig.signed_at).getTime()+7*3600000).toISOString().slice(0,10),''):null},
+  status:s.revoked?'REVOKED':s.paperRefused?'PAPER_REFUSED':sig?(currentContent?'SIGNED_ELECTRONIC':'LEGACY_ELECTRONIC'):s.paperConsent?'PAPER_VERIFIED':s.consentMode==='Paper'?'PAPER_SELECTED':'UNSIGNED',doctorMismatch};
 }
-const STATUS_TEXT={UNSIGNED:'ยังไม่ได้ลงนาม ยังไม่ได้ให้ความยินยอม',PAPER_SELECTED:'เลือกใช้ Paper Consent — ไม่ใช่หลักฐานการลงนาม',PAPER_REFUSED:'ผู้ป่วยไม่ยินยอม (Paper) — เจ้าหน้าที่บันทึก ไม่ใช่การลงนาม',SIGNED_ELECTRONIC:'ลงนามอิเล็กทรอนิกส์แล้ว — หลักฐานอยู่ในระบบ ไม่ใช่ฉบับร่างนี้',PAPER_VERIFIED:'มีเอกสารกระดาษที่ตรวจแล้ว — ต้นฉบับกระดาษคือหลักฐาน',REVOKED:'ถอนความยินยอมแล้ว'};
+const STATUS_TEXT={LEGACY_ELECTRONIC:'หลักฐานลงนามฉบับเดิม — ไม่ใช่การรับทราบ DCC ฉบับนี้',UNSIGNED:'ยังไม่ได้ลงนาม ยังไม่ได้ให้ความยินยอม',PAPER_SELECTED:'เลือกใช้ Paper Consent — ไม่ใช่หลักฐานการลงนาม',PAPER_REFUSED:'ผู้ป่วยไม่ยินยอม (Paper) — เจ้าหน้าที่บันทึก ไม่ใช่การลงนาม',SIGNED_ELECTRONIC:'ลงนามอิเล็กทรอนิกส์แล้ว — หลักฐานอยู่ในระบบ ไม่ใช่ฉบับร่างนี้',PAPER_VERIFIED:'มีเอกสารกระดาษที่ตรวจแล้ว — ต้นฉบับกระดาษคือหลักฐาน',REVOKED:'ถอนความยินยอมแล้ว'};
 
 /** Builds the preview PDF (1 or 2 pages) from the active template set chosen in Settings. Never stored, never a controlled copy. */
 export async function ancFormPreview(db:Queryable,user:Staff,caseId:string,kind:FormKind,render:OverlayRenderer,templates?:LoadedTemplates){

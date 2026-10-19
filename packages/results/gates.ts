@@ -8,7 +8,7 @@ export type RgCode='RG-01'|'RG-02'|'RG-03'|'RG-04'|'RG-05'|'RG-06'|'RG-07'|'RG-0
 export type RnCode='RN-01'|'RN-02'|'RN-03'|'RN-04'|'RN-05'|'RN-06'|'RN-07';
 export type Governance='OD-04'|'OD-05'|'OD-07'|'OD-08'|'OD-09'|'OD-16';
 export type GatePredicate={code:RgCode|RnCode;status:Tri;reason:string;governance?:Governance;dependency?:'P4b'};
-export const RG_RULE_VERSION='P7-RG-CLOSED-CLINICAL-v2',RN_RULE_VERSION='P5-RN-SYNTHETIC-v1';
+export const RG_RULE_VERSION='P7-RG-CLOSED-CLINICAL-v3',RN_RULE_VERSION='P5-RN-SYNTHETIC-v1';
 export type Purpose='VALIDATION'|'CERTIFY_ATTEMPT';
 
 export type CrossCheck={hn:Cmp;dob:Cmp;pregnancy:Cmp;collectionDate:Cmp;gestationalAge:Cmp;labNumber:Cmp};
@@ -30,7 +30,7 @@ export type NoticeFacts={
 };
 const p=(code:GatePredicate['code'],status:Tri,reason:string,extra:Pick<GatePredicate,'governance'|'dependency'>={}):GatePredicate=>({code,status,reason,...extra});
 /** Properties that must MATCH, and properties a template may not print (NOT_AVAILABLE allowed) but that must never contradict. */
-export const LINK_KEYS={RESULT:{required:['hn','dob','pregnancy','collectionDate','gestationalAge'],optional:[]},REDRAW_NOTICE:{required:['hn'],optional:['dob','collectionDate']}} as const satisfies Record<string,{required:readonly (keyof CrossCheck)[];optional:readonly (keyof CrossCheck)[]}>;
+export const LINK_KEYS={RESULT:{required:['hn','dob','pregnancy','collectionDate','gestationalAge'],optional:['labNumber']},REDRAW_NOTICE:{required:['hn'],optional:['dob','collectionDate']}} as const satisfies Record<string,{required:readonly (keyof CrossCheck)[];optional:readonly (keyof CrossCheck)[]}>;
 export function crossFailures(c:CrossCheck,kind:keyof typeof LINK_KEYS){const k=LINK_KEYS[kind];return [...k.required.filter(x=>c[x]!=='MATCH'),...k.optional.filter(x=>c[x]==='MISMATCH')];}
 /** Open versions (§5.7): linked and not yet released, superseded or voided. */
 export const OPEN_STATES:readonly string[]=['Linked','ValidationBlocked','PendingCertification'];

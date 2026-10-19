@@ -8,7 +8,7 @@ import type {Principal} from '../../packages/security/policy';
 let f:ResultFixture;
 beforeEach(async()=>{f=await resultFixture();});
 afterEach(async()=>{await f.close();});
-const spec=(c:{hn:string;collection:string},extra:Record<string,unknown>={})=>({kind:'SINGLETON' as const,labNumber:'26B261010001-1',hn:c.hn,collection:pdfDate(c.collection),...extra});
+const spec=(c:{hn:string;collection:string;labNumber:string},extra:Record<string,unknown>={})=>({kind:'SINGLETON' as const,labNumber:c.labNumber,hn:c.hn,collection:pdfDate(c.collection),...extra});
 const propose=(id:string,c:{roundId:string;attemptId:string},rv:number,extra:Record<string,unknown>={})=>f.run(t=>svc.proposeLink(t,f.u.staff,{versionId:id,roundId:c.roundId,attemptId:c.attemptId,reason:'จำลอง ตรวจคู่ตามรอบและ Attempt',expectedRowVersion:rv,...extra}));
 const approve=(id:string,rv:number,user:Principal=f.u.certifier)=>f.run(t=>svc.decideLink(t,user,{versionId:id,decision:'APPROVE',reason:'จำลอง ยืนยันการเชื่อมโยง',expectedRowVersion:rv}));
 const linked=async(c:Awaited<ReturnType<typeof receivedCase>>,extra:Record<string,unknown>={})=>{

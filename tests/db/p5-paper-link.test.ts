@@ -6,7 +6,7 @@ it('Paper result linkage uses recorded DOB/EDD of the current round and never fa
  const f=await resultFixture();try{
   const c=await receivedCase(f,{fetalSex:'Want'});
   await f.db.query("INSERT INTO p2_workspace(round_id,case_id,draft,request_mode,consent_mode,updated_by) VALUES($1,$2,$3,'Paper','Paper',$4)",[c.roundId,c.caseId,emptyRequest,f.u.staff.id]);
-  const imported=await importReport(f,{kind:'SINGLETON',labNumber:'TEST',hn:c.hn,collection:'10-Oct-2026'});
+  const imported=await importReport(f,{kind:'SINGLETON',labNumber:c.labNumber,hn:c.hn,collection:'10-Oct-2026'});
   const propose=()=>f.run(async t=>proposeLink(t,f.u.staff,{versionId:imported.versionId,roundId:c.roundId,attemptId:c.attemptId,reason:'SYNTHETIC_PAPER_SOURCE_TEST',expectedRowVersion:(await rowVersion(f,imported.versionId)).row_version}));
   const missing=await propose();expect(missing.cross.dob).toBe('NOT_AVAILABLE');expect(missing.cross.gestationalAge).toBe('NOT_AVAILABLE');
   await f.run(async t=>decideLink(t,f.u.certifier,{versionId:imported.versionId,decision:'REJECT',reason:'SYNTHETIC_MISSING_PAPER_DATES',expectedRowVersion:(await rowVersion(f,imported.versionId)).row_version}));

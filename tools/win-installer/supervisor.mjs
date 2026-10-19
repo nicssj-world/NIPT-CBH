@@ -8,6 +8,7 @@ import {openSync,closeSync,existsSync,mkdirSync,readFileSync,writeFileSync,unlin
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {layout,backoffMs,validateConfig} from './lib.mjs';
+import {releaseFormEnvironment} from './form-assets.mjs';
 
 const rootArg=process.argv[process.argv.indexOf('--root')+1];
 if(!rootArg||process.argv.indexOf('--root')<0){process.stderr.write('SUPERVISOR_ROOT_REQUIRED\n');process.exit(2);}
@@ -58,6 +59,7 @@ function stopPostgres(){
 
 const common={
  ...process.env,
+ ...releaseFormEnvironment(release),
  NIPT_MODE:config.mode,NIPT_OPERATIONAL_DATABASE:config.database,APP_ORIGIN:config.origin,NEXT_TELEMETRY_DISABLED:'1',NODE_ENV:'production',
  FILE_STORE_ROOT:config.filesRoot??L.files,SIMULATOR_ROOT:path.join(L.data,'integration'),
  RENDERER_URL:`http://127.0.0.1:${config.ports.renderer}`,RENDERER_TOKEN_FILE:secret('renderer-token'),

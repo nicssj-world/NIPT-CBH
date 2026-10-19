@@ -1,3 +1,4 @@
+import {DCC_REQUEST_CONTRACT,dccRequiredIssues} from '../forms/request-contract';
 import {z} from 'zod';
 import {operationalDataEnabled} from '../security/runtime';
 import {isLikelyBuddhistEraYear} from '../domain/thai-date';
@@ -10,6 +11,7 @@ export const date=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v=>!Number.isNa
  .refine(v=>!isLikelyBuddhistEraYear(v),'DATE_LIKELY_BUDDHIST_ERA'); // H2: a BE year sent as CE (Plan Rev 3.4 §7.2)
 const fact=z.strictObject({answer,date:date.nullable(),exposureAt:z.iso.datetime().nullable().optional()});
 export const requestSchema=z.strictObject({
+ documentContractVersion:z.literal(DCC_REQUEST_CONTRACT).optional(),
  patient:z.strictObject({syntheticName:syntheticText,dob:date.nullable(),phone:z.string().trim().max(32).refine(v=>operationalDataEnabled()?v===''||/^\+?[0-9][0-9 ()-]{5,24}$/.test(v):/^SYNTHETIC(?:-[A-Z0-9]+)*$|^$/.test(v)).nullable(),address:syntheticText.nullable(),identifier:z.string().trim().max(64).refine(v=>operationalDataEnabled()? /^[A-Za-z0-9][A-Za-z0-9./-]*$/.test(v):/^SYNTHETIC-[A-Z0-9-]+$/.test(v)).nullable().optional(),identifierType:z.enum(['Synthetic','Unknown','ThaiNationalId','Passport','HospitalId','Other']).refine(v=>operationalDataEnabled()||['Synthetic','Unknown'].includes(v)).nullable().optional(),entitlement:syntheticText.nullable().optional()}),
  pregnancy:z.strictObject({type:z.enum(['Singleton','Twins','Unknown']).nullable(),edd:date.nullable(),ultrasoundDate:date.nullable().optional(),art:answer.optional(),abortion:z.number().int().min(0).max(50).nullable().optional(),collectionDate:date.nullable(),collectionTime:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),collectionSource:z.enum(['ANC','LAB_PAPER','SYNTHETIC_PATIENT']).nullable(),weightKg:z.number().finite().min(0).max(500).nullable(),heightCm:z.number().finite().min(0).max(300).nullable(),gravida:z.number().int().min(0).max(50).nullable(),para:z.number().int().min(0).max(50).nullable(),vanishingTwin:answer,vanishingDate:date.nullable(),vanishingGaDays:z.number().int().min(0).max(300).nullable(),drawEightWeeksAfterLoss:answer.optional(),fetalSex:z.enum(['Want','DoNotWant','Unspecified']).nullable(),sca:z.enum(['Want','DoNotWant','Unspecified']).nullable()}),
  history:z.strictObject({transfusion4months:fact,heparin24h:fact,immune1month:fact,albumin4weeks:fact,exogenousDna4weeks:fact,cancerTreatment:answer,gaUnder8:answer,tumor:answer,tumorDetails:syntheticText.nullable(),priorChromosomeTest:answer,priorTestMethod:syntheticText.nullable(),priorTestResult:syntheticText.nullable(),otherHistory:answer,otherDetails:syntheticText.nullable()}),
@@ -17,7 +19,7 @@ export const requestSchema=z.strictObject({
  ordering:z.strictObject({doctorVersionId:z.uuid().nullable(),facility:syntheticText.nullable(),reason:syntheticText.nullable(),coordinator:syntheticText.nullable().optional(),phone:syntheticText.nullable().optional(),email:z.email().max(254).refine(v=>operationalDataEnabled()||/^synthetic[\w.-]*@example\.(?:test|invalid)$/.test(v)).nullable().optional()})
 });
 export type RequestDraft=z.infer<typeof requestSchema>;
-export const emptyRequest:RequestDraft={patient:{syntheticName:'',dob:null,phone:null,address:null},pregnancy:{type:null,edd:null,collectionDate:null,collectionTime:null,collectionSource:null,weightKg:null,heightCm:null,gravida:null,para:null,vanishingTwin:null,vanishingDate:null,vanishingGaDays:null,fetalSex:null,sca:null},history:{transfusion4months:{answer:null,date:null},heparin24h:{answer:null,date:null},immune1month:{answer:null,date:null},albumin4weeks:{answer:null,date:null},exogenousDna4weeks:{answer:null,date:null},cancerTreatment:null,gaUnder8:null,tumor:null,tumorDetails:null,priorChromosomeTest:null,priorTestMethod:null,priorTestResult:null,otherHistory:null,otherDetails:null},acknowledgments:{conditionA:null,conditionB:null},ordering:{doctorVersionId:null,facility:null,reason:null}};
+export const emptyRequest:RequestDraft={documentContractVersion:DCC_REQUEST_CONTRACT,patient:{syntheticName:'',dob:null,phone:null,address:null},pregnancy:{type:null,edd:null,collectionDate:null,collectionTime:null,collectionSource:null,weightKg:null,heightCm:null,gravida:null,para:null,vanishingTwin:null,vanishingDate:null,vanishingGaDays:null,fetalSex:null,sca:null},history:{transfusion4months:{answer:null,date:null},heparin24h:{answer:null,date:null},immune1month:{answer:null,date:null},albumin4weeks:{answer:null,date:null},exogenousDna4weeks:{answer:null,date:null},cancerTreatment:null,gaUnder8:null,tumor:null,tumorDetails:null,priorChromosomeTest:null,priorTestMethod:null,priorTestResult:null,otherHistory:null,otherDetails:null},acknowledgments:{conditionA:null,conditionB:null},ordering:{doctorVersionId:null,facility:null,reason:null}};
 export function calculations(d:RequestDraft){
  const p=d.pregnancy;
  const gaDays=p.edd&&p.collectionDate?280+Math.round((Date.parse(p.collectionDate)-Date.parse(p.edd))/86400000):null;
@@ -26,7 +28,7 @@ export function calculations(d:RequestDraft){
  return {gaDays,gaWeeks:gaDays!==null?Math.floor(gaDays/7):null,gaRemainder:gaDays!==null?gaDays%7:null,bmi,ageYears};
 }
 export function requestIssues(d:RequestDraft){
- const issues:string[]=[];const p=d.pregnancy,h=d.history,c=calculations(d);
+ const issues:string[]=operationalDataEnabled()?dccRequiredIssues(d):[];const p=d.pregnancy,h=d.history,c=calculations(d);
  if(!d.patient.syntheticName)issues.push('patient.syntheticName');
  for(const k of ['type','edd','collectionDate','collectionSource','weightKg','heightCm'] as const)if(p[k]===null||p[k]==='Unknown')issues.push('pregnancy.'+k);
  for(const k of ['transfusion4months','heparin24h','immune1month','albumin4weeks','exogenousDna4weeks'] as const){if(h[k].answer===null||h[k].answer==='Unknown')issues.push('history.'+k);if(h[k].answer==='Yes'&&!h[k].date)issues.push('history.'+k+'.date');}
@@ -48,7 +50,10 @@ export function requestIssues(d:RequestDraft){
  * count as unanswered; it never throws and never relaxes the save/confirm validation, which still parses with requestSchema. */
 export function requestProgressIssues(raw:unknown):string[]{
  const r=(raw&&typeof raw==='object'?raw:{}) as Record<string,Record<string,unknown>|undefined>;const merged:Record<string,unknown>={};
- for(const [section,base] of Object.entries(emptyRequest) as [string,Record<string,unknown>][]){const given=r[section]&&typeof r[section]==='object'?r[section]!:{};const out:Record<string,unknown>={...base,...given};
+ for(const [section,base] of Object.entries(emptyRequest) as [string,unknown][]){
+  // A scalar contract marker comes only from the stored draft; never backfill it from the new-draft defaults.
+  if(base===null||typeof base!=='object'||Array.isArray(base)){merged[section]=r[section];continue;}
+  const given=r[section]&&typeof r[section]==='object'?r[section]!:{};const out:Record<string,unknown>={...base,...given};
   for(const [k,v] of Object.entries(base))if(v&&typeof v==='object'&&!Array.isArray(v))out[k]={...v,...(given[k]&&typeof given[k]==='object'?given[k] as object:{})};merged[section]=out;}
  return requestIssues(merged as RequestDraft);
 }

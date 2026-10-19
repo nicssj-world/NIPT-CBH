@@ -1,3 +1,4 @@
+import {operationalDataEnabled} from "../../../packages/security/runtime";
 import {redirect} from "next/navigation";
 import {currentUser} from "../../server/http";
 import {authorize} from "../../../packages/security/policy";
@@ -15,4 +16,4 @@ export default async function Overview(){const user=await currentUser();if(!user
   ...(can("settings.read")?[{href:"/settings",label:"ตั้งค่าระบบ",hint:"HIS, ที่เก็บไฟล์ และผู้ใช้"}]:[]),
   ...(can("health.read")?[{href:"/health",label:"สถานะระบบ",hint:"ฐานข้อมูล, Worker และการสำรองข้อมูล"}]:[]),
  ];
- return <Registry overview canAnc={false} canLab={user.roles.some(r=>["LAB_STAFF","LAB_CERTIFIER"].includes(r))} actions={<QuickActions items={items}/>}/>;}
+ return <Registry operational={operationalDataEnabled()} overview canAnc={false} canLab={user.roles.some(r=>["LAB_STAFF","LAB_CERTIFIER"].includes(r))} actions={<QuickActions items={items}/>}/>;}

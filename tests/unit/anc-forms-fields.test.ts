@@ -1,3 +1,4 @@
+import {DCC_CONSENT} from '../../packages/forms/consent-content';
 import {describe,it,expect} from 'vitest';
 import {requestFields,consentFields,type formSources} from '../../packages/p2/forms';
 import {emptyRequest,type RequestDraft} from '../../packages/p2/schema';
@@ -10,6 +11,20 @@ const base=(draft:RequestDraft,extra:Partial<Sources>={}):Sources=>({c:{id:'c',l
  draft,requestMode:'Electronic',consentMode:'Electronic',doctor:{id:'d1',name:'SYNTHETIC นพ.ทะเบียน',doctor_key:'K',active:true},fact:null,round:{received_at:null,received_source:null},acceptance:null,consentDoc:null,final:null,paperConsent:null,revoked:false,...extra}) as Sources;
 
 describe('ANC form field mapping',()=>{
+ it('does not print a passport or hospital identifier in the DCC national-ID field',()=>{
+  const d=structuredClone(emptyRequest);d.patient.identifier='TEST-PASSPORT';d.patient.identifierType='Passport';
+  expect(requestFields(base(d)).fields.nationalId).toBeNull();
+  d.patient.identifierType='ThaiNationalId';d.patient.identifier='1234567890123';expect(requestFields(base(d)).fields.nationalId).toBe('1234567890123');
+ });
+
+ it('keeps a legacy signature as history without projecting its choice, date or acknowledgments onto the current DCC preview',()=>{
+  const legacy={payload:{signature:{decision:'Granted',signed_at:'2026-10-12T02:00:00Z'},acknowledgments:Array.from({length:12},(_,i)=>({item:i+1}))}};
+  const before=structuredClone(legacy);
+  const result=consentFields(base(structuredClone(emptyRequest),{consentDoc:{id:'legacy',payload:{doctor:{id:'d1'}}},final:legacy}));
+  expect(result).toMatchObject({status:'LEGACY_ELECTRONIC',fields:{decision:null,patientSignedDate:null}});
+  expect(result.fields.acknowledged.some(Boolean)).toBe(false);expect(consentItems(result.fields).filter(i=>i.kind==='check')).toEqual([]);
+  expect(legacy).toEqual(before);
+ });
  it('twins never print a fetal-sex choice; unanswered items stay blank; entitlement only from recorded text',()=>{
   const d=structuredClone(emptyRequest);d.pregnancy.type='Twins';d.pregnancy.fetalSex='Want';d.history.tumor='Unknown';d.patient.entitlement='SYNTHETIC เรียกเก็บเงิน';
   const r=requestFields(base(d)).fields;
@@ -26,8 +41,8 @@ describe('ANC form field mapping',()=>{
  it('consent: unsigned → nothing ticked; completed signing → 12 ticks, decision and signing date; partial evidence → no ticks',()=>{
   const unsigned=consentFields(base(structuredClone(emptyRequest)));
   expect(unsigned).toMatchObject({status:'UNSIGNED',fields:{decision:null,patientSignedDate:null}});expect(consentItems(unsigned.fields).filter(i=>i.kind==='check')).toEqual([]);
-  const final=(n:number)=>({payload:{signature:{decision:'Granted',signed_at:'2026-10-12T02:00:00Z'},acknowledgments:Array.from({length:n},(_,i)=>({item:i+1}))}});
-  const signed=consentFields(base(structuredClone(emptyRequest),{consentDoc:{id:'doc',payload:{doctor:{id:'d1'}}},final:final(12)}));
+  const final=(n:number)=>({payload:{consentContent:DCC_CONSENT,signature:{decision:'Granted',signed_at:'2026-10-12T02:00:00Z'},acknowledgments:Array.from({length:n},(_,i)=>({item:i+1,clauseId:DCC_CONSENT.clauses[i]?.id,contentVersion:DCC_CONSENT.id,contentSha256:DCC_CONSENT.sha256}))}});
+  const signed=consentFields(base(structuredClone(emptyRequest),{consentDoc:{id:'doc',payload:{doctor:{id:'d1'},consentContent:DCC_CONSENT}},final:final(12)}));
   expect(signed).toMatchObject({status:'SIGNED_ELECTRONIC',fields:{decision:'Granted',patientSignedDate:'12/10/2569'}});expect(signed.fields.acknowledged.every(Boolean)).toBe(true);
   expect(consentItems(signed.fields).filter(i=>i.kind==='check')).toHaveLength(13); // 12 clauses + ยินยอม
   expect(consentFields(base(structuredClone(emptyRequest),{consentDoc:{id:'doc',payload:{}},final:final(11)})).fields.acknowledged.some(Boolean)).toBe(false);

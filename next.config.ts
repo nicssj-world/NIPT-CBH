@@ -14,7 +14,8 @@ const config: NextConfig = {
       "./node_modules/@fontsource/noto-sans/files/noto-sans-latin-700-normal.woff2"
     ],
     "/api/p5/results/*/reparse": ["./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"],
-    "/api/workbook/batches/*": ["./packages/workbook/native-export.ps1"]
+    "/api/workbook/batches/*": ["./packages/workbook/native-export.ps1"],
+    "/api/p4/batches/*/draft-pdf": ["./packages/workbook/native-export.ps1"]
   },
   outputFileTracingExcludes: { "*": ["./.local/**/*", "./data/**/*", "./backups/**/*", "./bundles/**/*", "./.env*", "./tests/**/*", "./playwright-report/**/*", "./test-results/**/*"] },
   async headers() {

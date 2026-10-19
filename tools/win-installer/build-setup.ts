@@ -12,6 +12,7 @@ import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {parseVersion} from './lib.mjs';
 import {pascalTables} from './setup-messages.mjs';
+import {verifyReleaseFormAssets} from './form-assets.mjs';
 
 const arg=(n:string)=>{const i=process.argv.indexOf('--'+n);return i<0?undefined:(process.argv[i+1]&&!process.argv[i+1].startsWith('--')?process.argv[i+1]:'true');};
 const git=(...a:string[])=>execFileSync('git',a,{encoding:'utf8'}).trim();
@@ -31,6 +32,7 @@ if(!existsSync(path.join(packageDir,'manifest.json'))){
  log('building the signed offline package with the master workbook');
  const a=['node_modules/tsx/dist/cli.mjs','tools/win-installer/build-package.ts','--version',version,'--out',packageDir,'--master-workbook',master];
  if(arg('skip-build'))a.push('--skip-build');
+ for(const name of ['anc-request-pdf','anc-consent-pdf'])if(arg(name))a.push('--'+name,arg(name)!);
  execFileSync(process.execPath,a,{stdio:['ignore','inherit','inherit']});
 }else log('reusing the existing package '+packageDir);
 const keyFile=path.join(local,'keys','package-signing-public.pem');
@@ -38,6 +40,7 @@ const manifestBytes=await readFile(path.join(packageDir,'manifest.json'));
 const manifest=JSON.parse(manifestBytes.toString());
 if(manifest.revision!==revision)throw Error('PACKAGE_REVISION_DIFFERS_FROM_HEAD (rebuild the package)');
 if(!existsSync(path.join(packageDir,'payload','master','approved-master.xlsx')))throw Error('MASTER_WORKBOOK_NOT_EMBEDDED');
+verifyReleaseFormAssets(path.join(packageDir,'payload','release'),true);
 
 // the Thai sentences the wizard shows for step / warning / error codes (UTF-8 with BOM, included into the Pascal script)
 const messagesInc=path.join(local,'setup-gen','messages.inc');

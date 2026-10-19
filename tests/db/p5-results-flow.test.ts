@@ -12,7 +12,7 @@ import type {Principal} from '../../packages/security/policy';
 let f:ResultFixture;
 beforeEach(async()=>{f=await resultFixture();});
 afterEach(async()=>{await f.close();});
-const spec=(c:{hn:string;collection:string},extra:Record<string,unknown>={})=>({kind:'SINGLETON' as const,labNumber:'26B261010001-1',hn:c.hn,collection:pdfDate(c.collection),...extra});
+const spec=(c:{hn:string;collection:string;labNumber:string},extra:Record<string,unknown>={})=>({kind:'SINGLETON' as const,labNumber:c.labNumber,hn:c.hn,collection:pdfDate(c.collection),...extra});
 const rv=async(id:string)=>(await rowVersion(f,id)).row_version;
 const propose=async(id:string,c:{roundId:string;attemptId:string|null},extra:Record<string,unknown>={})=>{const v=await rv(id);return f.run(t=>svc.proposeLink(t,f.u.staff,{versionId:id,roundId:c.roundId,attemptId:c.attemptId,reason:'จำลอง ตรวจคู่ตามรอบและ Attempt',expectedRowVersion:v,...extra}));};
 const approve=async(id:string,user:Principal=f.u.certifier)=>{const v=await rv(id);return f.run(t=>svc.decideLink(t,user,{versionId:id,decision:'APPROVE',reason:'จำลอง ยืนยันการเชื่อมโยง',expectedRowVersion:v}));};

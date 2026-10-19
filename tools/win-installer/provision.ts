@@ -8,6 +8,8 @@ import {Pool,escapeIdentifier,escapeLiteral} from 'pg';
 import {PgBoss} from 'pg-boss';
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {releaseFormEnvironment} from './form-assets.mjs';
 import {assertRuntimeDatabase,assertDatabaseMode} from '../../packages/db/connection';
 import {hashPassword} from '../../packages/security/password';
 import {configureOperational} from '../configure-operational';
@@ -16,6 +18,9 @@ type Account={username:string;displayName:string;password:string;role:'APP_ADMIN
 const arg=(name:string)=>{const i=process.argv.indexOf('--'+name);return i>=0?process.argv[i+1]:undefined;};
 const root=arg('root'),phase=arg('phase');
 if(!root||!['install','migrate'].includes(phase??''))throw Error('PROVISION_ARGUMENTS_REQUIRED');
+// Validate the selected release before any database provisioning or forward migration.
+// This also covers upgrades, whose install-state still points to the old release until health succeeds.
+Object.assign(process.env,releaseFormEnvironment(path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../..')));
 const secrets=path.join(root,'secrets');
 const secret=async(name:string)=>(await readFile(path.join(secrets,name),'utf8')).trim();
 const database=process.env.NIPT_OPERATIONAL_DATABASE??'';

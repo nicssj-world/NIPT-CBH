@@ -13,6 +13,7 @@ import {LabError,uuid,reasonText,need,assertSession,audit,caseEvent,attemptEvent
 import {lockBatch,sheetOf,latestSnapshot,FINALIZED,EDITABLE,type PlacementPayload} from './batch';
 import {isNativeIssue,type NativeIssuePort} from '../workbook/controlled';
 import {labelNativeCopy} from '../workbook/controlled-copy';
+import {renderDraftTaskPdf} from '../workbook/draft-preview';
 import {isoDate,bangkokIsoDay,displayBe} from '../domain/thai-date';
 
 export type DocDeps={render:(doc:P4Document)=>Promise<Buffer>;store:FileStore;native?:NativeIssuePort};
@@ -271,7 +272,7 @@ export async function libraryDateDeviation(db:Queryable,batchId:string,sheetId:s
  * OD-B (Owner 2026-10-18): uncontrolled F2 preview of a Task that is not finalized yet, built from its live plan and slots.
  * DRAFT watermark, no DocID series, never stored as a lab_document and never usable as a working copy; audited as a preview.
  */
-export async function previewDraftF2(db:Queryable,user:Staff,input:unknown,deps:Pick<DocDeps,'render'>){
+export async function previewDraftF2(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'batch.draft');
  const d=z.strictObject({batchId:uuid,sheetNumber:z.number().int().min(1).max(3)}).parse(input);
  const b=(await db.query<{id:string;run_label:string}>("SELECT id,run_label FROM lab_batch WHERE id=$1 AND state<>'Cancelled'",[d.batchId])).rows[0];if(!b)throw new LabError('NOT_FOUND',404);
@@ -280,7 +281,7 @@ export async function previewDraftF2(db:Queryable,user:Staff,input:unknown,deps:
  const facts=await attemptFacts(db,'a.id IN (SELECT attempt_id FROM lab_slot_assignment WHERE batch_id=$1 AND removed_at IS NULL)',[b.id]);
  const lo=(d.sheetNumber-1)*16+1,date=s.planned_work_date;
  const rows=Array.from({length:16},(_,i)=>{const slot=lo+i,control=controlTypeOf(slot),f=facts.find(x=>x.slot_number===slot);
-  if(control)return {slot,plate:getPlatePosition(slot),barcode:slot,kind:'CONTROL' as const,control:CONTROL_LABEL[control] as 'PC',printedId:date?formatPrintedControlId(control,date):'(ยังไม่ระบุวันที่ Library Preparation)',lnHalos:'',round:'',repeat:false,transfer:null};
+  if(control)return {slot,plate:getPlatePosition(slot),barcode:slot,kind:'CONTROL' as const,control:CONTROL_LABEL[control] as 'PC',printedId:date?formatPrintedControlId(control,date):'',lnHalos:'',round:'',repeat:false,transfer:null};
   if(!f)return {slot,plate:getPlatePosition(slot),barcode:slot,kind:'EMPTY' as const,control:null,printedId:'',lnHalos:'',round:'',repeat:false,transfer:null};
   const visible=caseVisible(user,f);
   return {slot,plate:getPlatePosition(slot),barcode:slot,kind:'PATIENT' as const,control:null,printedId:visible?f.printed_sample_id??candidatePrintedId(f).id??'—':'(ไม่มีสิทธิ์ดู)',lnHalos:visible?f.ln_halos??'':'',round:`รอบที่ ${f.round_number}`,repeat:f.repeat_order_id!==null,transfer:null};});
@@ -289,7 +290,7 @@ export async function previewDraftF2(db:Queryable,user:Staff,input:unknown,deps:
   plan:{workDate:displayBe(date),operator:s.planned_operator??'—',extractionLot:s.planned_extraction_lot??'—',extractionExpiry:displayBe(s.planned_extraction_expiry),libraryLot:s.planned_library_lot??'—',libraryExpiry:displayBe(s.planned_library_expiry)},
   rows,checklist:FIELDS.filter(f=>f.form==='F2'&&f.kind==='CHECK'&&f.required(d.sheetNumber)).map(f=>({key:`${f.id}${f.item?':'+f.item:''}`,label:f.label})),execution:[],startedAt:null,pendingGovernance:[],
   dateBasis:date?`รหัส Control จะสร้างจากวันที่ทำ Library Preparation ที่วางแผน ${displayBe(date)} เมื่อ Finalize`:'ยังไม่ระบุวันที่ทำ Library Preparation — ยังสร้างรหัส Control ไม่ได้',draft:true};
- const bytes=await deps.render(doc);if(!bytes.subarray(0,5).equals(Buffer.from('%PDF-')))throw new LabError('RENDERER_INVALID_PDF',502);
+ const bytes=await renderDraftTaskPdf({sheetNumber:d.sheetNumber,runLabel:b.run_label,plan:doc.plan,rows:doc.rows,previewedAt:new Date().toISOString(),previewedBy:user.id});
  await audit(db,user,'LAB_DRAFT_PREVIEW','lab_batch',b.id,{outcome:'F2_DRAFT_PREVIEW',count:d.sheetNumber});
  return {bytes,fileName:`${doc.docCode}.pdf`};
 }

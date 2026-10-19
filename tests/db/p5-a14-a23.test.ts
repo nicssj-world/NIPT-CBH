@@ -16,7 +16,7 @@ import {syntheticReportPdf} from '../../tools/his-simulator/result-pdf';
 let f:ResultFixture;
 beforeEach(async()=>{f=await resultFixture();});
 afterEach(async()=>{await f.close();});
-const spec=(c:{hn:string;collection:string},extra:Record<string,unknown>={})=>({kind:'SINGLETON' as const,labNumber:'26B261010001-1',hn:c.hn,collection:pdfDate(c.collection),...extra});
+const spec=(c:{hn:string;collection:string;labNumber:string},extra:Record<string,unknown>={})=>({kind:'SINGLETON' as const,labNumber:c.labNumber,hn:c.hn,collection:pdfDate(c.collection),...extra});
 const limits={maxBytes:1e7,acceptZip:true};
 const preview=async(bytes:Buffer,name:string,jobId:string|null=null)=>{const id=await f.run(t=>registerIntake(t,f.store,{source:'UPLOAD',relativePath:null,originalName:name,actorId:f.u.staff.id,jobId},bytes));await f.run(t=>parseIntake(t,f.store,id,limits));return id;};
 const rv=async(id:string)=>(await rowVersion(f,id)).row_version;

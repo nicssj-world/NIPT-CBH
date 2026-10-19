@@ -20,7 +20,11 @@ it('101 upgrades a 100 database by replacing only the document readiness functio
   const old=await body();expect(old).toContain("x#>>'{paperConsent,status}'='Verified' AND x#>>'{paperConsent,panel,decision}'='Granted'");
   const functions=async()=>(await db.query<{proname:string;src:string}>("SELECT proname,prosrc src FROM pg_proc WHERE proname LIKE 'p2\\_%' ORDER BY proname")).rows;
   const pre=await functions();
-  await migrate(db);
+  // Apply this historical upgrade alone; later migrations may legitimately
+  // replace other functions and are outside migration 101's contract.
+  await copyFile(path.join('db/migrations','101_p2_paper_consent_marker.sql'),path.join(before,'101_p2_paper_consent_marker.sql'));
+  await migrate(db,before);
+  expect((await db.query<{name:string}>('SELECT name FROM schema_migration ORDER BY name')).rows.map(r=>r.name)).toEqual(all.filter(f=>f<'102'));
   const ledger=(await db.query<{name:string;checksum:string}>("SELECT name,checksum FROM schema_migration WHERE name IN ('088_p2_operational_clinical_review.sql','101_p2_paper_consent_marker.sql') ORDER BY name")).rows;
   const sha=(f:string)=>createHash('sha256').update(readFileSync(path.join('db/migrations',f),'utf8')).digest('hex');
   expect(ledger).toEqual([{name:'088_p2_operational_clinical_review.sql',checksum:sha('088_p2_operational_clinical_review.sql')},{name:'101_p2_paper_consent_marker.sql',checksum:sha('101_p2_paper_consent_marker.sql')}]);
@@ -28,6 +32,6 @@ it('101 upgrades a 100 database by replacing only the document readiness functio
   expect(now).toContain("x->>'consentMode'='Paper'");expect(now).not.toContain("x#>>'{paperConsent,panel,decision}'='Granted'");
   // Request and Electronic Consent branches are byte-identical to 088.
   for(const branch of ["ELSE x#>>'{paperRequest,status}'='Verified' END","x#>>'{finalConsent,payload,signature,decision}'='Granted' AND x#>'{consentDocument,payload,workspaceVersion}'=x->'workspaceVersion'"]){expect(old).toContain(branch);expect(now).toContain(branch);}
-  expect((await functions()).filter(f=>!['p2_clinical_documents_ready','p2_consent_latest_decision'].includes(f.proname))).toEqual(pre.filter(f=>!['p2_clinical_documents_ready','p2_consent_latest_decision'].includes(f.proname)));
+  expect((await functions()).filter(f=>f.proname!=='p2_clinical_documents_ready')).toEqual(pre.filter(f=>f.proname!=='p2_clinical_documents_ready'));
  }finally{await db.close();await rm(before,{recursive:true,force:true});}
 });

@@ -13,6 +13,7 @@ import {
  layout,validateConfig,assertSafeRoot,portFree,freeBytes,MIN_FREE_BYTES,verifyPackage,sha256File,readJson,writeJson,compareVersions,
  schemaCompatibility,canRollbackApplicationOnly,healthVerdict,parseLedgerOutput,isValidHost,isIPv4,originFor,sanEntries,sanText,normalizeLanAllow,normalizeLanProfiles,pickLanAddress
 } from './lib.mjs';
+import {releaseFormEnvironment} from './form-assets.mjs';
 
 const SYS=process.env.SystemRoot??'C:\\Windows';
 const system32=n=>path.join(SYS,'System32',n);
@@ -151,6 +152,7 @@ function appEnv(L,c,st,extra={}){
  const files=c.filesRoot??L.files,master=c.masterWorkbook?(c.masterPath??path.join(L.master,'approved-master.xlsx')):undefined;
  return {
   ...process.env,NIPT_MODE:c.mode,NIPT_OPERATIONAL_DATABASE:c.database,APP_ORIGIN:c.origin,NEXT_TELEMETRY_DISABLED:'1',
+  ...releaseFormEnvironment(releaseDir(L,st.current.version)),
   FILE_STORE_ROOT:files,SIMULATOR_ROOT:path.join(L.data,'integration'),RENDERER_URL:`http://127.0.0.1:${c.ports.renderer}`,RENDERER_TOKEN_FILE:secretFile(L,'renderer-token'),
   IDENTITY_LOOKUP_KEY_FILE:secretFile(L,'identity-lookup.key'),NIPT_HIS_SHARE_POLICY_FILE:path.join(L.config,'share-policy.json'),NIPT_BACKUP_POLICY_FILE:path.join(L.config,'backup-policy.json'),
   PLAYWRIGHT_BROWSERS_PATH:L.browsers,PG_BIN:L.pgBin,...(existsSync(path.join(L.runtime,'pwsh','pwsh.exe'))?{NIPT_NATIVE_POWERSHELL:path.join(L.runtime,'pwsh','pwsh.exe')}:{}),...(bridgeMode(c)?{NIPT_NATIVE_EXCEL_SPOOL:L.excelSpool}:{}),BACKUP_KEY_FILE:secretFile(L,'backup.key'),NIPT_SOURCE_SHA:st.current.revision,
@@ -444,7 +446,7 @@ async function upgrade(){
  const {renameSync}=await import('node:fs');renameSync(next+'.staging',next);
  history(L,st,'UPGRADE_STARTED',{from:st.current.version,to:m.version,backup:pre.backupBase});
  say('applying forward migrations ('+compat.pending.length+' pending)');
-  const prov=nodeIn(L,path.join(next,'ops'),['--import','tsx','tools/win-installer/provision.ts','--root',L.root,'--phase','migrate'],appEnv(L,c,{...st,current:{...st.current,revision:m.revision}}));
+  const prov=nodeIn(L,path.join(next,'ops'),['--import','tsx','tools/win-installer/provision.ts','--root',L.root,'--phase','migrate'],appEnv(L,c,{...st,current:{...st.current,version:m.version,revision:m.revision}}));
  if(prov.status!==0){
   const live=ledgerOf(L,c);
   const oldRelease=await readJson(path.join(releaseDir(L,st.current.version),'release.json'));

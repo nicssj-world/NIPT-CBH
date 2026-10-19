@@ -4,6 +4,7 @@ import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {chromium} from 'playwright';
 import {displayBe,displayBeDateTime} from '../domain/thai-date';
+import {renderDccSnapshot} from './dcc-snapshot';
 export const p2PdfSchema=z.strictObject({id:z.uuid(),kind:z.enum(['REQUEST','CONSENT']),templateVersion:z.enum(['SYNTHETIC-FM01-v1','SYNTHETIC-FM02-v1','CBH-FM01-v1','CBH-FM02-v1']),hash:z.string().regex(/^[a-f0-9]{64}$/),payload:z.record(z.string(),z.unknown()),finalConsent:z.record(z.string(),z.unknown()).nullable(),generatedAt:z.iso.datetime()});
 export type P2PdfInput=z.infer<typeof p2PdfSchema>;
 const escape=(v:unknown)=>String(v??'ไม่ระบุ').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
@@ -17,6 +18,7 @@ export async function renderP2Pdf(value:P2PdfInput){
  const operational=s.templateVersion.startsWith('CBH-');
  if(operational&&(!operationalDataEnabled()||s.payload.synthetic!==false))throw Error('OPERATIONAL_DOCUMENT_MODE_REQUIRED');
  if(s.kind==='REQUEST'&&!s.templateVersion.endsWith('FM01-v1')||s.kind==='CONSENT'&&!s.templateVersion.endsWith('FM02-v1'))throw Error('P2_TEMPLATE_MISMATCH');
+ if(operational&&s.payload.dcc)return renderDccSnapshot(s);
  const font=await readFile(path.resolve('node_modules/@fontsource/noto-sans-thai/files/noto-sans-thai-thai-400-normal.woff2'));
  const doctor=s.payload.doctor as Record<string,unknown>|undefined,final=s.finalConsent,signature=final?.signature as Record<string,unknown>|undefined;
  const identity=s.payload.identity as Record<string,unknown>|undefined;
@@ -26,6 +28,6 @@ export async function renderP2Pdf(value:P2PdfInput){
  // Chromium print templates repeat outside the body, with reserved A4 margins.
  const headerTemplate=`<div style="width:100%;margin:0 12mm;font:10px Arial,sans-serif;color:#111;border-bottom:1px solid #777;padding-bottom:5px"><b>${operational?'CBH-NIPT · Request / Consent':'NOT FOR CLINICAL USE / SYNTHETIC'}</b><br>LN: ${escape(identity?.ln)} / HN: ${escape(identity?.hn)} / Round: ${escape(identity?.roundNumber)}</div>`;
  const footerTemplate=`<div style="width:100%;margin:0 12mm;font:9px Arial,sans-serif;color:#111;border-top:1px solid #777;padding-top:5px;line-height:13px">Template: ${escape(s.templateVersion)} / Page <span class="pageNumber"></span> of <span class="totalPages"></span><br>Snapshot: ${escape(s.id)}<br>SHA-256: ${escape(s.hash)}<br>Server: ${escape(s.generatedAt)}</div>`;
- const browser=await chromium.launch({headless:true,args:process.env.CHROMIUM_NO_SANDBOX==='true'?['--no-sandbox']:[]});try{const page=await browser.newPage({javaScriptEnabled:false});await page.route('**/*',r=>r.abort());await page.setContent(html,{waitUntil:'load'});await page.evaluate(()=>document.fonts.ready);return await page.pdf({format:'A4',printBackground:true,displayHeaderFooter:true,headerTemplate,footerTemplate,margin:{top:'28mm',bottom:'30mm',left:'12mm',right:'12mm'}});}finally{await browser.close();}
+ const browser=await chromium.launch({headless:true,args:process.env.CHROMIUM_NO_SANDBOX==='true'?['--no-sandbox']:[]});try{const page=await browser.newPage({javaScriptEnabled:false});await page.route('**/*',r=>r.abort());await page.setContent(operational?html.replace('<body>','<body><p>HISTORICAL SNAPSHOT / prior form contract (not reinterpreted as BM17)</p>'):html,{waitUntil:'load'});await page.evaluate(()=>document.fonts.ready);return await page.pdf({format:'A4',printBackground:true,displayHeaderFooter:true,headerTemplate,footerTemplate,margin:{top:'28mm',bottom:'30mm',left:'12mm',right:'12mm'}});}finally{await browser.close();}
 }
 export async function requestP2Pdf(input:P2PdfInput){const snapshot=p2PdfSchema.parse(input),token=process.env.RENDERER_TOKEN_FILE?(await readFile(process.env.RENDERER_TOKEN_FILE,'utf8')).trim():process.env.RENDERER_TOKEN;if(!token||token.length<32)throw Error('RENDERER_TOKEN_REQUIRED');const url=new URL(process.env.RENDERER_URL||'http://127.0.0.1:3001');if(!['127.0.0.1','localhost','renderer'].includes(url.hostname)||url.protocol!=='http:')throw Error('RENDERER_INTERNAL_REQUIRED');const r=await fetch(new URL('/render/p2',url),{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(snapshot),signal:AbortSignal.timeout(30000),redirect:'error'});if(!r.ok||!r.headers.get('content-type')?.startsWith('application/pdf'))throw Error('RENDERER_FAILED');const bytes=Buffer.from(await r.arrayBuffer());if(bytes.length>5*1024*1024||!bytes.subarray(0,5).equals(Buffer.from('%PDF-')))throw Error('RENDERER_INVALID_PDF');return bytes;}

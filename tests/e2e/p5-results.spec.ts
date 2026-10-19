@@ -35,9 +35,11 @@ async function resultFixture(){
   await tx(q,async t=>{await t.query("INSERT INTO p2_case_identity(case_id,hn) VALUES($1,$2)",[c.caseId,hn]);
    await t.query("INSERT INTO p2_document_revision(case_id,round_id,kind,version,template_version,payload,content_hash,reason,created_by) VALUES($1,$2,'REQUEST',1,'SYNTHETIC-FM01-v1',$3,$4,'SYNTHETIC_P5_E2E',$5)",[c.caseId,c.roundId,JSON.stringify(payload),createHash("sha256").update(JSON.stringify(payload)+hn).digest("hex"),staff.id]);
    await receiveS1(t,c,new Date(Date.now()-3600000),"2026-10-10");});
+  // The happy-path PDF must carry the Lab number assigned to this received round (RG-04 rejects contradictions).
+  const labNumber=(await db.query<{ln_halos:string}>("SELECT ln_halos FROM specimen_lab_number WHERE round_id=$1",[c.roundId])).rows[0].ln_halos;
   const folder=`e2e-${randomUUID().slice(0,8)}`,file=`SYNTHETIC-E2E-${hn}.pdf`;
   await mkdir(path.join(process.env.SIMULATOR_ROOT??"data/simulator","results",folder),{recursive:true});
-  await writeFile(path.join(process.env.SIMULATOR_ROOT??"data/simulator","results",folder,file),syntheticReportPdf({kind:"SINGLETON",labNumber:"26B261010099-1",hn,collection:"10-Oct-2026"}));
+  await writeFile(path.join(process.env.SIMULATOR_ROOT??"data/simulator","results",folder,file),syntheticReportPdf({kind:"SINGLETON",labNumber,hn,collection:"10-Oct-2026"}));
   return {...c,hn,folder,file};
  }finally{await db.end();}
 }

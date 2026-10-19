@@ -21,6 +21,11 @@ describe('RG-01..RG-13 (Plan §5.9.2)',()=>{
  it('unapproved template/PIC is PENDING OD-07 and blocks (RG-01)',()=>{expect(status({templateApproved:false},'RG-01')).toMatchObject({status:'PENDING',governance:'OD-07'});});
  it('unreadable required value or PDF QC not PASS fails RG-02',()=>{expect(status({missing:['xo']},'RG-02').reason).toBe('UNREADABLE_XO');expect(status({pdfQc:'FAIL'},'RG-02').reason).toBe('PDF_QC_NOT_PASS');});
  it('an open link proposal fails RG-03',()=>{expect(status({openProposal:true},'RG-03').status).toBe('FAIL');});
+ it('conflicting lab numbers fail RG-04; an unavailable optional lab number remains allowed',()=>{
+  expect(status({cross:{...match,labNumber:'MISMATCH'}},'RG-04')).toMatchObject({status:'FAIL',reason:'MISMATCH_LABNUMBER'});
+  expect(status({cross:{...match,labNumber:'NOT_AVAILABLE'}},'RG-04')).toMatchObject({status:'PASS',reason:'CROSS_CHECK_MATCH'});
+  expect(status({cross:{...match,dob:'NOT_AVAILABLE'}},'RG-04')).toMatchObject({status:'FAIL',reason:'NOT_AVAILABLE_DOB'});
+ });
  it('AT-RG-05: DOB / pregnancy / round collection date mismatch fails RG-04',()=>{for(const k of ['dob','pregnancy','collectionDate'] as const)expect(status({cross:{...match,[k]:'MISMATCH'}},'RG-04').status).toBe('FAIL');expect(status({cross:{...match,hn:'NOT_AVAILABLE'}},'RG-04').status).toBe('FAIL');});
  it('AT-RG-02 / AT-RG-04: old round, superseded attempt, redraw, open repeat fail RG-05',()=>{
   expect(status({isCurrentRound:false},'RG-05').reason).toBe('NOT_CURRENT_ROUND');expect(status({roundState:'RedrawRequested'},'RG-05').reason).toBe('REDRAW_REQUESTED');
