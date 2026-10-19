@@ -196,7 +196,7 @@ end;
 
 procedure CopyUrlClick(Sender: TObject);
 begin
-  if FinalUrl <> '' then begin CopyToClipboard(FinalUrl); MsgBox('คัดลอก URL แล้ว: ' + FinalUrl, mbInformation, MB_OK); end;
+  if FinalUrl <> '' then begin CopyToClipboard(FinalUrl); SuppressibleMsgBox('คัดลอก URL แล้ว: ' + FinalUrl, mbInformation, MB_OK, IDOK); end;
 end;
 
 { ---------- already installed / older / newer ---------- }
@@ -211,7 +211,7 @@ begin
   Installed := JsonString(Copy(State, Pos('"current"', State), 400), 'version');
   if Installed = '' then Exit;
   if CompareVersion(Installed, '{#AppVersion}') > 0 then begin
-    MsgBox('เครื่องนี้ติดตั้ง NIPT-CBH เวอร์ชัน ' + Installed + ' ซึ่งใหม่กว่าตัวติดตั้งนี้ ระบบจะไม่ติดตั้งเวอร์ชันเก่าทับ', mbError, MB_OK);
+    SuppressibleMsgBox('เครื่องนี้ติดตั้ง NIPT-CBH เวอร์ชัน ' + Installed + ' ซึ่งใหม่กว่าตัวติดตั้งนี้ ระบบจะไม่ติดตั้งเวอร์ชันเก่าทับ', mbError, MB_OK, IDOK);
     Result := False; Exit;
   end;
   if CompareVersion(Installed, '{#AppVersion}') = 0 then begin
@@ -220,7 +220,7 @@ begin
     if FileExists(NodeExe) and FileExists(Cli) then
       Exec(NodeExe, '"' + Cli + '" start --root "' + Root + '"', Root, SW_HIDE, ewWaitUntilTerminated, Code);
     Origin := JsonString(ReadFileText(Root + '\config\nipt.json'), 'origin');
-    MsgBox('มีการติดตั้ง NIPT-CBH เวอร์ชัน ' + Installed + ' อยู่แล้ว ไม่มีการเปลี่ยนแปลงข้อมูลใดๆ' + #13#10 + #13#10 + 'ที่อยู่เปิดระบบ: ' + Origin + #13#10 + 'ใช้ไอคอน NIPT-CBH บนเดสก์ท็อปเพื่อเปิดระบบ', mbInformation, MB_OK);
+    SuppressibleMsgBox('มีการติดตั้ง NIPT-CBH เวอร์ชัน ' + Installed + ' อยู่แล้ว ไม่มีการเปลี่ยนแปลงข้อมูลใดๆ' + #13#10 + #13#10 + 'ที่อยู่เปิดระบบ: ' + Origin + #13#10 + 'ใช้ไอคอน NIPT-CBH บนเดสก์ท็อปเพื่อเปิดระบบ', mbInformation, MB_OK, IDOK);
     Result := False;
   end;
   { older version installed: continue, the engine upgrades in place and keeps the data }
@@ -288,7 +288,7 @@ begin
   Result := True;
   if (AdvancedPage <> nil) and (CurPageID = AdvancedPage.ID) then begin
     if not IsAsciiPath(RootEdit.Text) then begin
-      MsgBox('ชื่อโฟลเดอร์ติดตั้งต้องเป็นตัวอักษรภาษาอังกฤษ ตัวเลข หรือช่องว่างเท่านั้น (PostgreSQL ใช้ชื่อโฟลเดอร์ภาษาไทยไม่ได้)', mbError, MB_OK);
+      SuppressibleMsgBox('ชื่อโฟลเดอร์ติดตั้งต้องเป็นตัวอักษรภาษาอังกฤษ ตัวเลข หรือช่องว่างเท่านั้น (PostgreSQL ใช้ชื่อโฟลเดอร์ภาษาไทยไม่ได้)', mbError, MB_OK, IDOK);
       Result := False;
     end;
   end;
@@ -379,7 +379,7 @@ begin
     if FinalOk then MakeShortcuts
     else begin
       Log('NIPT-CBH engine failed: ' + FinalMessage);
-      MsgBox(FinalMessage, mbError, MB_OK);
+      SuppressibleMsgBox(FinalMessage, mbError, MB_OK, IDOK);
       Abort;
     end;
   end;
