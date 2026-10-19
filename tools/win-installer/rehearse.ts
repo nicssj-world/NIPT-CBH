@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 const flag=(n:string)=>process.argv.includes('--'+n);
 const stamp=new Date().toISOString().replace(/[-:T]/g,'').slice(0,14);
 const base=path.resolve('.local/p8-win'),evidenceDir=path.join(base,'evidence','rehearsal-'+stamp);mkdirSync(evidenceDir,{recursive:true});
+const onlyIdx=process.argv.indexOf('--only'),only=onlyIdx>=0?process.argv[onlyIdx+1].split(','):undefined; // targeted re-run of independent steps after a fix to code that only they exercise
 const resumeIdx=process.argv.indexOf('--resume'),resume=resumeIdx>=0?path.resolve(process.argv[resumeIdx+1]):undefined; // debugging aid: continue on an existing installation (steps S00-S06 skipped)
 const root=resume??path.join(base,'rehearsal-'+stamp,'root');
 const ports=[19860,19861,19862,19863];
@@ -28,6 +29,7 @@ const tsx=(...a:string[])=>execFileSync(process.execPath,['node_modules/tsx/dist
 
 async function step(id:string,name:string,fn:()=>Promise<unknown>|unknown){
  const t=Date.now();log(`${id} ${name}`);
+ if(only&&!only.includes(id)){steps.push({id,name,ok:true,ms:0,detail:'SKIPPED_NOT_SELECTED'});return;}
  if(resume&&id<='S06'){steps.push({id,name,ok:true,ms:0,detail:'SKIPPED_RESUMED_FROM_EXISTING_ROOT'});return;}
  try{const detail=await fn();steps.push({id,name,ok:true,ms:Date.now()-t,detail});}
  catch(e){steps.push({id,name,ok:false,ms:Date.now()-t,detail:{error:(e as Error).message,stack:(e as Error).stack?.split('\n').slice(0,4)}});finish(false);throw e;}

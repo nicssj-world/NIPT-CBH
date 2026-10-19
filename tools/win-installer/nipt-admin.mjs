@@ -434,7 +434,8 @@ async function uninstall(){
   for(const e of readdirSync(L.root))if(e!=='runtime')rmSync(path.join(L.root,e),{recursive:true,force:true});
   for(const e of readdirSync(L.runtime))if(e!=='node')rmSync(path.join(L.runtime,e),{recursive:true,force:true});
   const {spawn}=await import('node:child_process');
-  spawn(system32('cmd.exe'),['/c',`ping -n 4 127.0.0.1 >nul & rmdir /s /q "${L.root}"`],{detached:true,windowsHide:true,stdio:'ignore'}).unref();
+  // verbatim arguments: Node's default quoting of an argument that contains both spaces and quotes breaks cmd's parsing (a root path with a space was never removed)
+  spawn(system32('cmd.exe'),['/d','/s','/c',`"ping -n 4 127.0.0.1 >nul & rmdir /s /q "${L.root}""`],{detached:true,windowsHide:true,stdio:'ignore',windowsVerbatimArguments:true}).unref();
   return {uninstalled:true,dataRetained:false,root:L.root,finalRemoval:'SCHEDULED_AFTER_EXIT'};
  }
  rmSync(L.root,{recursive:true,force:true});
