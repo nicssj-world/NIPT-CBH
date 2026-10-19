@@ -42,6 +42,11 @@ describe('configuration and install root',()=>{
   bad({ports:{postgres:70000,web:1,https:2,renderer:3}},'CONFIG_PORT_INVALID');
   bad({taskMode:'service'},'CONFIG_TASK_MODE_INVALID');
   bad({origin:'http://localhost:1'},'CONFIG_ORIGIN_INVALID');
+  bad({excelMode:'service'},'CONFIG_EXCEL_MODE_INVALID');
+  bad({taskMode:'system',excelMode:'direct'},'CONFIG_SYSTEM_TASK_REQUIRES_EXCEL_BRIDGE'); // Excel automation is unsupported in session 0
+  expect(validateConfig({...goodConfig(),taskMode:'system'}).taskMode).toBe('system');            // excelMode defaults to the bridge for a SYSTEM task
+  expect(validateConfig({...goodConfig(),taskMode:'system',excelMode:'bridge'}).excelMode).toBe('bridge');
+  expect(validateConfig({...goodConfig(),taskMode:'user',excelMode:'direct'}).excelMode).toBe('direct');
   expect(()=>validateConfig(null)).toThrow('CONFIG_INVALID');
  });
  it('refuses a drive root, a root inside the package and a package inside the root',()=>{
@@ -145,6 +150,9 @@ describe('health verdict and supervisor policy',()=>{
   }
   expect(healthVerdict(healthy,{supervisor:false,https:true}).failed).toEqual(['supervisor']);
   expect(healthVerdict(healthy,{supervisor:true,https:false}).failed).toEqual(['https']);
+  expect(healthVerdict(healthy,{supervisor:true,https:true,excelBridge:false}).failed).toEqual(['excelBridge']); // bridge mode, bridge down
+  expect(healthVerdict(healthy,{supervisor:true,https:true,excelBridge:true}).ok).toBe(true);
+  expect(healthVerdict(healthy,{supervisor:true,https:true}).ok).toBe(true);                                    // direct mode: not applicable
   expect(healthVerdict({},{}).ok).toBe(false);expect(healthVerdict(undefined,undefined).ok).toBe(false);
  });
  it('keeps services healthy before the first backup but does not call them technically ready',()=>{

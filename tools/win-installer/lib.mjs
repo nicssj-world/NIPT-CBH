@@ -39,7 +39,7 @@ export function layout(root){
   browsers:j('runtime','browsers'),data:j('data'),pgdata:j('data','pgdata'),files:j('data','files'),inbound:j('data','integration','inbound'),
   outbound:j('data','integration','outbound'),master:j('data','master'),secrets:j('secrets'),config:j('config'),configFile:j('config','nipt.json'),
   tls:j('config','tls'),logs:j('logs'),run:j('run'),stop:j('run','stop.request'),supervisorLock:j('run','supervisor.lock'),state:j('run','state.json'),
-  backups:j('backups'),restores:j('restores'),installState:j('install-state.json'),credentials:j('credentials.txt')
+  excelSpool:j('data','excel-spool'),backups:j('backups'),restores:j('restores'),installState:j('install-state.json'),credentials:j('credentials.txt')
  };
 }
 
@@ -55,6 +55,9 @@ export function validateConfig(c){
  need(new Set([p.postgres,p.web,p.https,p.renderer]).size===4,'CONFIG_PORTS_DUPLICATE');
  need(c.testEnvironmentOnly===true,'CONFIG_TEST_ENVIRONMENT_ONLY_REQUIRED');
  need(['user','system'].includes(c.taskMode),'CONFIG_TASK_MODE_INVALID');
+ need(c.excelMode===undefined||['direct','bridge'].includes(c.excelMode),'CONFIG_EXCEL_MODE_INVALID');
+ // Excel automation is unsupported in session 0, so a SYSTEM task can only reach Excel through the bridge running in a user session.
+ need(!(c.taskMode==='system'&&(c.excelMode??'bridge')==='direct'),'CONFIG_SYSTEM_TASK_REQUIRES_EXCEL_BRIDGE');
  need(typeof c.origin==='string'&&/^https:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(c.origin)||/^https:\/\/[a-z0-9.-]+(:\d+)?$/.test(c.origin??''),'CONFIG_ORIGIN_INVALID');
  return c;
 }
@@ -149,6 +152,7 @@ export function healthVerdict(report,extra){
   supervisor:extra?.supervisor===true,https:extra?.https===true,
   database:report?.databaseReachable===true,web:report?.webReachable===true,renderer:report?.rendererReachable===true,
   fileStorage:report?.fileStorageAccessible===true,worker:report?.workerAlive===true&&report?.workerError===false,
+  excelBridge:extra?.excelBridge!==false,
   migrations:report?.migrationsMatch===true,audit:report?.auditValid===true,roles:report?.rolesRestricted===true,notQuarantined:report?.quarantined===false
  };
  const failed=Object.entries(checks).filter(([,v])=>!v).map(([k])=>k);

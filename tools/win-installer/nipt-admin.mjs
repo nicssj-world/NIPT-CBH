@@ -71,6 +71,36 @@ function taskInfo(c){
 function startTask(c){ps(`Start-ScheduledTask -TaskName ${q(taskName(c))} -TaskPath ${q(TASK_PATH)}`);}
 function unregisterTask(c){try{ps(`Unregister-ScheduledTask -TaskName ${q(taskName(c))} -TaskPath ${q(TASK_PATH)} -Confirm:$false -ErrorAction Stop`);}catch{/* not registered */}}
 
+// ── native Excel bridge (only when the applications cannot reach Excel themselves, i.e. they run as a SYSTEM task) ──
+const bridgeTaskName=c=>taskName(c)+'-excel-bridge';
+const bridgeMode=c=>(c.excelMode??(c.taskMode==='system'?'bridge':'direct'))==='bridge';
+function registerBridgeTask(L,c){
+ const user=c.excelUser??whoami(),pwsh=path.join(L.runtime,'pwsh','pwsh.exe'),script=path.join(L.root,'admin','Start-ExcelBridge.ps1');
+ ps(`$ErrorActionPreference='Stop';`+
+  `$a=New-ScheduledTaskAction -Execute ${q(pwsh)} -Argument ${q(`-NoLogo -NoProfile -ExecutionPolicy Bypass -File "${script}" -Root "${L.root}"`)} -WorkingDirectory ${q(L.root)};`+
+  `$t=New-ScheduledTaskTrigger -AtLogOn -User ${q(user)};`+
+  `$s=New-ScheduledTaskSettingsSet -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries;`+
+  `$p=New-ScheduledTaskPrincipal -UserId ${q(user)} -LogonType Interactive -RunLevel Limited;`+
+  `Register-ScheduledTask -TaskName ${q(bridgeTaskName(c))} -TaskPath ${q(TASK_PATH)} -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null`);
+}
+function bridgeStatus(L){
+ try{const s=JSON.parse(readFileSync(path.join(L.excelSpool,'bridge-status.json'),'utf8'));const age=(Date.now()-Date.parse(s.updatedAt))/1000;return {state:s.state,pid:s.pid,ageSeconds:age,alive:(s.state==='idle'&&age<10)||(s.state==='processing'&&age<240)};}catch{return {state:'NOT_RUNNING',alive:false};}
+}
+async function stopBridge(L,c){
+ try{writeFileSync(path.join(L.excelSpool,'stop.request'),'stop');}catch{/* no spool */}
+ try{await waitFor(()=>!bridgeStatus(L).alive,'BRIDGE_STOP',30000);}catch{/* continue: the task is stopped below */}
+ try{ps(`Stop-ScheduledTask -TaskName ${q(bridgeTaskName(c))} -TaskPath ${q(TASK_PATH)}`);}catch{/* not registered or not running */}
+}
+async function startBridge(L,c){
+ rmSync(path.join(L.excelSpool,'stop.request'),{force:true});
+ ps(`Start-ScheduledTask -TaskName ${q(bridgeTaskName(c))} -TaskPath ${q(TASK_PATH)}`);
+ await waitFor(()=>bridgeStatus(L).alive,'EXCEL_BRIDGE_START',60000);
+}
+/** After a release switch the bridge must be restarted so it uses the new release's export script. */
+async function restartBridge(L,c){if(!bridgeMode(c))return;await stopBridge(L,c);await startBridge(L,c);}
+function unregisterBridgeTask(c){try{ps(`Unregister-ScheduledTask -TaskName ${q(bridgeTaskName(c))} -TaskPath ${q(TASK_PATH)} -Confirm:$false -ErrorAction Stop`);}catch{/* not registered */}}
+
+
 const alive=pid=>{try{process.kill(pid,0);return true;}catch(e){return e.code==='EPERM';}};
 function supervisorPid(L){try{const pid=Number(readFileSync(L.supervisorLock,'utf8'));return Number.isInteger(pid)&&alive(pid)?pid:null;}catch{return null;}}
 
@@ -118,7 +148,7 @@ function appEnv(L,c,st,extra={}){
   ...process.env,NIPT_MODE:c.mode,NIPT_OPERATIONAL_DATABASE:c.database,APP_ORIGIN:c.origin,NEXT_TELEMETRY_DISABLED:'1',
   FILE_STORE_ROOT:files,SIMULATOR_ROOT:path.join(L.data,'integration'),RENDERER_URL:`http://127.0.0.1:${c.ports.renderer}`,RENDERER_TOKEN_FILE:secretFile(L,'renderer-token'),
   IDENTITY_LOOKUP_KEY_FILE:secretFile(L,'identity-lookup.key'),NIPT_HIS_SHARE_POLICY_FILE:path.join(L.config,'share-policy.json'),NIPT_BACKUP_POLICY_FILE:path.join(L.config,'backup-policy.json'),
-  PLAYWRIGHT_BROWSERS_PATH:L.browsers,PG_BIN:L.pgBin,BACKUP_KEY_FILE:secretFile(L,'backup.key'),NIPT_SOURCE_SHA:st.current.revision,
+  PLAYWRIGHT_BROWSERS_PATH:L.browsers,PG_BIN:L.pgBin,...(existsSync(path.join(L.runtime,'pwsh','pwsh.exe'))?{NIPT_NATIVE_POWERSHELL:path.join(L.runtime,'pwsh','pwsh.exe')}:{}),...(bridgeMode(c)?{NIPT_NATIVE_EXCEL_SPOOL:L.excelSpool}:{}),BACKUP_KEY_FILE:secretFile(L,'backup.key'),NIPT_SOURCE_SHA:st.current.revision,
   ...(master?{NIPT_TASK_MASTER_PATH:master}:{}),
   ...extra
  };
@@ -147,9 +177,15 @@ async function preflight(){
  if(args['master-workbook']){try{add('master_workbook_sha256',await sha256File(args['master-workbook'])===JSON.parse(readFileSync(path.join(packageDir,'payload','release','ops','packages','workbook','master-manifest.json'),'utf8')).sha256,'');}catch(e){add('master_workbook_sha256',false,e.message);}}
  else add('master_workbook_sha256',false,'MASTER_WORKBOOK_REQUIRED (operational backups need the approved master)');
  add('task_scheduler',taskSchedulerAvailable(),'');
+ add('powershell7_in_package',existsSync(path.join(packageDir,'payload','runtime','pwsh','pwsh.exe')),'the native Excel export needs PowerShell 7');
+ const excel=excelInstalled();
+ add('excel_installed',excel||args['allow-no-excel']==='yes',excel?'':'Microsoft Excel is not registered on this host: Task List PDFs cannot be produced (override: --allow-no-excel yes)');
+ if(excel&&(args['excel-mode']??(args['task-mode']==='system'?'bridge':'direct'))==='direct')add('default_printer_current_user',defaultPrinterPresent(),'the export reads the signed-in user default printer (HKCU) and sets it to A4');
  const ok=checks.every(c=>c.ok);
  return {ok,checks,manifest:manifest?{version:manifest.version,revision:manifest.revision}:null};
 }
+function excelInstalled(){try{run(system32('reg.exe'),['query','HKCR\\Excel.Application\\CurVer']);return true;}catch{return false;}}
+function defaultPrinterPresent(){try{return ps("(Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Windows' -Name Device -ErrorAction Stop).Device").trim().length>0;}catch{return false;}}
 function taskSchedulerAvailable(){try{ps('Get-Command Register-ScheduledTask | Out-Null');return true;}catch{return false;}}
 function portsFromArgs(){
  const raw=String(args.ports??'5432,3000,443,3001').split(',').map(Number);
@@ -173,11 +209,13 @@ async function install(){
  const config=validateConfig({
   instance,mode:'operational',database:String(args.database??`nipt_operational_${instance.replaceAll('-','_')}`).slice(0,60),ports,
   origin:String(args.origin??`https://localhost${ports.https===443?'':':'+ports.https}`),taskMode:args['task-mode']==='system'?'system':'user',testEnvironmentOnly:true,
-  masterWorkbook:true
+  masterWorkbook:true,
+  excelMode:args['excel-mode']==='bridge'?'bridge':args['excel-mode']==='direct'?'direct':(args['task-mode']==='system'?'bridge':'direct'),
+  ...(args['excel-user']?{excelUser:String(args['excel-user'])}:{})
  });
  if(config.taskMode==='system'&&!isAdmin())fail('ADMINISTRATOR_REQUIRED_FOR_SYSTEM_TASK');
  say('creating layout');
- for(const d of [L.releases,L.runtime,L.data,L.files,L.inbound,L.outbound,L.master,L.secrets,L.config,L.tls,L.logs,L.run,L.backups,L.restores,path.join(L.root,'admin'),path.join(L.outbound,'res'),path.join(L.outbound,'pdf'),path.join(L.outbound,'backup'),path.join(L.data,'integration','results')])mkdirSync(d,{recursive:true});
+ for(const d of [L.releases,L.runtime,L.data,L.files,L.inbound,L.outbound,L.master,L.secrets,L.config,L.tls,L.logs,L.run,L.backups,L.restores,L.excelSpool,path.join(L.root,'admin'),path.join(L.outbound,'res'),path.join(L.outbound,'pdf'),path.join(L.outbound,'backup'),path.join(L.data,'integration','results')])mkdirSync(d,{recursive:true});
  secureDirectory(L.secrets);
  say('copying runtime and release (offline)');
  cpSync(path.join(packageDir,'payload','runtime'),L.runtime,{recursive:true});
@@ -206,6 +244,7 @@ async function install(){
  state.status='INSTALLED_NOT_ACCEPTED';saveState(L,state);
  say('registering the startup task');
  registerTask(L,config);
+ if(bridgeMode(config)){registerBridgeTask(L,config);await startBridge(L,config);}
  await startServices(L,config);
  await waitHealthy(L,config,{timeout:180000});
  say('taking the first verified backup (go-live gate)');
@@ -277,8 +316,8 @@ async function healthReport(L,c){
  const r=nodeIn(L,ops,['--import','tsx','tools/p8/health.ts'],env);
  let report={};try{report=JSON.parse((r.stdout||'').trim().split('\n').pop());}catch{report={code:'HEALTH_UNREADABLE'};}
  const httpsOk=await new Promise(res=>{const req=https.get({host:'127.0.0.1',port:c.ports.https,path:'/api/health',ca:readFileSync(path.join(L.tls,'server.pem')),servername:'localhost',timeout:5000},resp=>{let b='';resp.on('data',d=>b+=d);resp.on('end',()=>res(resp.statusCode===200&&JSON.parse(b).status==='ok'));});req.on('error',()=>res(false));req.on('timeout',()=>{req.destroy();res(false);});});
- const verdict=healthVerdict(report,{supervisor:supervisorPid(L)!==null,https:httpsOk});
- return {...verdict,release:st.current.version,details:{workerAlive:report.workerAlive,heartbeatAgeSeconds:report.heartbeatAgeSeconds,backlog:report.backlog,webReachable:report.webReachable,rendererReachable:report.rendererReachable,https:httpsOk,backupStatus:report.backupStatus,migrationsMatch:report.migrationsMatch,auditValid:report.auditValid,rolesRestricted:report.rolesRestricted,quarantined:report.quarantined,clinicalAcceptance:false,hospitalOperationalAcceptance:false}};
+ const verdict=healthVerdict(report,{supervisor:supervisorPid(L)!==null,https:httpsOk,excelBridge:bridgeMode(c)?bridgeStatus(L).alive:undefined});
+ return {...verdict,release:st.current.version,details:{workerAlive:report.workerAlive,heartbeatAgeSeconds:report.heartbeatAgeSeconds,backlog:report.backlog,webReachable:report.webReachable,rendererReachable:report.rendererReachable,https:httpsOk,excelBridge:bridgeMode(c)?bridgeStatus(L).state:'NOT_USED_DIRECT_EXCEL',backupStatus:report.backupStatus,migrationsMatch:report.migrationsMatch,auditValid:report.auditValid,rolesRestricted:report.rolesRestricted,quarantined:report.quarantined,clinicalAcceptance:false,hospitalOperationalAcceptance:false}};
 }
 const healthTimeout=(d=180000)=>Number(args['health-timeout-seconds'])>0?Number(args['health-timeout-seconds'])*1000:d;
 async function waitHealthy(L,c,{timeout=120000}={}){
@@ -389,6 +428,7 @@ async function upgrade(){
  const from=st.current;
  st.previous=from;st.current={version:m.version,revision:m.revision,migrationsSha256:m.migrationsSha256};st.preUpgradeBackup=pre.backupBase;saveState(L,st);
  syncAdmin(L,next);
+ await restartBridge(L,c).catch(e=>say('excel bridge restart failed: '+e.message));
  try{
   await startServices(L,c);
   const health=await waitHealthy(L,c,{timeout:healthTimeout()});
@@ -413,6 +453,7 @@ async function rollbackInternal(L,c,{reason}){
  if(!gate.ok){history(L,st,'ROLLBACK_REFUSED_SCHEMA',{reason:gate.reason,unknown:gate.unknown});await startServices(L,c).catch(()=>{});fail('ROLLBACK_REQUIRES_DATABASE_RESTORE',{reason:gate.reason,newerMigrations:gate.unknown,preUpgradeBackup:st.preUpgradeBackup??null});}
  const from=st.current;st.current=target;st.previous=from;saveState(L,st);
  syncAdmin(L,releaseDir(L,target.version));
+ await restartBridge(L,c).catch(e=>say('excel bridge restart failed: '+e.message));
  await startServices(L,c);const health=await waitHealthy(L,c,{timeout:healthTimeout()});
  history(L,st,'ROLLED_BACK',{from:from.version,to:target.version,reason});
  return {rolledBack:true,from:from.version,to:target.version,health:{ok:health.ok}};
@@ -422,7 +463,7 @@ async function rollback(){const L=layout(args.root),c=cfgOf(L);return rollbackIn
 async function uninstall(){
  const L=layout(args.root),c=cfgOf(L);
  if(args.confirm!==path.basename(L.root))fail('CONFIRM_WITH_ROOT_FOLDER_NAME_REQUIRED');
- await stopServices(L);unregisterTask(c);
+ await stopServices(L);if(bridgeMode(c))await stopBridge(L,c);unregisterTask(c);unregisterBridgeTask(c);
  const keep=!args['remove-data'];
  const own=path.resolve(process.execPath).toLowerCase().startsWith(L.root.toLowerCase()+path.sep);
  if(keep){for(const d of [L.releases,path.join(L.root,'admin')])rmSync(d,{recursive:true,force:true});

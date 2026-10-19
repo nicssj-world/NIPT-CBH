@@ -63,6 +63,9 @@ const common={
  RENDERER_URL:`http://127.0.0.1:${config.ports.renderer}`,RENDERER_TOKEN_FILE:secret('renderer-token'),
  IDENTITY_LOOKUP_KEY_FILE:secret('identity-lookup.key'),NIPT_HIS_SHARE_POLICY_FILE:path.join(L.config,'share-policy.json'),
  NIPT_BACKUP_POLICY_FILE:path.join(L.config,'backup-policy.json'),PLAYWRIGHT_BROWSERS_PATH:L.browsers,
+ ...(existsSync(path.join(L.runtime,'pwsh','pwsh.exe'))?{NIPT_NATIVE_POWERSHELL:path.join(L.runtime,'pwsh','pwsh.exe')}:{}),
+ ...((config.excelMode??(config.taskMode==='system'?'bridge':'direct'))==='bridge'?{NIPT_NATIVE_EXCEL_SPOOL:L.excelSpool}:{}),
+
  ...(config.masterWorkbook?{NIPT_TASK_MASTER_PATH:config.masterPath??path.join(L.master,'approved-master.xlsx')}:{}),
  NIPT_SOURCE_SHA:installState.current.revision
 };

@@ -69,11 +69,12 @@ await mkdir(path.join(ops,'db'),{recursive:true});await cp(migrationsDir,path.jo
 await mkdir(path.join(ops,'deploy'),{recursive:true});await cp('deploy/scripts',path.join(ops,'deploy','scripts'),{recursive:true});
 await mkdir(path.join(ops,'tools'),{recursive:true});
 for(const f of ['migrate.ts','migration-checksums.ts','configure-operational.ts','runtime-env.mjs'])await cp(path.join('tools',f),path.join(ops,'tools',f));
+await mkdir(path.join(ops,'tools','operational'),{recursive:true});await cp('tools/operational/native-excel-bridge.ps1',path.join(ops,'tools','operational','native-excel-bridge.ps1'));
 for(const d of ['p8','win-installer'])await cp(path.join('tools',d),path.join(ops,'tools',d),{recursive:true,filter:s=>!/build-package\.ts$/.test(s)});
 for(const f of ['package.json','package-lock.json','tsconfig.json'])await cp(f,path.join(ops,f));
 await cp(path.join(modulesCache,'node_modules'),path.join(ops,'node_modules'),{recursive:true});
 await writeFile(path.join(ops,'build-provenance.json'),JSON.stringify(provenance));
-await writeFile(path.join(release,'release.json'),JSON.stringify({version,revision,buildId,migrationsSha256:inventory.sha256,migrationCount:Object.keys(inventory.files).length,migrations:inventory.files,extraTestMigration:extra?path.basename(extra):null,createdAt:new Date().toISOString()},null,2));
+await writeFile(path.join(release,'release.json'),JSON.stringify({version,revision,buildId,migrationsSha256:inventory.sha256,migrationCount:Object.keys(inventory.files).length,migrations:inventory.files,extraTestMigration:extra?path.basename(extra):null,createdAt:git('log','-1','--format=%cI')},null,2)); // commit time, not wall-clock: packaging the same build twice is byte-identical
 
 // 5. runtime (full packages only)
 let runtime:Record<string,string>|undefined;
@@ -88,7 +89,11 @@ if(!appOnly){
  const cache=process.env.PLAYWRIGHT_BROWSERS_PATH??path.join(process.env.LOCALAPPDATA??'','ms-playwright'),folder=`chromium_headless_shell-${shell.revision}`;
  if(!await exists(path.join(cache,folder)))throw Error('CHROMIUM_NOT_INSTALLED_ON_BUILD_HOST');
  await cp(path.join(cache,folder),path.join(rt,'browsers',folder),{recursive:true});
- runtime={node:process.version,postgres:execFileSync(path.join(pgHome,'bin','postgres.exe'),['--version'],{encoding:'utf8'}).trim(),chromium:folder};
+ // PowerShell 7 runs the native Excel export (the script needs .NET 5+ APIs); bundling it removes a host prerequisite
+ const pwshHome=process.env.NIPT_PWSH_HOME??'C:/Program Files/PowerShell/7';
+ if(!await exists(path.join(pwshHome,'pwsh.exe')))throw Error('POWERSHELL7_NOT_INSTALLED_ON_BUILD_HOST');
+ await cp(pwshHome,path.join(rt,'pwsh'),{recursive:true});
+ runtime={pwsh:execFileSync(path.join(pwshHome,'pwsh.exe'),['-NoLogo','-NoProfile','-Command','$PSVersionTable.PSVersion.ToString()'],{encoding:'utf8'}).trim(),node:process.version,postgres:execFileSync(path.join(pgHome,'bin','postgres.exe'),['--version'],{encoding:'utf8'}).trim(),chromium:folder};
  await writeFile(path.join(rt,'runtime.json'),JSON.stringify(runtime));
 }
 
