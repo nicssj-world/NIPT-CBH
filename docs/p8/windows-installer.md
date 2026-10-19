@@ -42,7 +42,7 @@ One Windows **scheduled task** (`\NIPT-CBH\nipt-cbh-<instance>`; `-TaskMode syst
 | `install` | preflight → copy runtime and release → secrets/TLS/policies → `initdb` → forward migrations → mark operational → least-privilege logins → six test accounts → startup task → start → health → **first verified backup** |
 | `start` / `stop` [`--keep-database`] / `restart` / `status` / `health` | lifecycle and the operator health report (`tools/p8/health.ts`) plus supervisor and HTTPS probes |
 | `backup` | stops the writers, takes the existing quiescent encrypted operational backup, restarts |
-| `restore --backup <dir> | --fresh [--activate --confirm-source-fenced yes]` | restore into a **new quarantined database and file tree**, verify digests/ledger/files; activation fences the source first, then switches the installation to the restored database |
+| `restore (--backup <dir> or --fresh) [--activate --confirm-source-fenced yes]` | restore into a **new quarantined database and file tree**, verify digests/ledger/files; activation fences the source first, then switches the installation to the restored database |
 | `upgrade --package <dir>` | verify, schema-compatibility gate, **pre-upgrade backup**, stage release, forward migrations, switch, start, verify; automatic rollback if the new release is not healthy |
 | `rollback` | switch back to the previous release **only if the database is not newer than that release** |
 | `uninstall --confirm <folder name> [--remove-data]` | stop, remove the task and releases; data kept unless `--remove-data` |
