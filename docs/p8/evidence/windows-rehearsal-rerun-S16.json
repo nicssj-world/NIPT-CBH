@@ -1,0 +1,157 @@
+{
+  "format": "NIPT_WINDOWS_INSTALLER_REHEARSAL_V1",
+  "environment": "DISPOSABLE_LOCAL_WINDOWS_TEST",
+  "passed": true,
+  "sourceHead": "b37ccfaa72ed57e9bbd8f3d25cd78ebff41704c8",
+  "root": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\rehearsal-20261019010410\\root",
+  "ports": [
+    19860,
+    19861,
+    19862,
+    19863
+  ],
+  "steps": [
+    {
+      "id": "S00",
+      "name": "build the signed packages from the committed source",
+      "ok": true,
+      "ms": 91274,
+      "detail": {
+        "1.0.0": {
+          "package": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\packages\\nipt-cbh-1.0.0",
+          "version": "1.0.0",
+          "revision": "b37ccfaa72ed57e9bbd8f3d25cd78ebff41704c8",
+          "appOnly": false,
+          "fileCount": 22449,
+          "publicKey": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\keys\\package-signing-public.pem",
+          "migrations": 47
+        }
+      }
+    },
+    {
+      "id": "S01",
+      "name": "signature, exact file set, and tamper refusal",
+      "ok": true,
+      "ms": 0,
+      "detail": "SKIPPED_NOT_SELECTED"
+    },
+    {
+      "id": "S02",
+      "name": "preflight refuses an occupied port and a non-empty root",
+      "ok": true,
+      "ms": 0,
+      "detail": "SKIPPED_NOT_SELECTED"
+    },
+    {
+      "id": "S03",
+      "name": "install: runtime, PostgreSQL cluster, migrations, accounts, startup task, services, first verified backup",
+      "ok": true,
+      "ms": 0,
+      "detail": "SKIPPED_NOT_SELECTED"
+    },
+    {
+      "id": "S04",
+      "name": "installed facts: listeners, secret ACL, mode, least privilege, task registration",
+      "ok": true,
+      "ms": 0,
+      "detail": "SKIPPED_NOT_SELECTED"
+    },
+    {
+      "id": "S05",
+      "name": "crash recovery: worker/web killed, then the supervisor itself killed with live children, then started again",
+      "ok": true,
+      "ms": 0,
+      "detail": "SKIPPED_NOT_SELECTED"
+    },
+    {
+      "id": "S06",
+      "name": "installed operational journey (45 test patients, certified release, outbound RES/PDF/backup) over HTTPS",
+      "ok": true,
+      "ms": 0,
+      "detail": "SKIPPED_NOT_SELECTED"
+    },
+    {
+      "id": "S07",
+      "name": "verified encrypted backup of the working installation",
+      "ok": true,
+      "ms": 0,
+      "detail": "SKIPPED_NOT_SELECTED"
+    },
+    {
+      "id": "S08",
+      "name": "restore into a new quarantined database; the live installation is untouched",
+      "ok": true,
+      "ms": 0,
+      "detail": "SKIPPED_NOT_SELECTED"
+    },
+    {
+      "id": "S09",
+      "name": "upgrade refused/failed safely: tampered package, failing migration, release that cannot start",
+      "ok": true,
+      "ms": 0,
+      "detail": "SKIPPED_NOT_SELECTED"
+    },
+    {
+      "id": "S10",
+      "name": "upgrade 1.0.0 → 1.1.0: pre-upgrade backup, forward migration, switch, health, data intact",
+      "ok": true,
+      "ms": 0,
+      "detail": "SKIPPED_NOT_SELECTED"
+    },
+    {
+      "id": "S11",
+      "name": "rollback gate: database newer than the previous release → refused, nothing changes",
+      "ok": true,
+      "ms": 0,
+      "detail": "SKIPPED_NOT_SELECTED"
+    },
+    {
+      "id": "S12",
+      "name": "application-only upgrade 1.1.0 → 1.1.1 and compatible rollback back to 1.1.0",
+      "ok": true,
+      "ms": 0,
+      "detail": "SKIPPED_NOT_SELECTED"
+    },
+    {
+      "id": "S13",
+      "name": "disaster recovery: an older backup is NOT activatable over changed work; a fresh backup is restored and activated (source fenced, health, data equal)",
+      "ok": true,
+      "ms": 0,
+      "detail": "SKIPPED_NOT_SELECTED"
+    },
+    {
+      "id": "S14",
+      "name": "stop is graceful (worker over IPC) and start recovers; no listener remains after stop",
+      "ok": true,
+      "ms": 0,
+      "detail": "SKIPPED_NOT_SELECTED"
+    },
+    {
+      "id": "S15",
+      "name": "uninstall keeps data by default, then removes everything on explicit request; no process or listener remains",
+      "ok": true,
+      "ms": 0,
+      "detail": "SKIPPED_NOT_SELECTED"
+    },
+    {
+      "id": "S16",
+      "name": "the installed CLI can remove its own installation (it runs from inside the root)",
+      "ok": true,
+      "ms": 5678,
+      "detail": {
+        "selfRemoved": true
+      }
+    }
+  ],
+  "notRun": [
+    "elevated SYSTEM startup task (session not Administrator)",
+    "hospital TLS/DNS/LAN",
+    "UNC/SMB shares and service-account ACLs",
+    "NAS backup target and key escrow",
+    "physical power loss",
+    "code-signing/MSI wrapper"
+  ],
+  "clinicalAcceptance": false,
+  "hospitalOperationalAcceptance": false,
+  "hisConfirmed": false
+}

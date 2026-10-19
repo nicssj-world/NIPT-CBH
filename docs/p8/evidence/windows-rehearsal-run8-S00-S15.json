@@ -1,0 +1,291 @@
+{
+  "format": "NIPT_WINDOWS_INSTALLER_REHEARSAL_V1",
+  "environment": "DISPOSABLE_LOCAL_WINDOWS_TEST",
+  "passed": false,
+  "sourceHead": "7419b745b6bc7df69b46205d6759a8ea627e004d",
+  "root": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\rehearsal-20261019003848\\root",
+  "ports": [
+    19860,
+    19861,
+    19862,
+    19863
+  ],
+  "steps": [
+    {
+      "id": "S00",
+      "name": "build the signed packages from the committed source",
+      "ok": true,
+      "ms": 409617,
+      "detail": {
+        "1.0.0": {
+          "package": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\packages\\nipt-cbh-1.0.0",
+          "version": "1.0.0",
+          "revision": "7419b745b6bc7df69b46205d6759a8ea627e004d",
+          "appOnly": false,
+          "fileCount": 22449,
+          "publicKey": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\keys\\package-signing-public.pem",
+          "migrations": 47
+        },
+        "1.0.1-app": {
+          "package": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\packages\\nipt-cbh-1.0.1-app",
+          "version": "1.0.1",
+          "revision": "7419b745b6bc7df69b46205d6759a8ea627e004d",
+          "appOnly": true,
+          "fileCount": 20595,
+          "publicKey": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\keys\\package-signing-public.pem",
+          "migrations": 48
+        },
+        "1.0.2-app": {
+          "package": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\packages\\nipt-cbh-1.0.2-app",
+          "version": "1.0.2",
+          "revision": "7419b745b6bc7df69b46205d6759a8ea627e004d",
+          "appOnly": true,
+          "fileCount": 20593,
+          "publicKey": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\keys\\package-signing-public.pem",
+          "migrations": 47
+        },
+        "1.1.0-app": {
+          "package": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\packages\\nipt-cbh-1.1.0-app",
+          "version": "1.1.0",
+          "revision": "7419b745b6bc7df69b46205d6759a8ea627e004d",
+          "appOnly": true,
+          "fileCount": 20595,
+          "publicKey": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\keys\\package-signing-public.pem",
+          "migrations": 48
+        },
+        "1.1.1-app": {
+          "package": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\packages\\nipt-cbh-1.1.1-app",
+          "version": "1.1.1",
+          "revision": "7419b745b6bc7df69b46205d6759a8ea627e004d",
+          "appOnly": true,
+          "fileCount": 20595,
+          "publicKey": "D:\\Claude workspace\\NIPT-CBH-PAGINATION\\.local\\p8-win\\keys\\package-signing-public.pem",
+          "migrations": 48
+        }
+      }
+    },
+    {
+      "id": "S01",
+      "name": "signature, exact file set, and tamper refusal",
+      "ok": true,
+      "ms": 68019,
+      "detail": {
+        "files": 22449,
+        "tamper": "PACKAGE_CHECKSUM_MISMATCH",
+        "wrongKey": "SIGNATURE_INVALID"
+      }
+    },
+    {
+      "id": "S02",
+      "name": "preflight refuses an occupied port and a non-empty root",
+      "ok": true,
+      "ms": 17820,
+      "detail": {
+        "occupiedPort": "port_web refused",
+        "nonEmptyRoot": "install_root_empty refused",
+        "masterWorkbookRequired": true
+      }
+    },
+    {
+      "id": "S03",
+      "name": "install: runtime, PostgreSQL cluster, migrations, accounts, startup task, services, first verified backup",
+      "ok": true,
+      "ms": 46905,
+      "detail": {
+        "version": "1.0.0",
+        "url": "https://localhost:19862",
+        "migrations": 47,
+        "health": true,
+        "backup": "CHECKSUM_VERIFIED"
+      }
+    },
+    {
+      "id": "S04",
+      "name": "installed facts: listeners, secret ACL, mode, least privilege, task registration",
+      "ok": true,
+      "ms": 1344,
+      "detail": {
+        "listening": [
+          19860,
+          19861,
+          19862,
+          19863
+        ],
+        "aclChecked": true,
+        "roles": "nipt_web:false,nipt_worker:false",
+        "mode": "operational",
+        "pgHbaTrust": false
+      }
+    },
+    {
+      "id": "S05",
+      "name": "crash recovery: worker/web killed, then the supervisor itself killed with live children, then started again",
+      "ok": true,
+      "ms": 10050,
+      "detail": {
+        "servicesRestarted": true,
+        "supervisorRecovered": true,
+        "childrenSurvivedSupervisorKill": 0,
+        "staleReaped": 0
+      }
+    },
+    {
+      "id": "S06",
+      "name": "installed operational journey (45 test patients, certified release, outbound RES/PDF/backup) over HTTPS",
+      "ok": true,
+      "ms": 421367,
+      "detail": {
+        "passed": true,
+        "counts": {
+          "cases": "45",
+          "releases": "2",
+          "transfers": "2"
+        },
+        "events": 14
+      }
+    },
+    {
+      "id": "S07",
+      "name": "verified encrypted backup of the working installation",
+      "ok": true,
+      "ms": 8977,
+      "detail": {
+        "backup": "operational-1792371306367-477c729b-b3c3-4db4-a3db-d85c6e37793a",
+        "files": 95,
+        "snapshot": {
+          "cases": 45,
+          "releases": 2,
+          "transfers": 2,
+          "audit": 1229,
+          "lastAudit": "48a01ec1024383667b20aa1d14c7e2760449521a17b7d7468b35931c4b6ca7cf",
+          "accounts": 6
+        }
+      }
+    },
+    {
+      "id": "S08",
+      "name": "restore into a new quarantined database; the live installation is untouched",
+      "ok": true,
+      "ms": 8176,
+      "detail": {
+        "database": "nipt_operational_restore_94f9004690ae4fe9863e4492",
+        "tables": 140,
+        "files": 95,
+        "casesInRestore": "45"
+      }
+    },
+    {
+      "id": "S09",
+      "name": "upgrade refused/failed safely: tampered package, failing migration, release that cannot start",
+      "ok": true,
+      "ms": 231938,
+      "detail": {
+        "tampered": "refused",
+        "failingMigration": "old release still running",
+        "unhealthyRelease": {
+          "autoRollback": true,
+          "seconds": 113
+        }
+      }
+    },
+    {
+      "id": "S10",
+      "name": "upgrade 1.0.0 → 1.1.0: pre-upgrade backup, forward migration, switch, health, data intact",
+      "ok": true,
+      "ms": 75185,
+      "detail": {
+        "from": "1.0.0",
+        "to": "1.1.0",
+        "migrations": [
+          "105_p8_rehearsal_marker.sql"
+        ],
+        "health": true,
+        "preUpgradeBackup": "operational-1792371601441-3345163e-2475-4d12-a4fc-3a3ea4a44d36"
+      }
+    },
+    {
+      "id": "S11",
+      "name": "rollback gate: database newer than the previous release → refused, nothing changes",
+      "ok": true,
+      "ms": 5214,
+      "detail": {
+        "refused": "ROLLBACK_REQUIRES_DATABASE_RESTORE",
+        "newerMigrations": [
+          "105_p8_rehearsal_marker.sql"
+        ]
+      }
+    },
+    {
+      "id": "S12",
+      "name": "application-only upgrade 1.1.0 → 1.1.1 and compatible rollback back to 1.1.0",
+      "ok": true,
+      "ms": 28565,
+      "detail": {
+        "upgraded": "1.1.1",
+        "rolledBackTo": "1.1.0"
+      }
+    },
+    {
+      "id": "S13",
+      "name": "disaster recovery: an older backup is NOT activatable over changed work; a fresh backup is restored and activated (source fenced, health, data equal)",
+      "ok": true,
+      "ms": 32369,
+      "detail": {
+        "olderBackupRefused": "RESTORE_SOURCE_CHANGED_SINCE_BACKUP",
+        "activated": "nipt_operational_restore_0d277792d1ef48aaa32445c3",
+        "previous": "nipt_operational_p8win_rehearsal",
+        "fenced": true,
+        "health": true,
+        "cases": 45,
+        "backupOfRestored": true
+      }
+    },
+    {
+      "id": "S14",
+      "name": "stop is graceful (worker over IPC) and start recovers; no listener remains after stop",
+      "ok": true,
+      "ms": 8822,
+      "detail": {
+        "gracefulStop": true,
+        "restart": true
+      }
+    },
+    {
+      "id": "S15",
+      "name": "uninstall keeps data by default, then removes everything on explicit request; no process or listener remains",
+      "ok": true,
+      "ms": 12831,
+      "detail": {
+        "keepData": true,
+        "removed": true,
+        "leftoverProcesses": 0
+      }
+    },
+    {
+      "id": "S16",
+      "name": "the installed CLI can remove its own installation (it runs from inside the root)",
+      "ok": false,
+      "ms": 31885,
+      "detail": {
+        "error": "TIMEOUT_SELF_REMOVAL",
+        "stack": [
+          "Error: TIMEOUT_SELF_REMOVAL",
+          "    at until (D:\\Claude workspace\\NIPT-CBH-PAGINATION\\tools\\win-installer\\rehearse.ts:59:166)",
+          "    at async <anonymous> (D:\\Claude workspace\\NIPT-CBH-PAGINATION\\tools\\win-installer\\rehearse.ts:260:3)",
+          "    at async step (D:\\Claude workspace\\NIPT-CBH-PAGINATION\\tools\\win-installer\\rehearse.ts:32:19)"
+        ]
+      }
+    }
+  ],
+  "notRun": [
+    "elevated SYSTEM startup task (session not Administrator)",
+    "hospital TLS/DNS/LAN",
+    "UNC/SMB shares and service-account ACLs",
+    "NAS backup target and key escrow",
+    "physical power loss",
+    "code-signing/MSI wrapper"
+  ],
+  "clinicalAcceptance": false,
+  "hospitalOperationalAcceptance": false,
+  "hisConfirmed": false
+}
