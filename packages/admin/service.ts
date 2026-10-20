@@ -15,6 +15,7 @@ const name=z.string().trim().min(1).max(120);
 const optionalPermissions=['ANC_VIEW_ALL_UNITS','HISTORICAL_ENTRY'] as const;
 const access=z.object({operation:z.literal('requestAccess'),id:uuid,version,roles:z.array(z.enum(ROLES)).max(9),unitIds:z.array(uuid).max(100),permissions:z.array(z.enum(optionalPermissions)).max(2),reason:z.string().trim().min(1).max(250)}).strict();
 const command=z.discriminatedUnion('operation',[
+ z.object({operation:z.literal('saveUser'),id:uuid.optional(),version:version.optional(),username,displayName:name,password:z.string().max(128).optional(),jobPosition:z.string().trim().max(120).default(''),phone:z.string().trim().max(40).regex(/^[0-9+().\s-]*$/).default(''),unitId:uuid.nullable(),enabled:z.boolean(),roles:z.array(z.enum(ROLES)).min(1).max(9),unitIds:z.array(uuid).max(100),permissions:z.array(z.enum(optionalPermissions)).max(2)}).strict(),
  z.object({operation:z.literal('createUser'),username,displayName:name,password:z.string().max(128),unitId:uuid.nullable().optional()}).strict(),
  z.object({operation:z.literal('updateUser'),id:uuid,version,username,displayName:name,unitId:uuid.nullable(),enabled:z.boolean()}).strict(),
  z.object({operation:z.literal('resetPassword'),id:uuid,version,password:z.string().max(128)}).strict(),
@@ -23,8 +24,8 @@ const command=z.discriminatedUnion('operation',[
  z.object({operation:z.enum(['approveAccess','rejectAccess']),id:uuid}).strict(),
  z.object({operation:z.literal('saveUnit'),id:uuid.optional(),version:version.optional(),code:z.string().trim().regex(/^[A-Za-z0-9._-]{1,40}$/),name,active:z.boolean()}).strict()
 ]);
-export type AdminUser={id:string;username:string;display_name:string;enabled:boolean;locked_until:Date|null;created_at:Date;last_login_at:Date|null;must_change_password:boolean;unit_id:string|null;unit_name:string|null;version:number;roles:Role[];unit_ids:string[];permissions:string[];requires_independent_recovery:boolean};
-const userColumns=`u.id,u.username,u.display_name,u.enabled,u.locked_until,u.created_at,u.last_login_at,u.must_change_password,u.unit_id,u.version,d.name unit_name,
+export type AdminUser={id:string;username:string;display_name:string;job_position:string;phone:string;enabled:boolean;locked_until:Date|null;created_at:Date;last_login_at:Date|null;must_change_password:boolean;unit_id:string|null;unit_name:string|null;version:number;roles:Role[];unit_ids:string[];permissions:string[];requires_independent_recovery:boolean};
+const userColumns=`u.id,u.username,u.display_name,u.job_position,u.phone,u.enabled,u.locked_until,u.created_at,u.last_login_at,u.must_change_password,u.unit_id,u.version,d.name unit_name,
  coalesce((SELECT jsonb_agg(a.role ORDER BY a.role) FROM role_assignment a WHERE a.user_id=u.id AND a.effective_from<=now() AND (a.expires_at IS NULL OR a.expires_at>now())),'[]') roles,
  coalesce((SELECT jsonb_agg(s.unit_id) FROM user_unit_scope s WHERE s.user_id=u.id),'[]') unit_ids,
  coalesce((SELECT jsonb_agg(p.permission) FROM user_permission p WHERE p.user_id=u.id),'[]') permissions,EXISTS(SELECT 1 FROM role_assignment f WHERE f.user_id=u.id AND f.role IN ('APP_ADMIN','CLINICAL_APPROVER','LAB_CERTIFIER','IT_OPERATOR','HISTORICAL_VERIFIER') AND (f.expires_at IS NULL OR f.expires_at>clock_timestamp())) requires_independent_recovery`;
@@ -65,6 +66,30 @@ export async function adminCommand(db:Queryable,principal:Actor,input:unknown):P
  await db.query('SELECT pg_advisory_xact_lock(75432806)');
  const actor=await liveActor(db,principal);
  requirePermission(actor,'user.manage',{},c.operation==='approveAccess'||c.operation==='rejectAccess'?'approve':'write');
+ if(c.operation==='saveUser'){
+  if(!actor.roles.includes('APP_ADMIN'))throw Error('FORBIDDEN');
+  if(new Set(c.roles).size!==c.roles.length||new Set(c.permissions).size!==c.permissions.length)throw Error('DUPLICATE_ACCESS');
+  await activeUnits(db,c.unitIds);if(c.unitId)await activeUnits(db,[c.unitId]);
+  if(c.roles.some(r=>r==='ANC_NURSE'||r==='ANC_SUPERVISOR')&&!c.unitIds.length)throw Error('ANC_UNIT_SCOPE_REQUIRED');
+  let id=c.id;
+  if(id){
+   const old=(await db.query<{version:number}>('SELECT version FROM app_user WHERE id=$1 FOR UPDATE',[id])).rows[0];
+   if(!old||old.version!==c.version)throw Error('STALE_VERSION');
+   await ensureAdminRemains(db,id,c.enabled?c.roles:[]);
+   await revokeUserSessions(db,id);
+   await db.query('UPDATE app_user SET username=$2,display_name=$3,job_position=$4,phone=$5,unit_id=$6,enabled=$7,version=version+1 WHERE id=$1',[id,c.username,c.displayName,c.jobPosition,c.phone,c.unitId,c.enabled]);
+  }else{
+   const hash=await hashPassword(c.password??'');
+   id=(await db.query<{id:string}>('INSERT INTO app_user(username,display_name,password_hash,job_position,phone,unit_id,enabled,must_change_password) VALUES($1,$2,$3,$4,$5,$6,$7,true) RETURNING id',[c.username,c.displayName,hash,c.jobPosition,c.phone,c.unitId,c.enabled])).rows[0].id;
+  }
+  await db.query('INSERT INTO admin_access_supersession(request_id,actor_id) SELECT id,$2 FROM admin_access_request WHERE user_id=$1 AND kind=\'ACCESS\' AND state IN (\'Pending\',\'AwaitingEnrollment\') ON CONFLICT DO NOTHING',[id,actor.id]);
+  await db.query('DELETE FROM role_assignment WHERE user_id=$1',[id]);
+  for(const role of c.roles)await db.query('INSERT INTO role_assignment(user_id,role,approved_by) VALUES($1,$2,$3)',[id,role,actor.id]);
+  await db.query('DELETE FROM user_unit_scope WHERE user_id=$1',[id]);for(const unit of c.unitIds)await db.query('INSERT INTO user_unit_scope(user_id,unit_id) VALUES($1,$2)',[id,unit]);
+  await db.query('DELETE FROM user_permission WHERE user_id=$1',[id]);for(const permission of c.permissions)await db.query('INSERT INTO user_permission(user_id,permission,approved_by) VALUES($1,$2,$3)',[id,permission,actor.id]);
+  await audit(db,actor,c.id?'USER_ACCESS_ASSIGNED_DIRECTLY':'USER_CREATED_WITH_ACCESS',id);
+  return {id};
+ }
  if(c.operation==='saveUnit'){
   let id=c.id;
   if(id){const old=(await db.query<{code:string;version:number}>('SELECT code,version FROM unit WHERE id=$1 FOR UPDATE',[id])).rows[0];if(!old||old.version!==c.version)throw Error('STALE_VERSION');
@@ -81,6 +106,7 @@ export async function adminCommand(db:Queryable,principal:Actor,input:unknown):P
   await audit(db,actor,'USER_CREATED',id);return {id};
  }
  if(c.operation==='approveAccess'||c.operation==='rejectAccess'){
+  if((await db.query('SELECT 1 FROM admin_access_supersession WHERE request_id=$1',[c.id])).rows.length)throw Error('ACCESS_REQUEST_SUPERSEDED');
   const r=(await db.query<{user_id:string;created_by:string;state:string;kind:string;expected_version:number;roles:Role[];unit_ids:string[];permissions:string[]}>('SELECT * FROM admin_access_request WHERE id=$1 FOR UPDATE',[c.id])).rows[0];
   if(!r||r.state!=='Pending')throw Error('PENDING_REQUEST_REQUIRED');
   if(actor.id===r.created_by||actor.id===r.user_id)throw Error('FORBIDDEN');
@@ -139,7 +165,7 @@ export async function changePassword(db:Queryable,user:Actor,current:string,next
  if(current===next)throw Error('NEW_PASSWORD_REQUIRED');
  const hash=await hashPassword(next);await db.query('UPDATE app_user SET password_hash=$2,must_change_password=false,failed_count=0,locked_until=NULL,version=version+1 WHERE id=$1',[user.id,hash]);await revokeUserSessions(db,user.id);await audit(db,user,'USER_PASSWORD_CHANGED',user.id);return true;
 }
-export async function listAccessRequests(db:Queryable,user:Principal){requireAdministrationRead(user);return (await db.query(`SELECT r.*,u.version current_version,u.username,u.display_name,m.username maker_username,m.display_name maker_name FROM admin_access_request r JOIN app_user u ON u.id=r.user_id JOIN app_user m ON m.id=r.created_by WHERE r.state IN ('Pending','AwaitingEnrollment') ORDER BY r.created_at DESC LIMIT 100`)).rows;}
+export async function listAccessRequests(db:Queryable,user:Principal){requireAdministrationRead(user);return (await db.query(`SELECT r.*,u.version current_version,u.username,u.display_name,m.username maker_username,m.display_name maker_name FROM admin_access_request r JOIN app_user u ON u.id=r.user_id JOIN app_user m ON m.id=r.created_by WHERE r.state IN ('Pending','AwaitingEnrollment') AND NOT EXISTS(SELECT 1 FROM admin_access_supersession x WHERE x.request_id=r.id) ORDER BY r.created_at DESC LIMIT 100`)).rows;}
 export async function listAudit(db:Queryable,user:Principal,input:unknown={}){
  requirePermission(user,'audit.read',{},'read');const f=filters.parse(input),where=`($1='' OR a.action ILIKE $1 OR u.username ILIKE $1 OR u.display_name ILIKE $1) AND ($2='' OR a.action=$2) AND ($3='' OR a.details->>'outcome'=$3) AND ($4::uuid IS NULL OR a.resource_id=$4)`;
  const params=[f.search?`%${f.search}%`:'',f.action,f.outcome,f.resourceId??null];

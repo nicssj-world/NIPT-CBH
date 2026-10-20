@@ -1,0 +1,40 @@
+/** Owner-local UAT only. Creates a test user through the UI, then disables it.
+ * No doctor's authorization or patient signature is fabricated/saved by this check. */
+import {chromium,expect} from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
+import {readFile,mkdir,writeFile} from 'node:fs/promises';
+import {randomBytes} from 'node:crypto';
+import path from 'node:path';
+const origin='https://127.0.0.1:19548',root=path.resolve('.local/owner-local-uat-1.0.2');
+if(path.basename(process.cwd())!=='NIPT-CBH-PARITY-REMEDIATION')throw Error('OWNER_LOCAL_WORKTREE_REQUIRED');
+const out=path.join(root,'p0-evidence');await mkdir(out,{recursive:true});
+const accounts=JSON.parse(await readFile(path.join(root,'secrets/uat-accounts.json'),'utf8'));
+const runId=Date.now(),username='p0.anc.'+runId,password=randomBytes(24).toString('base64url'),events=[],screenshots=[];
+const browser=await chromium.launch({headless:true});let admin,targetId,passed=false;
+async function page(){const ctx=await browser.newContext({ignoreHTTPSErrors:true,serviceWorkers:'block'});await ctx.route('**/*',r=>new URL(r.request().url()).origin===origin||r.request().url().startsWith('data:')?r.continue():r.abort());return ctx.newPage();}
+async function login(p,name,pw){await p.goto(origin+'/login');await p.getByLabel('ชื่อผู้ใช้',{exact:true}).fill(name);await p.getByLabel('รหัสผ่าน',{exact:true}).fill(pw);await p.getByRole('button',{name:'เข้าสู่ระบบ',exact:true}).click();await p.waitForURL(u=>u.pathname!=='/login');return (await p.request.get(origin+'/api/me')).json();}
+async function post(p,input){const me=await (await p.request.get(origin+'/api/me')).json();return p.request.post(origin+'/api/admin',{headers:{origin,'x-csrf-token':me.csrf},data:input});}
+async function command(p,operation,click){const response=p.waitForResponse(r=>r.url()===origin+'/api/admin'&&r.request().method()==='POST'&&r.request().postDataJSON().operation===operation);await click();const r=await response;expect(r.status()).toBe(200);return r.json();}
+async function capture(p,name){for(const width of [1440,375]){await p.setViewportSize({width,height:1000});await p.screenshot({path:path.join(out,name+'-'+width+'.png'),fullPage:true});screenshots.push(name+'-'+width+'.png');expect(await p.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);const a=await new AxeBuilder({page:p}).withTags(['wcag2a','wcag2aa','wcag21aa','wcag22aa']).analyze();expect(a.violations.map(v=>({id:v.id,targets:v.nodes.map(n=>n.target)}))).toEqual([]);}}
+try{
+ admin=await page();const a=accounts.find(a=>a.username==='uat.admin');await login(admin,a.username,a.password);await admin.goto(origin+'/settings/users');await admin.getByRole('button',{name:'เพิ่มผู้ใช้',exact:true}).click();
+ await admin.getByLabel('ชื่อ-นามสกุล').fill('ผู้ใช้ทดสอบ P0 '+runId);await admin.getByLabel(/^Username/).fill(username);await admin.getByLabel('ตำแหน่งงาน',{exact:true}).fill('พยาบาลวิชาชีพ');await admin.getByLabel('เบอร์โทรศัพท์ (ไม่บังคับ)',{exact:true}).fill('');
+ await admin.getByLabel('บทบาทหลัก',{exact:true}).selectOption('ANC_NURSE');const unit=await admin.getByLabel('หน่วยงานประจำ',{exact:true}).locator('option').evaluateAll(xs=>xs.find(x=>x.textContent.includes('LOCAL_UAT'))?.value);expect(unit).toBeTruthy();await admin.getByLabel('หน่วยงานประจำ',{exact:true}).selectOption(unit);await admin.getByLabel('รหัสผ่านเริ่มต้น').fill(password);await capture(admin,'admin-direct-assignment');
+ const created=await command(admin,'saveUser',()=>admin.getByRole('button',{name:'บันทึกข้อมูล',exact:true}).click());targetId=created.id;events.push('ADMIN_CREATED_ANC_WITH_DIRECT_ROLE_NO_CHECKER');
+ await admin.getByLabel('ค้นหาชื่อ / Username').fill(username);await admin.getByRole('row').filter({hasText:username}).getByRole('button',{name:'รายละเอียด / แก้ไข'}).click();await expect(admin.getByLabel('ตำแหน่งงาน',{exact:true})).toHaveValue('พยาบาลวิชาชีพ');await expect(admin.getByLabel('บทบาทหลัก',{exact:true})).toHaveValue('ANC_NURSE');
+ const anc=await page();await login(anc,username,password);await expect(anc).toHaveURL(/\/password$/);await anc.getByLabel('รหัสผ่านปัจจุบัน').fill(password);const next=randomBytes(24).toString('base64url');await anc.getByLabel(/^รหัสผ่านใหม่/).fill(next);await anc.getByLabel('ยืนยันรหัสผ่านใหม่').fill(next);await anc.getByRole('button',{name:'เปลี่ยนรหัสผ่าน',exact:true}).click();await expect(anc.getByRole('status')).toContainText('เปลี่ยนรหัสผ่านแล้ว');await login(anc,username,next);const me=await (await anc.request.get(origin+'/api/me')).json();expect(me.roles).toEqual(['ANC_NURSE']);events.push('NEW_ANC_LOGIN_WITH_ASSIGNED_SCOPE');
+ const denied=await post(anc,{operation:'saveUser',id:targetId,version:1,username,displayName:'Denied',unitId:unit,enabled:true,roles:['APP_ADMIN'],unitIds:[unit],permissions:[]});expect(denied.status()).toBe(403);events.push('NON_ADMIN_DIRECT_ASSIGNMENT_DENIED');
+ await anc.goto(origin+'/doctors');await anc.getByRole('button',{name:'เพิ่มแพทย์',exact:true}).click();await capture(anc,'anc-doctor-upload');await expect(anc.getByLabel('ไฟล์ลายเซ็นแพทย์',{exact:false})).toHaveAttribute('accept','image/png,image/jpeg');
+ // Exercise preview with a visible NON-SIGNATURE test image; never save/attest it.
+ const data=await anc.evaluate(()=>{const c=document.createElement('canvas');c.width=600;c.height=200;const x=c.getContext('2d');x.fillStyle='white';x.fillRect(0,0,600,200);x.fillStyle='black';x.font='28px sans-serif';x.fillText('TECHNICAL TEST - NOT A SIGNATURE',15,105);return c.toDataURL('image/jpeg').split(',')[1];});
+ await anc.getByLabel('ไฟล์ลายเซ็นแพทย์',{exact:false}).setInputFiles({name:'not-a-signature.jpg',mimeType:'image/jpeg',buffer:Buffer.from(data,'base64')});await expect(anc.getByAltText('ตัวอย่างลายเซ็นแพทย์ก่อนบันทึก')).toBeVisible();expect(await anc.getByAltText('ตัวอย่างลายเซ็นแพทย์ก่อนบันทึก').evaluate(i=>i.complete&&i.naturalWidth>0)).toBe(true);events.push('JPEG_UPLOAD_PREVIEW_ONLY_NO_SIGNATURE_SAVED');
+ await anc.getByLabel('วิธีนำเข้าลายเซ็นแพทย์').selectOption('draw');await expect(anc.locator('canvas')).toBeVisible();events.push('DOCTOR_SIGNATURE_PAD_AVAILABLE');
+ const adminRegistry=await (await admin.request.get(origin+'/api/p2/doctors')).json(),ancRegistry=await (await anc.request.get(origin+'/api/p2/doctors')).json();expect(ancRegistry.doctors.every(d=>adminRegistry.doctors.some(a=>a.id===d.id))).toBe(true);events.push('ANC_AND_ADMIN_USE_SHARED_REGISTRY');
+ const users=await (await admin.request.get(origin+'/api/admin?search='+username)).json();expect(users.requests.filter(r=>r.user_id===targetId)).toEqual([]);const target=users.users.rows.find(u=>u.id===targetId);
+ const changed=await post(admin,{operation:'saveUser',id:targetId,version:target.version,username,displayName:target.display_name,jobPosition:target.job_position,phone:'',unitId:unit,enabled:true,roles:['LAB_STAFF'],unitIds:[unit],permissions:[]});expect(changed.status()).toBe(200);expect((await anc.request.get(origin+'/api/me')).status()).toBe(401);const relogin=await page();const updated=await login(relogin,username,next);expect(updated.roles).toEqual(['LAB_STAFF']);events.push('DIRECT_ROLE_CHANGE_REVOKES_OLD_SESSION_AND_APPLIES_ON_LOGIN');
+ passed=true;
+}finally{
+ if(admin&&targetId){const data=await (await admin.request.get(origin+'/api/admin?search='+username)).json(),u=data.users.rows.find(u=>u.id===targetId);if(u){const r=await post(admin,{operation:'saveUser',id:u.id,version:u.version,username:u.username,displayName:u.display_name,jobPosition:u.job_position,phone:u.phone,unitId:u.unit_id,enabled:false,roles:u.roles,unitIds:u.unit_ids,permissions:u.permissions});expect(r.status()).toBe(200);events.push('TEMPORARY_BROWSER_TEST_USER_DISABLED');}}
+ await writeFile(path.join(out,'browser.json'),JSON.stringify({passed,origin,events,screenshots,authorizedSignatureOwnerUat:'PENDING_OWNER_UPLOAD_AND_PATIENT_SELF_SIGNING'},null,2));await browser.close();
+}
+console.log(JSON.stringify({passed,events}));

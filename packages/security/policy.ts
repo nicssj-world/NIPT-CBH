@@ -26,7 +26,7 @@ const rows = {
   "round.attest": "CCCY C--R-".replaceAll(" ", ""),
   "consent.withdraw.receive": "UUYY---R-",
   "consent.withdraw.decide": "---PA--R-",
-  "doctor.manage": "-P--AP-R-",
+  "doctor.manage": "YY--AY-R-",
   "case.read": "UUYYYB-R-",
   "document.request.read": "UUYYYB---",
   "his.scan": "--YY-YYR-",

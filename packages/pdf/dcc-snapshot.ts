@@ -22,9 +22,9 @@ export function snapshotConsentFields(s:P2PdfInput):ConsentFields{
 }
 function signatureBytes(value:unknown){
  if(value===null||value===undefined)return null;
- if(typeof value!=='string'||value.length>200000||!/^[A-Za-z0-9+/]+=*$/.test(value))throw Error('DCC_SIGNATURE_INVALID');
+ if(typeof value!=='string'||value.length>700000||!/^[A-Za-z0-9+/]+=*$/.test(value))throw Error('DCC_SIGNATURE_INVALID');
  const bytes=Buffer.from(value,'base64');
- if(!bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))throw Error('DCC_SIGNATURE_INVALID');
+ if(!bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))&&!bytes.subarray(0,3).equals(Buffer.from([255,216,255])))throw Error('DCC_SIGNATURE_INVALID');
  return bytes;
 }
 /** Locked operational snapshot: unchanged verified original plus recorded fields and signatures. */
@@ -45,7 +45,7 @@ export async function renderDccSnapshot(s:P2PdfInput){
  const draw=async(value:unknown,hash:unknown,x:number,y:number,w:number,h:number)=>{
   const png=signatureBytes(value);if(!png)return;
   if(hash!==undefined&&createHash('sha256').update(png).digest('hex')!==hash)throw Error('DCC_SIGNATURE_HASH_MISMATCH');
-  const image=await doc.embedPng(png),scale=Math.min(w/image.width,h/image.height),width=image.width*scale,height=image.height*scale;
+  const image=await (png[0]===255?doc.embedJpg(png):doc.embedPng(png)),scale=Math.min(w/image.width,h/image.height),width=image.width*scale,height=image.height*scale;
   out.drawImage(image,{x:x+(w-width)/2,y:y+(h-height)/2,width,height});
  };
  const doctor=record(s.payload.doctor);

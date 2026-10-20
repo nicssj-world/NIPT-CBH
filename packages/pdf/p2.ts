@@ -12,7 +12,7 @@ const labels:Record<string,string>={patient:'1. ผู้รับบริก�
 /** Document dates in BE (Owner decision): ISO dates -> dd/mm/yyyy, ISO instants -> Bangkok dd/mm/yyyy HH:mm. Other values unchanged. */
 const docValue=(v:unknown)=>typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v)?displayBe(v):typeof v==='string'&&/^\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d{2}:\d{2})$/.test(v)?displayBeDateTime(v):v;
 function fields(v:unknown,operational=false):string{if(v===null||v===undefined)return 'ไม่ระบุ';if(typeof v!=='object')return escape(docValue(v));if(Array.isArray(v))return v.map(x=>fields(x,operational)).join('<br>');return '<table>'+Object.entries(v).map(([k,x])=>'<tr><th>'+escape(operational?(labels[k]??k).replaceAll('จำลอง',''):labels[k]??k)+'</th><td>'+fields(x,operational)+'</td></tr>').join('')+'</table>';}
-function png(v:unknown){return typeof v==='string'&&v.length<200000&&/^[A-Za-z0-9+/]+=*$/.test(v)&&Buffer.from(v,'base64').subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))?`<img alt="ลายเซ็นจำลอง" width="240" src="data:image/png;base64,${v}">`:'';}
+function png(v:unknown){if(typeof v!=='string'||v.length>700000||!/^[A-Za-z0-9+/]+=*$/.test(v))return '';const b=Buffer.from(v,'base64'),mime=b.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))?'image/png':b.subarray(0,3).equals(Buffer.from([255,216,255]))?'image/jpeg':null;return mime?`<img alt="ลายเซ็นที่บันทึกไว้" width="240" src="data:${mime};base64,${v}">`:'';}
 export async function renderP2Pdf(value:P2PdfInput){
  const s=p2PdfSchema.parse(value);if(JSON.stringify(s).length>400000)throw Error('P2_SNAPSHOT_TOO_LARGE');
  const operational=s.templateVersion.startsWith('CBH-');

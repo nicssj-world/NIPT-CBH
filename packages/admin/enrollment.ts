@@ -9,6 +9,7 @@ import type {Role} from '../security/policy';
 export async function completeTargetEnrollment(db:Queryable,input:unknown){
  const d=z.object({requestId:z.uuid(),username:z.string().min(3).max(64),password:z.string().max(128),targetIdentityConfirmed:z.literal(true)}).strict().parse(input);
  await db.query('SELECT pg_advisory_xact_lock(75432806)');
+ if((await db.query('SELECT 1 FROM admin_access_supersession WHERE request_id=$1',[d.requestId])).rows.length)throw Error('ACCESS_REQUEST_SUPERSEDED');
  const owner=(await db.query<{owner:boolean}>("SELECT pg_has_role(current_user,tableowner,'USAGE') owner FROM pg_tables WHERE schemaname='public' AND tablename='app_user'")).rows[0];if(!owner?.owner)throw Error('INSTALLATION_OWNER_REQUIRED');
  const r=(await db.query<{user_id:string;created_by:string;decided_by:string;state:string;kind:string;expected_version:number;roles:Role[];unit_ids:string[];permissions:string[]}>('SELECT * FROM admin_access_request WHERE id=$1 FOR UPDATE',[d.requestId])).rows[0];
  if(!r||r.state!=='AwaitingEnrollment'||r.created_by===r.decided_by||r.user_id===r.created_by||r.user_id===r.decided_by)throw Error('APPROVED_TARGET_ENROLLMENT_REQUIRED');
