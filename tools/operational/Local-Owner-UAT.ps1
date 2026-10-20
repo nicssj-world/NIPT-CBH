@@ -51,10 +51,19 @@ function Ensure-DockerReady([int]$TimeoutSeconds=240) {
 
 function Invoke-HomeAction([string]$HomeAction) {
   $pwsh=Get-PwshPath
+  New-Item -ItemType Directory -Path $LocalRoot -Force | Out-Null
+  $runId=[guid]::NewGuid().ToString('N')
+  $stdout=Join-Path $LocalRoot ("launcher-{0}-{1}.stdout.log" -f $HomeAction.ToLowerInvariant(),$runId)
+  $stderr=Join-Path $LocalRoot ("launcher-{0}-{1}.stderr.log" -f $HomeAction.ToLowerInvariant(),$runId)
+  $arguments=@('-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',('"{0}"' -f $HomeScript),'-Action',$HomeAction)
   Push-Location -LiteralPath $RepoRoot
   try {
-    $output=@(& $pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $HomeScript -Action $HomeAction 2>&1)
-    $code=$LASTEXITCODE
+    $process=Start-Process -FilePath $pwsh -ArgumentList $arguments -WorkingDirectory $RepoRoot -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+    $process.WaitForExit()
+    $code=$process.ExitCode
+    $output=@()
+    if(Test-Path -LiteralPath $stdout){$output+=@(Get-Content -LiteralPath $stdout -Encoding utf8)}
+    if(Test-Path -LiteralPath $stderr){$output+=@(Get-Content -LiteralPath $stderr -Encoding utf8)}
     if($code -ne 0) {
       $details=($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
       if(-not $details.Trim()){$details="Home-UAT action '$HomeAction' failed (exit $code)."}
