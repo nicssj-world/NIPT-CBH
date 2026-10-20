@@ -11,10 +11,13 @@ $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $RepoRoot=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 Set-Location -LiteralPath $RepoRoot
-$LocalRoot=Join-Path $RepoRoot '.local\integrated-owner-uat'
+$LocalRoot=Join-Path $RepoRoot '.local\owner-local-uat-1.0.2'
 $ComposeFile=Join-Path $PSScriptRoot 'home-uat.compose.yaml'
-$Project='nipt-integrated-owner-uat-20261017'
-$Origin='https://127.0.0.1:19448'
+$Project='nipt-cbh-owner-local-102-20261020'
+$HttpsPort=19548
+$DatabasePort=19549
+$Origin='https://127.0.0.1:{0}' -f $HttpsPort
+$ExpectedBranch='fix/consolidated-parity-101'
 $ExpectedMaster='0f94efbc240b9a38ff9be77bf0c8d92c09d82fa2fe2427b9d274cc739e5607a6'
 $MasterCopy=Join-Path $LocalRoot 'master\approved-combined.xlsx'
 $Secrets=Join-Path $LocalRoot 'secrets'
@@ -26,7 +29,7 @@ $AuthReadiness=Join-Path $LocalRoot 'auth-readiness.json'
 
 function Save-Checkpoint([string]$Step,[string]$Result='IN_PROGRESS') {
   if(-not (Test-Path -LiteralPath $LocalRoot)){return}
-  $record=[ordered]@{project=$Project;branch='local/integrated-admin-operational-uat-20261017';step=$Step;result=$Result;updatedAt=[DateTime]::UtcNow.ToString('o')}
+  $record=[ordered]@{project=$Project;branch=$ExpectedBranch;step=$Step;result=$Result;updatedAt=[DateTime]::UtcNow.ToString('o')}
   $temporary=$Checkpoint+'.tmp'
   [IO.File]::WriteAllText($temporary,($record|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
   Move-Item -LiteralPath $temporary -Destination $Checkpoint -Force
@@ -57,10 +60,12 @@ function Initialize-LocalFiles {
   if($LASTEXITCODE -ne 0){throw 'HOME_UAT_FIXTURE_PROVISION_FAILED'}
   Save-Checkpoint 'local-files-and-fixtures-ready' 'PASS'
 }
-function Set-ComposeContract([switch]$RequireClean) {
-  if($RequireClean) {
+function Set-ComposeContract([switch]$RequireClean,[switch]$RequireExpectedBranch) {
+  if($RequireExpectedBranch) {
     $branch=(& git -C $RepoRoot branch --show-current).Trim()
-    if($branch -ne 'local/integrated-admin-operational-uat-20261017'){throw 'HOME_UAT_BRANCH_MISMATCH'}
+    if($branch -ne $ExpectedBranch){throw 'HOME_UAT_BRANCH_MISMATCH'}
+  }
+  if($RequireClean) {
     $dirty=@(& git -C $RepoRoot status --porcelain)
     if($dirty.Count -gt 0){throw 'HOME_UAT_SOURCE_MUST_BE_COMMITTED_BEFORE_BUILD'}
   }
@@ -243,8 +248,8 @@ function Get-HomeHealth {
     $dbBindings=$dbObject.PSObject.Properties['5432/tcp'].Value
     $proxyPublished=(& docker port $ids.proxy '443/tcp'|Out-String).Trim()
     $dbPublished=(& docker port $ids.db '5432/tcp'|Out-String).Trim()
-    $proxyLocal=(@($proxyBindings|Where-Object{$_.HostIp -eq '127.0.0.1' -and $_.HostPort -eq '19448'}).Count -eq 1 -and $proxyPublished -eq '127.0.0.1:19448')
-    $dbLocal=(@($dbBindings|Where-Object{$_.HostIp -eq '127.0.0.1' -and $_.HostPort -eq '19449'}).Count -eq 1 -and $dbPublished -eq '127.0.0.1:19449')
+    $proxyLocal=(@($proxyBindings|Where-Object{$_.HostIp -eq '127.0.0.1' -and $_.HostPort -eq $HttpsPort}).Count -eq 1 -and $proxyPublished -eq ('127.0.0.1:{0}' -f $HttpsPort))
+    $dbLocal=(@($dbBindings|Where-Object{$_.HostIp -eq '127.0.0.1' -and $_.HostPort -eq $DatabasePort}).Count -eq 1 -and $dbPublished -eq ('127.0.0.1:{0}' -f $DatabasePort))
     $otherClear=$true
     foreach($serviceName in @('renderer','worker','web')) {
       $serviceId=Get-ServiceId $serviceName
@@ -314,10 +319,10 @@ function Wait-HomeReadiness([int]$Seconds=300) {
 }
 function Assert-PortsAvailable {
   $ownProxy=Get-ServiceId 'proxy';$ownDb=Get-ServiceId 'db'
-  foreach($port in @(19448,19449)) {
+  foreach($port in @($HttpsPort,$DatabasePort)) {
     $listeners=@(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue)
     if($listeners.Count -gt 0) {
-      $expected=if($port -eq 19448){$ownProxy}else{$ownDb}
+      $expected=if($port -eq $HttpsPort){$ownProxy}else{$ownDb}
       if(-not $expected){throw ('HOME_UAT_LOOPBACK_PORT_BUSY_'+$port)}
     }
   }
@@ -347,7 +352,7 @@ function Invoke-SeedPositiveJourney([switch]$Additional) {
   $env:SIMULATOR_ROOT=Join-Path $LocalRoot 'integration'
   $env:SOURCE_REVISION=$env:SOURCE_REVISION
   $migrationUrl=(Get-Content -LiteralPath (Join-Path $Secrets 'migration-url') -Raw).Trim()
-  $env:DATABASE_URL=$migrationUrl.Replace('@db:5432/','@127.0.0.1:19449/')
+  $env:DATABASE_URL=$migrationUrl.Replace('@db:5432/','@127.0.0.1:{0}/' -f $DatabasePort)
   Save-Checkpoint 'positive-journey-started' 'IN_PROGRESS'
   & node --import tsx (Join-Path $PSScriptRoot 'run-home-uat-positive-journey.ts')
   if($LASTEXITCODE -ne 0){Save-Checkpoint 'positive-journey' 'FAILED';throw 'HOME_UAT_POSITIVE_JOURNEY_FAILED'}
@@ -357,7 +362,7 @@ function Invoke-SeedPositiveJourney([switch]$Additional) {
 Set-ComposeContract
 switch($Action) {
   'Start' {
-    Set-ComposeContract -RequireClean
+    Set-ComposeContract -RequireExpectedBranch
     Assert-PortsAvailable
     Initialize-LocalFiles
     Ensure-NativeBridge
@@ -374,7 +379,7 @@ switch($Action) {
     Invoke-Compose @('stop')
     $bridgeStopped=Request-StopNativeBridge
     Save-Checkpoint 'stopped' $(if($bridgeStopped){'PASS'}else{'STOP_REQUESTED_EXPORT_MAY_FINISH'})
-    [pscustomobject]@{compose='STOPPED';excelBridge=$(if($bridgeStopped){'STOPPED'}else{'FINISHING_CURRENT_EXPORT'});data='PRESERVED';volumes='PRESERVED'}|ConvertTo-Json
+    [pscustomobject]@{compose='STOPPED';excelBridge=$(if($bridgeStopped){'STOPPED'}else{'FINISHING_CURRENT_EXPORT'});data='PRESERVED';volumes='PRESERVED'}|ConvertTo-Json -Compress
   }
   'Restart' {
     $before=Get-PersistenceSnapshot
@@ -409,7 +414,7 @@ switch($Action) {
   }
   'SeedPositiveJourney' {
     if(-not (Test-Path -LiteralPath $Secrets)){throw 'HOME_UAT_NOT_PROVISIONED'}
-    Set-ComposeContract -RequireClean
+    Set-ComposeContract -RequireClean -RequireExpectedBranch
     Ensure-NativeBridge
     Wait-QuickHealth
     Invoke-SeedPositiveJourney
@@ -417,7 +422,7 @@ switch($Action) {
   }
   'VerifyAdditionalJourney' {
     if(-not (Test-Path -LiteralPath $Secrets)){throw 'HOME_UAT_NOT_PROVISIONED'}
-    Set-ComposeContract -RequireClean
+    Set-ComposeContract -RequireClean -RequireExpectedBranch
     Ensure-NativeBridge
     Wait-QuickHealth
     Invoke-SeedPositiveJourney -Additional

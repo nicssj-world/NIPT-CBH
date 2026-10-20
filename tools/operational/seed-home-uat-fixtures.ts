@@ -6,7 +6,7 @@ import {syntheticReportPdf} from '../his-simulator/result-pdf';
 
 type PatientFixture={fixtureId:string;ln:string;hn:string;day:string;pet:string;ok:string;scenario:string};
 const hash=(value:Buffer|string)=>createHash('sha256').update(value).digest('hex');
-const localRoot=path.resolve('.local/integrated-owner-uat');
+const localRoot=path.resolve('.local/owner-local-uat-1.0.2');
 function localPath(envName:string,fallback:string) {
  const destination=path.resolve(process.env[envName]??fallback),relative=path.relative(localRoot,destination);
  if(relative==='..'||relative.startsWith('..'+path.sep)||path.isAbsolute(relative))throw Error('LOCAL_UAT_FIXTURE_PATH_REQUIRED');
@@ -25,9 +25,9 @@ const cases:PatientFixture[]=[];
 const day=localDay(),yyMMdd=day.slice(2);
 if(process.env.NIPT_MODE!=='operational')throw Error('OPERATIONAL_MODE_REQUIRED');
 const pdfDate=day.slice(6,8)+'-'+new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Bangkok',month:'short'}).format(new Date(day.slice(0,4)+'-'+day.slice(4,6)+'-'+day.slice(6,8)+'T12:00:00'))+'-'+day.slice(0,4);
-const fixtureRoot=localPath('NIPT_HOME_UAT_FIXTURE_ROOT','.local/integrated-owner-uat/fixtures');
+const fixtureRoot=localPath('NIPT_HOME_UAT_FIXTURE_ROOT','.local/owner-local-uat-1.0.2/fixtures');
 const petRoot=path.join(fixtureRoot,'pet'),reportRoot=path.join(fixtureRoot,'reports');
-const simRoot=localPath('NIPT_HOME_UAT_SIMULATOR_ROOT','.local/integrated-owner-uat/integration');
+const simRoot=localPath('NIPT_HOME_UAT_SIMULATOR_ROOT','.local/owner-local-uat-1.0.2/integration');
 const marker=path.join(fixtureRoot,'fixture-manifest.json');
 try {
  const previous=JSON.parse(await readFile(marker,'utf8')) as {version:number;day:string;patients:PatientFixture[];files:{path:string;sha256:string}[]};
