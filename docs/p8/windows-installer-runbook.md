@@ -32,6 +32,8 @@ Self-signed certificate: trust `<Root>\config\tls\server.cer` on test clients, o
 
 A service that exits is restarted with backoff (1, 2, 4, 8, 16, 30 s). A health failure that persists after restarts is an incident: keep the logs, do not edit `install-state.json`.
 
+Starting an installed root or retrying Setup also re-enables its existing NIPT-CBH scheduled task when that task is disabled, then starts the recorded task without replacing its action or principal. This lets a later compatible release recover an `INSTALLED_NOT_ACCEPTED` installation after a failed prior upgrade.
+
 ## 3. Backup and restore
 
 - **Backup** (`nipt.cmd backup`): stops the applications, takes the quiescent AES-256-GCM operational backup (database + file store + outbound roots + master workbook), restarts. The backup key is `<Root>\secrets\backup.key`: **escrow it separately**; a backup is unreadable without it. Schedules, NAS targets, retention and RPO/RTO are IT-owned and are not installed by this tool.

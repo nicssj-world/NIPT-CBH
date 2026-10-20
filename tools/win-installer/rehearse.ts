@@ -258,12 +258,18 @@ try{
 
  await step('S12c','recover the unaccepted installed release with a later compatible version and verify service/database state',async()=>{
   const before=core(dataSnapshot());
+  cli('installed','stop');
+  const cfg=JSON.parse(readFileSync(path.join(root,'config','nipt.json'),'utf8'));
+  const taskName=`nipt-cbh-${cfg.instance}`;
+  const disabled=spawnSync('schtasks.exe',['/Change','/TN',`\\NIPT-CBH\\${taskName}`,'/Disable'],{encoding:'utf8',windowsHide:true});
+  assert.equal(disabled.status,0,disabled.stderr||disabled.stdout);
+  const stopped=cli('installed','status');assert.equal(stopped.postgresRunning,false);assert.equal(stopped.task.state,'Disabled');
   const r=cli('installed','upgrade',['--package',pkgDir('1.1.3',true),'--public-key',publicKey]);
   assert.equal(r.upgraded,true);assert.deepEqual(r.pendingMigrationsApplied,[]);assert.equal(installState().current.version,'1.1.3');
   const health=await healthOk('AFTER_UNACCEPTED_RECOVERY'),status=cli('installed','status');
   assert.equal(health.ok,true);assert.equal(status.healthCheck.status,'HEALTHY');assert.equal(status.postgresRunning,true);assert.equal(status.databaseReachable,true);
-  assert.equal(status.supervisorProcess,'RUNNING');assert.equal(status.acceptance,'NOT_ACCEPTED');assert.deepEqual(core(dataSnapshot()),before);
-  return {from:r.from,to:r.to,health:health.ok,postgresRunning:status.postgresRunning,databaseReachable:status.databaseReachable,supervisor:status.supervisorProcess,ownerAcceptance:status.acceptance,dataPreserved:true};
+  assert.equal(status.supervisorProcess,'RUNNING');assert.notEqual(status.task.state,'Disabled');assert.equal(status.acceptance,'NOT_ACCEPTED');assert.deepEqual(core(dataSnapshot()),before);
+  return {from:r.from,to:r.to,preUpgradeTaskState:stopped.task.state,postUpgradeTaskState:status.task.state,health:health.ok,postgresRunning:status.postgresRunning,databaseReachable:status.databaseReachable,supervisor:status.supervisorProcess,ownerAcceptance:status.acceptance,dataPreserved:true};
  });
 
  await step('S13','disaster recovery: an older backup is NOT activatable over changed work; a fresh backup is restored and activated (source fenced, health, data equal)',async()=>{

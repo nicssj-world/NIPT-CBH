@@ -74,7 +74,12 @@ function registerTask(L,c){
 function taskInfo(c){
  try{return JSON.parse(ps(`$t=Get-ScheduledTask -TaskName ${q(taskName(c))} -TaskPath ${q(TASK_PATH)} -ErrorAction Stop;[pscustomobject]@{state=[string]$t.State;user=[string]$t.Principal.UserId}|ConvertTo-Json -Compress`));}catch{return null;}
 }
-function startTask(c){ps(`Start-ScheduledTask -TaskName ${q(taskName(c))} -TaskPath ${q(TASK_PATH)}`);}
+function startTask(c,name=taskName(c)){
+ const ref=`-TaskName ${q(name)} -TaskPath ${q(TASK_PATH)}`;
+ // Setup is also the recovery path for an installed-but-unaccepted release. A disabled task cannot be started;
+ // enable the already-registered product task before starting it, while preserving its existing action/principal.
+ ps(`$ErrorActionPreference='Stop';$t=Get-ScheduledTask ${ref} -ErrorAction Stop;if([string]$t.State -eq 'Disabled'){Enable-ScheduledTask ${ref} -ErrorAction Stop | Out-Null};Start-ScheduledTask ${ref} -ErrorAction Stop`);
+}
 function unregisterTask(c){try{ps(`Unregister-ScheduledTask -TaskName ${q(taskName(c))} -TaskPath ${q(TASK_PATH)} -Confirm:$false -ErrorAction Stop`);}catch{/* not registered */}}
 
 // ── native Excel bridge (only when the applications cannot reach Excel themselves, i.e. they run as a SYSTEM task) ──
@@ -99,7 +104,7 @@ async function stopBridge(L,c){
 }
 async function startBridge(L,c){
  rmSync(path.join(L.excelSpool,'stop.request'),{force:true});
- ps(`Start-ScheduledTask -TaskName ${q(bridgeTaskName(c))} -TaskPath ${q(TASK_PATH)}`);
+ startTask(c,bridgeTaskName(c));
  await waitFor(()=>bridgeStatus(L).alive,'EXCEL_BRIDGE_START',60000);
 }
 /** After a release switch the bridge must be restarted so it uses the new release's export script. */
