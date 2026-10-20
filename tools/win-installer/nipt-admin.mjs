@@ -51,7 +51,13 @@ async function waitFor(check,label,ms=120000,step=500){
 // ───────────────────────────── state ─────────────────────────────
 function stateOf(L){return JSON.parse(readFileSync(L.installState,'utf8'));}
 function saveState(L,s){writeFileSync(L.installState,JSON.stringify(s,null,2));}
-function history(L,s,event,detail={}){s.history=[...(s.history??[]),{at:new Date().toISOString(),event,...detail}];saveState(L,s);}
+function history(L,s,event,detail={}){
+ const latest=existsSync(L.installState)?stateOf(L):s;
+ // Health probes persist independently while an upgrade runs; merge their current state before saving the older transition object.
+ if(Object.hasOwn(latest,'healthCheck'))s.healthCheck=latest.healthCheck;
+ s.history=[...(latest.history??s.history??[]),{at:new Date().toISOString(),event,...detail}];
+ saveState(L,s);
+}
 const cfgOf=L=>validateConfig(JSON.parse(readFileSync(L.configFile,'utf8')));
 const releaseDir=(L,version)=>path.join(L.releases,version);
 const secretFile=(L,n)=>path.join(L.secrets,n);
