@@ -83,3 +83,13 @@ None of 096–103 has been applied to Production (`main` stops at 095). The runn
 | Migration | SHA-256 (LF) | Boundary |
 | --- | --- | --- |
 | 104_pagination_lookup_indexes.sql | baf3f28d290b4ac29a515fa71b97e0da9d8c6c6de701031e6abd10d30027200f | Five `CREATE INDEX IF NOT EXISTS` on round_id lookups (paper review, clinical snapshot, specimen acceptance, collection fact, label print item). Indexes only: no table, column, constraint or data change; forward-only; not applied to Production. Backed by `EXPLAIN` evidence in docs/pagination-performance-2026-10-19.md. |
+
+## DCC runtime provenance and administration — disposable synthetic only
+
+| Migration | SHA-256 (LF) | Boundary |
+| --- | --- | --- |
+| 105_dcc_consent_runtime_provenance.sql | 08c73fa1057aa3aadaa1b9420bd97499f0375dfa1e1691c6e480af389bdf8d80 | Pins installed DCC source provenance and runtime integrity checks for generated Consent evidence. Forward-only; local synthetic/operational UAT only. |
+| 106_direct_administration.sql | 63c7164453bcfe886857a99b17d111bfbdbe7b853a35c0ee16bfd8d3b5e3474c | Adds direct Admin user/role management audit support and ANC-managed shared doctor registry data. Keeps server authorization and clinical decision gates. |
+| 107_safe_anc_registration_void.sql | f0f5d9dea254e0f070fd77c9534911d82b694f8fb8754ef404207995ea55e4bb | Adds an append-only void record for safe ANC registration correction; downstream evidence blocks voiding. |
+| 108_patient_signature_finalizes_consent.sql | 4e345fbba275a82ff286245f5db4dc7cea17b0fdaea6058ef10676300e0f16f4 | Finalizes a current electronic Consent from the completed patient signing session and preserves its immutable evidence snapshot; staff returns through normal login. |
+| 109_pet_identity_reconciliation.sql | a8eb81f988ed4f23ccb8706c63ed93487d94444a72491e6d51ca8692dc0d5b7f | Exposes a narrow security-definer operation for PET to fill only blank ANC patient name/DOB fields on current S1; worker role receives no workspace read access. |

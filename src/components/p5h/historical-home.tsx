@@ -33,7 +33,7 @@ export function HistoricalHome({canImport}:{canImport:boolean}){
   <h1>นำเข้าข้อมูลย้อนหลัง</h1>
   <p className="muted">ชุดละประมาณ 47 เคส — 3 ขั้นตอน: ① อัปโหลดตารางและ PDF → ② ตรวจสอบและแก้เฉพาะแถวที่มีปัญหา → ③ ผู้ตรวจอีกคนตรวจกับต้นฉบับแล้วยืนยันเป็นชุด ข้อมูลย้อนหลังไม่ถูกส่งไป HIS และไม่สร้างการรับรองผลใหม่</p>
   {error&&<p className="form-error" role="alert">{error}</p>}
-  {data&&!data.ready&&<div className="panel" role="status"><strong>ยังยืนยันเป็นชุดไม่ได้</strong><p>Owner ยังไม่อนุมัติชนิดหลักฐาน Anchor (OD-18) และ/หรือวันตัดระบบ (go_live_cutoff) — อัปโหลดและตรวจสอบข้อมูลได้ แต่ทุกแถวจะ “ยังไม่มีสิทธิ์นำเข้า” จนกว่าจะอนุมัติ (Fail Closed)</p></div>}
+  {data&&!data.ready&&<div className="panel" role="status"><strong>ยังยืนยันนำเข้าข้อมูลเป็นชุดไม่ได้</strong><p>เกณฑ์หลักฐานและวันที่เริ่มใช้ระบบยังไม่มีข้อกำหนดที่ยืนยันแล้ว จึงตรวจและเตรียมข้อมูลได้ แต่ระบบยังไม่นำเข้ารายการใด</p></div>}
   <section className="panel" aria-labelledby="hist-upload"><h2 id="hist-upload">① อัปโหลด</h2>
    {canImport?<>
     <div className="form-grid">

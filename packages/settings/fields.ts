@@ -71,12 +71,12 @@ export const SETTING_FORMS:Record<SettingKey,SettingForm>={
  notifications:{key:"notifications",title:"การแจ้งเตือน / ระบบ / Audit",summary:"เกณฑ์เตือนสถานะ Worker และคิวค้าง",phase:"P1",fields:[
   {name:"staleSeconds",label:"ถือว่า Worker ขาดการติดต่อเมื่อเกิน",help:"60–3,600 วินาที",kind:"number",unit:"วินาที",min:60,max:3600},
   {name:"backlogWarning",label:"เตือนเมื่อคิวค้างเกิน",help:"1–10,000 รายการ",kind:"number",unit:"รายการ",min:1,max:10000}]},
- historical_backfill:{key:"historical_backfill",title:"นำเข้าข้อมูลย้อนหลัง (P5H)",summary:"ชนิดหลักฐาน Anchor และชุดข้อมูลขั้นต่ำ — ค่า PENDING ทำให้ระบบประเมินสิทธิ์ไม่ผ่านทุกเคส (Fail Closed) จนกว่า Owner ตัดสิน OD-18",phase:"P5H",fields:[
-  {name:"anchorPolicy",label:"ชนิดหลักฐาน Anchor ที่ยอมรับ",help:"OD-18: Request/Consent ไม่เป็น Anchor ในทุกทางเลือก; PENDING = ยังไม่ตัดสิน",kind:"select",options:[{value:"PENDING_OD18",label:"ยังไม่ตัดสิน (OD-18)"},{value:"A_FINAL_REPORT",label:"(a) รายงานผลสุดท้ายลงวันที่ระดับวัน"},{value:"B_FINAL_REPORT_OR_CONTROL_RECORD",label:"(b) (a) หรือบันทึกควบคุมของ Lab"}]},
-  {name:"minimumProfile",label:"ชุดข้อมูลขั้นต่ำ",help:"OD-18: ใช้แสดงความครบของหลักฐานเท่านั้น ไม่เปลี่ยนสิทธิ์ (OD-23)",kind:"select",options:[{value:"PENDING_OD18",label:"ยังไม่ตัดสิน (OD-18)"},{value:"OD18_A_IDENTITY_AND_ORIGINAL",label:"(a) LN + HN + ชื่อ + DOB + ที่เก็บต้นฉบับ"},{value:"OD18_B_BALANCED",label:"(b) สมดุล"}]},
+ historical_backfill:{key:"historical_backfill",title:"ตรวจสอบข้อมูลย้อนหลัง",summary:"เกณฑ์หลักฐานและข้อมูลขั้นต่ำสำหรับพิจารณาข้อมูลย้อนหลัง",phase:"ข้อมูลย้อนหลัง",fields:[
+  {name:"anchorPolicy",label:"หลักฐานอ้างอิง",help:"ยังไม่มีเกณฑ์ที่อนุมัติ การนำเข้าจึงยังหยุดไว้จนกว่าจะมีข้อกำหนดที่ยืนยันแล้ว",kind:"select",options:[{value:"PENDING_OD18",label:"ยังไม่กำหนด"},{value:"A_FINAL_REPORT",label:"รายงานผลสุดท้ายที่มีวันที่"},{value:"B_FINAL_REPORT_OR_CONTROL_RECORD",label:"รายงานผลสุดท้ายหรือบันทึกควบคุมของห้องปฏิบัติการ"}]},
+  {name:"minimumProfile",label:"ข้อมูลขั้นต่ำที่ต้องมี",help:"ใช้ตรวจความครบถ้วนของหลักฐาน ไม่กำหนดผลทางคลินิก",kind:"select",options:[{value:"PENDING_OD18",label:"ยังไม่กำหนด"},{value:"OD18_A_IDENTITY_AND_ORIGINAL",label:"LN, HN, ชื่อ, วันเกิด และที่เก็บเอกสารต้นฉบับ"},{value:"OD18_B_BALANCED",label:"ชุดข้อมูลสมดุล"}]},
   {name:"maxBatchRows",label:"จำนวนแถวสูงสุดต่อชุดนำเข้า",help:"1–200 แถว (ชุดปกติประมาณ 47 เคส)",kind:"number",unit:"แถว",min:1,max:200}]},
- go_live_cutoff:{key:"go_live_cutoff",title:"วันเริ่มใช้ระบบ (go_live_cutoff)",summary:"Versioned + Maker-Checker + รายงานผลกระทบ — ใช้กับเคสย้อนหลัง (P5H)",phase:"P5H (Deferred)",fields:[
-  {name:"cutoff",label:"วันที่ตัด",help:"เปลี่ยนไม่ได้เมื่อมีเคส HISTORICAL แล้วระหว่างรอ OD-27",kind:"date"},
+ go_live_cutoff:{key:"go_live_cutoff",title:"วันเริ่มใช้ระบบ",summary:"กำหนดขอบเขตวันที่สำหรับพิจารณาข้อมูลย้อนหลัง พร้อมบันทึกผู้จัดทำและผู้ตรวจสอบ",phase:"ข้อมูลย้อนหลัง",fields:[
+  {name:"cutoff",label:"วันที่เริ่มใช้ระบบ",help:"แก้ไขไม่ได้หลังมีข้อมูลย้อนหลังที่ผูกกับวันที่นี้แล้ว",kind:"date"},
   {name:"impactReportHash",label:"SHA-256 ของรายงานผลกระทบ",help:"ต้องแนบรายงานผลกระทบทุกเวอร์ชัน (D-50)",kind:"hash"}]}
 };
 

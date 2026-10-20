@@ -15,7 +15,7 @@ export const ISSUE_TEXT:Record<string,string>={
  REVIEW_MISMATCH_LN:"ผู้ตรวจ: LN ไม่ตรงต้นฉบับ",REVIEW_MISMATCH_ANCHORDATE:"ผู้ตรวจ: วันที่ Anchor ไม่ตรงต้นฉบับ",REVIEW_MISMATCH_PDFBINDING:"ผู้ตรวจ: PDF ไม่ใช่ของเคสนี้",REVIEW_MISMATCH_IDENTITY:"ผู้ตรวจ: ตัวตนไม่ตรงต้นฉบับ",
 };
 export const REASON_TEXT:Record<string,string>={
- ANCHOR_POLICY_NOT_CONFIGURED:"Owner ยังไม่ตัดสินชนิดหลักฐาน Anchor (OD-18)",CUTOFF_NOT_CONFIGURED:"ยังไม่ได้อนุมัติวันตัดระบบ (go_live_cutoff)",NO_ANCHOR:"ไม่มีรายงานผลสุดท้ายที่ลงวันที่ — ไม่มีหลักฐานว่าตรวจเสร็จก่อนเริ่มใช้ระบบ",
+ ANCHOR_POLICY_NOT_CONFIGURED:"ยังไม่ได้กำหนดหลักฐานอ้างอิงที่ใช้ได้",CUTOFF_NOT_CONFIGURED:"ยังไม่ได้กำหนดวันที่เริ่มใช้ระบบ",NO_ANCHOR:"ไม่มีรายงานผลสุดท้ายที่มีวันที่ จึงยังยืนยันลำดับเวลาไม่ได้",
  ANCHOR_DATE_NOT_DAY_PRECISION:"วันที่ของรายงานผลต้องระบุเต็มวัน",ANCHOR_NOT_BEFORE_CUTOFF:"วันที่รายงานผลไม่ได้อยู่ก่อนวันตัดระบบ",EVENT_NOT_BEFORE_CUTOFF:"มีเหตุการณ์ที่วันที่ไม่ได้อยู่ก่อนวันตัดระบบ",EVENT_DATE_UNKNOWN:"มีเหตุการณ์ที่ไม่ทราบวันที่",
  LN_ALREADY_REGISTERED:"LN นี้ลงทะเบียนเป็นเคสแล้ว",NIPT_ACTIVITY_PET_APPLIED:"LN นี้มีใบสั่ง .pet ที่ใช้แล้ว",NIPT_ACTIVITY_RECEIVED:"LN นี้มีการรับตัวอย่างใน NIPT",NIPT_ACTIVITY_BATCH:"LN นี้อยู่ใน Batch",NIPT_ACTIVITY_RELEASED:"LN นี้มีการปล่อยผลแล้ว",UNLINKED_INTAKE_AFTER_CUTOFF:"มีใบสั่งจาก HIS หลังวันตัดระบบ — เป็นเคสปัจจุบัน",
 };

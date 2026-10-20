@@ -12,7 +12,7 @@ export type RequestFields={
  name:string|null;hn:string|null;nationalId:string|null;dob:Digits8;age:string|null;weight:string|null;height:string|null;bmi:string|null;
  entitlement:'NHSO'|'SELF_PAY'|null;reason:string|null;facility:string|null;doctor:string|null;coordinatorPhone:string|null;email:string|null;
  ultrasound:Digits8;edd:Digits8;ga:{w:string;d:string}|null;pregnancyType:'Singleton'|'Twins'|null;vanishing:Answer;vanishingGa:string|null;drawAfter8:boolean;
- art:Answer;pregnancyNumber:string|null;gpa:string|null;history:[Answer,Answer,Answer,Answer,Answer,Answer,Answer];priorMethod:string|null;priorResult:string|null;item8:string|null;
+ art:Answer;pregnancyNumber:string|null;gpa:{gravida:string|null;para:string|null;abortion:string|null}|null;history:[Answer,Answer,Answer,Answer,Answer,Answer,Answer];priorMethod:string|null;priorResult:string|null;item8:string|null;
  fetalSex:'Want'|'DoNotWant'|null;draw:{date:Digits8;time:string|null};receive:{condition:'ACCEPTABLE'|'REJECTED'|null;reason:string|null;date:string|null;time:string|null};ackA:boolean;ackB:boolean;
 };
 export type ConsentFields={patientName:string|null;doctor:string|null;acknowledged:boolean[];decision:'Granted'|'Declined'|null;patientSignedDate:string|null};
@@ -34,7 +34,7 @@ export function requestItems(f:RequestFields):OverlayItem[]{
   ...(f.ga?[42.75,58.25,83.75].map((x,i)=>({kind:'digit' as const,x,y:408.8,text:(f.ga!.w.padStart(2,'0')+f.ga!.d)[i]})):[]),
   ...check(f.pregnancyType==='Singleton',215,507.6),...check(f.pregnancyType==='Twins',276.9,507.6),
   ...check(f.vanishing==='No',214.4,469.5),...check(f.vanishing==='Yes',253.75,469.5),...text(341,467,30,f.vanishingGa,8),...check(f.drawAfter8,253.1,438.25),
-  ...check(f.art==='Yes',53.1,375.75),...check(f.art==='No',79.4,375.75),...text(313,388.5,52,f.pregnancyNumber,9,{align:'center'}),...text(233,375,128,f.gpa,8.5),
+  ...check(f.art==='Yes',53.1,375.75),...check(f.art==='No',79.4,375.75),...text(313,388.5,52,f.pregnancyNumber,9,{align:'center'}),...gpaItems(f.gpa),
   ...h.flatMap((a,i)=>[...check(a==='Yes',yes[i],rows[i]),...check(a==='No',no[i],rows[i])]),
   ...text(72,177.5,88,f.priorMethod,8),...text(194,177.5,82,f.priorResult,8),...text(66,144,205,f.item8,8),
   ...check(f.fetalSex==='Want',320.6,317),...check(f.fetalSex==='DoNotWant',386.25,317),
@@ -43,6 +43,14 @@ export function requestItems(f:RequestFields):OverlayItem[]{
   ...text(376,250,82,f.receive.date,8.5),...text(481,250,64,f.receive.time,8.5),
   ...check(f.ackA,44.45,102.2),...check(f.ackB,44.45,60.5),
  ];
+}
+function gpaItems(gpa:RequestFields['gpa']):OverlayItem[]{
+ if(!gpa)return [];
+ const items:OverlayItem[]=[];
+ const entries=[['G',gpa.gravida,233,245],['P',gpa.para,266,278],['A',gpa.abortion,299,311]] as const;
+ let x=233;
+ for(const [label,value,labelX,digitX] of entries){if(value===null)continue;const actualX=Math.max(x,labelX);items.push({kind:'text',x:actualX,y:375,w:12,size:8.5,text:label});items.push({kind:'text',x:Math.max(actualX+10,digitX),y:371,w:15,size:6.5,text:value});x=Math.max(actualX+25,digitX+15)+7;}
+ return items;
 }
 const CLAUSE_ROWS=[687.8,657.9,628.1,598.1,568.3,519.4,472.5,442.6,412.7,382.9,338.3,323.1];
 export function consentItems(f:ConsentFields):OverlayItem[]{

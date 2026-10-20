@@ -7,7 +7,7 @@ it('a partial stored draft reports its unanswered fields instead of throwing',()
  const partial={patient:{dob:'1996-03-31'},pregnancy:{type:'Singleton',edd:'2027-04-22',fetalSex:'DoNotWant'}};
  expect(()=>requestIssues(partial as never)).toThrow();
  const missing=requestProgressIssues(partial);
- expect(missing).toContain('history.transfusion4months');expect(missing).toContain('patient.syntheticName');expect(missing).toContain('ordering.doctorVersionId');
+ expect(missing).toContain('history.transfusion4months');expect(missing).toContain('ordering.doctorVersionId');expect(missing).not.toContain('patient.syntheticName');
  expect(missing).not.toContain('pregnancy.type');expect(missing).not.toContain('pregnancy.edd');
 });
 it('a complete-shape draft gives exactly the same issues as requestIssues; junk input does not throw',()=>{
@@ -24,6 +24,7 @@ it('operational registry progress preserves the scalar semantic contract for cur
   for(const k of ['transfusion4months','heparin24h','immune1month','albumin4weeks','exogenousDna4weeks'] as const)current.history[k].answer='No';
   Object.assign(current.history,{cancerTreatment:'No',gaUnder8:'No',tumor:'No',priorChromosomeTest:'No',otherHistory:'No'});
   Object.assign(current.ordering,{doctorVersionId:'00000000-0000-4000-8000-000000000001',facility:'หน่วยทดสอบ',reason:'ข้อมูลทดสอบ'});
+  current.patient.identifier='0000000000001';current.patient.identifierType='ThaiNationalId';
   expect(requestIssues(current)).toEqual([]);expect(requestProgressIssues(current)).toEqual([]);
   const legacy=structuredClone(current);delete legacy.documentContractVersion;
   expect(requestProgressIssues(legacy)).toEqual(['history.documentContractVersion']);expect(legacy.documentContractVersion).toBeUndefined();

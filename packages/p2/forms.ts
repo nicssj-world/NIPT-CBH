@@ -1,5 +1,5 @@
 import {consentAcknowledged} from '../forms/consent-content';
-import {entitlementKind,DCC_REQUEST_CONTRACT} from '../forms/request-contract';
+import {entitlementKind,DCC_REQUEST_CONTRACT,validThaiCitizenId} from '../forms/request-contract';
 import {createHash} from 'node:crypto';
 import type {Queryable} from '../db/connection';
 import {appendAudit} from '../db/audit';
@@ -24,8 +24,6 @@ const beDigits=(iso:string|null|undefined):Digits8=>{if(!iso)return null;const s
 const yesNo=(a:string|null|undefined):Answer=>a==='Yes'?'Yes':a==='No'?'No':null;
 const clean=(v:unknown)=>typeof v==='string'&&v.trim()?v.trim():null;
 const fmt=(n:number|null|undefined,digits=0)=>typeof n==='number'&&Number.isFinite(n)?n.toFixed(digits):null;
-const bangkokToday=()=>new Date(Date.now()+7*3600000).toISOString().slice(0,10);
-const ageOn=(dob:string|null,on:string|null)=>{if(!dob||!on)return null;const a=new Date(dob),b=new Date(on);return b.getUTCFullYear()-a.getUTCFullYear()-(b.toISOString().slice(5,10)<a.toISOString().slice(5,10)?1:0);};
 const thaiTime=(instant:Date|string|null)=>{if(!instant)return null;const s=displayBeDateTime(instant,'');const m=/(\d{2}:\d{2})/.exec(s);return m?m[1]+' น.':null;};
 
 export async function formSources(db:Queryable,user:Staff,caseId:string){
@@ -35,9 +33,10 @@ export async function formSources(db:Queryable,user:Staff,caseId:string){
  // The ordering doctor is the Doctor Registry version the ANC nurse selected on this round's request; never the user's own name.
  const doctorId=draft.ordering?.doctorVersionId??null;
  const doctor=doctorId?(await db.query<{id:string;name:string;doctor_key:string;active:boolean}>(`SELECT v.id,v.name,v.doctor_key,
-   -- same rule as activeDoctor(): shared registry, effective, latest event Approved, no newer approved version of the same doctor
-   (v.effective_from<=now() AND (SELECT e.event_type FROM p2_doctor_event e WHERE e.doctor_version_id=v.id ORDER BY e.created_at DESC,e.id DESC LIMIT 1)='Approved'
-    AND NOT EXISTS(SELECT 1 FROM p2_doctor_version n JOIN p2_doctor_event e ON e.doctor_version_id=n.id AND e.event_type='Approved' WHERE n.doctor_key=v.doctor_key AND n.version>v.version AND n.effective_from<=now())) active
+   -- Match the shared selector: latest signed registry record, not explicitly suspended, and effective.
+   (v.effective_from<=now() AND v.signature_png IS NOT NULL
+    AND (SELECT e.event_type FROM p2_doctor_event e WHERE e.doctor_version_id=v.id ORDER BY e.created_at DESC,e.id DESC LIMIT 1) IS DISTINCT FROM 'Suspended'
+    AND NOT EXISTS(SELECT 1 FROM p2_doctor_version n WHERE n.doctor_key=v.doctor_key AND n.version>v.version AND n.effective_from<=now())) active
    FROM p2_doctor_version v WHERE v.id=$1`,[doctorId])).rows[0]??null:null;
  const fact=(await db.query<{collection_date:string;collection_time:string|null;source:string}>("SELECT collection_date::text,collection_time,source FROM p2_collection_fact WHERE round_id=$1 ORDER BY sequence DESC LIMIT 1",[c.current_round_id])).rows[0]??null;
  const round=(await db.query<{received_at:Date|null;received_source:string|null}>('SELECT received_at,received_source FROM specimen_round WHERE id=$1',[c.current_round_id])).rows[0];
@@ -58,14 +57,14 @@ export function requestFields(s:Sources):{fields:RequestFields;missing:string[]}
  const entitlementText=clean(d.patient.entitlement);
  const entitlement=entitlementKind(entitlementText);
  if(!entitlement)missing.push('สิทธิการตรวจ');
- const gpa=p.gravida!==null||p.para!==null||p.abortion!==null&&p.abortion!==undefined?`G${p.gravida??'-'} P${p.para??'-'} A${p.abortion??'-'}`:null;
- const age=ageOn(d.patient.dob,p.collectionDate??bangkokToday());
- const doctorName=s.doctor?.active?s.doctor.name:null;if(!doctorName)missing.push(s.doctor?'แพทย์ผู้สั่งตรวจ (ทะเบียนแพทย์ไม่ active)':'แพทย์ผู้สั่งตรวจ');
+ const gpa=p.gravida!==null||p.para!==null||p.abortion!==null&&p.abortion!==undefined?{gravida:p.gravida===null?null:String(p.gravida),para:p.para===null?null:String(p.para),abortion:p.abortion===null||p.abortion===undefined?null:String(p.abortion)}:null;
+ const age=d.patient.ageYears??null;
+ const doctorName=s.doctor?.active?s.doctor.name:null;if(!doctorName)missing.push('แพทย์ผู้สั่งตรวจจากทะเบียน');
  const coordinator=[clean(o.coordinator),clean(o.phone)].filter(Boolean).join(' / ')||null;
  const fields:RequestFields={
-  name:need(clean(d.patient.syntheticName),'ชื่อ-นามสกุล'),hn:need(s.c.hn,'HN'),nationalId:d.patient.identifierType==='ThaiNationalId'||!operationalDataEnabled()&&d.patient.identifierType==='Synthetic'?clean(d.patient.identifier):null,
-  dob:beDigits(need(d.patient.dob,'วันเกิด')),age:age!==null&&age>=0?String(age):null,weight:fmt(p.weightKg,1),height:fmt(p.heightCm,0),bmi:fmt(calc.bmi,1),
-  entitlement,reason:need(clean(o.reason),'เหตุผลในการส่งตรวจ'),facility:need(clean(o.facility),'โรงพยาบาล/คลินิก'),doctor:doctorName,coordinatorPhone:coordinator,email:clean(o.email),
+  name:clean(d.patient.syntheticName),hn:need(s.c.hn,'HN'),nationalId:d.patient.identifierType==='ThaiNationalId'&&validThaiCitizenId(d.patient.identifier)?clean(d.patient.identifier):null,
+  dob:beDigits(d.patient.dob),age:age!==null&&age>=0?String(age):null,weight:fmt(p.weightKg,1),height:fmt(p.heightCm,0),bmi:fmt(calc.bmi,2),
+  entitlement,reason:clean(o.reason),facility:need(clean(o.facility),'โรงพยาบาล/คลินิก'),doctor:doctorName,coordinatorPhone:coordinator,email:null,
   ultrasound:beDigits(p.ultrasoundDate),edd:beDigits(need(p.edd,'วันกำหนดคลอด')),
   ga:calc.gaWeeks!==null&&calc.gaRemainder!==null&&calc.gaDays!==null&&calc.gaDays>=0?{w:String(calc.gaWeeks),d:String(calc.gaRemainder)}:null,
   pregnancyType:p.type==='Singleton'||p.type==='Twins'?p.type:null,vanishing:yesNo(p.vanishingTwin),
@@ -73,7 +72,7 @@ export function requestFields(s:Sources):{fields:RequestFields;missing:string[]}
   art:yesNo(p.art),pregnancyNumber:p.gravida!==null?String(p.gravida):null,gpa,
   history:[yesNo(h.transfusion4months.answer),yesNo(h.heparin24h.answer),yesNo(h.immune1month.answer),d.documentContractVersion===DCC_REQUEST_CONTRACT?yesNo(h.cancerTreatment):null,yesNo(h.gaUnder8),yesNo(h.tumor),d.documentContractVersion===DCC_REQUEST_CONTRACT?yesNo(h.priorChromosomeTest):null],
   priorMethod:d.documentContractVersion===DCC_REQUEST_CONTRACT&&h.priorChromosomeTest==='Yes'?clean(h.priorTestMethod):null,priorResult:d.documentContractVersion===DCC_REQUEST_CONTRACT&&h.priorChromosomeTest==='Yes'?clean(h.priorTestResult):null,
-  item8:d.documentContractVersion===DCC_REQUEST_CONTRACT&&h.otherHistory==='Yes'?clean(h.otherDetails):null,
+  item8:d.documentContractVersion===DCC_REQUEST_CONTRACT?clean(h.otherDetails):null,
   // Fetal sex is printed only for a singleton and only as recorded; twins never get a sex choice.
   fetalSex:p.type==='Singleton'&&(p.fetalSex==='Want'||p.fetalSex==='DoNotWant')?p.fetalSex:null,
   // Staff sections only from events that happened: the recorded collection fact, the HIS PET receipt, the Lab specimen check.

@@ -2,7 +2,7 @@ import {beforeAll,afterAll,describe,it,expect} from 'vitest';
 import type {PGlite} from '@electric-sql/pglite';
 import {testDatabase,addUser,TEST_PASSWORD} from '../helpers/database';
 import {authenticate,readSession} from '../../packages/security/session';
-import {registerP2,saveRequest,doctorAction,prepareConsent,startSigning,patientAction,reauthenticate as reauthenticateBound,signingReturnStatus,setModes,getCase,type Staff} from '../../packages/p2/service';
+import {registerP2,saveRequest,doctorAction,prepareConsent,startSigning,patientAction,setModes,getCase,type Staff} from '../../packages/p2/service';
 import {createDocumentPreview} from '../../packages/p2/documents';
 import {emptyRequest} from '../../packages/p2/schema';
 import {renderP2Pdf} from '../../packages/pdf/p2';
@@ -14,7 +14,7 @@ const key=Buffer.alloc(32,7),origin='http://localhost:3000',vector={width:600,he
 let db:PGlite,anc:Staff,admin:Staff,checker:Staff,unit:string,caseId:string,doctorId:string,otherDoctorId:string;
 async function tx<T>(fn:()=>Promise<T>){await db.query('BEGIN');try{const r=await fn();await db.query('COMMIT');return r;}catch(e){await db.query('ROLLBACK');throw e;}}
 async function doctor(k:string,name:string){const d=await tx(()=>doctorAction(db,admin,{action:'propose',doctorKey:k,name,unitId:unit,effectiveFrom:'2020-01-01T00:00:00Z',authorization:'SYNTHETIC authorization',vector}));await tx(()=>doctorAction(db,checker,{action:'approve',id:d.id,reason:'SYNTHETIC checked'}));return String(d.id);}
-const reauthenticate=async(password:string)=>tx(async()=>reauthenticateBound(db,anc,{...await signingReturnStatus(db,anc),password,attestation:true}));
+const loginAnc=async()=>{const auth=await tx(()=>authenticate(db,'synthetic.anc',TEST_PASSWORD));anc={...anc,sessionId:(await readSession(db,auth!.token))!.sessionId};};
 async function pdfFacts(bytes:Buffer){
  const pdfjs=await import('pdfjs-dist/legacy/build/pdf.mjs');const doc=await pdfjs.getDocument({data:new Uint8Array(bytes),verbosity:0}).promise;let text='',images=0;
  for(let n=1;n<=doc.numPages;n++){const p=await doc.getPage(n);text+=(await p.getTextContent()).items.map(i=>'str' in i?i.str:'').join(' ');const ops=await p.getOperatorList();images+=ops.fnArray.filter(f=>f===pdfjs.OPS.paintImageXObject||f===pdfjs.OPS.paintInlineImageXObject).length;}
@@ -41,16 +41,15 @@ describe('Digital Consent evidence chain',()=>{
   expect(doc.unsigned).toBe(true); // the prepared document carries the doctor's stored signature but no patient decision
  });
 
- it('patient Signature Pad: 12 acknowledgements, stored vector+PNG+hash, final consent only after the preparer attests; PDF shows both signatures',async()=>{
+ it('patient Signature Pad: 12 acknowledgements, stored vector+PNG+hash, final consent on completion; PDF shows both signatures',async()=>{
   const doc=(await db.query<{id:string}>("SELECT id FROM p2_document_revision WHERE case_id=$1 AND kind='CONSENT' ORDER BY version DESC LIMIT 1",[caseId])).rows[0];
   const s=await tx(()=>startSigning(db,anc,caseId,{documentId:doc.id,devicePresent:true,syntheticPatient:true}));
   const act=(a:object)=>tx(()=>patientAction(db,s.raw,a,{origin,expectedOrigin:origin,token:s.csrf}));
   await expect(act({action:'complete',decision:'Granted',vector})).rejects.toThrow('TWELVE_ACKNOWLEDGMENTS_REQUIRED'); // no signature without all 12
   for(let item=1;item<=12;item++)await act({action:'acknowledge',item});
   await act({action:'complete',decision:'Granted',vector});
-  expect((await db.query('SELECT 1 FROM p2_final_consent')).rows).toHaveLength(0); // the patient alone does not finalize it
-  expect(await reauthenticate('SYNTHETIC wrong password')).toEqual({ok:false});
-  expect(await reauthenticate(TEST_PASSWORD)).toMatchObject({ok:true,consentFinalized:true});
+  expect((await db.query('SELECT 1 FROM p2_final_consent')).rows).toHaveLength(1); // completion freezes the patient's decision and evidence
+  await loginAnc(); // staff returns through the ordinary login flow on a new session
   const sig=(await db.query<{decision:string;png:string;signature_hash:string}>('SELECT decision,png,signature_hash FROM p2_consent_signature WHERE document_id=$1',[doc.id])).rows;
   expect(sig).toHaveLength(1);expect(sig[0]).toMatchObject({decision:'Granted'});expect(sig[0].signature_hash).toHaveLength(64);expect(sig[0].png.length).toBeGreaterThan(100);
   const fin=(await db.query<{payload:{signature:{png:string;decision:string};acknowledgments:unknown[];document:{doctor:{signature_hash:string}}}}>('SELECT payload FROM p2_final_consent WHERE document_id=$1',[doc.id])).rows;
@@ -64,7 +63,7 @@ describe('Digital Consent evidence chain',()=>{
   // Audit trail: every step is recorded in order, the hash chain verifies, and the document read is logged.
   const events=(await db.query<{event_type:string}>("SELECT event_type FROM case_event WHERE case_id=$1 AND event_type LIKE 'P2_%' ORDER BY created_at,id",[caseId])).rows.map(e=>e.event_type);
   const at=(t:string)=>events.indexOf(t);
-  expect(at('P2_CONSENT_PREPARED')).toBeGreaterThan(-1);expect(at('P2_SIGNING_STARTED')).toBeGreaterThan(at('P2_CONSENT_PREPARED'));expect(at('P2_CONSENT_GRANTED')).toBeGreaterThan(at('P2_SIGNING_STARTED'));expect(at('P2_PREPARER_REAUTHENTICATED')).toBeGreaterThan(at('P2_CONSENT_GRANTED'));
+  expect(at('P2_CONSENT_PREPARED')).toBeGreaterThan(-1);expect(at('P2_SIGNING_STARTED')).toBeGreaterThan(at('P2_CONSENT_PREPARED'));expect(at('P2_CONSENT_GRANTED')).toBeGreaterThan(at('P2_SIGNING_STARTED'));
   expect((await db.query("SELECT 1 FROM p2_document_access WHERE document_id=$1 AND intent='download'",[doc.id])).rows).toHaveLength(1);
   expect(verifyAuditChain((await db.query<{previous_hash:string;hash:string;payload:string}>('SELECT * FROM audit_chain ORDER BY sequence')).rows)).toBe(true);
  },120000);

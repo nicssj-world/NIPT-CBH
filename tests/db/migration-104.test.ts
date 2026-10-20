@@ -14,13 +14,13 @@ import {tx,labUsers,setPendingPolicy,syntheticCase,receiveS1} from '../helpers/l
 const FILE='104_pagination_lookup_indexes.sql';
 const INDEXES=['p2_paper_review_round_kind','clinical_snapshot_round','specimen_acceptance_round','p2_collection_fact_round_source','label_print_item_round'];
 const bundle=async()=>(await readdir('db/migrations')).filter(f=>/^\d+.*\.sql$/.test(f)).sort();
-async function before104(){const dir=await mkdtemp(path.join(tmpdir(),'nipt-mig-104-'));for(const f of (await bundle()).filter(f=>f<'104'))await copyFile(path.join('db/migrations',f),path.join(dir,f));return dir;}
+async function before104(upTo='104'){const dir=await mkdtemp(path.join(tmpdir(),'nipt-mig-104-'));for(const f of (await bundle()).filter(f=>f<upTo))await copyFile(path.join('db/migrations',f),path.join(dir,f));return dir;}
 async function snapshot(db:Queryable){
  const tables=(await db.query<{t:string}>("SELECT table_name t FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' AND table_name<>'schema_migration' ORDER BY 1")).rows.map(r=>r.t);
  const out:Record<string,string>={};for(const t of tables){const r=(await db.query<{n:string;d:string|null}>(`SELECT count(*)::text n,md5(string_agg(x::text,'|' ORDER BY x::text)) d FROM "${t}" x`)).rows[0];out[t]=`${r.n}:${r.d??''}`;}return out;
 }
 it('104 adds only the five lookup indexes: no table or row changes, ledger checksum recorded, idempotent, fresh install identical',async()=>{
- const db=new PGlite(),dir=await before104();
+ const db=new PGlite(),dir=await before104(),through104=await before104('105');
  try{
   await migrate(db,dir);
   const u=await labUsers(db as unknown as Queryable);await setPendingPolicy(db as unknown as Queryable,u,'PROCEED_SYNTHETIC_LABELLED');
@@ -28,14 +28,14 @@ it('104 adds only the five lookup indexes: no table or row changes, ledger check
   const had=async()=>(await db.query<{indexname:string}>("SELECT indexname FROM pg_indexes WHERE schemaname='public'")).rows.map(r=>r.indexname);
   expect((await had()).filter(n=>INDEXES.includes(n))).toEqual([]);
   const rowsBefore=await snapshot(db as unknown as Queryable);
-  await migrate(db);
+  await migrate(db,through104);
   expect((await had()).filter(n=>INDEXES.includes(n)).sort()).toEqual([...INDEXES].sort());
   expect(await snapshot(db as unknown as Queryable)).toEqual(rowsBefore); // no data, no table added
   const ledger=async()=>(await db.query<{name:string;checksum:string}>('SELECT name,checksum FROM schema_migration ORDER BY name')).rows;
   const l=await ledger();expect(l.find(r=>r.name===FILE)?.checksum).toBe(createHash('sha256').update(readFileSync(path.join('db/migrations',FILE),'utf8')).digest('hex'));
-  await migrate(db);expect(await ledger()).toEqual(l);
-  const fresh=new PGlite();try{await migrate(fresh);expect((await fresh.query<{indexname:string}>("SELECT indexname FROM pg_indexes WHERE schemaname='public'")).rows.map(r=>r.indexname).filter(n=>INDEXES.includes(n)).sort()).toEqual([...INDEXES].sort());}finally{await fresh.close();}
- }finally{await db.close();await rm(dir,{recursive:true,force:true});}
+  await migrate(db,through104);expect(await ledger()).toEqual(l);
+  const fresh=new PGlite();try{await migrate(fresh,through104);expect((await fresh.query<{indexname:string}>("SELECT indexname FROM pg_indexes WHERE schemaname='public'")).rows.map(r=>r.indexname).filter(n=>INDEXES.includes(n)).sort()).toEqual([...INDEXES].sort());}finally{await fresh.close();}
+ }finally{await db.close();await rm(dir,{recursive:true,force:true});await rm(through104,{recursive:true,force:true});}
 },120000);
 
 it('each new index can serve the exact predicate the facts queries use (planner forced off sequential scans, so only an unusable index fails)',async()=>{

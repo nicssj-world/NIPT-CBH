@@ -160,7 +160,7 @@ describe('P2-P3 synthetic integration contract',()=>{
   expect(detail.roundReceipt).toMatchObject({receivedSource:'HIS_PET_RECEIPT',receivedAt:'2026-10-12T03:15:00.000000Z',collectionDate:'2026-10-11'});
   expect(detail.currentCollectionFacts).toEqual([expect.objectContaining({source:'ANC',collection_date:'2026-10-10'})]);
   expect(detail.gate).toMatchObject({passed:false});
-  const next=await tx(()=>saveRequest(f.db,anc,caseId,{expectedVersion:1,draft}));
+  const next=await tx(()=>saveRequest(f.db,anc,caseId,{expectedVersion:detail.workspace.version,draft:detail.workspace.draft}));
   expect(next.clinical).toMatchObject({state:'ClinicalDataConflict',passed:false});
   // Agreeing sources record no conflict.
   const same='990002100002',other=await register(f,{ln:same,hn:HN});const agree=structuredClone(draft);agree.pregnancy.collectionDate='2026-10-12';

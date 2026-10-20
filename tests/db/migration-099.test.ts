@@ -28,7 +28,8 @@ it('099 keeps existing print rows valid and accepts exactly BASE, BASED, BASER, 
   const oldDef=(await db.query<{d:string}>("SELECT pg_get_constraintdef(oid) d FROM pg_constraint WHERE conname='label_print_item_printed_code_check'")).rows[0].d;
   expect(oldDef).toContain('D?$');
   await removePre102Stub(db);
-  await migrate(db); // full bundle: applies only 099
+  await copyFile(path.join('db/migrations','099_label_printed_code_resampling.sql'),path.join(before,'099_label_printed_code_resampling.sql'));
+  await migrate(db,before); // pinned migration prefix: applies 099 only
   const newDef=(await db.query<{d:string}>("SELECT pg_get_constraintdef(oid) d FROM pg_constraint WHERE conname='label_print_item_printed_code_check'")).rows[0].d;
   expect(newDef).toContain('D?R?$');
   const ledger=(await db.query<{checksum:string}>("SELECT checksum FROM schema_migration WHERE name='099_label_printed_code_resampling.sql'")).rows[0].checksum;

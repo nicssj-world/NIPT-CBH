@@ -19,7 +19,7 @@ export async function uploadedDoctorSignature(input:unknown){
  try{const doc=await PDFDocument.create(),embedded=await (png?doc.embedPng(bytes):doc.embedJpg(bytes));if(embedded.width<1||embedded.height<1||embedded.width>2400||embedded.height>1600)throw Error('size');await doc.save();}catch{throw new P2Error('SIGNATURE_IMAGE_INVALID',422);}
  return {vector:{source:'upload',mime:image.mime},png:image.data,hash:createHash('sha256').update(bytes).digest('hex')};
 }
-const saveSchema=z.strictObject({action:z.literal('save'),id:z.uuid().optional(),doctorKey:z.string().max(64).refine(v=>operationalDataEnabled()?/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(v):/^SYNTHETIC-[A-Z0-9-]+$/.test(v)),name:syntheticText.refine(v=>v.length>0),unitId:z.uuid(),authorization:syntheticText.refine(v=>v.length>0).default(()=>operationalDataEnabled()?'DOCTOR_AUTHORIZATION_CONFIRMED':'SYNTHETIC_AUTHORIZATION_CONFIRMED'),authorized:z.literal(true),vector:vectorSchema.optional(),image:imageSchema.optional()});
+const saveSchema=z.strictObject({action:z.literal('save'),id:z.uuid().optional(),doctorKey:z.string().max(64).refine(v=>operationalDataEnabled()?/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(v):/^SYNTHETIC-[A-Z0-9-]+$/.test(v)),name:syntheticText.refine(v=>v.length>0),unitId:z.uuid(),vector:vectorSchema.optional(),image:imageSchema.optional()});
 /** Append a new immutable record; existing Request/Consent snapshots retain their prior signature bytes. */
 export async function saveDoctor(db:Queryable,user:Staff,input:unknown){
  await assertStaff(db,user);requirePermission(user,'doctor.manage',{},'write');const d=saveSchema.parse(input);
@@ -30,9 +30,9 @@ export async function saveDoctor(db:Queryable,user:Staff,input:unknown){
  if(d.image&&d.vector)throw new P2Error('SIGNATURE_IMAGE_INVALID',422);
  const sig=d.image?await uploadedDoctorSignature(d.image):d.vector?deriveSignature(d.vector):prior?{vector:prior.signature,png:prior.signature_png,hash:prior.signature_hash}:null;
  if(!sig)throw new P2Error('DOCTOR_SIGNATURE_REQUIRED',422);
- const row=(await db.query<{id:string;version:number}>('INSERT INTO p2_doctor_version(doctor_key,version,name,unit_id,effective_from,authorization_evidence,signature,signature_png,signature_hash,created_by,synthetic) VALUES($1,$2,$3,$4,clock_timestamp(),$5,$6,$7,$8,$9,$10) RETURNING id,version',[d.doctorKey,(prior?.version??0)+1,d.name,d.unitId,d.authorization,sig.vector,sig.png,sig.hash,user.id,!operationalDataEnabled()])).rows[0];
+ const row=(await db.query<{id:string;version:number}>('INSERT INTO p2_doctor_version(doctor_key,version,name,unit_id,effective_from,authorization_evidence,signature,signature_png,signature_hash,created_by,synthetic) VALUES($1,$2,$3,$4,clock_timestamp(),$5,$6,$7,$8,$9,$10) RETURNING id,version',[d.doctorKey,(prior?.version??0)+1,d.name,d.unitId,operationalDataEnabled()?'REGISTERED_DIRECTLY_BY_ANC':'SYNTHETIC_DIRECT_ANC_REGISTRATION',sig.vector,sig.png,sig.hash,user.id,!operationalDataEnabled()])).rows[0];
  await db.query('INSERT INTO p2_doctor_registration(doctor_version_id,actor_id,authorized) VALUES($1,$2,true)',[row.id,user.id]);
- await db.query("INSERT INTO p2_doctor_event(doctor_version_id,event_type,actor_id,reason) VALUES($1,'Approved',$2,'REGISTRY_SAVED_WITH_AUTHORIZATION')",[row.id,user.id]);
+ await db.query("INSERT INTO p2_doctor_event(doctor_version_id,event_type,actor_id,reason) VALUES($1,'Approved',$2,'REGISTRY_SAVED_DIRECTLY')",[row.id,user.id]);
  await appendAudit(db,{actorId:user.id,action:'P2_DOCTOR_SAVED_DIRECTLY',resourceType:'p2_doctor_version',resourceId:row.id,details:{version:row.version,synthetic:!operationalDataEnabled()}});
  return {...row,status:'Approved'};
 }

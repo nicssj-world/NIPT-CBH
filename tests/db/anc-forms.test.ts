@@ -65,7 +65,7 @@ describe.skipIf(!available)('ANC Request + Consent auto-fill preview on the DCC 
   const s=await tx(()=>formSources(db,anc,caseId)),r=requestFields(s),c=consentFields(s);
   expect(r.fields).toMatchObject({name:null,dob:null,doctor:null,entitlement:null,reason:null,pregnancyType:null,fetalSex:null,ga:null,history:[null,null,null,null,null,null,null],ackA:false,ackB:false,draw:{date:null,time:null},receive:{condition:null,date:null,time:null}});
   expect(r.fields.hn).toBe('0099000123'); // the registered HN, as text
-  expect(r.missing).toEqual(expect.arrayContaining(['ชื่อ-นามสกุล','แพทย์ผู้สั่งตรวจ','ครรภ์เดี่ยว/แฝด','ประวัติข้อ 1']));
+  expect(r.missing).toEqual(expect.arrayContaining(['สิทธิการตรวจ','แพทย์ผู้สั่งตรวจจากทะเบียน','โรงพยาบาล/คลินิก','ครรภ์เดี่ยว/แฝด','ประวัติข้อ 1']));expect(r.missing).not.toContain('ชื่อ-นามสกุล');
   expect(c).toMatchObject({status:'UNSIGNED',fields:{decision:null,patientSignedDate:null,doctor:null}});expect(c.fields.acknowledged.every(a=>a===false)).toBe(true);
  });
  it('1-4, 8, 9: doctor chosen from the registry appears on Request and Consent; BE dates, HN zeros, long Thai text fit; A4 1+1=2 pages',async()=>{
@@ -74,7 +74,7 @@ describe.skipIf(!available)('ANC Request + Consent auto-fill preview on the DCC 
   const both=await preview('BOTH');expect(both).toMatchObject({pages:2,templateSet:REFERENCE_SET_ID,dccStatus:'REFERENCE_NOT_DCC_APPROVED',consentStatus:'UNSIGNED',overflow:[],doctor:{id:doctorA,active:true}});
   const pages=await pdfText(both.bytes);expect(pages).toHaveLength(2);
   expect([pages[0].w,pages[0].h,pages[1].w,pages[1].h].map(v=>Math.round(v*100)/100)).toEqual([595.2,841.92,594.96,842.04]); // A4 template geometry kept
-  for(const t of ['Fm-WI-T-BM17/01','1 / 2','REQUEST FORM','0099000123','SYNTHETIC-ID-0099','SYNTHETIC นพ.เลือกจากทะเบียน หนึ่ง','62.5','158','25.0','synthetic.anc@example.test','SYNTHETIC Quad test'])expect(has(pages[0],t),t).toBe(true);
+  for(const t of ['Fm-WI-T-BM17/01','1 / 2','REQUEST FORM','0099000123','SYNTHETIC นพ.เลือกจากทะเบียน หนึ่ง','62.5','158','25.0','SYNTHETIC Quad test'])expect(has(pages[0],t),t).toBe(true);expect(has(pages[0],'SYNTHETIC-ID-0099')).toBe(false);expect(has(pages[0],'synthetic.anc@example.test')).toBe(false);
   for(const t of ['Fm-WI-T-BM17/02','INFORM CONSENT','SYNTHETIC นพ.เลือกจากทะเบียน หนึ่ง'])expect(has(pages[1],t),t).toBe(true);
   expect(has(pages[0],'ฉบับร่างเพื่อดูตัวอย่าง (DRAFT PREVIEW)')).toBe(true);expect(has(pages[1],'ยังไม่ได้ลงนาม')).toBe(true);
   // BE date boxes: DOB 31/03/2539, EDD 22/04/2570, ultrasound 01/09/2569 as single digits in the printed boxes.

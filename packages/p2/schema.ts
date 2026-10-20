@@ -1,4 +1,4 @@
-import {DCC_REQUEST_CONTRACT,dccRequiredIssues} from '../forms/request-contract';
+import {DCC_REQUEST_CONTRACT,dccRequiredIssues,validThaiCitizenId} from '../forms/request-contract';
 import {z} from 'zod';
 import {operationalDataEnabled} from '../security/runtime';
 import {isLikelyBuddhistEraYear} from '../domain/thai-date';
@@ -12,7 +12,7 @@ export const date=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v=>!Number.isNa
 const fact=z.strictObject({answer,date:date.nullable(),exposureAt:z.iso.datetime().nullable().optional()});
 export const requestSchema=z.strictObject({
  documentContractVersion:z.literal(DCC_REQUEST_CONTRACT).optional(),
- patient:z.strictObject({syntheticName:syntheticText,dob:date.nullable(),phone:z.string().trim().max(32).refine(v=>operationalDataEnabled()?v===''||/^\+?[0-9][0-9 ()-]{5,24}$/.test(v):/^SYNTHETIC(?:-[A-Z0-9]+)*$|^$/.test(v)).nullable(),address:syntheticText.nullable(),identifier:z.string().trim().max(64).refine(v=>operationalDataEnabled()? /^[A-Za-z0-9][A-Za-z0-9./-]*$/.test(v):/^SYNTHETIC-[A-Z0-9-]+$/.test(v)).nullable().optional(),identifierType:z.enum(['Synthetic','Unknown','ThaiNationalId','Passport','HospitalId','Other']).refine(v=>operationalDataEnabled()||['Synthetic','Unknown'].includes(v)).nullable().optional(),entitlement:syntheticText.nullable().optional()}),
+ patient:z.strictObject({syntheticName:syntheticText,dob:date.nullable(),ageYears:z.number().int().min(0).max(100).nullable().optional(),phone:z.string().trim().max(32).refine(v=>operationalDataEnabled()?v===''||/^\+?[0-9][0-9 ()-]{5,24}$/.test(v):/^SYNTHETIC(?:-[A-Z0-9]+)*$|^$/.test(v)).nullable(),address:syntheticText.nullable(),identifier:z.string().trim().max(64).refine(v=>operationalDataEnabled()?v===''||validThaiCitizenId(v):/^SYNTHETIC-[A-Z0-9-]+$/.test(v)).nullable().optional(),identifierType:z.enum(['Synthetic','Unknown','ThaiNationalId','Passport','HospitalId','Other']).refine(v=>operationalDataEnabled()||['Synthetic','Unknown'].includes(v)).nullable().optional(),entitlement:syntheticText.nullable().optional()}),
  pregnancy:z.strictObject({type:z.enum(['Singleton','Twins','Unknown']).nullable(),edd:date.nullable(),ultrasoundDate:date.nullable().optional(),art:answer.optional(),abortion:z.number().int().min(0).max(50).nullable().optional(),collectionDate:date.nullable(),collectionTime:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),collectionSource:z.enum(['ANC','LAB_PAPER','SYNTHETIC_PATIENT']).nullable(),weightKg:z.number().finite().min(0).max(500).nullable(),heightCm:z.number().finite().min(0).max(300).nullable(),gravida:z.number().int().min(0).max(50).nullable(),para:z.number().int().min(0).max(50).nullable(),vanishingTwin:answer,vanishingDate:date.nullable(),vanishingGaDays:z.number().int().min(0).max(300).nullable(),drawEightWeeksAfterLoss:answer.optional(),fetalSex:z.enum(['Want','DoNotWant','Unspecified']).nullable(),sca:z.enum(['Want','DoNotWant','Unspecified']).nullable()}),
  history:z.strictObject({transfusion4months:fact,heparin24h:fact,immune1month:fact,albumin4weeks:fact,exogenousDna4weeks:fact,cancerTreatment:answer,gaUnder8:answer,tumor:answer,tumorDetails:syntheticText.nullable(),priorChromosomeTest:answer,priorTestMethod:syntheticText.nullable(),priorTestResult:syntheticText.nullable(),otherHistory:answer,otherDetails:syntheticText.nullable()}),
  acknowledgments:z.strictObject({conditionA:answer,conditionB:answer}),
@@ -24,15 +24,14 @@ export function calculations(d:RequestDraft){
  const p=d.pregnancy;
  const gaDays=p.edd&&p.collectionDate?280+Math.round((Date.parse(p.collectionDate)-Date.parse(p.edd))/86400000):null;
  const bmi=p.weightKg!==null&&p.heightCm!==null&&p.heightCm>0?p.weightKg/(p.heightCm/100)**2:null;
- const ageYears=d.patient.dob&&p.collectionDate?(()=>{const a=new Date(d.patient.dob!),b=new Date(p.collectionDate!);return b.getUTCFullYear()-a.getUTCFullYear()-(b.toISOString().slice(5,10)<a.toISOString().slice(5,10)?1:0);})():null;
+ const ageYears=d.patient.ageYears??null;
  return {gaDays,gaWeeks:gaDays!==null?Math.floor(gaDays/7):null,gaRemainder:gaDays!==null?gaDays%7:null,bmi,ageYears};
 }
 export function requestIssues(d:RequestDraft){
  const issues:string[]=operationalDataEnabled()?dccRequiredIssues(d):[];const p=d.pregnancy,h=d.history,c=calculations(d);
- if(!d.patient.syntheticName)issues.push('patient.syntheticName');
- for(const k of ['type','edd','collectionDate','collectionSource','weightKg','heightCm'] as const)if(p[k]===null||p[k]==='Unknown')issues.push('pregnancy.'+k);
- for(const k of ['transfusion4months','heparin24h','immune1month','albumin4weeks','exogenousDna4weeks'] as const){if(h[k].answer===null||h[k].answer==='Unknown')issues.push('history.'+k);if(h[k].answer==='Yes'&&!h[k].date)issues.push('history.'+k+'.date');}
- for(const k of ['cancerTreatment','gaUnder8','tumor','priorChromosomeTest','otherHistory'] as const)if(h[k]===null||h[k]==='Unknown')issues.push('history.'+k);
+ for(const k of ['type','edd','collectionDate','weightKg','heightCm'] as const)if(p[k]===null||p[k]==='Unknown')issues.push('pregnancy.'+k);
+ for(const k of ['transfusion4months','heparin24h','immune1month'] as const)if(h[k].answer===null||h[k].answer==='Unknown')issues.push('history.'+k);
+ for(const k of ['cancerTreatment','gaUnder8','tumor','priorChromosomeTest'] as const)if(h[k]===null||h[k]==='Unknown')issues.push('history.'+k);
  if(h.tumor==='Yes'&&!h.tumorDetails)issues.push('history.tumorDetails');
  if(h.priorChromosomeTest==='Yes'&&(!h.priorTestMethod||!h.priorTestResult))issues.push('history.priorChromosomeTest.details');
  if(h.otherHistory==='Yes'&&!h.otherDetails)issues.push('history.otherDetails');

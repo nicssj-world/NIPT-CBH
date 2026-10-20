@@ -52,7 +52,22 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
   const second=await cycle(f,{now:later(1)});expect(second.counts).toMatchObject({okArrived:1,stored:1,outcome_APPLIED_S1:1});
   const s=await caseState(f.db,caseId);
   expect(s.rounds[0]).toMatchObject({state:'ReceivedInHIS',received_source:'HIS_PET_RECEIPT'});expect(new Date(s.rounds[0].received_at!).toISOString()).toBe('2026-10-12T03:15:00.000Z');
+  const request=(await rows<{draft:{patient:{syntheticName:string;dob:string}}}>(f.db,'SELECT w.draft FROM p2_workspace w JOIN specimen_round r ON r.id=w.round_id WHERE w.case_id=$1 AND r.round_number=1',[caseId]))[0].draft;
+  expect(request.patient).toMatchObject({syntheticName:'SYNTHETIC^^นาง จำลอง',dob:'2000-01-01'});
   expect(s.orders).toHaveLength(1);expect(s.ln.verification).toBe('VERIFIED_BY_PET');expect(await openIssues(f.db)).toEqual([]);
+ });
+
+ it('PET identity never overwrites ANC name or date of birth already entered',async()=>{
+  const caseId=await register(f,{ln:LN,hn:HN});
+  const workspace=(await rows<{round_id:string;draft:Record<string,unknown>}>(f.db,'SELECT w.round_id,w.draft FROM p2_workspace w JOIN specimen_round r ON r.id=w.round_id WHERE w.case_id=$1 AND r.round_number=1',[caseId]))[0];
+  const draft={...workspace.draft,patient:{...(workspace.draft.patient as Record<string,unknown>),syntheticName:'ANC entered name',dob:'1999-01-01'}};
+  await f.db.query('UPDATE p2_workspace SET draft=$2,version=version+1 WHERE round_id=$1',[workspace.round_id,draft]);
+  await writePet(f.root,DAY,{ln:LN,hn:HN,name:'SYNTHETIC PET name',dob:'20000101',receivedAt:'20261012101500'});
+  await cycle(f,{now:NOW});
+  const saved=(await rows<{draft:{patient:{syntheticName:string;dob:string}}}>(f.db,'SELECT draft FROM p2_workspace WHERE round_id=$1',[workspace.round_id]))[0].draft;
+  expect(saved.patient).toMatchObject({syntheticName:'ANC entered name',dob:'1999-01-01'});
+  const event=(await rows<{details:{fields:string[]}}>(f.db,"SELECT details FROM case_event WHERE case_id=$1 AND event_type='PET_IDENTITY_CONFLICT'",[caseId]))[0];
+  expect(event.details.fields.sort()).toEqual(['dob','name']);
  });
 
  it('AT-HISIN-04 idempotent replay, path versions, semantic duplicates, identity change → Conflict, other change → S1IntegrityEvent without state change',async()=>{
@@ -77,7 +92,7 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
   const issues=await openIssues(f.db,LN);
   expect(issues.map(i=>[i.kind,i.details.fields])).toEqual([['LN_REUSED_OR_CHANGED',['name']],['S1_INTEGRITY_EVENT',['specimenAt']],['S1_INTEGRITY_EVENT',['receivedAt']]]);
   expect(JSON.stringify(issues)).not.toContain('เปลี่ยนชื่อ');
-  expect((await rows<{event_type:string}>(f.db,'SELECT event_type FROM case_event WHERE case_id=$1 ORDER BY created_at',[caseId])).map(e=>e.event_type)).toEqual(['HIS_S1_RECEIVED','S1_INTEGRITY_EVENT','S1_INTEGRITY_EVENT','HIS_LN_CONFLICT']);
+  expect((await rows<{event_type:string}>(f.db,'SELECT event_type FROM case_event WHERE case_id=$1 ORDER BY created_at',[caseId])).map(e=>e.event_type)).toEqual(['PET_IDENTITY_UPDATED','HIS_S1_RECEIVED','S1_INTEGRITY_EVENT','S1_INTEGRITY_EVENT','HIS_LN_CONFLICT']);
  });
 
  it('AT-HISIN-05 Unlinked links when the registrant identifiers match (registration hook and worker rematch); mismatch → IDENTITY_MISMATCH',async()=>{

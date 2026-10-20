@@ -7,6 +7,7 @@ type Cell = "-" | "Y" | "U" | "R" | "P" | "A" | "L" | "C" | "B";
 // Eight original matrix columns, followed by separate Historical Verifier permission.
 const rows = {
   "case.register.anc": "UU-------",
+  "case.registration.void": "YY---Y---",
   "case.register.lab": "--YY-----",
   "intake.link": "--PA---R-",
   "history.draft": "--CY---R-",

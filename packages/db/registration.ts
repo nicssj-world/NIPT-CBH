@@ -12,12 +12,14 @@ export async function registerCase(client:Queryable,input:RegisterInput) {
  await lockLn(client,ln);
  const replay=await client.query('SELECT case_id,outcome,request_hash,identifier_source FROM registration_attempt WHERE idempotency_key=$1',[input.idempotencyKey]);
  if(replay.rows[0]) {if(replay.rows[0].request_hash!==requestHash||(replay.rows[0].identifier_source??null)!==(input.identifierSource??null)) throw new Error('Idempotency conflict');return {caseId: replay.rows[0].case_id as string|null,outcome:replay.rows[0].outcome as string};}
- const existing=await client.query('SELECT c.id,c.identity_key FROM case_ln l JOIN nipt_case c ON c.id=l.case_id WHERE l.ln=$1 ORDER BY l.version DESC LIMIT 1',[ln]);
+ const hasP2VoidTable=(await client.query<{present:boolean}>("SELECT to_regclass('public.p2_registration_void') IS NOT NULL AS present")).rows[0]?.present===true;
+ const existing=await client.query(hasP2VoidTable?'SELECT c.id,c.identity_key FROM case_ln l JOIN nipt_case c ON c.id=l.case_id WHERE l.ln=$1 AND NOT EXISTS(SELECT 1 FROM p2_registration_void v WHERE v.case_id=c.id) ORDER BY l.version DESC LIMIT 1':'SELECT c.id,c.identity_key FROM case_ln l JOIN nipt_case c ON c.id=l.case_id WHERE l.ln=$1 ORDER BY l.version DESC LIMIT 1',[ln]);
  let caseId:string|null=null;let outcome:string;
  if(existing.rows[0]) {caseId=existing.rows[0].id as string;outcome=existing.rows[0].identity_key===input.identityKey?'OPENED':'CONFLICT';if(outcome==='CONFLICT')caseId=null;}
  else {
  const created=await client.query('INSERT INTO nipt_case(registration_origin,identity_key) VALUES($1,$2) RETURNING id',[input.origin,input.identityKey]);caseId=created.rows[0].id as string;
- const link=await client.query('INSERT INTO case_ln(case_id,ln,source) VALUES($1,$2,$3) RETURNING id',[caseId,ln,input.origin==='ANC'?'ANC_ENTRY':'LAB_ENTRY']);
+ const nextVersion=Number((await client.query<{version:number}>('SELECT COALESCE(max(version),0)+1 AS version FROM case_ln WHERE ln=$1',[ln])).rows[0].version);
+ const link=await client.query('INSERT INTO case_ln(case_id,ln,version,source) VALUES($1,$2,$3,$4) RETURNING id',[caseId,ln,nextVersion,input.origin==='ANC'?'ANC_ENTRY':'LAB_ENTRY']);
  const round=await client.query('INSERT INTO specimen_round(case_id,case_ln_id,round_number) VALUES($1,$2,1) RETURNING id',[caseId,link.rows[0].id]);
  await client.query('UPDATE nipt_case SET current_round_id=$1 WHERE id=$2',[round.rows[0].id,caseId]);outcome='CREATED';
  }

@@ -14,7 +14,8 @@ describe('ANC form field mapping',()=>{
  it('does not print a passport or hospital identifier in the DCC national-ID field',()=>{
   const d=structuredClone(emptyRequest);d.patient.identifier='TEST-PASSPORT';d.patient.identifierType='Passport';
   expect(requestFields(base(d)).fields.nationalId).toBeNull();
-  d.patient.identifierType='ThaiNationalId';d.patient.identifier='1234567890123';expect(requestFields(base(d)).fields.nationalId).toBe('1234567890123');
+  d.patient.identifierType='ThaiNationalId';d.patient.identifier='1234567890123';expect(requestFields(base(d)).fields.nationalId).toBeNull();
+  d.patient.identifier='0000000000001';expect(requestFields(base(d)).fields.nationalId).toBe('0000000000001');
  });
 
  it('keeps a legacy signature as history without projecting its choice, date or acknowledgments onto the current DCC preview',()=>{

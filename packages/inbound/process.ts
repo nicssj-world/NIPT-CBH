@@ -43,10 +43,20 @@ export async function applyS1(db:Queryable,file:{id:string},pet:Pet,target:Targe
  await db.query('INSERT INTO his_order(case_ln_id,inbound_file_id,his_received_at) VALUES($1,$2,$3)',[target.case_ln_id,file.id,pet.receivedAt]);
  const r=await db.query<{id:string}>("UPDATE specimen_round SET received_source='HIS_PET_RECEIPT',received_at=$2,state='ReceivedInHIS',collection_date=$3 WHERE case_ln_id=$1 AND round_number=1 AND received_at IS NULL AND state='Expected' RETURNING id",[target.case_ln_id,pet.receivedAt,pet.specimenAt.slice(0,10)]);
  if(r.rows.length!==1)throw Error('S1_NOT_EXPECTED');
+ await reconcilePetPatient(db,target.case_id,r.rows[0].id,pet);
  await autoClose(db,file.id,'UNLINKED','LINKED');
  await caseEvent(db,target.case_id,'HIS_S1_RECEIVED',{via,inboundFileId:file.id});
  await collectionProvenance(db,target.case_id,r.rows[0].id,pet,actorId);
  await appendAudit(db,{actorId,action:'INBOUND_PET_APPLIED',resourceType:'his_inbound_file',resourceId:file.id,details:{outcome:'APPLIED_S1',reasonCode:via,synthetic:true}});
+}
+
+/** PET may fill blank ANC name/DOB fields; it never replaces a value or rewrites a locked Request snapshot. */
+async function reconcilePetPatient(db:Queryable,caseId:string,roundId:string,pet:Pet){
+ const result=(await db.query<{result:{filled:string[];conflicts:string[];pending:string[]}}>('SELECT p2_reconcile_pet_patient($1,$2,$3,$4) AS result',[caseId,roundId,pet.name.trim(),pet.dob.slice(0,10)])).rows[0]?.result;
+ if(!result)return;
+ if(result.filled.length)await db.query("INSERT INTO case_event(case_id,event_type,details) VALUES($1,'PET_IDENTITY_UPDATED',$2)",[caseId,{fields:result.filled,synthetic:true}]);
+ if(result.conflicts.length)await db.query("INSERT INTO case_event(case_id,event_type,details) VALUES($1,'PET_IDENTITY_CONFLICT',$2)",[caseId,{fields:result.conflicts,synthetic:true}]);
+ if(result.pending.length)await db.query("INSERT INTO case_event(case_id,event_type,details) VALUES($1,'PET_IDENTITY_PENDING_DOCUMENT',$2)",[caseId,{fields:result.pending,synthetic:true}]);
 }
 
 /**

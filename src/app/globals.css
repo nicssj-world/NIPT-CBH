@@ -519,3 +519,14 @@ label.check-label,:is(.stack,fieldset,.form-grid) > label.check-label,fieldset l
 .pager-buttons {display:flex;flex-wrap:wrap;gap:var(--space-2);}
 .pager .button {width:auto;min-width:44px;white-space:nowrap;}
 @media(max-width:600px){.pager-controls {gap:var(--space-3);}.pager-buttons {flex:1 1 100%;}.pager-buttons .button {flex:1 1 auto;padding-inline:var(--space-3);}}
+
+/* Keep account actions visible while the desktop navigation scrolls. */
+@media(min-width:901px){.desktop-sidebar{height:100dvh;position:sticky;top:0;overflow:hidden}.desktop-sidebar nav{min-height:0;overflow:auto;overscroll-behavior:contain}.desktop-sidebar .session{flex-shrink:0;margin-top:auto}.search-input-wrap{position:relative}.search-input-wrap input{padding-right:48px}.search-clear{position:absolute;right:6px;top:5px;width:38px;height:38px;border:0;border-radius:7px;background:transparent;color:var(--color-muted);font-size:24px;line-height:1}.search-clear:hover{background:var(--raised);color:var(--color-ink)}}
+@media(max-width:900px){.mobile-navigation .sidebar{height:calc(100dvh - 76px);overflow:hidden}.mobile-navigation .sidebar nav{min-height:0;overflow:auto;overscroll-behavior:contain}.mobile-navigation .sidebar .session{flex-shrink:0;margin-top:auto}}
+.bmi-highlight,.ga-highlight{margin:var(--space-4) 0;padding:var(--space-3) var(--space-4);border-radius:10px;background:var(--info-bg);font-size:18px;font-weight:600}
+.bmi-highlight strong{font-size:24px;font-variant-numeric:tabular-nums}
+.ga-highlight{border:1px solid var(--color-line);font-variant-numeric:tabular-nums}
+.ga-highlight.ga-warning,.dcc-warning{color:var(--danger-ink,#8f1d22);background:var(--danger-bg,#fff0f0);border-color:var(--danger,#c83232)}
+.dcc-condition{align-items:flex-start;line-height:1.65}
+.dcc-condition input{flex:0 0 auto;margin-top:5px}
+.history-item-eight{font-weight:600;margin:var(--space-4) 0 var(--space-2)}

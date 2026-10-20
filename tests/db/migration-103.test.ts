@@ -38,8 +38,8 @@ async function upgradeChecks(db:Queryable,dir:string){
  const ledger=async()=>(await db.query<{name:string;checksum:string}>('SELECT name,checksum FROM schema_migration ORDER BY name')).rows;
  expect((await ledger()).map(r=>r.name)).toContain(CONSENT);expect((await ledger()).map(r=>r.name)).not.toContain(PHOTO);
  const u=await seed(db);
- const before=await snapshot(db),ledgerBefore=await ledger();
- await migrate(db);
+ const before=await snapshot(db),ledgerBefore=await ledger(),through103=await partial('104');
+ try{await migrate(db,through103);
  const after=await snapshot(db);
  // Every table that existed at 102 is byte-for-byte the same; 103 only adds empty run_photo* tables.
  for(const [t,v] of Object.entries(before))expect(after[t],t).toBe(v);
@@ -50,10 +50,11 @@ async function upgradeChecks(db:Queryable,dir:string){
  const now=await ledger();expect(now.slice(0,ledgerBefore.length)).toEqual(ledgerBefore);
  expect(now.find(r=>r.name===PHOTO)).toEqual({name:PHOTO,checksum:PHOTO_SHA});
  // Idempotent: a second run changes nothing.
- await migrate(db);expect(await ledger()).toEqual(now);expect(await snapshot(db)).toEqual(after);
+ await migrate(db,through103);expect(await ledger()).toEqual(now);expect(await snapshot(db)).toEqual(after);
  // The 102-era Lab workflow still runs on the upgraded schema (photos never gate a Run).
  await tx(db,async t=>{const b=(await t.query<{id:string;version:number}>("SELECT id,version FROM lab_batch WHERE state='Draft'")).rows[0];await batch.cancelBatch(t,u.staff,{batchId:b.id,expectedVersion:b.version,reason:'SYNTHETIC post-103 check'});});
  expect((await tx(db,t=>batch.createBatch(t,u.staff))).batchId).toBeTruthy();
+ }finally{await rm(through103,{recursive:true,force:true});}
 }
 
 it('the bundle has one file per number from 096 on; Consent keeps 102 and Run Photo Evidence is 103 with its original bytes',async()=>{
@@ -65,13 +66,13 @@ it('the bundle has one file per number from 096 on; Consent keeps 102 and Run Ph
  expect(readFileSync('docs/migrations.md','utf8')).toContain(`| ${PHOTO} | ${PHOTO_SHA} |`);
 });
 
-it('PGlite: fresh install applies 001–103 in order and the full bundle is idempotent',async()=>{
- const db=new PGlite();
+it('PGlite: fresh install applies 001–103 in order and that prefix is idempotent',async()=>{
+ const db=new PGlite(),through103=await partial('104');
  try{
-  await migrate(db);const names=(await db.query<{name:string}>('SELECT name FROM schema_migration ORDER BY applied_at,name')).rows.map(r=>r.name);
-  expect(names).toEqual(await bundle());
-  await migrate(db);expect((await db.query<{n:number}>('SELECT count(*)::int n FROM schema_migration')).rows[0].n).toBe(names.length);
- }finally{await db.close();}
+  await migrate(db,through103);const names=(await db.query<{name:string}>('SELECT name FROM schema_migration ORDER BY applied_at,name')).rows.map(r=>r.name);
+  expect(names).toEqual((await bundle()).filter(f=>f<'104'));
+  await migrate(db,through103);expect((await db.query<{n:number}>('SELECT count(*)::int n FROM schema_migration')).rows[0].n).toBe(names.length);
+ }finally{await db.close();await rm(through103,{recursive:true,force:true});}
 });
 
 it('PGlite: a populated 102 database upgrades to 103 without changing any existing row',async()=>{
@@ -101,8 +102,8 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('native PostgreSQL: fresh install
   const fresh=await open(names[0]);
   try{
    expect((await fresh.query<{v:string}>("SELECT current_setting('server_version_num') v")).rows[0].v.startsWith('17')).toBe(true);
-   await migrate(fresh);await migrate(fresh);
-   expect((await fresh.query<{name:string}>('SELECT name FROM schema_migration ORDER BY name')).rows.map(r=>r.name)).toEqual(await bundle());
+   const through103=await partial('104');try{await migrate(fresh,through103);await migrate(fresh,through103);
+   expect((await fresh.query<{name:string}>('SELECT name FROM schema_migration ORDER BY name')).rows.map(r=>r.name)).toEqual((await bundle()).filter(f=>f<'104'));}finally{await rm(through103,{recursive:true,force:true});}
   }finally{await fresh.end();}
   const up=await open(names[1]);
   try{await upgradeChecks(up as unknown as Queryable,dir);}finally{await up.end();}
