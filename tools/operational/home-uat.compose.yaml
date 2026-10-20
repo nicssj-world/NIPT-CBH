@@ -84,7 +84,14 @@ services:
       <<: *common-env
       RENDERER_HOST: 0.0.0.0
       CHROMIUM_NO_SANDBOX: "true"
+      NIPT_ANC_FORM_REGISTRY: /forms/registry.json
     secrets: [renderer_token]
+    volumes:
+      - type: bind
+        source: .local/owner-local-uat-1.0.2/forms
+        target: /forms
+        read_only: true
+        bind: {create_host_path: false}
     networks: [render]
     tmpfs: ["/tmp:rw,nosuid,size=512m"]
     read_only: true
