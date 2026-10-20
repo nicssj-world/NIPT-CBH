@@ -1,3 +1,4 @@
 * text=auto eol=lf
+tools/operational/Local-Owner-UAT-StartStop.vbs text eol=crlf working-tree-encoding=UTF-16LE-BOM
 *.png binary
 *.woff2 binary
