@@ -136,6 +136,7 @@ services:
       DATABASE_URL_FILE: /run/secrets/web_url
       INTEGRATION_PUBLIC_KEY_FILE: /run/secrets/integration_public
       NIPT_TASK_MASTER_PATH: /approved/master.xlsx
+      NIPT_ANC_FORM_REGISTRY: /forms/registry.json
       NIPT_LOCAL_UAT_BANNER: "1"
       NIPT_NATIVE_EXCEL_SPOOL: /excel-spool
     secrets: [web_url,renderer_token,integration_public,identity_lookup]
@@ -150,6 +151,11 @@ services:
       - type: bind
         source: .local/owner-local-uat-1.0.2/master/approved-combined.xlsx
         target: /approved/master.xlsx
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: .local/owner-local-uat-1.0.2/forms
+        target: /forms
         read_only: true
         bind: {create_host_path: false}
       - type: bind
