@@ -81,23 +81,11 @@ function Get-ErrorText {
 function Save-LastError([string]$Message) {
   New-Item -ItemType Directory -Path $LocalRoot -Force | Out-Null
   $safe=$Message -replace '[\r\n]+',' '
-  [IO.File]::WriteAllText($LastErrorFile,$safe,[Text.UTF8Encoding]::new($false))
+  [IO.File]::WriteAllText($LastErrorFile,$safe,[Text.Encoding]::Unicode)
 }
 
 function Clear-LastError {
   if(Test-Path -LiteralPath $LastErrorFile){Remove-Item -LiteralPath $LastErrorFile -Force}
-}
-
-function Show-Notification([string]$Message,[bool]$Failed=$false) {
-  try {
-    $shell=New-Object -ComObject WScript.Shell
-    $icon=if($Failed){48}else{64}
-    [void]$shell.Popup($Message,8,'NIPT-CBH Local',$icon)
-  } catch {
-    Add-Type -AssemblyName System.Windows.Forms
-    $icon=if($Failed){[System.Windows.Forms.MessageBoxIcon]::Warning}else{[System.Windows.Forms.MessageBoxIcon]::Information}
-    [void][System.Windows.Forms.MessageBox]::Show($Message,'NIPT-CBH Local',[System.Windows.Forms.MessageBoxButtons]::OK,$icon)
-  }
 }
 
 function Stop-ExcelBridgeSafely {
@@ -132,21 +120,16 @@ function Start-LocalUat {
   }
   if($health -and $health.ready -eq $true) {
     Clear-LastError
-    Start-Process -FilePath ($Origin+'/login') | Out-Null
-    Show-Notification 'NIPT-CBH Local เปิดอยู่แล้ว และได้เปิดหน้า Login ใน Browser แล้ว'
     return
   }
   [void](Invoke-HomeAction 'Start')
   $health=Get-HomeHealth
   if($health.ready -ne $true){throw 'Local UAT services did not pass the full readiness check.'}
-  Start-Process -FilePath ($Origin+'/login') | Out-Null
   Clear-LastError
-  Show-Notification 'NIPT-CBH Local พร้อมทดลองแล้ว และได้เปิดหน้า Login ใน Browser แล้ว'
 }
 
 function Stop-LocalUat {
   if(-not (Test-Path -LiteralPath $LocalRoot)) {
-    Show-Notification 'NIPT-CBH Local ยังไม่เคยเริ่มใช้งาน จึงไม่มีบริการให้ปิด'
     return
   }
   $projectContainers=@()
@@ -164,8 +147,7 @@ function Stop-LocalUat {
       }
       if(-not $stopResult){throw 'Home-UAT did not confirm that its own Compose project stopped.'}
       if($stopResult.excelBridge -ne 'STOPPED') {
-        Show-Notification 'บริการแอปปิดแล้ว แต่ Excel Bridge กำลังทำ Export ปัจจุบันให้เสร็จ โปรดรอสักครู่ก่อน Start ใหม่' $true
-        return
+        throw 'บริการแอปปิดแล้ว แต่ Excel Bridge กำลังทำ Export ปัจจุบันให้เสร็จ โปรดรอสักครู่ก่อน Start ใหม่'
       }
     } else {
       $bridgeStopped=Stop-ExcelBridgeSafely
@@ -174,10 +156,8 @@ function Stop-LocalUat {
   } else {
     $bridgeStopped=Stop-ExcelBridgeSafely
     if(-not $bridgeStopped){throw 'Docker services are offline, but the Excel Bridge is still finishing an export.'}
-    Show-Notification 'Docker Desktop ปิดอยู่ และบริการ NIPT-CBH Local หยุดแล้ว โดยหยุด Excel Bridge ของ Local UAT แล้ว'
-    return
   }
-  Show-Notification 'ปิดบริการ NIPT-CBH Local แล้ว ข้อมูล Database และไฟล์ทดลองยังคงอยู่'
+  Clear-LastError
 }
 
 function Get-ServiceDisplay([object]$Health,[string]$Name) {
@@ -275,14 +255,12 @@ $locked=$false
 try {
   $locked=$mutex.WaitOne(0)
   if(-not $locked) {
-    Show-Notification 'มีคำสั่ง Start หรือ Stop กำลังทำงานอยู่ กรุณารอแล้วลองอีกครั้ง' $true
-    return
+    throw 'มีคำสั่ง Start หรือ Stop กำลังทำงานอยู่ กรุณารอแล้วลองอีกครั้ง'
   }
   try {
     if($Action -eq 'Start'){Start-LocalUat}else{Stop-LocalUat}
   } catch {
     Save-LastError $_.Exception.Message
-    Show-Notification ('ดำเนินการไม่สำเร็จ: '+$_.Exception.Message) $true
     exit 1
   }
 } finally {
