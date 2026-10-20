@@ -23,11 +23,10 @@ const saveSchema=z.strictObject({action:z.literal('save'),id:z.uuid().optional()
 /** Append a new immutable record; existing Request/Consent snapshots retain their prior signature bytes. */
 export async function saveDoctor(db:Queryable,user:Staff,input:unknown){
  await assertStaff(db,user);requirePermission(user,'doctor.manage',{},'write');const d=saveSchema.parse(input);
- if(!user.roles.includes('APP_ADMIN')&&!user.unitIds.includes(d.unitId))throw new P2Error('FORBIDDEN',403);
+ if(!(await db.query('SELECT id FROM unit WHERE id=$1 AND active',[d.unitId])).rows.length)throw new P2Error('ACTIVE_UNIT_REQUIRED',422);
  await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,75432803))',[d.doctorKey]);
  const prior=(await db.query<{id:string;doctor_key:string;unit_id:string;signature:unknown;signature_png:string;signature_hash:string;version:number}>('SELECT * FROM p2_doctor_version WHERE doctor_key=$1 ORDER BY version DESC LIMIT 1',[d.doctorKey])).rows[0];
  if(d.id?(!prior||prior.id!==d.id):!!prior)throw new P2Error('DOCTOR_RECORD_CHANGED',409);
- if(prior&&prior.unit_id!==d.unitId)throw new P2Error('DOCTOR_UNIT_CHANGE_DENIED',409);
  if(d.image&&d.vector)throw new P2Error('SIGNATURE_IMAGE_INVALID',422);
  const sig=d.image?await uploadedDoctorSignature(d.image):d.vector?deriveSignature(d.vector):prior?{vector:prior.signature,png:prior.signature_png,hash:prior.signature_hash}:null;
  if(!sig)throw new P2Error('DOCTOR_SIGNATURE_REQUIRED',422);

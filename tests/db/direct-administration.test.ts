@@ -11,7 +11,7 @@ async function tx<T>(fn:()=>Promise<T>){await db.query('BEGIN');try{const r=awai
 beforeAll(async()=>{db=await testDatabase();admin=await addUser(db);anc=await addUser(db,'ANC_NURSE','synthetic.anc');checker=await addUser(db,'CLINICAL_APPROVER','synthetic.checker');unit=(await db.query<{id:string}>("INSERT INTO unit(code,name) VALUES('ANC','ANC') RETURNING id")).rows[0].id;});
 afterAll(async()=>db.close());
 it('Admin creates a user with immediate roles, scopes and separate position/contact fields',async()=>{
- const user=await tx(()=>adminCommand(db,admin,{operation:'saveUser',username:'synthetic.newanc',displayName:'พยาบาลทดสอบ',password:TEST_PASSWORD,jobPosition:'พยาบาลวิชาชีพ',phone:'',unitId:unit,enabled:true,roles:['ANC_NURSE'],unitIds:[unit],permissions:[]}));
+ const user=await tx(()=>adminCommand(db,admin,{operation:'saveUser',username:'synthetic.newanc',displayName:'พยาบาลทดสอบ',password:TEST_PASSWORD,jobPosition:'พยาบาลวิชาชีพ',phone:'',unitId:unit,enabled:true,roles:['ANC_NURSE'],unitIds:[],permissions:[]}));
  const found=(await listUsers(db,admin,{search:'synthetic.newanc'})).rows[0];expect(found.id).toBe(user.id);expect(found).toMatchObject({job_position:'พยาบาลวิชาชีพ',phone:'',roles:['ANC_NURSE'],unit_ids:[unit]});
  expect((await db.query('SELECT id FROM admin_access_request WHERE user_id=$1',[user.id])).rows).toHaveLength(0);
  const login=await tx(()=>authenticate(db,'synthetic.newanc',TEST_PASSWORD));expect((await readSession(db,login!.token))?.roles).toEqual(['ANC_NURSE']);

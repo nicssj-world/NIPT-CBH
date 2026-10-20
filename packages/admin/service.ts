@@ -69,6 +69,9 @@ export async function adminCommand(db:Queryable,principal:Actor,input:unknown):P
  if(c.operation==='saveUser'){
   if(!actor.roles.includes('APP_ADMIN'))throw Error('FORBIDDEN');
   if(new Set(c.roles).size!==c.roles.length||new Set(c.permissions).size!==c.permissions.length)throw Error('DUPLICATE_ACCESS');
+  // An administrator explicitly assigning an ANC role and primary unit grants
+  // that unit through the existing scope table; no implicit cross-unit rights.
+  if(c.unitId&&c.roles.some(r=>r==='ANC_NURSE'||r==='ANC_SUPERVISOR')&&!c.unitIds.includes(c.unitId))c.unitIds.push(c.unitId);
   await activeUnits(db,c.unitIds);if(c.unitId)await activeUnits(db,[c.unitId]);
   if(c.roles.some(r=>r==='ANC_NURSE'||r==='ANC_SUPERVISOR')&&!c.unitIds.length)throw Error('ANC_UNIT_SCOPE_REQUIRED');
   let id=c.id;

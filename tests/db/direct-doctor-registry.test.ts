@@ -1,7 +1,7 @@
 import {beforeAll,afterAll,it,expect} from 'vitest';
 import {testDatabase,addUser} from '../helpers/database';
 import type {PGlite} from '@electric-sql/pglite';
-import {doctorAction,listDoctors,activeDoctor,type Staff} from '../../packages/p2/service';
+import {doctorAction,listDoctors,doctorUnits,activeDoctor,registerP2,type Staff} from '../../packages/p2/service';
 import {deriveSignature} from '../../packages/p2/signature';
 import {uploadedDoctorSignature} from '../../packages/p2/doctor-registry';
 let db:PGlite,anc:Staff,admin:Staff,unit:string,other:string;
@@ -21,10 +21,22 @@ it('ANC saves an uploaded signature directly, immediately available in the same 
  await expect(activeDoctor(db,String(saved.id),unit)).rejects.toMatchObject({code:'AUTHORIZED_SYNTHETIC_DOCTOR_REQUIRED'});
  await expect(tx(()=>doctorAction(db,anc,{...input(),id:saved.id}))).rejects.toMatchObject({code:'DOCTOR_RECORD_CHANGED'});
 });
-it('denies cross-unit mutations, non-staff authority and missing authorization',async()=>{
- await expect(tx(()=>doctorAction(db,anc,{...input(),doctorKey:'SYNTHETIC-OTHER',unitId:other}))).rejects.toMatchObject({code:'FORBIDDEN'});
+it('shares doctors across units without broadening patient access, and denies unauthorized management',async()=>{
+ const saved=await tx(()=>doctorAction(db,anc,{...input(),doctorKey:'SYNTHETIC-OTHER',unitId:other}));
+ expect(await activeDoctor(db,String(saved.id),unit)).toMatchObject({unit_id:other});
+ expect((await listDoctors(db,anc)).find(d=>'id' in d&&d.id===saved.id)).toMatchObject({active:true});
+ expect((await doctorUnits(db,anc)).some(u=>u.id===other)).toBe(true);
+ await expect(tx(()=>registerP2(db,anc,{ln:'9900001010',hn:'9900001',unitId:other,origin:'ANC',idempotencyKey:'SYNTHETIC_SHARED_DOCTOR_DENIED'},Buffer.alloc(32,7)))).rejects.toThrow('FORBIDDEN');
  const lab=await addUser(db,'LAB_STAFF','synthetic.lab');await expect(tx(()=>doctorAction(db,lab,{...input(),doctorKey:'SYNTHETIC-LAB'}))).rejects.toThrow('FORBIDDEN');
  await expect(tx(()=>doctorAction(db,anc,{...input(),doctorKey:'SYNTHETIC-NO-AUTH',authorized:false}))).rejects.toThrow();
+});
+it('lets ANC explicitly activate a legacy pending record by saving it, while legacy approval stays restricted',async()=>{
+ const old=await tx(()=>doctorAction(db,admin,{action:'propose',doctorKey:'SYNTHETIC-LEGACY',name:'SYNTHETIC legacy test',unitId:unit,effectiveFrom:'2020-01-01T00:00:00Z',authorization:'SYNTHETIC test fixture',vector:fixture.vector}));
+ await expect(activeDoctor(db,String(old.id),unit)).rejects.toMatchObject({code:'AUTHORIZED_SYNTHETIC_DOCTOR_REQUIRED'});
+ await expect(tx(()=>doctorAction(db,anc,{action:'approve',id:old.id,reason:'SYNTHETIC denied legacy path'}))).rejects.toMatchObject({code:'FORBIDDEN'});
+ const updated=await tx(()=>doctorAction(db,anc,{action:'save',id:old.id,doctorKey:'SYNTHETIC-LEGACY',name:'SYNTHETIC legacy test',unitId:unit,authorized:true}));
+ expect(await activeDoctor(db,String(updated.id),unit)).toMatchObject({signature_png:fixture.png});
+ expect(await activeDoctor(db,String(updated.id),other)).toMatchObject({signature_png:fixture.png});
 });
 it('validates bytes, MIME, image dimensions and base64 instead of trusting extensions',async()=>{
  await expect(uploadedDoctorSignature({mime:'image/jpeg',data:fixture.png})).rejects.toMatchObject({code:'SIGNATURE_IMAGE_INVALID'});

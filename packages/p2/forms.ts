@@ -35,10 +35,10 @@ export async function formSources(db:Queryable,user:Staff,caseId:string){
  // The ordering doctor is the Doctor Registry version the ANC nurse selected on this round's request; never the user's own name.
  const doctorId=draft.ordering?.doctorVersionId??null;
  const doctor=doctorId?(await db.query<{id:string;name:string;doctor_key:string;active:boolean}>(`SELECT v.id,v.name,v.doctor_key,
-   -- same rule as activeDoctor(): this unit, effective, latest event Approved, no newer approved version of the same doctor
-   (v.unit_id=$2 AND v.effective_from<=now() AND (SELECT e.event_type FROM p2_doctor_event e WHERE e.doctor_version_id=v.id ORDER BY e.created_at DESC,e.id DESC LIMIT 1)='Approved'
+   -- same rule as activeDoctor(): shared registry, effective, latest event Approved, no newer approved version of the same doctor
+   (v.effective_from<=now() AND (SELECT e.event_type FROM p2_doctor_event e WHERE e.doctor_version_id=v.id ORDER BY e.created_at DESC,e.id DESC LIMIT 1)='Approved'
     AND NOT EXISTS(SELECT 1 FROM p2_doctor_version n JOIN p2_doctor_event e ON e.doctor_version_id=n.id AND e.event_type='Approved' WHERE n.doctor_key=v.doctor_key AND n.version>v.version AND n.effective_from<=now())) active
-   FROM p2_doctor_version v WHERE v.id=$1`,[doctorId,c.unit_id])).rows[0]??null:null;
+   FROM p2_doctor_version v WHERE v.id=$1`,[doctorId])).rows[0]??null:null;
  const fact=(await db.query<{collection_date:string;collection_time:string|null;source:string}>("SELECT collection_date::text,collection_time,source FROM p2_collection_fact WHERE round_id=$1 ORDER BY sequence DESC LIMIT 1",[c.current_round_id])).rows[0]??null;
  const round=(await db.query<{received_at:Date|null;received_source:string|null}>('SELECT received_at,received_source FROM specimen_round WHERE id=$1',[c.current_round_id])).rows[0];
  const acceptance=(await db.query<{condition:'ACCEPTABLE'|'REJECTED';reason:string;created_at:Date}>('SELECT condition,reason,created_at FROM specimen_acceptance WHERE round_id=$1 ORDER BY created_at DESC LIMIT 1',[c.current_round_id]).catch(()=>({rows:[]}))).rows[0]??null;
