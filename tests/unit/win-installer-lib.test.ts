@@ -6,7 +6,7 @@ import {thaiError,thaiStep,thaiLanWarnings,thaiCheck,THAI_WARNING,STEP_TEXTS,ste
 import path from 'node:path';
 import {
  parseVersion,compareVersions,layout,validateConfig,assertSafeRoot,directoryHashes,verifyPackage,schemaCompatibility,canRollbackApplicationOnly,
- healthVerdict,backoffMs,parseLedgerOutput,isValidHost,isIPv4,originFor,sanEntries,sanText,normalizeLanAllow,normalizeLanProfiles,pickLanAddress,sha256Bytes,INSTALLER_FORMAT,writeJson,readJson,portFree
+ healthVerdict,classifyUpgradeHealthOutcome,recordedProcessState,backoffMs,parseLedgerOutput,isValidHost,isIPv4,originFor,sanEntries,sanText,normalizeLanAllow,normalizeLanProfiles,pickLanAddress,sha256Bytes,INSTALLER_FORMAT,writeJson,readJson,portFree
 } from '../../tools/win-installer/lib.mjs';
 
 // The Windows installer's decisions that must never depend on a live machine: version order, configuration limits, package authenticity,
@@ -165,6 +165,17 @@ describe('health verdict and supervisor policy',()=>{
   const v=healthVerdict({...healthy,technicalReady:false,backupStatus:'NOT_CONFIGURED'},{supervisor:true,https:true});
   expect(v).toMatchObject({ok:true,technicalReady:false,backupStatus:'NOT_CONFIGURED'});
  });
+ it('classifies health failure by the actual rollback result and verifies Windows Node PIDs against the install root',()=>{
+  expect(classifyUpgradeHealthOutcome({rolledBack:true})).toBe('UPGRADE_FAILED_HEALTH');
+  expect(classifyUpgradeHealthOutcome({rolledBack:false,error:'ROLLBACK_REQUIRES_DATABASE_RESTORE'})).toBe('UPGRADE_FAILED_HEALTH_RESTORE_REQUIRED');
+  expect(classifyUpgradeHealthOutcome({rolledBack:false,error:'NO_PREVIOUS_RELEASE'})).toBe('UPGRADE_FAILED_HEALTH_RECOVERY_REQUIRED');
+  const owned={pid:42,alive:true,image:'node.exe',commandLine:'"D:\\NIPT-CBH\\runtime\\node\\node.exe" "D:\\NIPT-CBH\\admin\\supervisor.mjs" --root "D:\\NIPT-CBH"',root:'D:/NIPT-CBH',marker:'supervisor.mjs'};
+  expect(recordedProcessState(owned)).toBe('RUNNING');
+  expect(recordedProcessState({...owned,commandLine:'node.exe other-app\\supervisor.mjs --root D:\\OTHER'})).toBe('PID_REUSED_OR_UNRELATED');
+  expect(recordedProcessState({...owned,alive:false})).toBe('NOT_RUNNING');
+  expect(recordedProcessState({...owned,commandLine:undefined})).toBe('UNVERIFIED');
+  expect(recordedProcessState({...owned,pid:undefined})).toBe('NOT_RECORDED');
+ });
  it('restarts a crashing service with a bounded backoff',()=>{
   expect([0,1,2,3,4,5,6,20].map(backoffMs)).toEqual([1000,2000,4000,8000,16000,30000,30000,30000]);
  });
@@ -224,10 +235,13 @@ describe('Setup messages (Thai, actionable, no technical detail in the dialog)',
   expect(thaiCheck({id:'package_signature_and_files',detail:'PACKAGE_CHECKSUM_MISMATCH'})).toContain('เสียหาย');
  });
  it('never leaks codes or stack text for known and unknown failures, and says when data is safe',()=>{
-  for(const code of ['UPGRADE_FAILED_HEALTH','UPGRADE_SCHEMA_INCOMPATIBLE','SIGNATURE_INVALID','INSTALLED_VERSION_IS_NEWER','LAN_ADDRESS_NOT_FOUND','TIMEOUT_HEALTH_["web"]','SOMETHING_NEW']){
+  for(const code of ['UPGRADE_FAILED_HEALTH','UPGRADE_FAILED_HEALTH_RESTORE_REQUIRED','UPGRADE_FAILED_HEALTH_RECOVERY_REQUIRED','UPGRADE_SCHEMA_INCOMPATIBLE','SIGNATURE_INVALID','INSTALLED_VERSION_IS_NEWER','LAN_ADDRESS_NOT_FOUND','TIMEOUT_HEALTH_["web"]','SOMETHING_NEW']){
    const t=thaiError(code,undefined);expect(t,code).toMatch(/[฀-๿]/);expect(t,code).not.toMatch(/Error|undefined|at \w+\(/);
   }
-  expect(thaiError('UPGRADE_FAILED_HEALTH')).toContain('ข้อมูลเดิมยังอยู่ครบ');expect(thaiError('SOMETHING_NEW')).toContain('Log');
+  expect(thaiError('UPGRADE_FAILED_HEALTH')).toContain('ย้อนกลับไปใช้เวอร์ชันก่อนหน้า');
+  expect(thaiError('UPGRADE_FAILED_HEALTH_RESTORE_REQUIRED')).toContain('ไม่ย้อนกลับ');
+  expect(thaiError('UPGRADE_FAILED_HEALTH_RECOVERY_REQUIRED')).toContain('ยืนยันการย้อนกลับไม่สำเร็จ');
+  expect(thaiError('TIMEOUT_HEALTH_["web"]')).toContain('อย่าถอนการติดตั้ง');expect(thaiError('SOMETHING_NEW')).toContain('Log');
  });
  it('maps engine progress lines to Thai steps with a rising percentage',()=>{
   const lines=['[nipt] creating layout','[nipt] copying runtime and release (offline)','[nipt] generating secrets, certificate and policies','[nipt] initializing the private PostgreSQL cluster','[nipt] migrating the database and creating accounts','[nipt] registering the startup task','[nipt] taking the first verified backup (go-live gate)'];

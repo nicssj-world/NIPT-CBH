@@ -17,8 +17,10 @@ START: something is wrong after an upgrade / restore / failure
 │   │                                          release folder is discarded. Investigate the SQL error in the output; no restore needed. (rehearsed S09)
 │   ├─ migration FAILED and the old release can no longer run on the schema ► UPGRADE_MIGRATION_FAILED_RESTORE_REQUIRED
 │   │                                          → go to "RESTORE REQUIRED" below.   (guarded in code; not reproducible with an additive migration)
-│   ├─ new release started but not healthy ───► automatic rollback to the previous release, failed folder kept as <version>.failed-<time>;
-│   │                                          state history shows UPGRADE_FAILED_AUTO_ROLLBACK. (rehearsed S09, ≈2 min)
+│   ├─ new release started but not healthy ───► inspect the failed health checks and rollback result in Status / Setup Log;
+│   │   ├─ schema-compatible previous release ─► rollback succeeds; UPGRADE_FAILED_HEALTH and UPGRADE_FAILED_AUTO_ROLLBACK.
+│   │   └─ previous release cannot run schema ──► rollback refused; UPGRADE_FAILED_HEALTH_RESTORE_REQUIRED, new release remains current,
+│   │                                              backup retained, no automatic restore; fix forward (rehearsed S12b/S12c).
 │   └─ upgraded and healthy but you want the old release back
 │        ├─ no migration was applied by this upgrade ──► `nipt.cmd rollback` (application-only; database untouched)   (rehearsed S12)
 │        └─ a migration WAS applied ───────────► `rollback` is REFUSED (ROLLBACK_REQUIRES_DATABASE_RESTORE); nothing changes.  (rehearsed S11)

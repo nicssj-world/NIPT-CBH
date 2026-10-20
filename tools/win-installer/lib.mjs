@@ -172,6 +172,26 @@ export function healthVerdict(report,extra){
  return {ok:failed.length===0,failed,technicalReady:report?.technicalReady===true,backupStatus:report?.backupStatus??'UNKNOWN'};
 }
 
+/** Classify an upgrade health failure from the observed rollback outcome; never infer rollback success from the attempt. */
+export function classifyUpgradeHealthOutcome(rollback){
+ if(rollback?.rolledBack===true)return 'UPGRADE_FAILED_HEALTH';
+ if(rollback?.error==='ROLLBACK_REQUIRES_DATABASE_RESTORE')return 'UPGRADE_FAILED_HEALTH_RESTORE_REQUIRED';
+ return 'UPGRADE_FAILED_HEALTH_RECOVERY_REQUIRED';
+}
+
+/** A recorded PID is live only when it is still a Node process owned by this installation and running the expected entry point. */
+export function recordedProcessState({pid,alive,image,commandLine,root,marker}){
+ const value=Number(pid);
+ if(!Number.isInteger(value)||value<=0)return 'NOT_RECORDED';
+ if(alive!==true)return 'NOT_RUNNING';
+ if(typeof image!=='string'||typeof commandLine!=='string'||!root||!marker)return 'UNVERIFIED';
+ const normalize=s=>String(s).replaceAll('/','\\').replace(/\\+/g,'\\').toLowerCase();
+ const executable=normalize(image).split('\\').at(-1);
+ const command=normalize(commandLine),rootPath=normalize(root).replace(/\\$/,'');
+ if(executable!=='node.exe'||!command.includes(rootPath)||!command.includes(normalize(marker)))return 'PID_REUSED_OR_UNRELATED';
+ return 'RUNNING';
+}
+
 /** Backoff schedule for the supervisor: 1,2,4,8,16,30,30,... seconds; resets after a stable run. */
 export function backoffMs(restarts){return Math.min(30000,1000*2**Math.max(0,restarts));}
 

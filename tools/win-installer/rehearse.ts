@@ -78,6 +78,8 @@ try{
   build('1.0.2-app',['--version','1.0.2','--app-only','--skip-build','--test-fault','web-exits']);
   build('1.1.0-app',['--version','1.1.0','--app-only','--skip-build','--extra-migration','tools/win-installer/rehearsal/105_p8_rehearsal_marker.sql']);
   build('1.1.1-app',['--version','1.1.1','--app-only','--skip-build','--extra-migration','tools/win-installer/rehearsal/105_p8_rehearsal_marker.sql']);
+  build('1.1.2-app',['--version','1.1.2','--app-only','--skip-build','--extra-migration','tools/win-installer/rehearsal/106_p8_health_recovery.sql','--test-fault','web-exits']);
+  build('1.1.3-app',['--version','1.1.3','--app-only','--skip-build','--extra-migration','tools/win-installer/rehearsal/106_p8_health_recovery.sql']);
   return out;
  });
 
@@ -206,7 +208,7 @@ try{
   // (c) new release cannot stay up: automatic rollback
   const t=Date.now();
   const unhealthy=cli('installed','upgrade',['--package',pkgDir('1.0.2',true),'--public-key',publicKey,'--allow-test-fault','yes','--health-timeout-seconds','45'],{allowFail:true});
-  assert.equal(unhealthy.error,'UPGRADE_FAILED_HEALTH');assert.equal(unhealthy.detail?.rolledBack,true);assert.equal(installState().current.version,'1.0.0');
+  assert.equal(unhealthy.error,'UPGRADE_FAILED_HEALTH');assert.equal(unhealthy.detail?.rollback?.rolledBack,true);assert.ok(unhealthy.detail.healthFailure.detail.failed.includes('web'));assert.equal(installState().current.version,'1.0.0');
   await healthOk('AFTER_AUTO_ROLLBACK');assert.deepEqual(core(dataSnapshot()),core(snapshot));
   const hist=installState().history.map((h:{event:string})=>h.event);assert.ok(hist.includes('UPGRADE_FAILED_AUTO_ROLLBACK'));
   out.unhealthyRelease={autoRollback:true,seconds:Math.round((Date.now()-t)/1000)};
@@ -239,6 +241,29 @@ try{
   assert.equal(installState().current.version,'1.1.0');await healthOk('AFTER_COMPATIBLE_ROLLBACK');
   const after=dataSnapshot();assert.equal(after.cases,snapshot.cases);
   return {upgraded:up.to,rolledBackTo:rb.to};
+ });
+
+ await step('S12b','health failure after forward migration reports exact failed checks and refuses unsafe rollback',async()=>{
+  const before=core(dataSnapshot());
+  const r=cli('installed','upgrade',['--package',pkgDir('1.1.2',true),'--public-key',publicKey,'--allow-test-fault','yes','--health-timeout-seconds','45'],{allowFail:true});
+  assert.equal(r.error,'UPGRADE_FAILED_HEALTH_RESTORE_REQUIRED');
+  assert.equal(r.detail.healthFailure.detail.state,'FAILED');assert.ok(r.detail.healthFailure.detail.failed.includes('web'));
+  assert.match(r.detail.healthFailure.code,/TIMEOUT_HEALTH_.*web/);assert.doesNotMatch(r.detail.healthFailure.code,/pending/);
+  assert.equal(r.detail.rollback.error,'ROLLBACK_REQUIRES_DATABASE_RESTORE');assert.deepEqual(r.detail.rollback.detail.newerMigrations,['106_p8_health_recovery.sql']);
+  const st=installState();assert.equal(st.current.version,'1.1.2');assert.equal(st.status,'INSTALLED_NOT_ACCEPTED');assert.equal(st.acceptance,'NOT_ACCEPTED');assert.equal(st.healthCheck.status,'FAILED');
+  assert.equal(psql('SELECT note FROM p8_health_recovery_marker WHERE id=1'),'p8 failed-health recovery rehearsal');assert.deepEqual(core(dataSnapshot()),before);
+  const hist=st.history.at(-1);assert.equal(hist.event,'UPGRADE_FAILED_RECOVERY_REQUIRED');assert.equal(hist.rollback.rolledBack,false);
+  return {error:r.error,failedChecks:r.detail.healthFailure.detail.failed,rollbackRefused:r.detail.rollback.error,currentRelease:st.current.version,ownerAcceptance:st.acceptance,dataPreserved:true};
+ });
+
+ await step('S12c','recover the unaccepted installed release with a later compatible version and verify service/database state',async()=>{
+  const before=core(dataSnapshot());
+  const r=cli('installed','upgrade',['--package',pkgDir('1.1.3',true),'--public-key',publicKey]);
+  assert.equal(r.upgraded,true);assert.deepEqual(r.pendingMigrationsApplied,[]);assert.equal(installState().current.version,'1.1.3');
+  const health=await healthOk('AFTER_UNACCEPTED_RECOVERY'),status=cli('installed','status');
+  assert.equal(health.ok,true);assert.equal(status.healthCheck.status,'HEALTHY');assert.equal(status.postgresRunning,true);assert.equal(status.databaseReachable,true);
+  assert.equal(status.supervisorProcess,'RUNNING');assert.equal(status.acceptance,'NOT_ACCEPTED');assert.deepEqual(core(dataSnapshot()),before);
+  return {from:r.from,to:r.to,health:health.ok,postgresRunning:status.postgresRunning,databaseReachable:status.databaseReachable,supervisor:status.supervisorProcess,ownerAcceptance:status.acceptance,dataPreserved:true};
  });
 
  await step('S13','disaster recovery: an older backup is NOT activatable over changed work; a fresh backup is restored and activated (source fenced, health, data equal)',async()=>{

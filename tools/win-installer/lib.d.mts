@@ -22,6 +22,8 @@ export type LedgerRow={name:string;checksum:string};
 export function schemaCompatibility(a:{ledger:LedgerRow[];releaseMigrations:Record<string,string>}):{compatibleWithDatabase:boolean;unknown:string[];changed:string[];pending:string[]};
 export function canRollbackApplicationOnly(a:{ledger:LedgerRow[];targetMigrations:Record<string,string>}):{ok:boolean;reason:string|null;compatibleWithDatabase:boolean;unknown:string[];changed:string[];pending:string[]};
 export function healthVerdict(report:Record<string,unknown>|undefined,extra:{supervisor?:boolean;https?:boolean;excelBridge?:boolean}|undefined):{ok:boolean;failed:string[];technicalReady:boolean;backupStatus:unknown};
+export function classifyUpgradeHealthOutcome(rollback?:Record<string,unknown>):'UPGRADE_FAILED_HEALTH'|'UPGRADE_FAILED_HEALTH_RESTORE_REQUIRED'|'UPGRADE_FAILED_HEALTH_RECOVERY_REQUIRED';
+export function recordedProcessState(input:{pid:number|string|null|undefined;alive:boolean;image?:string;commandLine?:string;root?:string;marker?:string}):'NOT_RECORDED'|'NOT_RUNNING'|'UNVERIFIED'|'PID_REUSED_OR_UNRELATED'|'RUNNING';
 export function backoffMs(restarts:number):number;
 export function parseLedgerOutput(text:string):LedgerRow[];
 export const isIPv4:(v:unknown)=>boolean;

@@ -26,7 +26,7 @@ Installed layout (`<Root>`, default `C:\NIPT-CBH`):
 | `config\` | `nipt.json`, `share-policy.json`, `backup-policy.json`, `tls\` (self-signed PFX + certificate) |
 | `data\excel-spool\` | hand-off folder to the Excel bridge (only with `-ExcelMode bridge`) |
 | `backups\`, `restores\`, `logs\`, `run\` | encrypted backups, restored trees, service logs, supervisor state |
-| `install-state.json` | current/previous release, status, history; `status` stays `INSTALLED_NOT_ACCEPTED` |
+| `install-state.json` | current/previous release and history; owner acceptance remains `NOT_ACCEPTED` until the separate Owner gate, while `healthCheck.status` records `STARTING`, `HEALTHY`, or `FAILED` |
 
 ## How it runs
 
@@ -41,7 +41,7 @@ One Windows **scheduled task** (`\NIPT-CBH\nipt-cbh-<instance>`; `-TaskMode syst
 | `verify-package` | signature (public key supplied independently) and exact file set |
 | `preflight` | Windows, Node 24, root safe/empty, ≥ 8 GB free, ports free, package verified, runtime present, master workbook SHA-256, Task Scheduler |
 | `install` | preflight → copy runtime and release → secrets/TLS/policies → `initdb` → forward migrations → mark operational → least-privilege logins → six test accounts → startup task → start → health → **first verified backup** |
-| `start` / `stop` [`--keep-database`] / `restart` / `status` / `health` | lifecycle and the operator health report (`tools/p8/health.ts`) plus supervisor and HTTPS probes |
+| `start` / `stop` [`--keep-database`] / `restart` / `status` / `health` | lifecycle and operator health report; `status` compares recorded service PIDs with live Windows Node command lines and reports PostgreSQL process state separately from authenticated database reachability |
 | `backup` | stops the writers, takes the existing quiescent encrypted operational backup, restarts |
 | `set-backup-root --path <drive or UNC folder>` | moves the backup destination (e.g. a NAS share); proves the account can write it and updates the backup policy |
 | `schedule-backup --time HH:mm` / `unschedule-backup` / `backups` | daily scheduled task running `backup`; list of backups with hashes |
@@ -49,7 +49,7 @@ One Windows **scheduled task** (`\NIPT-CBH\nipt-cbh-<instance>`; `-TaskMode syst
 | `photos verify` / `backup <dir>` / `restore <backup> <rootId> <path>` / `relocate <rootId> <path> <reason>` | Run Photo Evidence maintenance (existing tool) with the installation's environment |
 | `host-check [--backup-path ...] [--photo-path ...] [--inbound ...] [--outbound ...] [--hostname ...] [--cert ...]` | read-only hospital host check (also runnable as `node installer\host-check.mjs` before installation) |
 | `restore (--backup <dir> or --fresh) [--activate --confirm-source-fenced yes]` | restore into a **new quarantined database and file tree**, verify digests/ledger/files; activation fences the source first, then switches the installation to the restored database |
-| `upgrade --package <dir>` | verify, schema-compatibility gate, **pre-upgrade backup**, stage release, forward migrations, switch, start, verify; automatic rollback if the new release is not healthy |
+| `upgrade --package <dir>` | verify, schema-compatibility gate, **pre-upgrade backup**, stage release, forward migrations, switch, start, verify; health failure details are retained, and application rollback occurs only if the previous release supports the applied schema |
 | `rollback` | switch back to the previous release **only if the database is not newer than that release** |
 | `uninstall --confirm <folder name> [--remove-data]` | stop, remove the task and releases; data kept unless `--remove-data` |
 

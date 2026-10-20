@@ -11,7 +11,7 @@ import os from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {
  layout,validateConfig,assertSafeRoot,portFree,freeBytes,MIN_FREE_BYTES,verifyPackage,sha256File,readJson,writeJson,compareVersions,
- schemaCompatibility,canRollbackApplicationOnly,healthVerdict,parseLedgerOutput,isValidHost,isIPv4,originFor,sanEntries,sanText,normalizeLanAllow,normalizeLanProfiles,pickLanAddress
+ schemaCompatibility,canRollbackApplicationOnly,healthVerdict,classifyUpgradeHealthOutcome,recordedProcessState,parseLedgerOutput,isValidHost,isIPv4,originFor,sanEntries,sanText,normalizeLanAllow,normalizeLanProfiles,pickLanAddress
 } from './lib.mjs';
 import {releaseFormEnvironment} from './form-assets.mjs';
 
@@ -45,7 +45,7 @@ const q=s=>`'${String(s).replaceAll("'","''")}'`;
 async function waitFor(check,label,ms=120000,step=500){
  const start=Date.now();
  while(Date.now()-start<ms){try{if(await check())return;}catch{/* retry */}await sleep(step);}
- fail('TIMEOUT_'+label);
+ fail('TIMEOUT_'+(typeof label==='function'?label():label));
 }
 
 // ───────────────────────────── state ─────────────────────────────
@@ -109,6 +109,17 @@ function unregisterBridgeTask(c){try{ps(`Unregister-ScheduledTask -TaskName ${q(
 
 const alive=pid=>{try{process.kill(pid,0);return true;}catch(e){return e.code==='EPERM';}};
 function supervisorPid(L){try{const pid=Number(readFileSync(L.supervisorLock,'utf8'));return Number.isInteger(pid)&&alive(pid)?pid:null;}catch{return null;}}
+function processEvidence(L,pid,marker){
+ const value=Number(pid);if(!Number.isInteger(value)||value<=0)return {pid:null,state:'NOT_RECORDED'};
+ const isAlive=alive(value);if(!isAlive)return {pid:value,state:'NOT_RUNNING'};
+ try{
+  const raw=ps(`$p=Get-CimInstance Win32_Process -Filter ${q(`ProcessId = ${value}`)} -ErrorAction Stop;if($p){[pscustomobject]@{name=[string]$p.Name;commandLine=[string]$p.CommandLine}|ConvertTo-Json -Compress}`);
+  if(!raw)return {pid:value,state:'UNVERIFIED'};
+  const actual=JSON.parse(raw);
+  return {pid:value,state:recordedProcessState({pid:value,alive:isAlive,image:actual.name,commandLine:actual.commandLine,root:L.root,marker})};
+ }catch{return {pid:value,state:'UNVERIFIED'};}
+}
+const supervisorEvidence=L=>processEvidence(L,supervisorPid(L),'supervisor.mjs');
 
 async function startServices(L,c){
  if(supervisorPid(L)){say('supervisor already running');}
@@ -342,13 +353,25 @@ async function healthReport(L,c){
  const r=nodeIn(L,ops,['--import','tsx','tools/p8/health.ts'],env);
  let report={};try{report=JSON.parse((r.stdout||'').trim().split('\n').pop());}catch{report={code:'HEALTH_UNREADABLE'};}
  const httpsOk=await new Promise(res=>{const req=https.get({host:'127.0.0.1',port:c.ports.https,path:'/api/health',ca:readFileSync(path.join(L.tls,'server.pem')),servername:'localhost',timeout:5000},resp=>{let b='';resp.on('data',d=>b+=d);resp.on('end',()=>res(resp.statusCode===200&&JSON.parse(b).status==='ok'));});req.on('error',()=>res(false));req.on('timeout',()=>{req.destroy();res(false);});});
- const verdict=healthVerdict(report,{supervisor:supervisorPid(L)!==null,https:httpsOk,excelBridge:bridgeMode(c)?bridgeStatus(L).alive:undefined});
- return {...verdict,release:st.current.version,details:{lanUrl:c.origin,lanEnabled:!!c.lanEnabled,workerAlive:report.workerAlive,heartbeatAgeSeconds:report.heartbeatAgeSeconds,backlog:report.backlog,webReachable:report.webReachable,rendererReachable:report.rendererReachable,https:httpsOk,excelBridge:bridgeMode(c)?bridgeStatus(L).state:'NOT_USED_DIRECT_EXCEL',backupStatus:report.backupStatus,migrationsMatch:report.migrationsMatch,auditValid:report.auditValid,rolesRestricted:report.rolesRestricted,quarantined:report.quarantined,clinicalAcceptance:false,hospitalOperationalAcceptance:false}};
+ const supervisor=supervisorEvidence(L);
+ const verdict=healthVerdict(report,{supervisor:supervisor.state==='RUNNING',https:httpsOk,excelBridge:bridgeMode(c)?bridgeStatus(L).alive:undefined});
+ return {...verdict,release:st.current.version,details:{lanUrl:c.origin,lanEnabled:!!c.lanEnabled,supervisorProcess:supervisor.state,postgresProcess:pgRunning(L),databaseReachable:report.databaseReachable===true,workerAlive:report.workerAlive,heartbeatAgeSeconds:report.heartbeatAgeSeconds,backlog:report.backlog,webReachable:report.webReachable,rendererReachable:report.rendererReachable,https:httpsOk,excelBridge:bridgeMode(c)?bridgeStatus(L).state:'NOT_USED_DIRECT_EXCEL',backupStatus:report.backupStatus,migrationsMatch:report.migrationsMatch,auditValid:report.auditValid,rolesRestricted:report.rolesRestricted,quarantined:report.quarantined,clinicalAcceptance:false,hospitalOperationalAcceptance:false}};
 }
 const healthTimeout=(d=180000)=>Number(args['health-timeout-seconds'])>0?Number(args['health-timeout-seconds'])*1000:d;
+function recordHealthCheck(L,status,{timeoutMs,elapsedMs,report}={}){
+ const st=stateOf(L);
+ st.healthCheck={status,release:st.current.version,checkedAt:new Date().toISOString(),...(timeoutMs===undefined?{}:{timeoutMs}),...(elapsedMs===undefined?{}:{elapsedMs}),...(report?{failed:report.failed??[],technicalReady:report.technicalReady===true,backupStatus:report.backupStatus??'UNKNOWN',details:report.details??{}}:{})};
+ saveState(L,st);
+}
 async function waitHealthy(L,c,{timeout=120000}={}){
- let last;
- await waitFor(async()=>{last=await healthReport(L,c);return last.ok;},'HEALTH_'+JSON.stringify(last?.failed??'pending'),timeout,3000).catch(e=>{e.detail=last;throw e;});
+ const started=Date.now();let last;
+ recordHealthCheck(L,'STARTING',{timeoutMs:timeout});
+ await waitFor(async()=>{last=await healthReport(L,c);return last.ok;},()=>`HEALTH_${JSON.stringify(last?.failed??['HEALTH_REPORT_UNAVAILABLE'])}`,timeout,3000).catch(e=>{
+  const detail={state:'FAILED',release:stateOf(L).current.version,timeoutMs:timeout,elapsedMs:Date.now()-started,failed:last?.failed??['HEALTH_REPORT_UNAVAILABLE'],health:last??null};
+  recordHealthCheck(L,'FAILED',{timeoutMs:timeout,elapsedMs:detail.elapsedMs,report:last});
+  e.detail=detail;throw e;
+ });
+ recordHealthCheck(L,'HEALTHY',{timeoutMs:timeout,elapsedMs:Date.now()-started,report:last});
  return last;
 }
 
@@ -467,11 +490,14 @@ async function upgrade(){
   history(L,st,'UPGRADED',{from:from.version,to:m.version});
   return {upgraded:true,from:from.version,to:m.version,pendingMigrationsApplied:compat.pending,preUpgradeBackup:pre.backupBase,health:{ok:health.ok}};
  }catch(error){
-  say('new release did not become healthy: '+error.message+' — rolling back');
-  const rb=await rollbackInternal(L,c,{reason:'UPGRADE_HEALTH_FAILED'}).catch(e=>({rolledBack:false,error:e.message}));
-  const s=stateOf(L);history(L,s,'UPGRADE_FAILED_AUTO_ROLLBACK',{to:m.version,result:rb});
+  say('new release did not become healthy: '+error.message+' — checking rollback compatibility');
+  const healthFailure={code:error.message,detail:error.detail??null};
+  const rb=await rollbackInternal(L,c,{reason:'UPGRADE_HEALTH_FAILED'}).catch(e=>({rolledBack:false,error:e.message,detail:e.detail??null}));
+  const outcome=classifyUpgradeHealthOutcome(rb);
+  const s=stateOf(L);history(L,s,rb.rolledBack?'UPGRADE_FAILED_AUTO_ROLLBACK':'UPGRADE_FAILED_RECOVERY_REQUIRED',{from:from.version,to:m.version,healthFailure,rollback:rb});
   if(rb.rolledBack){const {renameSync:mv}=await import('node:fs');try{mv(next,next+'.failed-'+Date.now());}catch{/* kept as is */}}
-  fail('UPGRADE_FAILED_HEALTH',rb);
+  const after=stateOf(L);
+  fail(outcome,{releaseAttempted:m.version,currentRelease:after.current?.version??null,previousRelease:after.previous?.version??null,installedStatus:after.status??'UNKNOWN',healthFailure,rollback:rb,preUpgradeBackup:after.preUpgradeBackup??pre.backupBase});
  }
 }
 
@@ -517,7 +543,11 @@ async function uninstall(){
 
 async function status(){
  const L=layout(args.root),c=cfgOf(L),st=stateOf(L);
- return {instance:c.instance,status:st.status,release:st.current,previous:st.previous,supervisorPid:supervisorPid(L),task:taskInfo(c),postgresRunning:pgRunning(L),services:(await readJson(L.state,{})).services??{},lastBackup:c.lastBackupPath??null};
+ const recorded=await readJson(L.state,{}),serviceMarkers={renderer:'apps/renderer/main.ts',worker:'tools/win-installer/service-worker.ts',web:'server.js',https:'https-proxy.mjs'};
+ const services=Object.fromEntries(Object.entries(recorded.services??{}).map(([name,service])=>[name,{...service,liveProcess:processEvidence(L,service.pid,serviceMarkers[name]??'').state}]));
+ let databaseReachable=false;try{databaseReachable=psql(L,c,'SELECT 1')==='1';}catch{/* report unavailable separately from the process probe */}
+ const supervisor=supervisorEvidence(L),postgresRunning=pgRunning(L);
+ return {instance:c.instance,status:st.status,acceptance:st.acceptance??'NOT_ACCEPTED',healthCheck:st.healthCheck??{status:'UNKNOWN'},release:st.current,previous:st.previous,supervisorPid:supervisor.pid,supervisorProcess:supervisor.state,task:taskInfo(c),postgresRunning,postgresProcess:postgresRunning?'RUNNING':'NOT_RUNNING',databaseReachable,services,lastBackup:c.lastBackupPath??null};
 }
 
 
