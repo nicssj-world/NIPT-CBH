@@ -32,7 +32,7 @@ Self-signed certificate: trust `<Root>\config\tls\server.cer` on test clients, o
 
 A service that exits is restarted with backoff (1, 2, 4, 8, 16, 30 s). A health failure that persists after restarts is an incident: keep the logs, do not edit `install-state.json`.
 
-Starting an installed root or retrying Setup also re-enables its existing NIPT-CBH scheduled task when that task is disabled, then starts the recorded task without replacing its action or principal. This lets a later compatible release recover an `INSTALLED_NOT_ACCEPTED` installation after a failed prior upgrade.
+Starting an installed root or retrying Setup also re-enables its existing NIPT-CBH scheduled task when that task is disabled, then starts the recorded task without replacing its action or principal. This lets a later compatible release recover an `INSTALLED_NOT_ACCEPTED` installation after a failed prior upgrade. Fresh install reports success only after the post-backup restart passes the same health probes.
 
 ## 3. Backup and restore
 

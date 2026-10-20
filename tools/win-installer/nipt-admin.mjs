@@ -300,7 +300,7 @@ async function install(){
  say('taking the first verified backup (go-live gate)');
  const backup=await takeBackup(L,config);
  await startServices(L,config);
- const health=await healthReport(L,config);
+ const health=await waitHealthy(L,config);
  const lan=await lanSummary(L,config);
  return {installed:true,reusedRetainedData:retained,root:L.root,version:m.version,url:config.origin,lan,firewall,trust,credentials:L.credentials,admin:path.join(L.root,'admin','nipt-admin.mjs'),firstBackup:backup.backupBase,health,migrations:release.migrationCount};
 }
