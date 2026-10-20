@@ -376,7 +376,7 @@ switch($Action) {
     $health|ConvertTo-Json -Depth 8
   }
   'Stop' {
-    Invoke-Compose @('stop')
+    Invoke-Compose @('stop','--timeout','45')
     $bridgeStopped=Request-StopNativeBridge
     Save-Checkpoint 'stopped' $(if($bridgeStopped){'PASS'}else{'STOP_REQUESTED_EXPORT_MAY_FINISH'})
     [pscustomobject]@{compose='STOPPED';excelBridge=$(if($bridgeStopped){'STOPPED'}else{'FINISHING_CURRENT_EXPORT'});data='PRESERVED';volumes='PRESERVED'}|ConvertTo-Json -Compress
