@@ -10,7 +10,6 @@ import {appendAudit} from '../db/audit';
 import {recordPhiAccess} from '../db/phi-access';
 import {pageFields,clampPage,offsetOf,likeContains} from '../db/pagination';
 import {digest,token,validateCsrf} from '../security/session';
-import {verifyPassword} from '../security/password';
 import {deriveSignature,vectorSchema} from './signature';
 import type {FileStore} from '../storage';
 import {IDENTIFIER_SOURCES,intakePresence,linkIntakeAtRegistration} from '../inbound/registration-link';
@@ -172,14 +171,15 @@ export async function paperReview(db:Queryable,user:Staff,id:string,input:unknow
 }
 export async function preparePaper(db:Queryable,user:Staff,id:string,input:unknown){const d=z.strictObject({kind:z.enum(['REQUEST','CONSENT']),documentReference:syntheticText.refine(v=>v.length>0),location:syntheticText.refine(v=>v.length>0),reason:syntheticText.refine(v=>v.length>0)}).parse(input),c=await activeCase(db,user,id,d.kind==='REQUEST'?'request.edit':'consent.prepare'),w=await workspace(db,c,user);if((d.kind==='REQUEST'?w.request_mode:w.consent_mode)!=='Paper')throw new P2Error('PAPER_DOCUMENT_MODE_TEMPLATE_MISMATCH');const panel=Object.fromEntries(Object.keys(paperSchema.shape).map(k=>[k,null]));const r=(await db.query("INSERT INTO p2_paper_review(case_id,round_id,kind,template_version,document_reference,panel,status,location,reason,verifier_id) VALUES($1,$2,$3,$4,$5,$6,'Pending',$7,$8,$9) RETURNING id,status,created_at",[id,c.current_round_id,d.kind,documentTemplate(d.kind),d.documentReference,panel,d.location,d.reason,user.id])).rows[0];await event(db,user,id,'P2_PAPER_PREPARED');return r;}
 export async function prepareConsent(db:Queryable,user:Staff,id:string,input:unknown){
- const d=z.strictObject({doctorVersionId:uuid,representativeRequired:z.boolean(),reason:syntheticText.refine(v=>v.length>0)}).parse(input),c=await activeCase(db,user,id,'consent.prepare'),w=await workspace(db,c,user);
- if(d.representativeRequired)throw new P2Error('REPRESENTATIVE_REQUIRES_PAPER',422);if(w.consent_mode!=='Electronic')throw new P2Error('CONSENT_PAPER_MODE');
+ const representative=z.strictObject({name:syntheticText.refine(v=>v.length>0),relationship:syntheticText.refine(v=>v.length>0),authorityBasis:syntheticText.refine(v=>v.length>0),authorityConfirmed:z.literal(true)});
+ const d=z.strictObject({doctorVersionId:uuid,representativeRequired:z.boolean(),representative:representative.optional(),reason:syntheticText.refine(v=>v.length>0).optional()}).refine(v=>v.representativeRequired===!!v.representative).parse(input),c=await activeCase(db,user,id,'consent.prepare'),w=await workspace(db,c,user);
+ if(w.consent_mode!=='Electronic')throw new P2Error('CONSENT_PAPER_MODE');
  // Owner Lock 2026-10-18: the consent names the same ordering doctor the ANC nurse chose on this round's request.
  if(!w.draft.ordering.doctorVersionId)throw new P2Error('ORDERING_DOCTOR_REQUIRED',422);
  if(d.doctorVersionId!==w.draft.ordering.doctorVersionId)throw new P2Error('CONSENT_DOCTOR_MUST_MATCH_REQUEST',409);
  const doctor=await activeDoctor(db,d.doctorVersionId,c.unit_id);
  const frozen=operationalDataEnabled()?await (await import('./document-snapshot')).freezeDccForm(db,user,c.id,'CONSENT'):{};
- const r=await revision(db,user,c,'CONSENT',{...frozen,...(operationalDataEnabled()?{consentContent:DCC_CONSENT}:{}),identity:{caseId:c.id,ln:c.ln,hn:c.hn,roundId:c.current_round_id,roundNumber:c.round_number},workspaceVersion:w.version,clauses:operationalDataEnabled()?DCC_CONSENT.clauses.map(c=>c.text):consentClauses,doctor,requestDraft:w.draft,preparerId:user.id,representativeRequired:false,caption:operationalDataEnabled()?'authorized stored signature, not freshly signed':'authorized synthetic stored signature, not freshly signed',synthetic:!operationalDataEnabled(),unapproved:true,unsigned:true},d.reason);await event(db,user,id,'P2_CONSENT_PREPARED');return r;
+ const r=await revision(db,user,c,'CONSENT',{...frozen,...(operationalDataEnabled()?{consentContent:DCC_CONSENT}:{}),identity:{caseId:c.id,ln:c.ln,hn:c.hn,roundId:c.current_round_id,roundNumber:c.round_number},workspaceVersion:w.version,clauses:operationalDataEnabled()?DCC_CONSENT.clauses.map(c=>c.text):consentClauses,doctor,requestDraft:w.draft,preparerId:user.id,representativeRequired:d.representativeRequired,representative:d.representative??null,caption:operationalDataEnabled()?'authorized stored signature, not freshly signed':'authorized synthetic stored signature, not freshly signed',synthetic:!operationalDataEnabled(),unapproved:true,unsigned:true},d.reason??'ANC เตรียมใบยินยอม');await event(db,user,id,'P2_CONSENT_PREPARED',{representative:d.representativeRequired});return r;
 }
 export async function startSigning(db:Queryable,user:Staff,id:string,input:unknown){
  const d=z.strictObject({documentId:uuid,devicePresent:z.literal(true),syntheticPatient:z.literal(true).optional(),patientPresent:z.literal(true).optional()}).refine(v=>operationalDataEnabled()?v.patientPresent===true:v.syntheticPatient===true,{message:'PATIENT_PRESENT_REQUIRED'}).parse(input),c=await activeCase(db,user,id,'consent.prepare'),w=await workspace(db,c,user);if(!user.sessionId)throw new P2Error('STAFF_SESSION_REQUIRED',401);if(w.consent_mode!=='Electronic')throw new P2Error('CONSENT_PAPER_MODE');
@@ -244,38 +244,20 @@ async function returnBinding(db:Queryable,user:Staff){
  }
  return {session,outcome};
 }
-/** Narrow original-preparer recovery: no capability, document, signature or password data. */
+/** The existing authenticated staff session is suspended during patient signing. */
 export async function signingReturnStatus(db:Queryable,user:Staff){const {session,outcome}=await returnBinding(db,user);return {sessionId:session.id,outcome};}
-/** Called only by the narrow same-origin, CSRF-protected staff-return route. */
+/** Explicit same-origin handoff to the original authenticated preparer; no second password. */
 export async function reauthenticate(db:Queryable,user:Staff,input:unknown){
- const d=z.strictObject({password:z.string().min(1).max(1024),attestation:z.literal(true),sessionId:uuid,outcome:z.enum(['Active','Granted','Declined','Cancelled','Expired','Invalidated'])}).parse(input);
+ const d=z.strictObject({sessionId:uuid,outcome:z.enum(['Active','Granted','Declined','Cancelled','Expired','Invalidated'])}).parse(input);
  const {session,outcome}=await returnBinding(db,user);
  if(d.sessionId!==session.id||d.outcome!==outcome)throw new P2Error('SIGNING_RETURN_STATE_CHANGED',409);
- const completedFinal=(await db.query('SELECT id FROM p2_final_consent WHERE session_id=$1',[session.id])).rows[0];
- if(completedFinal){await db.query('UPDATE app_session SET signing_suspended=false,idle_expires_at=LEAST(now()+interval \'30 minutes\',absolute_expires_at),last_seen_at=now() WHERE id=$1',[user.sessionId]);return {ok:true,consentFinalized:true};}
- if(session.reauthenticated_at){const final=(await db.query('SELECT id FROM p2_final_consent WHERE session_id=$1',[session.id])).rows[0];return {ok:true,consentFinalized:!!final,...(session.state==='Completed'&&!final?{reasonCode:'CONSENT_INVALIDATED_BEFORE_ATTESTATION'}:{})};}
  if(outcome==='Active')throw new P2Error('CANCEL_OR_COMPLETE_SIGNING_FIRST',409);
- const u=(await db.query<{password_hash:string;failed_count:number;locked_until:Date|null}>('SELECT * FROM app_user WHERE id=$1 AND enabled FOR UPDATE',[user.id])).rows[0];
- if(!u||u.locked_until&&new Date(u.locked_until)>new Date()||!await verifyPassword(u.password_hash,d.password)){
- if(u)await db.query("UPDATE app_user SET failed_count=failed_count+1,locked_until=CASE WHEN failed_count>=4 THEN now()+interval '15 minutes' ELSE locked_until END WHERE id=$1",[user.id]);return {ok:false};}
+ if(session.state==='Completed'&&!(await db.query('SELECT id FROM p2_final_consent WHERE session_id=$1',[session.id])).rows[0])throw new P2Error('CONSENT_FINALIZATION_MISSING',409);
  if(session.state==='Active')await db.query("UPDATE p2_signing_session SET state='Expired',closed_at=now() WHERE id=$1",[session.id]);
- await db.query('UPDATE p2_signing_session SET reauthenticated_at=now() WHERE id=$1',[session.id]);
- let invalidatedBeforeAttestation=false;
- if(session.state==='Completed'){
- const valid=(await db.query("SELECT d.id FROM p2_signing_session s JOIN p2_document_revision d ON d.id=s.document_id JOIN nipt_case c ON c.id=d.case_id JOIN p2_workspace w ON w.round_id=d.round_id WHERE s.id=$1 AND c.current_round_id=d.round_id AND w.consent_mode='Electronic' AND w.version::text=d.payload->>'workspaceVersion' AND NOT EXISTS(SELECT 1 FROM p2_revocation WHERE case_id=c.id) AND d.version=(SELECT max(version) FROM p2_document_revision WHERE round_id=d.round_id AND kind='CONSENT')",[session.id])).rows[0];
- invalidatedBeforeAttestation=!valid;
- if(valid){
- const full=(await db.query<{document_id:string;created_at:string;closed_at:string;reauthenticated_at:string}>(`SELECT document_id,${preciseUtc('created_at')} AS created_at,${preciseUtc('closed_at')} AS closed_at,${preciseUtc('reauthenticated_at')} AS reauthenticated_at FROM p2_signing_session WHERE id=$1`,[session.id])).rows[0];
- const doc=(await db.query<{payload:unknown;template_version:string;content_hash:string}>('SELECT * FROM p2_document_revision WHERE id=$1',[full.document_id])).rows[0];
- const sig=(await db.query(`SELECT decision,vector,png,signature_hash,${preciseUtc('signed_at')} AS signed_at FROM p2_consent_signature WHERE session_id=$1`,[session.id])).rows[0];
- const acks=(await db.query(`SELECT item,${preciseUtc('acknowledged_at')} AS acknowledged_at FROM p2_consent_ack WHERE session_id=$1 ORDER BY item`,[session.id])).rows;
- const content=(doc.payload as {consentContent?:typeof DCC_CONSENT}).consentContent;
- const acknowledgmentEvidence=content?acks.map(a=>({...a,clauseId:content.clauses[Number(a.item)-1]?.id,contentVersion:content.id,contentSha256:content.sha256})):acks;
- const payload={document:doc.payload,...(content?{consentContent:content}:{}),templateVersion:doc.template_version,preparedHash:doc.content_hash,signature:sig,acknowledgments:acknowledgmentEvidence,session:{id:session.id,startedAt:full.created_at,closedAt:full.closed_at,preparerId:user.id,attestedAt:full.reauthenticated_at,attestation:true},synthetic:!operationalDataEnabled()};
- await db.query(`INSERT INTO p2_final_consent(session_id,document_id,payload,content_hash,hash_algorithm) VALUES($1,$2,$3,encode(sha256(convert_to(p2_canonical_jsonb($3::jsonb),'UTF8')),'hex'),'PG_JSONB_CANONICAL_V1') ON CONFLICT(session_id) DO NOTHING`,[session.id,full.document_id,payload]);
- }
- }
- await db.query('UPDATE app_session SET signing_suspended=false,idle_expires_at=LEAST(now()+interval \'30 minutes\',absolute_expires_at),last_seen_at=now() WHERE id=$1',[user.sessionId]);await db.query('UPDATE app_user SET failed_count=0,locked_until=NULL WHERE id=$1',[user.id]);await event(db,user,session.case_id,'P2_PREPARER_REAUTHENTICATED',{attestation:true,returnOutcome:outcome,consentInvalidated:invalidatedBeforeAttestation});return {ok:true,consentFinalized:session.state==='Completed'&&!invalidatedBeforeAttestation,...(invalidatedBeforeAttestation?{reasonCode:'CONSENT_INVALIDATED_BEFORE_ATTESTATION'}:{})};
+ await db.query('UPDATE p2_signing_session SET reauthenticated_at=COALESCE(reauthenticated_at,now()) WHERE id=$1',[session.id]);
+ await db.query('UPDATE app_session SET signing_suspended=false,idle_expires_at=LEAST(now()+interval \'30 minutes\',absolute_expires_at),last_seen_at=now() WHERE id=$1',[user.sessionId]);
+ await event(db,user,session.case_id,'P2_STAFF_RETURNED_FROM_SIGNING',{returnOutcome:outcome});
+ return {ok:true,consentFinalized:session.state==='Completed'};
 }
 export async function withdraw(db:Queryable,user:Staff,id:string,input:unknown){const d=z.strictObject({reason:syntheticText.refine(v=>v.length>0)}).parse(input),c=await activeCase(db,user,id,'consent.withdraw.receive');if(c.analysis_started)throw new P2Error('LATER_WITHDRAWAL_REQUIRES_GOVERNANCE',409);const stage=c.state==='Expected'?'W0':'W1';const r=(await db.query<{id:string}>('INSERT INTO p2_revocation(case_id,round_id,stage,reason,actor_id) VALUES($1,$2,$3,$4,$5) RETURNING id',[id,c.current_round_id,stage,d.reason,user.id])).rows[0];await db.query("INSERT INTO p2_disposition(revocation_id,state,reason,actor_id) VALUES($1,'PendingGovernance',$2,$3)",[r.id,d.reason,user.id]);await invalidate(db,id);await event(db,user,id,'P2_CONSENT_REVOKED',{stage,reason:d.reason});return {id:r.id,stage,state:'RevokedHold',disposition:'PendingGovernance'};}
 export async function listDoctors(db:Queryable,user:Staff){await assertStaff(db,user);if(!user.roles.some(r=>['ANC_NURSE','ANC_SUPERVISOR','LAB_STAFF','LAB_CERTIFIER','APP_ADMIN','CLINICAL_APPROVER'].includes(r)))throw new P2Error('FORBIDDEN',403);const r=await db.query<{unit_id:string;doctor_key:string;version:number;status:string|null;effective_from:Date;has_signature:boolean}>('SELECT v.id,v.doctor_key,v.version,v.name,v.unit_id,v.effective_from,v.created_by,v.authorization_evidence AS authorization,(v.signature_png IS NOT NULL) has_signature,(SELECT e.event_type FROM p2_doctor_event e WHERE e.doctor_version_id=v.id ORDER BY e.created_at DESC,e.id DESC LIMIT 1) status FROM p2_doctor_version v ORDER BY doctor_key,version DESC');return r.rows.map(x=>({...x,active:x.has_signature&&x.status!=='Suspended'&&new Date(x.effective_from)<=new Date()&&!r.rows.some(n=>n.doctor_key===x.doctor_key&&n.version>x.version&&new Date(n.effective_from)<=new Date())}));}

@@ -26,6 +26,7 @@ it('DCC clause ticks require complete final evidence for the exact frozen conten
  input.finalConsent={...final(),acknowledgments:[{item:1}]};expect(snapshotConsentFields(input).decision).toBeNull();
  input.finalConsent={...final(),consentContent:{id:'legacy',sha256:'b'.repeat(64)}};expect(()=>snapshotConsentFields(input)).toThrow('DCC_CONSENT_CONTENT_MISMATCH');
 });
+it('prints the named legal representative in the DCC signer field when representative signing was recorded',()=>{const input=base();input.payload.representative={name:'SYNTHETIC guardian',relationship:'SYNTHETIC parent',authorityBasis:'SYNTHETIC verified legal basis',authorityConfirmed:true};input.finalConsent=final();expect(snapshotConsentFields(input).patientName).toBe('ผู้แทนโดยชอบธรรม: SYNTHETIC guardian (SYNTHETIC parent)');});
 
 async function inspect(bytes:Buffer){
  const {getDocument,OPS,Util}=await import('pdfjs-dist/legacy/build/pdf.mjs');

@@ -13,10 +13,11 @@ const descriptor=z.strictObject({id:z.string(),requestSha256:z.string().regex(/^
 const record=(v:unknown)=>v&&typeof v==='object'?v as Record<string,unknown>:{};
 /** DCC ticks represent only the exact clause content acknowledged in the completed signing evidence. */
 export function snapshotConsentFields(s:P2PdfInput):ConsentFields{
- const frozen=record(s.payload.formFields),final=s.finalConsent,sig=record(final?.signature);
+ const frozen=record(s.payload.formFields),representative=record(s.payload.representative),final=s.finalConsent,sig=record(final?.signature);
  if(!isCurrentConsent(s.payload.consentContent)||final&&!isCurrentConsent(final.consentContent))throw Error('DCC_CONSENT_CONTENT_MISMATCH');
  const signed=consentAcknowledged(s.payload.consentContent,final)&&typeof sig.png==='string'&&typeof sig.signed_at==='string'&&['Granted','Declined'].includes(String(sig.decision));
- return {patientName:typeof frozen.patientName==='string'?frozen.patientName:null,doctor:typeof frozen.doctor==='string'?frozen.doctor:null,
+ const signer=typeof representative.name==='string'?`ผู้แทนโดยชอบธรรม: ${representative.name}${typeof representative.relationship==='string'?` (${representative.relationship})`:''}`:typeof frozen.patientName==='string'?frozen.patientName:null;
+ return {patientName:signer,doctor:typeof frozen.doctor==='string'?frozen.doctor:null,
   acknowledged:DCC_CONSENT.clauses.map(()=>signed),decision:signed?sig.decision as 'Granted'|'Declined':null,
   patientSignedDate:signed?displayBe(new Date(new Date(String(sig.signed_at)).getTime()+7*3600000).toISOString().slice(0,10),''):null};
 }
