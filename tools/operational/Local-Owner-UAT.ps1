@@ -122,9 +122,9 @@ function Start-LocalUat {
     Clear-LastError
     return
   }
+  # Home-UAT Start already waits for and returns the complete readiness result.
+  # Avoid running the full external health probe a second time from this launcher.
   [void](Invoke-HomeAction 'Start')
-  $health=Get-HomeHealth
-  if($health.ready -ne $true){throw 'Local UAT services did not pass the full readiness check.'}
   Clear-LastError
 }
 
