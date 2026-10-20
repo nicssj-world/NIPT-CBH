@@ -9,7 +9,7 @@ let db:PGlite,anc:Staff,admin:Staff,unit:string,other:string;
 const fixture=deriveSignature({width:600,height:200,strokes:[[[10,10],[80,90],[180,30]]]}),key='SYNTHETIC-DIRECT-DR';
 async function tx<T>(fn:()=>Promise<T>){await db.query('BEGIN');try{const r=await fn();await db.query('COMMIT');return r;}catch(e){await db.query('ROLLBACK');throw e;}}
 beforeAll(async()=>{db=await testDatabase();admin=await addUser(db);anc=await addUser(db,'ANC_NURSE','synthetic.anc');unit=(await db.query<{id:string}>("INSERT INTO unit(code,name) VALUES('OWN','Own') RETURNING id")).rows[0].id;other=(await db.query<{id:string}>("INSERT INTO unit(code,name) VALUES('OTHER','Other') RETURNING id")).rows[0].id;anc.unitIds=[unit];});afterAll(async()=>db.close());
-const input=()=>({action:'save',doctorKey:key,name:'SYNTHETIC Doctor Test',unitId:unit,authorization:'SYNTHETIC automated fixture only',authorized:true,image:{mime:'image/png',data:fixture.png}});
+const input=()=>({action:'save',doctorKey:key,name:'SYNTHETIC Doctor Test',unitId:unit,authorized:true,image:{mime:'image/png',data:fixture.png}});
 it('ANC saves an uploaded signature directly, immediately available in the same registry as Admin',async()=>{
  const saved=await tx(()=>doctorAction(db,anc,input()));
  expect(await activeDoctor(db,String(saved.id),unit)).toMatchObject({signature_png:fixture.png,signature_hash:fixture.hash});

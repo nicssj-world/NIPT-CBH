@@ -19,7 +19,7 @@ export async function uploadedDoctorSignature(input:unknown){
  try{const doc=await PDFDocument.create(),embedded=await (png?doc.embedPng(bytes):doc.embedJpg(bytes));if(embedded.width<1||embedded.height<1||embedded.width>2400||embedded.height>1600)throw Error('size');await doc.save();}catch{throw new P2Error('SIGNATURE_IMAGE_INVALID',422);}
  return {vector:{source:'upload',mime:image.mime},png:image.data,hash:createHash('sha256').update(bytes).digest('hex')};
 }
-const saveSchema=z.strictObject({action:z.literal('save'),id:z.uuid().optional(),doctorKey:z.string().max(64).refine(v=>operationalDataEnabled()?/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(v):/^SYNTHETIC-[A-Z0-9-]+$/.test(v)),name:syntheticText.refine(v=>v.length>0),unitId:z.uuid(),authorization:syntheticText.refine(v=>v.length>0),authorized:z.literal(true),vector:vectorSchema.optional(),image:imageSchema.optional()});
+const saveSchema=z.strictObject({action:z.literal('save'),id:z.uuid().optional(),doctorKey:z.string().max(64).refine(v=>operationalDataEnabled()?/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(v):/^SYNTHETIC-[A-Z0-9-]+$/.test(v)),name:syntheticText.refine(v=>v.length>0),unitId:z.uuid(),authorization:syntheticText.refine(v=>v.length>0).default(()=>operationalDataEnabled()?'DOCTOR_AUTHORIZATION_CONFIRMED':'SYNTHETIC_AUTHORIZATION_CONFIRMED'),authorized:z.literal(true),vector:vectorSchema.optional(),image:imageSchema.optional()});
 /** Append a new immutable record; existing Request/Consent snapshots retain their prior signature bytes. */
 export async function saveDoctor(db:Queryable,user:Staff,input:unknown){
  await assertStaff(db,user);requirePermission(user,'doctor.manage',{},'write');const d=saveSchema.parse(input);
