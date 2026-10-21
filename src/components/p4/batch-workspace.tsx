@@ -1,4 +1,5 @@
 "use client";
+import "./batch-workspace.css";
 import {useCallback,useEffect,useState,type KeyboardEvent} from "react";
 import Link from "next/link";
 import {useRouter,useSearchParams} from "next/navigation";
@@ -97,7 +98,7 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
     <span className="tab-meta">ผู้ป่วย {st.placed}/{st.capacity} · ว่าง {st.empty}</span></button>;})}</div>
   {pendingSheet!==null&&<div className="notice warning-notice" role="alert">Task List {sheetNo} มีข้อมูลแผนที่ยังไม่บันทึก — บันทึกก่อน หรือทิ้งการแก้ไขเพื่อไป Task List {pendingSheet}
    <div className="row-actions"><button className="button small secondary" type="button" onClick={()=>setPendingSheet(null)}>กลับไปแก้ไข Task List {sheetNo}</button><button className="button small secondary" type="button" onClick={discardAndSwitch}>ทิ้งการแก้ไขและไป Task List {pendingSheet}</button></div></div>}
-  <section id="sheet-panel" role="tabpanel" aria-labelledby={`sheet-${sheetNo}`} className="panel stack">
+  <section id="sheet-panel" role="tabpanel" aria-labelledby={`sheet-${sheetNo}`} className="panel stack lab-task-panel">
    <div className="action-bar"><Link className="button" href={`/lab/batches/${w.batch.id}/bench`}>QC Measurements → Pooling → Seq Task-G50</Link></div>
    {w.allowed.draft&&w.batch.state==="Draft"&&!w.slots.some(s=>s.assignment)&&<div className="action-bar"><button className="button secondary" type="button" disabled={busy} onClick={async()=>{if(!window.confirm("ลบ Batch ร่างที่ยังไม่มีตัวอย่างหรือเอกสารเชื่อมโยงนี้?"))return;setBusy(true);try{await labApi(`/api/p4/batches/${w.batch.id}`,{action:"deleteDraft",expectedVersion:w.batch.version});router.push("/lab/batches");router.refresh();}catch(e){setMsg({ok:false,text:failureText(e)});setBusy(false);}}}>ลบ Batch</button></div>}
    {sheetNo===3&&editable&&w.allowed.draft&&<label className="check-label"><input type="checkbox" checked={w.urgent40===true} disabled={busy||!!w.slots.find(s=>s.slot===40)?.assignment||sheet.placement_revision>0} onChange={e=>void act("urgent40",{enabled:e.target.checked},"บันทึกการใช้ช่อง 40 แล้ว")}/>ใช้ช่อง 40 สำหรับผู้ป่วย Urgent แทน BLANK (สูงสุด 46 ผู้ป่วย)</label>}

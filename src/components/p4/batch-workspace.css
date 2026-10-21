@@ -1,0 +1,4 @@
+/* Keep long workflow actions inside the Task panel after Thai fonts load. */
+.lab-task-panel { min-width: 0; }
+.lab-task-panel > .action-bar .button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.lab-task-panel .plate { min-width: 0; overflow-x: auto; }
