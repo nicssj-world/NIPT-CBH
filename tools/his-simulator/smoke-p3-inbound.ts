@@ -30,7 +30,7 @@ try{
  const seeded=(await admin.query<{id:string;username:string}>("SELECT id,username FROM app_user WHERE username IN ('synthetic.lab','synthetic.anc')")).rows,unit=(await admin.query<{id:string}>("SELECT id FROM unit WHERE code='SYNTHETIC_ANC'")).rows[0].id;
  const lab:Staff={id:seeded.find(u=>u.username==='synthetic.lab')!.id,roles:['LAB_STAFF'],unitIds:[],permissions:[]},anc:Staff={id:seeded.find(u=>u.username==='synthetic.anc')!.id,roles:['ANC_NURSE'],unitIds:[unit],permissions:[]};
  // Phase 1 — AT-LDR-08: registration (web) and worker apply race on the same LN, plus a replay and an aborted attempt.
- const N=12,lns=Array.from({length:N},(_,i)=>`99000${run}${String(i).padStart(2,'0')}`);
+const N=12,lns=Array.from({length:N},(_,i)=>`99000${run.slice(-3)}${String(i).padStart(2,'0')}`);
  for(const [i,ln] of lns.entries())if(i%3!==2)await writePet(ln,HN); // i%3==2: registration first, PET later
  await discoverInbound(worker,store,{root,lookbackDays:1,lookupKey:key});
  const fileId=async(ln:string)=>(await admin.query<{id:string}>('SELECT id FROM his_inbound_file WHERE ln=$1',[ln])).rows[0]?.id;

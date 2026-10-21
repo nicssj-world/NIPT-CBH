@@ -6,6 +6,8 @@ import {NextResponse} from 'next/server';
 import {p4Error,noStore} from './p4';
 export function workbookError(error:unknown) {
   const message=error instanceof Error?error.message:'';
+  const stderr=error&&typeof error==='object'&&'stderr' in error&&typeof error.stderr==='string'?error.stderr:'';
+  if(/Get-PrintConfiguration[\s\S]*Access denied/i.test(stderr)||/Get-PrintConfiguration[\s\S]*Access denied/i.test(message))return NextResponse.json({code:'TASK_NATIVE_EXCEL_PRINTER_ACCESS_DENIED',error:'เครื่องออก PDF ยังไม่มีสิทธิ์อ่านการตั้งค่าเครื่องพิมพ์ จึงยังออกเอกสารไม่ได้ กรุณาติดต่อผู้ดูแลเครื่อง'},{status:503,headers:noStore});
   if(message.startsWith('TASK_PDF_PAGE_COUNT:'))return NextResponse.json({code:'TASK_PDF_PAGE_COUNT',error:'Excel ในเครื่องนี้แบ่งหน้าไม่ตรง Master ที่กำหนด 2 หน้า จึงยังออก PDF ไม่ได้ กรุณาตรวจ Print Preview และ Font บนเครื่อง Renderer โดยคง Master เดิม',details:message},{status:409,headers:noStore});
   if(message==='TASK_MASTER_PATH_REQUIRED')return NextResponse.json({code:message,error:'ยังไม่ได้กำหนดไฟล์ Excel Master ต้นฉบับให้ระบบ กรุณากำหนด NIPT_TASK_MASTER_PATH'},{status:409,headers:noStore});
   if(['TASK_MASTER_FILE_NOT_FOUND','TASK_MASTER_FILE_UNREADABLE','TASK_MASTER_LOCAL_PATH_REQUIRED'].includes(message))return NextResponse.json({code:message,error:'ไม่สามารถอ่าน Excel Master ที่กำหนดได้ กรุณาตรวจไฟล์ภายในเครื่องและสิทธิ์บริการ'},{status:409,headers:noStore});

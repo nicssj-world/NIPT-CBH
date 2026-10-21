@@ -15,7 +15,7 @@ for(const width of [375,768,1280,1440])test(`responsive Thai foundation at ${wid
   const results=await new AxeBuilder({page}).withTags(AA_TAGS).analyze();expect(results.violations).toEqual([]);
  }
  // Other specs register cases in the shared database before this one, so look only at the three seeded cases (LN 99000000000N) instead of assuming a pristine registry.
- await page.goto("/cases");await expect(page.getByRole("heading",{name:"ทะเบียนกลาง",exact:true})).toBeVisible();await page.getByLabel("ค้นหา LN หรือ HN",{exact:true}).fill("99000000000");await page.getByRole("button",{name:"ค้นหา",exact:true}).click();await expect(page.locator(".registry-row")).toHaveCount(3);if(process.env.E2E_SKIP_VISUAL!=="1")await expect(page).toHaveScreenshot(`registry-${width}.png`,{fullPage:true,animations:"disabled"});
+ await page.goto("/cases");await expect(page.getByRole("heading",{name:"ทะเบียนกลาง",exact:true})).toBeVisible();const search=page.getByLabel("ค้นหา LN / HN / ชื่อ-นามสกุล",{exact:true});await search.fill("99000000000");await expect(page.getByRole("button",{name:"ล้างคำค้น",exact:true})).toBeVisible();await page.getByRole("button",{name:"ล้างคำค้น",exact:true}).click();await expect(search).toHaveValue("");await search.fill("99000000000");await expect(page.locator(".registry-row")).toHaveCount(3);if(process.env.E2E_SKIP_VISUAL!=="1")await expect(page).toHaveScreenshot(`registry-${width}.png`,{fullPage:true,animations:"disabled"});
 });
 test("authentication, protected APIs, origin CSRF and admin has no clinical access",async({page,request})=>{
  expect((await request.get("/api/me")).status()).toBe(401);

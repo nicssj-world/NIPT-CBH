@@ -23,6 +23,7 @@ describe('ANC shared aggregate and queue predicates',()=>{
   expect(matches(c,{kpi:'sent',fy:2570})).toBe(false);
   expect(matches(c,{kpi:'sent',fy:2569})).toBe(true);
  });
+ it('searches by patient name as well as HN and LN without dropping existing filters',()=>{const c=project(facts({patientName:'สมหญิง ทดสอบ'}),now);expect(matches(c,{q:'สมหญิง'})).toBe(true);expect(matches(c,{q:'ทดสอบ'})).toBe(true);expect(matches(c,{q:'คนอื่น'})).toBe(false);expect(matches(c,{q:'001'})).toBe(true);});
  it('uses identical composed predicates for count and paged drilldown with flags',()=>{
   const items=Array.from({length:211},(_,i)=>project(facts({id:String(i),s1ReceivedAt:'2026-10-12T00:00:00Z',hold:i%2===0}),now));
   const filter={kpi:'pending' as const,flag:'hold' as const};const filtered=items.filter(c=>matches(c,filter));

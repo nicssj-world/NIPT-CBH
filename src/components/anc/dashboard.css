@@ -4,3 +4,12 @@
 @media(max-width:600px){.anc-filters form{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;width:100%}.anc-filters form label{width:100%;min-width:0}.anc-filters form .button{width:auto;min-width:76px;flex:none}.anc-filters form input{min-width:0;width:100%}}
 /* UX pass 2026-10-19: the global label margin made bottom-aligned buttons sit 8px below the input. */
 .anc-filters label{margin-bottom:0}
+
+/* Case-name column and consistent medical workflow statuses. */
+.anc-table-region table{min-width:1280px}
+.anc-table-region th,.anc-table-region td{vertical-align:middle}
+.anc-table-region th{white-space:nowrap;font-weight:650}
+.anc-table-region td .status.status-pill{white-space:normal;max-width:200px}
+.anc-table-region td .status.status-pill+small{margin-top:7px}
+.anc-patient-name{font-size:14px;font-weight:600;line-height:1.5;min-width:135px;overflow-wrap:anywhere}
+.anc-mobile-cases .anc-patient-name{font-size:14px;margin:8px 0;color:var(--color-ink)}

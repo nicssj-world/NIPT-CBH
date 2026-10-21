@@ -40,12 +40,14 @@ DO $$ BEGIN
  END IF;
 END $$;
 GRANT SELECT,INSERT ON p2_case_identity,p2_doctor_version,p2_doctor_event,p2_document_revision,p2_collection_fact,p2_paper_review,p2_consent_ack,p2_consent_signature,p2_final_consent,p2_revocation,p2_disposition,p2_document_access TO app_rw;
+GRANT SELECT,INSERT ON p2_doctor_registration TO app_rw;
 GRANT SELECT,INSERT ON p2_request_ack TO app_rw;
 -- The deferred S1 receipt guard reads existing HIS orders even for an Expected synthetic round.
 GRANT SELECT ON his_order TO app_rw;
 -- P3 synthetic HIS inbound (migration 008) and P2-P3 integration grants.
 GRANT SELECT,INSERT,UPDATE ON his_intake_issue,his_inbound_waiting TO worker_rw;
 GRANT SELECT,INSERT ON his_intake_issue_event,his_inbound_source,his_inbound_scan_run TO worker_rw;
+GRANT SELECT,INSERT ON file_asset TO worker_rw;
 GRANT SELECT ON nipt_case,case_ln,specimen_round,his_order,app_user TO worker_rw;
 -- Read requested redraw lineage for PET-backed S2; worker still cannot create/edit redraw requests.
 GRANT SELECT ON redraw_request TO worker_rw;

@@ -27,9 +27,11 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('native P5: idempotent certificat
    await tx(o,async t=>{await t.query('INSERT INTO p2_case_identity(case_id,hn) VALUES($1,$2)',[c.caseId,hn]);
     await t.query("INSERT INTO p2_document_revision(case_id,round_id,kind,version,template_version,payload,content_hash,reason,created_by) VALUES($1,$2,'REQUEST',1,'SYNTHETIC-FM01-v1',$3,$4,'SYNTHETIC_P5',$5)",[c.caseId,c.roundId,JSON.stringify(payload),createHash('sha256').update(JSON.stringify(payload)+randomUUID()).digest('hex'),u.staff.id]);
     await receiveS1(t,c,new Date(Date.now()-3600000),'2026-10-10');});
-   const attemptId=(await owner.query<{id:string}>('SELECT id FROM analytical_attempt WHERE round_id=$1',[c.roundId])).rows[0].id;
-   const bytes=syntheticReportPdf({kind:'SINGLETON',labNumber:'26B'+randomUUID().slice(0,9),hn,collection:'10-Oct-2026'});
-   return {...c,hn,attemptId,bytes};
+   const attempt=(await owner.query<{id:string;lab_number:string|null}>(
+    'SELECT a.id,coalesce(a.printed_sample_id,n.ln_halos) lab_number FROM analytical_attempt a LEFT JOIN specimen_lab_number n ON n.round_id=a.round_id WHERE a.round_id=$1',[c.roundId])).rows[0];
+   if(!attempt?.lab_number)throw new Error('SYNTHETIC_LAB_NUMBER_REQUIRED');
+   const bytes=syntheticReportPdf({kind:'SINGLETON',labNumber:attempt.lab_number,hn,collection:'10-Oct-2026'});
+   return {...c,hn,attemptId:attempt.id,bytes};
   };
   const rv=async(id:string)=>(await owner.query<{row_version:number}>('SELECT row_version FROM result_report_version WHERE id=$1',[id])).rows[0].row_version;
   const [w1,w2,a1,a2]=[await session('worker_rw'),await session('worker_rw'),await session('app_rw'),await session('app_rw')];

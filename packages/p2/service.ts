@@ -42,7 +42,7 @@ async function workspace(db:Queryable,c:CaseScope,user:Staff){
  return (await db.query<{round_id:string;case_id:string;version:number;draft:RequestDraft;request_mode:'Electronic'|'Paper';consent_mode:'Electronic'|'Paper'}>('SELECT * FROM p2_workspace WHERE round_id=$1 FOR UPDATE',[c.current_round_id])).rows[0];
 }
 async function invalidate(db:Queryable,caseId:string){await db.query("UPDATE p2_signing_session SET state='Invalidated',closed_at=now() WHERE case_id=$1 AND state='Active'",[caseId]);}
-const p2Ln=z.string().trim().refine(v=>operationalDataEnabled()?/^(?:\d{10,12}|\d{2,3}-\d{3}-\d{1,2}-\d{4})$/.test(v):/^0*990[0-9]{3,17}$/.test(v.replaceAll('-','')),'LN_FORMAT_INVALID');
+const p2Ln=z.string().trim().refine(v=>operationalDataEnabled()?/^(?:\d{10}|\d{2}-\d{3}-\d-\d{4})$/.test(v):/^0*990[0-9]{3,17}$/.test(v.replaceAll('-','')),'LN_FORMAT_INVALID');
 /** Lab blind entry L2 (Plan §4.7, D-40): presence of a waiting HIS intake only, before any identifier is entered. */
 export async function registrationIntakePresence(db:Queryable,user:Staff,input:unknown){
  await assertStaff(db,user);const d=z.strictObject({ln:p2Ln}).parse(input);requirePermission(user,'case.register.lab',{origin:'LAB_DIRECT'});
@@ -85,6 +85,11 @@ export async function voidIncorrectRegistration(db:Queryable,user:Staff,id:strin
   EXISTS(SELECT 1 FROM p2_final_consent f JOIN p2_document_revision d ON d.id=f.document_id WHERE d.case_id=$1) OR
   EXISTS(SELECT 1 FROM p2_consent_signature s JOIN p2_document_revision d ON d.id=s.document_id WHERE d.case_id=$1) OR
   EXISTS(SELECT 1 FROM p2_paper_review WHERE case_id=$1) OR
+  EXISTS(SELECT 1 FROM redraw_request WHERE case_id=$1) OR
+  EXISTS(SELECT 1 FROM repeat_work_order WHERE case_id=$1) OR
+  EXISTS(SELECT 1 FROM specimen_lab_number WHERE case_id=$1) OR
+  EXISTS(SELECT 1 FROM analytical_attempt a JOIN specimen_round r ON r.id=a.round_id WHERE r.case_id=$1) OR
+  EXISTS(SELECT 1 FROM clinical_snapshot WHERE case_id=$1 AND (result->>'passed'='true' OR rule_version='CBH-AUTHORIZED-REVIEW-v1')) OR
   EXISTS(SELECT 1 FROM result_report_version WHERE case_id=$1) OR
   EXISTS(SELECT 1 FROM p2_revocation WHERE case_id=$1)`,[id]);
  if(blocked.rows.length)throw new P2Error('REGISTRATION_HAS_DOWNSTREAM_EVIDENCE',409);
@@ -97,19 +102,20 @@ export async function getCase(db:Queryable,user:Staff,id:string){
  const c=await scopedCase(db,user,id),w=await workspace(db,c,user);
  const [revisions,paper,clinical,collection,revocations,signatures,finalConsents]=[
  await db.query('SELECT id,kind,version,template_version,content_hash,payload,reason,created_at FROM p2_document_revision WHERE case_id=$1 ORDER BY created_at DESC',[id]),
- await db.query('SELECT * FROM p2_paper_review WHERE case_id=$1 ORDER BY created_at DESC',[id]),
+ await db.query('SELECT p.*,u.display_name AS verifier_name,u.job_position AS verifier_position FROM p2_paper_review p LEFT JOIN app_user u ON u.id=p.verifier_id WHERE p.case_id=$1 ORDER BY p.created_at DESC',[id]),
  await db.query('SELECT * FROM clinical_snapshot WHERE case_id=$1 ORDER BY created_at DESC',[id]),
  await db.query('SELECT *,collection_date::text AS collection_date FROM p2_collection_fact WHERE case_id=$1 ORDER BY created_at',[id]),
- await db.query('SELECT * FROM p2_revocation WHERE case_id=$1 ORDER BY created_at',[id]),
+ await db.query('SELECT v.*,u.display_name AS actor_name FROM p2_revocation v LEFT JOIN app_user u ON u.id=v.actor_id WHERE v.case_id=$1 ORDER BY v.created_at',[id]),
  await db.query('SELECT s.id,s.document_id,s.decision,s.signature_hash,s.signed_at FROM p2_consent_signature s JOIN p2_document_revision d ON d.id=s.document_id WHERE d.case_id=$1 ORDER BY signed_at DESC',[id]),await db.query('SELECT f.id,f.document_id,f.content_hash,f.hash_algorithm,f.payload,f.created_at FROM p2_final_consent f JOIN p2_document_revision d ON d.id=f.document_id WHERE d.case_id=$1 ORDER BY f.created_at DESC',[id])];
  const roundReceipt=(await db.query(`SELECT id AS "roundId",received_source AS "receivedSource",${preciseUtc('received_at')} AS "receivedAt",collection_date::text AS "collectionDate" FROM specimen_round WHERE id=$1`,[c.current_round_id])).rows[0];
- const currentCollectionFacts=(await db.query('SELECT DISTINCT ON(source) source,collection_date::text AS collection_date,collection_time,actor_id,reason,sequence FROM p2_collection_fact WHERE round_id=$1 ORDER BY source,sequence DESC',[c.current_round_id])).rows;
+ const currentCollectionFacts=(await db.query('SELECT DISTINCT ON(f.source) f.source,f.collection_date::text AS collection_date,f.collection_time,f.actor_id,u.display_name AS actor_name,u.job_position AS actor_position,f.reason,f.sequence FROM p2_collection_fact f LEFT JOIN app_user u ON u.id=f.actor_id WHERE f.round_id=$1 ORDER BY f.source,f.sequence DESC',[c.current_round_id])).rows;
  const history={rounds:(await db.query('SELECT id,round_number,state,received_source FROM specimen_round WHERE case_id=$1 ORDER BY round_number,id',[id])).rows,events:(await db.query("SELECT e.event_type,e.created_at,e.details->>'actorId' AS actor_id,u.display_name,u.job_position FROM case_event e LEFT JOIN app_user u ON u.id=(e.details->>'actorId')::uuid WHERE e.case_id=$1 ORDER BY e.created_at DESC,e.id DESC LIMIT 200",[id])).rows};
+ const patientName=(await db.query<{name:string|null}>(`SELECT NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),'') AS name FROM p2_workspace w JOIN specimen_round r ON r.id=w.round_id WHERE w.case_id=$1 AND NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),'') IS NOT NULL ORDER BY r.round_number DESC LIMIT 1`,[id])).rows[0]?.name??null;
  const consentDecision=(await db.query<{d:string|null}>('SELECT p2_consent_latest_decision($1) AS d',[c.current_round_id])).rows[0].d;
  const clinicalReady=operationalDataEnabled()&&(await db.query<{ready:boolean}>('SELECT p2_clinical_ready($1) AS ready',[c.current_round_id])).rows[0]?.ready===true;
  const actions=['clinical.correct','request.edit','request.correct','consent.prepare','paper.verify','consent.withdraw.receive'].filter(a=>authorize(user,a,{unitId:c.unit_id,origin:c.registration_origin},'write'));
  await recordPhiAccess(db,user.id,[id],'CASE_DETAIL_VIEW');
- return {operational:operationalDataEnabled(),case:c,workspace:w,consentDecision,history,roundReceipt,currentCollectionFacts,revisions:revisions.rows,paper:paper.rows,clinical:clinical.rows,collection:collection.rows,revocations:revocations.rows,signatures:signatures.rows,finalConsents:finalConsents.rows,allowedActions:actions,gate:{passed:clinicalReady,state:revocations.rows.length?'RevokedHold':clinicalReady?'ClinicalPassed':'PendingClinicalReview',reason:clinicalReady?'AUTHORIZED_CLINICAL_REVIEW':'CLINICAL_REVIEW_REQUIRED'}};
+ return {operational:operationalDataEnabled(),case:c,patientName,workspace:w,consentDecision,history,roundReceipt,currentCollectionFacts,revisions:revisions.rows,paper:paper.rows,clinical:clinical.rows,collection:collection.rows,revocations:revocations.rows,signatures:signatures.rows,finalConsents:finalConsents.rows,allowedActions:actions,gate:{passed:clinicalReady,state:revocations.rows.length?'RevokedHold':clinicalReady?'ClinicalPassed':'PendingClinicalReview',reason:clinicalReady?'AUTHORIZED_CLINICAL_REVIEW':'CLINICAL_REVIEW_REQUIRED'}};
 }
 async function collectionConflict(db:Queryable,c:CaseScope,dateValue?:string|null){const r=await db.query<{collection_date:string|Date}>('SELECT DISTINCT ON(source) collection_date::text AS collection_date FROM p2_collection_fact WHERE round_id=$1 ORDER BY source,sequence DESC',[c.current_round_id]);const his=await db.query<{collection_date:string|Date}>('SELECT collection_date::text AS collection_date FROM specimen_round WHERE id=$1 AND received_source=\'HIS_PET_RECEIPT\' AND collection_date IS NOT NULL',[c.current_round_id]);const dates=new Set([...r.rows,...his.rows].map(x=>new Date(x.collection_date).toISOString().slice(0,10)));if(dateValue)dates.add(dateValue);return dates.size>1;}
 async function collect(db:Queryable,c:CaseScope,user:Staff,d:RequestDraft,reason='SYNTHETIC_CAPTURE'){if(d.pregnancy.collectionDate&&d.pregnancy.collectionSource){
@@ -142,12 +148,13 @@ export async function lockRequest(db:Queryable,user:Staff,id:string,input:unknow
  const frozen=operationalDataEnabled()?await (await import('./document-snapshot')).freezeDccForm(db,user,c.id,'REQUEST'):{};
  const r=await revision(db,user,c,'REQUEST',{...frozen,workspaceVersion:w.version,identity:{caseId:c.id,ln:c.ln,hn:c.hn,roundId:c.current_round_id,roundNumber:c.round_number},draft,clinical,doctor,acknowledgmentEvidence,caption:operationalDataEnabled()?'authorized stored signature, not freshly signed':'authorized synthetic stored signature, not freshly signed',unsigned:false,synthetic:!operationalDataEnabled()},d.reason);await event(db,user,id,'P2_REQUEST_LOCKED');return r;
 }
-export async function setModes(db:Queryable,user:Staff,id:string,input:unknown){const d=z.strictObject({expectedVersion:z.number().int().min(0),requestMode:z.enum(['Electronic','Paper']),consentMode:z.enum(['Electronic','Paper']),reason:syntheticText.refine(v=>v.length>0)}).parse(input),c=await activeCase(db,user,id,'consent.prepare'),w=await workspace(db,c,user);if(w.version!==d.expectedVersion)throw new P2Error('VERSION_CONFLICT',409,{version:w.version,draft:w.draft});await db.query('UPDATE p2_workspace SET request_mode=$2,consent_mode=$3,version=version+1,updated_by=$4,updated_at=now() WHERE round_id=$1',[c.current_round_id,d.requestMode,d.consentMode,user.id]);await invalidate(db,id);await event(db,user,id,'P2_MODES_CHANGED',{reason:d.reason});return {version:w.version+1,requestMode:d.requestMode,consentMode:d.consentMode};}
+export async function setModes(db:Queryable,user:Staff,id:string,input:unknown){const d=z.strictObject({expectedVersion:z.number().int().min(0),requestMode:z.enum(['Electronic','Paper']),consentMode:z.enum(['Electronic','Paper']),reason:syntheticText.refine(v=>v.length>0)}).parse(input),c=await activeCase(db,user,id,'consent.prepare'),w=await workspace(db,c,user);if(w.version!==d.expectedVersion)throw new P2Error('VERSION_CONFLICT',409,{version:w.version,draft:w.draft});if(d.consentMode!==w.consent_mode)await assertConsentNotCompleted(db,c.id);await db.query('UPDATE p2_workspace SET request_mode=$2,consent_mode=$3,version=version+1,updated_by=$4,updated_at=now() WHERE round_id=$1',[c.current_round_id,d.requestMode,d.consentMode,user.id]);await invalidate(db,id);await event(db,user,id,'P2_MODES_CHANGED',{reason:d.reason});return {version:w.version+1,requestMode:d.requestMode,consentMode:d.consentMode};}
 /** Owner 2026-10-18: ANC records that the patient refused on the paper consent. No print/upload/scan/verification; it reuses the paper review
  * consent model (status Declined), the case audit trail and the DB readiness rule, and blocks every gate until a later decisive Granted decision. */
 export async function refusePaperConsent(db:Queryable,user:Staff,id:string,input:unknown){
  const d=z.strictObject({expectedVersion:z.number().int().min(0),reason:syntheticText.refine(v=>v.length>0)}).parse(input),c=await activeCase(db,user,id,'consent.prepare'),w=await workspace(db,c,user);
  if(w.version!==d.expectedVersion)throw new P2Error('VERSION_CONFLICT',409,{version:w.version,draft:w.draft});
+ await assertConsentNotCompleted(db,c.id);
  let version=w.version;
  if(w.consent_mode!=='Paper'){await db.query("UPDATE p2_workspace SET consent_mode='Paper',version=version+1,updated_by=$2,updated_at=now() WHERE round_id=$1",[c.current_round_id,user.id]);version+=1;await invalidate(db,id);await event(db,user,id,'P2_MODES_CHANGED',{reason:'ANC เลือกใช้ Paper Consent พร้อมบันทึกการไม่ยินยอม'});}
  const panel:Record<string,string|null>=Object.fromEntries(Object.keys(paperSchema.shape).map(k=>[k,null]));panel.decision='Declined';
@@ -157,6 +164,7 @@ export async function refusePaperConsent(db:Queryable,user:Staff,id:string,input
 export async function paperReview(db:Queryable,user:Staff,id:string,input:unknown){
  const ack=z.strictObject({syntheticName:syntheticText.refine(v=>v.length>0),date,source:z.literal('PAPER_ORIGINAL')});
  const d=z.strictObject({kind:z.enum(['REQUEST','CONSENT']),templateVersion:z.enum([REQUEST_TEMPLATE,CONSENT_TEMPLATE,'CBH-FM01-v1','CBH-FM02-v1']),documentReference:syntheticText.refine(v=>v.length>0),panel:paperSchema,location:syntheticText.refine(v=>v.length>0),reason:syntheticText.refine(v=>v.length>0),operation:z.enum(['Review','Replace','Amend']),previousId:uuid.nullable(),acknowledgmentEvidence:z.strictObject({conditionA:ack.optional(),conditionB:ack.optional()}).optional()}).parse(input),c=await activeCase(db,user,id,'paper.verify'),w=await workspace(db,c,user);
+ if(d.kind==='CONSENT')await assertConsentNotCompleted(db,c.id);
  const relevant=d.kind==='CONSENT'?['decision','signatures','representative']:Object.keys(paperSchema.shape).filter(k=>!['decision','signatures','representative'].includes(k));if(Object.entries(d.panel).some(([k,v])=>!relevant.includes(k)&&v!==null))throw new P2Error('PAPER_IRRELEVANT_FIELDS_MUST_BE_NULL',422);
  if((d.kind==='REQUEST'?w.request_mode:w.consent_mode)!=='Paper'||d.templateVersion!==(documentTemplate(d.kind)))throw new P2Error('PAPER_DOCUMENT_MODE_TEMPLATE_MISMATCH');
  if(d.previousId){const prev=(await db.query('SELECT id FROM p2_paper_review WHERE id=$1 AND case_id=$2 AND round_id=$3 AND kind=$4',[d.previousId,id,c.current_round_id,d.kind])).rows[0];if(!prev)throw new P2Error('PAPER_PREVIOUS_MISMATCH');}
@@ -169,10 +177,22 @@ export async function paperReview(db:Queryable,user:Staff,id:string,input:unknow
  const clinical={state:conflict?'ClinicalDataConflict':d.panel.history1to5==='AnyYes'?'BlockedWithReason':status==='Pending'?'NotEvaluable':'PendingClinicalReview',passed:false,ruleVersion:'SYNTHETIC-NEGATIVE-ONLY-v1',authority:'PendingClinicalReview'};
  await db.query('INSERT INTO clinical_snapshot(case_id,round_id,rule_version,input_snapshot,result) VALUES($1,$2,$3,$4,$5)',[id,c.current_round_id,clinical.ruleVersion,{paperReviewId:r.id,panel:d.panel},clinical]);await event(db,user,id,'P2_PAPER_REVIEWED');return {...r,clinical};
 }
-export async function preparePaper(db:Queryable,user:Staff,id:string,input:unknown){const d=z.strictObject({kind:z.enum(['REQUEST','CONSENT']),documentReference:syntheticText.refine(v=>v.length>0),location:syntheticText.refine(v=>v.length>0),reason:syntheticText.refine(v=>v.length>0)}).parse(input),c=await activeCase(db,user,id,d.kind==='REQUEST'?'request.edit':'consent.prepare'),w=await workspace(db,c,user);if((d.kind==='REQUEST'?w.request_mode:w.consent_mode)!=='Paper')throw new P2Error('PAPER_DOCUMENT_MODE_TEMPLATE_MISMATCH');const panel=Object.fromEntries(Object.keys(paperSchema.shape).map(k=>[k,null]));const r=(await db.query("INSERT INTO p2_paper_review(case_id,round_id,kind,template_version,document_reference,panel,status,location,reason,verifier_id) VALUES($1,$2,$3,$4,$5,$6,'Pending',$7,$8,$9) RETURNING id,status,created_at",[id,c.current_round_id,d.kind,documentTemplate(d.kind),d.documentReference,panel,d.location,d.reason,user.id])).rows[0];await event(db,user,id,'P2_PAPER_PREPARED');return r;}
+export async function preparePaper(db:Queryable,user:Staff,id:string,input:unknown){const d=z.strictObject({kind:z.enum(['REQUEST','CONSENT']),documentReference:syntheticText.refine(v=>v.length>0),location:syntheticText.refine(v=>v.length>0),reason:syntheticText.refine(v=>v.length>0)}).parse(input),c=await activeCase(db,user,id,d.kind==='REQUEST'?'request.edit':'consent.prepare'),w=await workspace(db,c,user);if((d.kind==='REQUEST'?w.request_mode:w.consent_mode)!=='Paper')throw new P2Error('PAPER_DOCUMENT_MODE_TEMPLATE_MISMATCH');if(d.kind==='CONSENT')await assertConsentNotCompleted(db,c.id);const panel=Object.fromEntries(Object.keys(paperSchema.shape).map(k=>[k,null]));const r=(await db.query("INSERT INTO p2_paper_review(case_id,round_id,kind,template_version,document_reference,panel,status,location,reason,verifier_id) VALUES($1,$2,$3,$4,$5,$6,'Pending',$7,$8,$9) RETURNING id,status,created_at",[id,c.current_round_id,d.kind,documentTemplate(d.kind),d.documentReference,panel,d.location,d.reason,user.id])).rows[0];await event(db,user,id,'P2_PAPER_PREPARED');return r;}
+/**
+ * One signed consent per case: never generate another document/version after a
+ * patient has completed the evidence-backed consent. This is a database
+ * transaction guard, not merely a disabled button.
+ */
+async function assertConsentNotCompleted(db:Queryable,caseId:string){
+ const completed=(await db.query<{id:string}>(`SELECT f.id FROM p2_final_consent f
+  JOIN p2_document_revision d ON d.id=f.document_id
+  WHERE d.case_id=$1 LIMIT 1`,[caseId])).rows[0];
+ if(completed)throw new P2Error('CONSENT_ALREADY_COMPLETED',409);
+}
 export async function prepareConsent(db:Queryable,user:Staff,id:string,input:unknown){
  const representative=z.strictObject({name:syntheticText.refine(v=>v.length>0),relationship:syntheticText.refine(v=>v.length>0),authorityBasis:syntheticText.refine(v=>v.length>0),authorityConfirmed:z.literal(true)});
  const d=z.strictObject({doctorVersionId:uuid,representativeRequired:z.boolean(),representative:representative.optional(),reason:syntheticText.refine(v=>v.length>0).optional()}).refine(v=>v.representativeRequired===!!v.representative).parse(input),c=await activeCase(db,user,id,'consent.prepare'),w=await workspace(db,c,user);
+ await assertConsentNotCompleted(db,c.id);
  if(w.consent_mode!=='Electronic')throw new P2Error('CONSENT_PAPER_MODE');
  // Owner Lock 2026-10-18: the consent names the same ordering doctor the ANC nurse chose on this round's request.
  if(!w.draft.ordering.doctorVersionId)throw new P2Error('ORDERING_DOCTOR_REQUIRED',422);
@@ -182,7 +202,7 @@ export async function prepareConsent(db:Queryable,user:Staff,id:string,input:unk
  const r=await revision(db,user,c,'CONSENT',{...frozen,...(operationalDataEnabled()?{consentContent:DCC_CONSENT}:{}),identity:{caseId:c.id,ln:c.ln,hn:c.hn,roundId:c.current_round_id,roundNumber:c.round_number},workspaceVersion:w.version,clauses:operationalDataEnabled()?DCC_CONSENT.clauses.map(c=>c.text):consentClauses,doctor,requestDraft:w.draft,preparerId:user.id,representativeRequired:d.representativeRequired,representative:d.representative??null,caption:operationalDataEnabled()?'authorized stored signature, not freshly signed':'authorized synthetic stored signature, not freshly signed',synthetic:!operationalDataEnabled(),unapproved:true,unsigned:true},d.reason??'ANC เตรียมใบยินยอม');await event(db,user,id,'P2_CONSENT_PREPARED',{representative:d.representativeRequired});return r;
 }
 export async function startSigning(db:Queryable,user:Staff,id:string,input:unknown){
- const d=z.strictObject({documentId:uuid,devicePresent:z.literal(true),syntheticPatient:z.literal(true).optional(),patientPresent:z.literal(true).optional()}).refine(v=>operationalDataEnabled()?v.patientPresent===true:v.syntheticPatient===true,{message:'PATIENT_PRESENT_REQUIRED'}).parse(input),c=await activeCase(db,user,id,'consent.prepare'),w=await workspace(db,c,user);if(!user.sessionId)throw new P2Error('STAFF_SESSION_REQUIRED',401);if(w.consent_mode!=='Electronic')throw new P2Error('CONSENT_PAPER_MODE');
+ const d=z.strictObject({documentId:uuid,devicePresent:z.literal(true),syntheticPatient:z.literal(true).optional(),patientPresent:z.literal(true).optional()}).refine(v=>operationalDataEnabled()?v.patientPresent===true:v.syntheticPatient===true,{message:'PATIENT_PRESENT_REQUIRED'}).parse(input),c=await activeCase(db,user,id,'consent.prepare'),w=await workspace(db,c,user);if(!user.sessionId)throw new P2Error('STAFF_SESSION_REQUIRED',401);await assertConsentNotCompleted(db,c.id);if(w.consent_mode!=='Electronic')throw new P2Error('CONSENT_PAPER_MODE');
  // Lock the immutable document using an advisory lock (app_rw deliberately cannot UPDATE snapshots).
  await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,75432804))',[d.documentId]);
  const doc=(await db.query<{id:string;payload:{doctor:{id:string};workspaceVersion:number;consentContent?:unknown}}>("SELECT id,payload FROM p2_document_revision WHERE id=$1 AND case_id=$2 AND round_id=$3 AND kind='CONSENT' AND version=(SELECT max(version) FROM p2_document_revision WHERE case_id=$2 AND round_id=$3 AND kind='CONSENT')",[d.documentId,id,c.current_round_id])).rows[0];if(!doc)throw new P2Error('CONSENT_VERSION_INVALID',409);if(doc.payload.workspaceVersion!==w.version)throw new P2Error('CONSENT_DRAFT_CHANGED_PREPARE_AGAIN',409);
@@ -288,17 +308,24 @@ export async function listP2Cases(db:Queryable,user:Staff,input:unknown={}){
  const readable=allUnits.flatMap(u=>origins.filter(o=>authorize(user,'case.read',{unitId:u.id,origin:o},'read')).map(o=>u.id+':'+o));
  const halosTerm=search.replace(/[DR]{1,2}$/i,'');
  const canHalos=authorize(user,'worksheet.read',{},'read')&&halosTerm.length>=4;
- const values:unknown[]=[likeContains(search),readable,canHalos,likeContains(halosTerm)];
+ const scanLn=/^\d{2}-\d{3}-\d-\d{4}$/.test(search)?search.replaceAll('-',''):search;
+ const values:unknown[]=[likeContains(search),readable,canHalos,likeContains(halosTerm),likeContains(scanLn)];
  // LN Halos is Lab numbering: searchable only by roles that can already read the Lab worksheet. The printed code may carry a D/R suffix.
  const base=`FROM nipt_case c JOIN case_ln l ON l.id=(SELECT cl.id FROM case_ln cl WHERE cl.case_id=c.id ORDER BY cl.id LIMIT 1) LEFT JOIN p2_case_identity i ON i.case_id=c.id
   JOIN LATERAL(SELECT us.unit_id FROM case_unit_scope us WHERE us.case_id=c.id AND (us.unit_id::text||':'||c.registration_origin)=ANY($2::text[]) ORDER BY us.unit_id LIMIT 1) s ON true
   JOIN specimen_round r ON r.id=c.current_round_id LEFT JOIN p2_workspace w ON w.round_id=r.id
-  WHERE c.registration_origin IN ('ANC','LAB_DIRECT') AND NOT EXISTS(SELECT 1 FROM p2_registration_void v WHERE v.case_id=c.id) AND (l.ln LIKE $1 OR i.hn LIKE $1 OR w.draft->'patient'->>'syntheticName' ILIKE $1
+  LEFT JOIN LATERAL (
+   SELECT NULLIF(btrim(older.draft#>>'{patient,syntheticName}'),'') AS name
+   FROM p2_workspace older JOIN specimen_round older_round ON older_round.id=older.round_id
+   WHERE older.case_id=c.id AND NULLIF(btrim(older.draft#>>'{patient,syntheticName}'),'') IS NOT NULL
+   ORDER BY older_round.round_number DESC LIMIT 1
+  ) patient_history ON true
+  WHERE c.registration_origin IN ('ANC','LAB_DIRECT') AND NOT EXISTS(SELECT 1 FROM p2_registration_void v WHERE v.case_id=c.id) AND (l.ln LIKE $1 OR l.ln LIKE $5 OR i.hn LIKE $1 OR COALESCE(NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),''),patient_history.name,'') ILIKE $1
    OR ($3::boolean AND EXISTS(SELECT 1 FROM specimen_lab_number n WHERE n.case_id=c.id AND n.ln_halos ILIKE $4)))`;
  const total=Number((await db.query<{n:string}>(`SELECT count(*)::text n ${base}`,values)).rows[0].n);
  const meta=clampPage(requested,total,pageSize);
  const rows=(await db.query<CaseScope&{received_at:Date|null;received_source:string|null;draft:RequestDraft|null;patient_name:string|null;version:number|null;request_mode:string|null;consent_mode:string|null;consent_decision:string|null}>(
-  `SELECT c.id,l.ln,i.hn,c.registration_origin,c.current_round_id,s.unit_id,r.state,r.analysis_started,r.round_number,r.received_at,r.received_source,w.draft,w.draft->'patient'->>'syntheticName' patient_name,w.version,w.request_mode,w.consent_mode,(CASE WHEN w.round_id IS NULL THEN NULL ELSE p2_consent_latest_decision(w.round_id) END) consent_decision ${base}
+  `SELECT c.id,l.ln,i.hn,c.registration_origin,c.current_round_id,s.unit_id,r.state,r.analysis_started,r.round_number,r.received_at,r.received_source,w.draft,COALESCE(NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),''),patient_history.name) patient_name,w.version,w.request_mode,w.consent_mode,(CASE WHEN w.round_id IS NULL THEN NULL ELSE p2_consent_latest_decision(w.round_id) END) consent_decision ${base}
    ORDER BY ${receiveOrderSql('r.received_at',sort,['(CASE WHEN r.received_at IS NULL THEN c.created_at END) DESC NULLS LAST','l.ln','c.id'])} LIMIT ${pageSize} OFFSET ${offsetOf(meta)}`,values)).rows;
  const seen=new Set<string>();const cases=rows.filter(c=>{if(seen.has(c.id)||!authorize(user,'case.read',{unitId:c.unit_id,origin:c.registration_origin},'read'))return false;seen.add(c.id);return true;}).map(({draft,...c})=>({...c,patient_name:c.patient_name?.trim()||null,identityVerified:c.hn!==null,progress:draft?{missing:requestProgressIssues(draft),savedVersion:c.version}:null}));
  const units=allUnits.filter(u=>authorize(user,'case.register.anc',{unitId:u.id,origin:'ANC'})||authorize(user,'case.register.lab',{unitId:u.id,origin:'LAB_DIRECT'}));
@@ -325,9 +352,13 @@ export async function approveClinicalP2(db:Queryable,user:Staff,id:string,input:
  }else if((evidence.paperRequest as {status?:string}|null)?.status!=='Verified')throw new P2Error('VERIFIED_REQUEST_REQUIRED',409);
  if((await db.query<{d:string|null}>('SELECT p2_consent_latest_decision($1) AS d',[c.current_round_id])).rows[0].d==='Declined')throw new P2Error('CONSENT_DECLINED',409);
  if(w.consent_mode==='Electronic'){
-  const final=evidence.finalConsent as {document_id?:string;payload?:{signature?:{decision?:string}}}|null;
-  const document=evidence.consentDocument as {id?:string;payload?:{workspaceVersion?:number}}|null;
-  if(!final||final.document_id!==document?.id||document?.payload?.workspaceVersion!==w.version||final.payload?.signature?.decision!=='Granted')throw new P2Error('CURRENT_GRANTED_CONSENT_REQUIRED',409);
+  const caseFinal=evidence.caseFinalConsent as {document_id?:string;round_id?:string;payload?:{signature?:{decision?:string}}}|null;
+  const reusablePriorRoundConsent=caseFinal?.payload?.signature?.decision==='Granted'&&typeof caseFinal.round_id==='string'&&caseFinal.round_id!==c.current_round_id;
+  if(!reusablePriorRoundConsent){
+   const final=evidence.finalConsent as {document_id?:string;payload?:{signature?:{decision?:string}}}|null;
+   const document=evidence.consentDocument as {id?:string;payload?:{workspaceVersion?:number}}|null;
+   if(!final||final.document_id!==document?.id||document?.payload?.workspaceVersion!==w.version||final.payload?.signature?.decision!=='Granted')throw new P2Error('CURRENT_GRANTED_CONSENT_REQUIRED',409);
+  }
  }else{
   // Paper Consent marker (Owner 2026-10-18): the selection is enough to proceed; it is not signing evidence. Only a recorded refusal stops it (checked below for both channels).
  }

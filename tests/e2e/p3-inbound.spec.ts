@@ -47,24 +47,24 @@ async function hisIntakes(pets:{ln:string;hn:string}[]){
   for(const p of pets){const pet=buildSyntheticPet({...p,name:"SYNTHETIC^^นาง ห้ามแสดงก่อนกรอก",receivedAt:day+"081500",specimenAt:day+"070000"});await writeFile(path.join(root,"inbound",day,pet.filename),pet.bytes);await writeFile(path.join(root,"inbound",day,pet.filename.replace(".pet",".ok")),"");}
   const lookupKey=readFileSync(process.env.IDENTITY_LOOKUP_KEY_FILE??"data/keys/lookup.key");
   const r=await runInboundCycle(db,{store:new FileStore(path.resolve(process.env.FILE_STORE_ROOT||"data/files")),lookupKey,root},{trigger:"MANUAL",lookbackDays:1,intervalSeconds:30});
-  expect(r.counts.outcome_UNLINKED).toBe(pets.length);
+  expect(r.counts).toMatchObject({outcome_UNLINKED:pets.length});
  }finally{await db.end();await rm(base,{recursive:true,force:true});}
 }
 test("P2-P3 Lab blind entry: presence only before entry, match links S1 at P[21], mismatch queues without HIS values",async({page})=>{
  test.setTimeout(90000);
- const n=String(Date.now()).slice(-8),match={ln:"0099000"+n+"1",hn:"00990"+n+"1"},miss={ln:"0099000"+n+"2",hn:"00990"+n+"2"},fresh="0099000"+n+"3";
+ const n=String(Date.now()).slice(-4),match={ln:"99000"+n+"1",hn:"00990"+n+"1"},miss={ln:"99000"+n+"2",hn:"00990"+n+"2"},fresh="99000"+n+"3";
  await hisIntakes([match,miss]);
  await page.setViewportSize({width:375,height:900});await login(page,"synthetic.lab");
  await page.getByRole("button",{name:"เปิดเมนูหลัก",exact:true}).click();await expect(page.getByRole("navigation",{name:"เมนูหลัก"}).getByRole("link",{name:"รับใบสั่งจาก HIS"})).toBeVisible();await page.keyboard.press("Escape");
  const open=async(ln:string)=>{await page.goto("/cases");await page.getByRole("button",{name:"ลงทะเบียนโดย Lab",exact:true}).click();const dialog=page.getByRole("dialog");await dialog.getByLabel("LN HIS จำลอง",{exact:false}).fill(ln);await dialog.getByLabel("LN HIS จำลอง",{exact:false}).blur();return dialog;};
- const fill=async(dialog:ReturnType<Page["getByRole"]>,hn:string,source:string)=>{await dialog.getByLabel("HN จำลอง",{exact:false}).fill(hn);const unit=dialog.getByLabel("หน่วยงานลงทะเบียน",{exact:false});await expect(unit.locator("option")).not.toHaveCount(1);await unit.selectOption({index:1});const s=dialog.getByLabel("แหล่งของตัวระบุ",{exact:false});await s.selectOption(source);await expect(s).toHaveValue(source);await dialog.getByRole("button",{name:"ตรวจและลงทะเบียน",exact:true}).click();};
+ const fill=async(dialog:ReturnType<Page["getByRole"]>,hn:string,source:string)=>{await dialog.getByLabel("HN จำลอง",{exact:false}).fill(hn);const unit=dialog.getByLabel("หน่วยงานลงทะเบียน",{exact:false});await expect(unit.locator("option")).not.toHaveCount(1);await unit.selectOption({index:1});const s=dialog.getByLabel("แหล่งของตัวระบุ",{exact:false});await s.selectOption(source);await expect(s).toHaveValue(source);await dialog.getByRole("button",{name:"ตรวจข้อมูลก่อนลงทะเบียน",exact:true}).click();await dialog.getByRole("button",{name:"ยืนยันลงทะเบียน",exact:true}).click();};
  let dialog=await open(match.ln);
  await expect(dialog.getByRole("status")).toContainText("มีข้อมูลสั่งตรวจจาก HIS ของ LN นี้รอเชื่อมอยู่");
  await expect(dialog).not.toContainText(match.hn);await expect(dialog).not.toContainText("ห้ามแสดง");
  expect((await new AxeBuilder({page}).withTags(AA_TAGS).analyze()).violations).toEqual([]);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  // Identifier source is required for Lab registration: native validation blocks the POST.
  let posts=0;page.on("request",r=>{if(r.method()==="POST"&&new URL(r.url()).pathname==="/api/p2/register")posts++;});
- await dialog.getByLabel("HN จำลอง",{exact:false}).fill(match.hn);await dialog.getByRole("button",{name:"ตรวจและลงทะเบียน",exact:true}).click();expect(posts).toBe(0);
+ await dialog.getByLabel("HN จำลอง",{exact:false}).fill(match.hn);const unit=dialog.getByLabel("หน่วยงานลงทะเบียน",{exact:false});await expect(unit.locator("option")).not.toHaveCount(1);await unit.selectOption({index:1});await dialog.getByRole("button",{name:"ตรวจข้อมูลก่อนลงทะเบียน",exact:true}).click();expect(posts).toBe(0);
  await fill(dialog,match.hn,"TUBE_LABEL");
  await expect(page).toHaveURL(/\/cases\/[a-f0-9-]+$/);await expect(page.getByText("รับจาก HIS (จำลอง)").first()).toBeVisible();
  dialog=await open(miss.ln);await expect(dialog.getByRole("status")).toContainText("มีข้อมูลสั่งตรวจจาก HIS ของ LN นี้รอเชื่อมอยู่");
@@ -72,7 +72,7 @@ test("P2-P3 Lab blind entry: presence only before entry, match links S1 at P[21]
  await expect(dialog.getByRole("alert")).toContainText("HN ไม่ตรงกับข้อมูลสั่งตรวจจาก HIS");await expect(dialog.getByRole("link",{name:"เปิดเคสที่ลงทะเบียน"})).toBeVisible();
  await expect(dialog).not.toContainText(miss.hn);await expect(dialog).not.toContainText("ห้ามแสดง");
  expect((await new AxeBuilder({page}).withTags(AA_TAGS).analyze()).violations).toEqual([]);
- await dialog.getByRole("link",{name:"เปิดเคสที่ลงทะเบียน"}).click();await expect(page.getByText("รอสิ่งส่งตรวจ").first()).toBeVisible();
+ await dialog.getByRole("link",{name:"เปิดเคสที่ลงทะเบียน"}).click();await expect(page.getByText("รอรับสิ่งส่งตรวจ").first()).toBeVisible();
  dialog=await open(fresh);await expect(dialog.getByRole("status")).toContainText("ยังไม่มีข้อมูลสั่งตรวจจาก HIS ที่รอเชื่อม");
  const db=new Pool({connectionString:browserFixtureDatabaseUrl(),max:1});
  try{

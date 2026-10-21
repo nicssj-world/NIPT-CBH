@@ -5,7 +5,7 @@ import {addUser} from '../helpers/database';
 
 const NOW=new Date('2026-10-12T05:00:00Z'),DAY='20261012',HN='9900001001';
 let f:InboundFixture;
-beforeEach(async()=>{f=await inboundFixture();await f.db.exec(await readFile('packages/db/roles.sql','utf8'));await f.db.exec('GRANT SELECT,INSERT ON file_asset,case_event TO worker_rw');});
+beforeEach(async()=>{f=await inboundFixture();await f.db.exec(await readFile('packages/db/roles.sql','utf8'));});
 afterEach(async()=>{await f.db.query('RESET ROLE');await f.close();});
 
 describe('P3 least-privilege DB roles (worker_rw / app_rw) and LD-04 guard',()=>{

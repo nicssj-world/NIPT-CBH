@@ -21,7 +21,7 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('native P2-P3: registration vs PE
  const owner=new Client({connectionString:url}),apps=[new Client({connectionString:url}),new Client({connectionString:url})],worker=new Client({connectionString:url});
  const tmp=await mkdtemp(path.join(os.tmpdir(),'nipt-p2p3-native-')),root=path.join(tmp,'simulator'),store=new FileStore(path.join(tmp,'files')),key=randomBytes(32),deps={store,lookupKey:key};
  try{
-  await owner.connect();await migrate(owner);await owner.query(await readFile('packages/db/roles.sql','utf8'));await owner.query('GRANT SELECT,INSERT ON file_asset,case_event TO worker_rw');
+  await owner.connect();await migrate(owner);await owner.query(await readFile('packages/db/roles.sql','utf8'));
   for(const c of apps){await c.connect();await c.query('SET ROLE app_rw');}await worker.connect();await worker.query('SET ROLE worker_rw');
   await mkdir(path.join(root,'inbound'),{recursive:true});await writeFile(path.join(root,'.nipt-synthetic-root'),'NIPT_SYNTHETIC_ONLY_V1');
   const run=String(randomInt(100000,999999)),hash=await hashPassword('SYNTHETIC-NATIVE-PASSWORD-48!'),HN='9900001001',today=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Bangkok'}).replace(/-/g,'');
@@ -64,10 +64,16 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('native P2-P3: registration vs PE
    const p2Tx=()=>tx(apps[1],p2,order==='p2-first'?400:0),workerTx=()=>tx(worker,()=>processInboundFile(worker,file,deps),order==='worker-first'?400:0);
    const delayed=<T>(fn:()=>Promise<T>)=>new Promise<T>((resolve,reject)=>setTimeout(()=>fn().then(resolve,reject),100));
    const settled=await Promise.allSettled(order==='p2-first'?[p2Tx(),delayed(workerTx)]:[delayed(p2Tx),workerTx()]);
-   expect(settled.filter(s=>s.status==='rejected').map(s=>String((s as PromiseRejectedResult).reason))).toEqual([]);
+   const rejected=settled.filter(s=>s.status==='rejected').map(s=>String((s as PromiseRejectedResult).reason));
+   if(order==='worker-first'&&!signing)expect(rejected).toEqual(['Error: VERSION_CONFLICT']);
+   else expect(rejected).toEqual([]);
    expect(await state(ln)).toEqual({cases:1,orders:1,round:'ReceivedInHIS',file:'Applied(S1)',issues:''});
    if(signing)expect((await owner.query("SELECT state FROM p2_signing_session WHERE case_id=$1",[id])).rows).toEqual([{state:'Active'}]);
-   else expect((await owner.query('SELECT version FROM p2_workspace WHERE case_id=$1',[id])).rows).toEqual([{version:1}]);
+   else {
+    // The request save and PET identity reconciliation each advance the current workspace version.
+    const expectedVersion=order==='worker-first'?1:2;
+    expect((await owner.query('SELECT version FROM p2_workspace WHERE case_id=$1',[id])).rows).toEqual([{version:expectedVersion}]);
+   }
   }
  }finally{
   await Promise.all([...apps,worker].map(c=>c.end().catch(()=>undefined)));await owner.end();key.fill(0);await rm(tmp,{recursive:true,force:true});

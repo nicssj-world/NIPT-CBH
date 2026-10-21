@@ -3,6 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import {readFileSync} from 'node:fs';
 import {mkdir} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
+import path from 'node:path';
 import {Client} from 'pg';
 import {browserFixtureDatabaseUrl} from '../helpers/browser-database';
 import type {Queryable} from '../../packages/db/connection';
@@ -41,8 +42,8 @@ test('P7 result filters, bounded CSV, certifier diagnostic reparse and mobile ac
   expect(queryRequests.every(r=>!new URL(r.url).searchParams.has('q')&&!r.url.includes(suffix))).toBe(true);expect(page.url()).not.toContain(suffix);
   await page.getByLabel('ตั้งแต่วันที่',{exact:true}).fill('1999-01-01');await page.getByLabel('ถึงวันที่',{exact:true}).fill('2000-01-01');await page.getByRole('button',{name:'ใช้ตัวกรอง',exact:true}).click();await expect(region).toContainText('ไม่มีรายการในสถานะนี้');
   await page.getByRole('button',{name:'ล้างตัวกรอง',exact:true}).click();await expect(region).toContainText(name);
-  await mkdir('.local/p7/browser',{recursive:true});
-  for(const width of [1280,768,375]){await page.setViewportSize({width,height:812});await expect(page.getByRole('button',{name:'ใช้ตัวกรอง',exact:true})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth)).toBe(true);await page.screenshot({path:`.local/p7/browser/results-${width}.png`,fullPage:true});}
+  const screenDir=process.env.NIPT_E2E_SCREEN_DIR??'.local/p7/browser';await mkdir(screenDir,{recursive:true});
+  for(const width of [1280,768,375]){await page.setViewportSize({width,height:812});await expect(page.getByRole('button',{name:'ใช้ตัวกรอง',exact:true})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth)).toBe(true);await page.screenshot({path:path.join(screenDir,`results-${width}.png`),fullPage:true});}
   expect((await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa','wcag22aa']).analyze()).violations).toEqual([]);
   await page.goto(`/results/${id}`);await expect(page.getByRole('heading',{name:'อ่านต้นฉบับซ้ำเพื่อวินิจฉัย Parser'})).toHaveCount(0);
   const privateGet=await page.request.get('/api/p5/results?q=SYNTHETIC');expect(privateGet.status()).toBe(400);

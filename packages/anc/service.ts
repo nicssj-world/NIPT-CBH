@@ -20,15 +20,19 @@ function decodeCursor(raw:string):Cursor{
  * EXISTS and scalar subqueries keep exactly one row per case, even for multiple unit scopes.
  * Documents use the authoritative p2_clinical_source and document portion of the readiness predicate
  * (migration 088; Paper Consent marker 101; refusal-aware decision 102). Collection-date/clinical-review gates remain separate from document readiness. */
-export const factsSql=`SELECT c.id,l.ln,i.hn,
+export const factsSql=`SELECT c.id,l.ln,i.hn,COALESCE(NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),''),patient_history.name) "patientName",
  ARRAY(SELECT s.unit_id::text FROM case_unit_scope s WHERE s.case_id=c.id AND s.unit_id=ANY($1::uuid[]) ORDER BY s.unit_id) "unitIds",
  c.current_round_id "currentRoundId",r.round_number "roundNumber",r.state "roundState",
  (SELECT s.received_at FROM specimen_round s WHERE s.case_id=c.id AND s.round_number=1) "s1ReceivedAt",r.received_at "currentReceivedAt",COALESCE(r.analysis_started,false) "analysisStarted",
  COALESCE((SELECT
  x->>'currentRoundId'=r.id::text AND x->>'revoked'='false'
  AND (CASE WHEN x->>'requestMode'='Electronic' THEN x#>'{requestDocument,payload,draft}'=x->'draft' ELSE x#>>'{paperRequest,status}'='Verified' END)
- AND (CASE WHEN x->>'consentMode'='Electronic' THEN x#>>'{finalConsent,document_id}'=x#>>'{consentDocument,id}' AND x#>>'{finalConsent,payload,signature,decision}'='Granted' AND x#>'{consentDocument,payload,workspaceVersion}'=x->'workspaceVersion'
- ELSE x->>'consentMode'='Paper' END)
+ AND (CASE WHEN x->>'consentMode'='Electronic' THEN CASE
+  WHEN x#>>'{caseFinalConsent,payload,signature,decision}'='Granted'
+   AND x#>>'{caseFinalConsent,round_id}' IS NOT NULL
+   AND x#>>'{caseFinalConsent,round_id}'<>r.id::text THEN true
+  ELSE x#>>'{finalConsent,document_id}'=x#>>'{consentDocument,id}' AND x#>>'{finalConsent,payload,signature,decision}'='Granted' AND x#>'{consentDocument,payload,workspaceVersion}'=x->'workspaceVersion'
+ END ELSE x->>'consentMode'='Paper' END)
  AND COALESCE(p2_consent_latest_decision(r.id),'')<>'Declined'
  FROM (SELECT p2_clinical_source(r.id) x) source),false) "documentsReady",
  (SELECT v.state FROM result_report_version v WHERE v.case_id=c.id AND v.round_id=r.id AND v.kind='RESULT' AND v.state NOT IN ('Superseded','Voided','RejectedImport') ORDER BY v.state_changed_at DESC,v.id DESC LIMIT 1) "reportState",
@@ -42,9 +46,17 @@ export const factsSql=`SELECT c.id,l.ln,i.hn,
  COALESCE((SELECT e.event_type='URGENT_SET' FROM attempt_event e WHERE e.attempt_id=a.id AND e.event_type IN ('URGENT_SET','URGENT_CLEARED') ORDER BY e.sequence DESC LIMIT 1),false) urgent
  FROM nipt_case c JOIN case_ln l ON l.case_id=c.id LEFT JOIN p2_case_identity i ON i.case_id=c.id
  LEFT JOIN specimen_round r ON r.id=c.current_round_id AND r.case_id=c.id
+ LEFT JOIN p2_workspace w ON w.case_id=c.id AND w.round_id=r.id
+ LEFT JOIN LATERAL (
+  SELECT NULLIF(btrim(older.draft#>>'{patient,syntheticName}'),'') AS name
+  FROM p2_workspace older JOIN specimen_round older_round ON older_round.id=older.round_id
+  WHERE older.case_id=c.id AND NULLIF(btrim(older.draft#>>'{patient,syntheticName}'),'') IS NOT NULL
+  ORDER BY older_round.round_number DESC LIMIT 1
+ ) patient_history ON true
  LEFT JOIN LATERAL(SELECT x.id FROM analytical_attempt x WHERE x.round_id=r.id AND x.state<>'Cancelled' ORDER BY x.attempt_number DESC LIMIT 1) a ON true
  WHERE c.registration_origin IN ('ANC','LAB_DIRECT') AND r.state IS DISTINCT FROM 'Cancelled'
- AND EXISTS(SELECT 1 FROM case_unit_scope s WHERE s.case_id=c.id AND s.unit_id=ANY($1::uuid[]))`;
+ AND EXISTS(SELECT 1 FROM case_unit_scope s WHERE s.case_id=c.id AND s.unit_id=ANY($1::uuid[]))
+ AND NOT EXISTS(SELECT 1 FROM p2_registration_void removed WHERE removed.case_id=c.id)`;
 
 /** Port of project()/matches() (model.ts) to SQL so the queue is filtered, ordered, counted and paged by the database. model.ts stays the
  * reference definition: tests/db/anc-sql-parity.test.ts runs both over the same data. A change to a stage, flag or KPI rule must be made in BOTH. */
@@ -74,13 +86,13 @@ export const projectionFor=(facts:string)=>`WITH facts AS MATERIALIZED (${facts}
    ($5::text IS NULL OR CASE $5::text WHEN 'sent' THEN sent WHEN 'pending' THEN pending WHEN 'released' THEN released WHEN 'attention' THEN cardinality(flags)>0 ELSE false END)
    AND ($6::text IS NULL OR stage=$6::text) AND ($7::text IS NULL OR $7::text=ANY(flags))
    AND ($8::text='all' OR CASE $8::text WHEN 'redraw' THEN redraw WHEN 'hold' THEN hold WHEN 'pending' THEN pending WHEN 'released' THEN released WHEN 'attention' THEN cardinality(flags)>0 ELSE false END)
-   AND ($9::text='' OR strpos(lower(ln),$9::text)>0 OR strpos(lower(COALESCE(hn,'')),$9::text)>0 OR strpos(lower(id::text),$9::text)>0))
+   AND ($9::text='' OR strpos(lower(ln),$9::text)>0 OR strpos(lower(COALESCE(hn,'')),$9::text)>0 OR strpos(lower(id::text),$9::text)>0 OR strpos(lower(COALESCE("patientName",'')),$9::text)>0 OR ($9::text ~ '^[0-9]{2}-[0-9]{3}-[0-9]-[0-9]{4}$' AND strpos(ln,replace($9::text,'-',''))>0)))
  SELECT
   (SELECT json_build_object('sent',count(*) FILTER (WHERE sent),'pending',count(*) FILTER (WHERE pending),'released',count(*) FILTER (WHERE released),'attention',count(*) FILTER (WHERE cardinality(flags)>0)) FROM sc) metrics,
   (SELECT COALESCE(json_object_agg(stage,n),'{}'::json) FROM (SELECT stage,count(*)::int n FROM sc GROUP BY stage) x) stage_counts,
   (SELECT count(*)::int FROM flt) total,
   (SELECT COALESCE(json_agg(row_to_json(p) ORDER BY p.ord_u DESC,p.ord_d DESC,p.id),'[]'::json) FROM (
-    SELECT id,ln,hn,"unitIds","currentRoundId","roundNumber","roundState","s1ReceivedAt","currentReceivedAt","analysisStarted","documentsReady","reportState","activeReleaseCount","certifiedReleaseCount",
+    SELECT id,ln,hn,"patientName","unitIds","currentRoundId","roundNumber","roundState","s1ReceivedAt","currentReceivedAt","analysisStarted","documentsReady","reportState","activeReleaseCount","certifiedReleaseCount",
      redraw,repeat,hold,urgent,"consentRevoked","identityIssue",stage,flags,released,pending,days_waiting "daysWaiting",urgent::int ord_u,COALESCE(days_waiting,-1) ord_d
     FROM flt WHERE ($10::int IS NULL OR (urgent::int<$10::int OR (urgent::int=$10::int AND COALESCE(days_waiting,-1)<$11::int) OR (urgent::int=$10::int AND COALESCE(days_waiting,-1)=$11::int AND id>$12::uuid)))
     ORDER BY urgent::int DESC,COALESCE(days_waiting,-1) DESC,id LIMIT $13 OFFSET $14) p) rows`;

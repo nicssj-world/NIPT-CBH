@@ -46,6 +46,24 @@ describe('ANC read-only migrated database aggregation',()=>{
   expect(d.queue.total).toBe(1);expect(d.queue.items[0].documentsReady).toBe(false);
   expect(d.queue.items[0].flags).toContain('consent_revoked');
  });
+ it('finds a scoped ANC case by stored patient name without changing dashboard counts',async()=>{
+  await db.query('BEGIN');
+  try{
+   await db.query("UPDATE p2_workspace SET version=version+1,draft=jsonb_set(draft,'{patient}',jsonb_build_object('syntheticName','SYNTHETIC-NAME-LOOKUP'),true) WHERE case_id=$1",[caseId]);
+   const result=await dashboard(db,anc,{q:'NAME-LOOKUP'});
+   expect(result.queue.items.map(c=>c.id)).toContain(caseId);
+   expect(result.queue.items.find(c=>c.id===caseId)?.patientName).toBe('SYNTHETIC-NAME-LOOKUP');
+  }finally{await db.query('ROLLBACK');}
+ });
+ it('does not reappear in ANC overview after an erroneous registration is voided',async()=>{
+  await db.query('BEGIN');
+  try{
+   const created=await syntheticCase(db,{staff:anc,unit},{evidence:false});
+   await db.query('INSERT INTO p2_registration_void(case_id,actor_id,reason) VALUES($1,$2,$3)',[created.caseId,anc.id,'SYNTHETIC incorrect registration']);
+   const result=await dashboard(db,anc,{pageSize:100});
+   expect(result.queue.items.some(c=>c.id===created.caseId)).toBe(false);
+  }finally{await db.query('ROLLBACK');}
+ });
  it('reads more than 200 cases and returns exact last-page totals in a read-only transaction',async()=>{
   await db.query('BEGIN');
   try{

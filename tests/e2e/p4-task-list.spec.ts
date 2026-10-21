@@ -1,6 +1,7 @@
 import {test,expect,type Page} from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import {readFileSync} from "node:fs";
+import path from "node:path";
 import {randomUUID} from "node:crypto";
 import {Client} from "pg";
 import {browserFixtureDatabaseUrl} from "../helpers/browser-database";
@@ -158,7 +159,7 @@ test("P0-5 / PDF acceptance: native Excel PDF per Task 1–3 carries only its ow
   await expect(page.getByRole("region",{name:`สรุป Task List ${n}`})).toContainText(p.control);
   const [download]=await Promise.all([page.waitForEvent("download",{timeout:300000}),page.getByRole("button",{name:`ดาวน์โหลด PDF Task List ${n}`}).click()]);
   await expect(page.getByRole("status")).toContainText(`สร้าง PDF ของ Task List ${n} แล้ว (สำเนาตรวจทาน — ไม่ใช่เอกสารควบคุม)`);
-  const saved=`.local/p0-e2e/evidence/${run.replace("/","-")}_Task-List-${n}.pdf`;await download.saveAs(saved); // kept as acceptance evidence (ignored by git)
+  const evidenceDir=process.env.NIPT_E2E_P4_EVIDENCE_DIR??".local/p0-e2e/evidence";const saved=path.join(evidenceDir,`${run.replace("/","-")}_Task-List-${n}.pdf`);await download.saveAs(saved); // kept as acceptance evidence (ignored by git)
   const {pages,text}=await pdfText(saved);
   expect(pages,`Task ${n} page count`).toBe(2);
   for(const s of [p.be,run,p.op,`${p.lot} / ${p.expBe}`,p.control,ids[n-1].printed_sample_id])expect(text,`Task ${n} must contain ${s}`).toContain(s);
@@ -210,9 +211,10 @@ test("G07 + OD-B: 'เติมตัวอย่างจากคิว' previ
  expect(placed.map(p=>p.received_at.getTime())).toEqual([...placed.map(p=>p.received_at.getTime())].sort((a,b)=>a-b));
  await expect(page.getByRole("tab",{name:/Task List 2/})).toContainText(`ผู้ป่วย ${n}/15`);
  // OD-B: uncontrolled DRAFT preview of the not-yet-finalized Task.
- const popup=page.waitForEvent("popup");
+  // labPdf opens the PDF with `noopener`, so it is intentionally not an opener-linked popup.
+  const previewPage=page.context().waitForEvent("page");
  await page.getByRole("button",{name:"ดูตัวอย่าง PDF ฉบับร่าง (DRAFT)"}).click();
- await (await popup).close();
+  await (await previewPage).close();
  const r=await labPost(page,`/api/p4/batches/${batchId}/draft-pdf`,{sheetNumber:2});
  expect(r.ok(),await r.text().catch(()=>"")).toBe(true);expect(r.headers()["content-type"]).toBe("application/pdf");expect(r.headers()["x-document-status"]).toBe("DRAFT_PREVIEW");
  expect((await r.body()).subarray(0,5).toString()).toBe("%PDF-");

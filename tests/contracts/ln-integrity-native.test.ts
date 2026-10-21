@@ -20,7 +20,7 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('native LN integrity: concurrent 
  const owner=new Client({connectionString:url}),apps=[new Client({connectionString:url}),new Client({connectionString:url})],workers=[new Client({connectionString:url}),new Client({connectionString:url})];
  const tmp=await mkdtemp(path.join(os.tmpdir(),'nipt-ln-native-')),root=path.join(tmp,'simulator'),store=new FileStore(path.join(tmp,'files')),key=randomBytes(32),deps={store,lookupKey:key};
  try{
-  await owner.connect();await migrate(owner);await owner.query(await readFile('packages/db/roles.sql','utf8'));await owner.query('GRANT SELECT,INSERT ON file_asset,case_event TO worker_rw');
+  await owner.connect();await migrate(owner);await owner.query(await readFile('packages/db/roles.sql','utf8'));
   for(const c of apps){await c.connect();await c.query('SET ROLE app_rw');}for(const c of workers){await c.connect();await c.query('SET ROLE worker_rw');}
   await mkdir(path.join(root,'inbound'),{recursive:true});await writeFile(path.join(root,'.nipt-synthetic-root'),'NIPT_SYNTHETIC_ONLY_V1');
   const run=String(randomInt(100000,999999)),hash=await hashPassword('SYNTHETIC-NATIVE-PASSWORD-48!'),today=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Bangkok'}).replace(/-/g,'');

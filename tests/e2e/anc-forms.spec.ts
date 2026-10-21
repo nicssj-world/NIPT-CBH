@@ -42,16 +42,18 @@ test("ANC fills the request once; the three previews show it on the DCC pages wi
  const empty=await preview("request");expect(Number(empty.r.headers()["x-missing-fields"])).toBeGreaterThan(5);
  // 1–2. Fill once in the existing ANC request form, choosing the doctor from the Doctor Registry list.
  await page.getByRole("button",{name:"เปิดแบบขอส่งตรวจ 5 หมวด"}).click();
+ await expect(page.getByLabel("สถานพยาบาล",{exact:true})).toHaveValue("จำลอง: Chonburi Hospital");await expect(page.getByLabel("ผู้ประสานงาน",{exact:true})).toHaveValue("จำลอง: ผู้ใช้จำลอง anc");
  await page.getByLabel("ชื่อผู้รับบริการจำลอง",{exact:false}).fill("จำลอง นางสาวพรรณรายสุดาวดีศรีสวัสดิ์ ณ อยุธยาวงศ์ไพบูลย์ทดสอบชื่อยาว");
  await page.getByLabel("วันเกิด",{exact:true}).fill("31/03/2539");await page.getByLabel("น้ำหนัก (กก.)",{exact:false}).fill("62.5");await page.getByLabel("ส่วนสูง (ซม.)",{exact:false}).fill("158");
  await page.getByLabel("แพทย์ผู้สั่งตรวจ",{exact:false}).selectOption(doctorA);
- await page.getByRole("button",{name:/^2\. การตั้งครรภ์/}).click();await page.getByLabel("กำหนดคลอด EDD",{exact:false}).fill("22/04/2570");await page.getByLabel("วันที่เจาะเลือด S1",{exact:false}).fill("10/10/2569");
- await page.getByRole("radiogroup",{name:"ที่มาวันเจาะ",exact:false}).locator('input[value="ANC"]').check();await page.getByRole("radiogroup",{name:"ประเภทครรภ์",exact:false}).locator('input[value="Singleton"]').check();
- await page.getByRole("radiogroup",{name:"Vanishing twin",exact:false}).locator('input[value="No"]').check();
- await page.getByRole("button",{name:"บันทึกร่าง / ลองใหม่"}).click();await expect(page.locator(".save-status")).toContainText("บันทึกแล้ว");await page.keyboard.press("Escape");
+ await page.getByRole("button",{name:/^2\. การตั้งครรภ์/}).click();await page.getByLabel("วันกำหนดคลอด",{exact:false}).fill("22/04/2570");await page.getByLabel("วันและเวลาเจาะเลือด S1",{exact:false}).fill("10/10/2569");
+ await page.getByRole("radiogroup",{name:"ประเภทครรภ์",exact:false}).locator('input[value="Singleton"]').check();
+ await page.getByRole("radiogroup",{name:/พบภาวะที่ตัวอ่อนฝ่อ/}).locator('input[value="No"]').check();
+ await page.getByRole("button",{name:"บันทึก",exact:true}).click();await expect(page.getByRole("dialog")).toHaveCount(0);
+ const stored=await page.request.get(`/api/p2/cases/${caseId}`).then(r=>r.json());expect(stored.workspace.draft.pregnancy.collectionSource).toBe("ANC");
  // 3–4, 8–9. Buttons on the ANC page; PDF content matches the ANC record; same doctor on both forms; A4 1 + 1 = 2 pages.
- for(const name of ["ดูตัวอย่างใบขอส่งตรวจ","ดูตัวอย่างใบยินยอม","ดูเอกสารรวม 2 หน้า"])await expect(page.getByRole("link",{name})).toHaveAttribute("href",new RegExp(`/api/p2/cases/${caseId}/forms\\?kind=`));
- const [popup]=await Promise.all([page.waitForEvent("popup"),page.getByRole("link",{name:"ดูเอกสารรวม 2 หน้า"}).click()]);await popup.close();
+ for(const name of ["ดูตัวอย่างใบขอส่งตรวจ","ดูตัวอย่างใบยินยอม (ยังไม่ลงนาม)","ดูตัวอย่างเอกสารรวม 2 หน้า"])await expect(page.getByRole("link",{name})).toHaveAttribute("href",new RegExp(`/api/p2/cases/${caseId}/forms\\?kind=`));
+ const [popup]=await Promise.all([page.waitForEvent("popup"),page.getByRole("link",{name:"ดูตัวอย่างเอกสารรวม 2 หน้า"}).click()]);await popup.close();
  const both=await preview("both"),pages=await pdfLines(both.bytes);
  expect(pages.map(p=>[Math.round(p.w),Math.round(p.h)])).toEqual([[595,842],[595,842]]);
  for(const t of [HN,"62.5","158","25.0","Fm-WI-T-BM17/01",NAME_A])expect(pages[0].text,t).toContain(norm(t));
@@ -61,7 +63,7 @@ test("ANC fills the request once; the three previews show it on the DCC pages wi
  const png=await rasterizePdf(both.bytes,1.6);await writeFile(path.join(evidence,"both-doctor-a-1.png"),png[0]);await writeFile(path.join(evidence,"both-doctor-a-2.png"),png[1]);
  // 5. Change the doctor on the request → both previews follow.
  await page.getByRole("button",{name:"เปิดแบบขอส่งตรวจ 5 หมวด"}).click();await page.getByLabel("แพทย์ผู้สั่งตรวจ",{exact:false}).selectOption(doctorB);
- await page.getByRole("button",{name:"บันทึกร่าง / ลองใหม่"}).click();await expect(page.locator(".save-status")).toContainText("บันทึกแล้ว");await page.keyboard.press("Escape");
+ await page.getByRole("button",{name:"บันทึก",exact:true}).click();await expect(page.getByRole("dialog")).toHaveCount(0);
  const changed=await pdfLines((await preview("both")).bytes);for(const p of changed){expect(p.text).toContain(norm(NAME_B));expect(p.text).not.toContain(norm(NAME_A));}
  // 6. Opening previews never changes the consent: still unsigned, no consent evidence created.
  const c=await page.request.get(`/api/p2/cases/${caseId}`).then(r=>r.json());expect(c.signatures).toEqual([]);expect(c.finalConsents).toEqual([]);
