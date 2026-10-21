@@ -1,0 +1,27 @@
+{
+  "scope": "Lab Bench only; extends existing DESIGN.md",
+  "evidence": ".local/lab-browser-G65D3X/pooling-{1440,1280,768,375}.png",
+  "extensions": {
+    "breakpoints": {
+      "standards-single-column": "768px"
+    },
+    "rules": [
+      "Identifiers remain unwrapped in a table scroll region",
+      "Volume columns align right with tabular numerals",
+      "Selected worksheet uses information surface and brand border"
+    ]
+  },
+  "review": {
+    "disposition": "ship",
+    "scored": [
+      "selected worksheet visibility",
+      "ID and volume separation"
+    ],
+    "remainingUnverified": [
+      "dark-mode browser",
+      "scanner",
+      "physical printer",
+      "full result release"
+    ]
+  }
+}

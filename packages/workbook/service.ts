@@ -84,7 +84,9 @@ export async function exportWorkbook(db:Queryable,user:Staff,input:unknown,deps:
   const current=await source(db,d.batchId);if(current.sha256!==draft.source_sha256||draft.master_sha256!==MASTER_SHA256)throw new LabError('TASK_SOURCE_CHANGED_REBIND_REQUIRED',409);
   // A stale draft (e.g. saved before the source owned every metadata key) is never exported or issued; rebind first.
   const stale=staleTaskMeta(draft.values,current.values);if(stale.length)throw new LabError('TASK_METADATA_SOURCE_MISMATCH',409,{keys:stale});
-  const generated=generateTaskWorkbook(deps.master,draft.values);
+  const placementSource=draft.source_snapshot as {placements?:{payload:PlacementPayload}[]};
+  const urgent40=placementSource.placements?.some(p=>p.payload.slots.some(s=>s.slot===40&&s.control===null&&s.attemptId!==null))??false;
+  const generated=generateTaskWorkbook(deps.master,draft.values,{urgent40});
   let bytes=generated.bytes,manifest:Record<string,unknown>={masterSha256:MASTER_SHA256,sourceSha256:current.sha256,revision:d.revision,xlsxSha256:generated.sha256,formulaCount:149,calculation:'native Excel recalculation required'};
   if(d.format==='PDF') {
     if(!d.sheet)throw new LabError('TASK_SHEET_REQUIRED',422);

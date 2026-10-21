@@ -1,7 +1,7 @@
 "use client";
 import {useCallback,useEffect,useState,type KeyboardEvent} from "react";
 import Link from "next/link";
-import {useSearchParams} from "next/navigation";
+import {useRouter,useSearchParams} from "next/navigation";
 import {Dialog,csrf} from "../p2/shared";
 import {labApi,labPdf,failureText,bkk,gateText,LabFailure} from "./lab-api";
 import {stripLabels,type SheetNumber} from "../../../packages/lab/rules";
@@ -16,7 +16,7 @@ type Obs={id:string;sheetId:string|null;slot:number|null;fieldId:string;item:str
 type Field={id:string;item:string;form:string;scope:string;kind:string;cls:string;label:string;source:string;sheets:number[]};
 type Disp={id:string;slot_number:number;stage:string;disposition:string;reason_code:string;note:string;proposer:string;proposed_by:string;confirmer:string|null;confirmed_at:string|null};
 type Copy={id:string;document_id:string;kind:string;copy_number:number|null;created_at:string;recalled_at:string|null;actor:string;document_status:string;doc_code:string;revision:number};
-export type Workspace={operational?:boolean;batch:{id:string;runLabel:string;state:string;version:number;templateVersion:string;formulaVersion:string;cancelReason:string|null};sheets:Sheet[];slots:Slot[];documents:Doc[];events:{event_type:string;sheet_number:number|null;reason:string|null;created_at:string;actor:string}[];snapshots:{id:string;sheet_number:number;revision:number;content_hash:string;created_at:string}[];
+export type Workspace={urgent40?:boolean;operational?:boolean;batch:{id:string;runLabel:string;state:string;version:number;templateVersion:string;formulaVersion:string;cancelReason:string|null};sheets:Sheet[];slots:Slot[];documents:Doc[];events:{event_type:string;sheet_number:number|null;reason:string|null;created_at:string;actor:string}[];snapshots:{id:string;sheet_number:number;revision:number;content_hash:string;created_at:string}[];
  observations:Obs[];dispositions:Disp[];copies:Copy[];completeness:{sheet:number;ready:boolean;missingFields:{id:string;item:string;label:string}[];slots:{slot:number;status:string}[];open:number}[];policy:string;
  qc:{ready:boolean;rows:{slot:number;status:string;decision:string|null;observationId:string|null;attemptId:string|null}[];standards:({id:string;status:string}|null)[];operator:{id:string;status:string}|null};fields:Field[];criteria:{code:string;label:string}[];dispositionReasons:string[];
  allowed:Record<"draft"|"assign"|"finalize"|"amend"|"unlock"|"execute"|"transcribe"|"verify"|"qcRecord"|"qcAccept"|"dispositionPropose"|"dispositionConfirm"|"recall"|"obsoletePrint"|"labels",boolean>};
@@ -37,7 +37,7 @@ function sheetStats(slots:Slot[],n:number){
 }
 
 export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string}){
- const requested=Number(useSearchParams().get("task"));
+ const router=useRouter();const requested=Number(useSearchParams().get("task"));
  const [w,setW]=useState(initial),[sheetNo,setSheetNoState]=useState(()=>[1,2,3].includes(requested)?requested:initial.sheets.find(s=>s.state!=="Draft"||initial.slots.some(x=>x.sheet===s.sheet_number&&x.assignment))?.sheet_number??1);
  // The selected Task is kept in the URL (?task=N) so reload/share returns to the same Task without a navigation.
  const setSheetNo=(n:number)=>{setSheetNoState(n);const url=new URL(window.location.href);url.searchParams.set("task",String(n));window.history.replaceState(window.history.state,"",url);};
@@ -83,11 +83,11 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
  const finalizedAny=w.sheets.some(s=>s.placement_revision>0&&s.state!=="Cancelled"&&!EDITABLE.includes(s.state));
  const qcOpen=w.sheets.some(s=>["ExecutionRecorded","ExecutionVerified","CompletedIssued"].includes(s.state));
  return <>
-  <header className="page-header"><div><p className="muted"><Link href="/lab/batches">Batch / Task List</Link></p><h1>{w.batch.runLabel}</h1><p className="muted">สถานะ Batch: <strong>{BATCH_STATE[w.batch.state]??w.batch.state}</strong> · Template {w.batch.templateVersion} · Formula {w.batch.formulaVersion} · Version {w.batch.version}</p></div>
+  <header className="page-header"><div><p className="muted"><Link href="/lab/batches">Batch / Task List</Link></p><h1>{w.batch.runLabel}</h1><p className="muted">สถานะ Batch: <strong>{BATCH_STATE[w.batch.state]??w.batch.state}</strong> · ฉบับ {w.batch.version}{!w.operational&&<> · Template {w.batch.templateVersion} · Formula {w.batch.formulaVersion}</>}</p></div>
    {w.batch.state!=="Cancelled"&&(w.allowed.draft||w.allowed.unlock)&&<button className="button secondary" type="button" onClick={()=>setDialog({type:"cancel"})}>ยกเลิก Batch</button>}</header>
   {w.batch.cancelReason&&<p className="notice" role="note">Batch ถูกยกเลิก: {w.batch.cancelReason}</p>}
-  <p><Link href={`/lab/batches/${w.batch.id}/workbook`}>แบบฟอร์ม Excel ต้นฉบับ · Draft / XLSX / PDF</Link></p>
-  {w.policy==="PROCEED_SYNTHETIC_LABELLED"&&<p className="notice warning-notice" role="note">ข้อมูลจำลอง: Gate ที่ยังรอการตัดสิน (OD-01/08/16) ผ่านด้วยนโยบายจำลองและถูกระบุบนใบงาน — ไม่ใช่การรับรองทางคลินิก</p>}
+  <nav className="action-bar" aria-label="งานประจำ Run">{w.operational&&<><Link className="button" href={`/lab/batches/${w.batch.id}/bench`}>QC Measurements</Link><Link className="button secondary" href={`/lab/batches/${w.batch.id}/pooling`}>Pooling / QC2 / F4</Link><Link className="button secondary" href={`/lab/batches/${w.batch.id}/sequencing`}>DNB / Sequencing / F5</Link></>}<Link className="button secondary" href={`/lab/batches/${w.batch.id}/workbook`}>ใบงาน Excel / PDF</Link></nav>
+  {!w.operational&&w.policy==="PROCEED_SYNTHETIC_LABELLED"&&<p className="notice warning-notice" role="note">ข้อมูลจำลอง: Gate ที่ยังรอการตัดสิน (OD-01/08/16) ผ่านด้วยนโยบายจำลองและถูกระบุบนใบงาน — ไม่ใช่การรับรองทางคลินิก</p>}
   {msg&&<div className={`notice${msg.ok?" success":""}`} role={msg.ok?"status":"alert"}>{msg.text}{Array.isArray(msg.details)&&<ul>{(msg.details as {slot:number;failed:string[];pending:string[]}[]).map((d,i)=><li key={i}>ตน. {d.slot??"-"}: {[...(d.failed??[]),...(d.pending??[])].map(gateText).join(", ")}</li>)}</ul>}
    {msg.details&&!Array.isArray(msg.details)&&typeof msg.details==="object"?<pre className="details">{JSON.stringify(msg.details,null,1)}</pre>:null}</div>}
   {msg?.warnings?.map(code=><p key={code} className="notice warning-notice" role="alert">{WARNING_TEXT[code]??`คำเตือน: ${code}`}</p>)}
@@ -98,7 +98,10 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
   {pendingSheet!==null&&<div className="notice warning-notice" role="alert">Task List {sheetNo} มีข้อมูลแผนที่ยังไม่บันทึก — บันทึกก่อน หรือทิ้งการแก้ไขเพื่อไป Task List {pendingSheet}
    <div className="row-actions"><button className="button small secondary" type="button" onClick={()=>setPendingSheet(null)}>กลับไปแก้ไข Task List {sheetNo}</button><button className="button small secondary" type="button" onClick={discardAndSwitch}>ทิ้งการแก้ไขและไป Task List {pendingSheet}</button></div></div>}
   <section id="sheet-panel" role="tabpanel" aria-labelledby={`sheet-${sheetNo}`} className="panel stack">
-   <ol className="stepper" aria-label="ขั้นตอนของ Task List">{STEPS.map((s,i)=>{const idx=STEPS.indexOf(sheet.state==="Amended"?"Draft":sheet.state);return <li key={s} aria-current={s===sheet.state?"step":undefined} className={i<idx?"done":i===idx?"current":""}>{STEP_TEXT[s]}</li>;})}</ol>
+   <div className="action-bar"><Link className="button" href={`/lab/batches/${w.batch.id}/bench`}>QC Measurements → Pooling → Seq Task-G50</Link></div>
+   {w.allowed.draft&&w.batch.state==="Draft"&&!w.slots.some(s=>s.assignment)&&<div className="action-bar"><button className="button secondary" type="button" disabled={busy} onClick={async()=>{if(!window.confirm("ลบ Batch ร่างที่ยังไม่มีตัวอย่างหรือเอกสารเชื่อมโยงนี้?"))return;setBusy(true);try{await labApi(`/api/p4/batches/${w.batch.id}`,{action:"deleteDraft",expectedVersion:w.batch.version});router.push("/lab/batches");router.refresh();}catch(e){setMsg({ok:false,text:failureText(e)});setBusy(false);}}}>ลบ Batch</button></div>}
+   {sheetNo===3&&editable&&w.allowed.draft&&<label className="check-label"><input type="checkbox" checked={w.urgent40===true} disabled={busy||!!w.slots.find(s=>s.slot===40)?.assignment||sheet.placement_revision>0} onChange={e=>void act("urgent40",{enabled:e.target.checked},"บันทึกการใช้ช่อง 40 แล้ว")}/>ใช้ช่อง 40 สำหรับผู้ป่วย Urgent แทน BLANK (สูงสุด 46 ผู้ป่วย)</label>}
+   {!w.operational&&<ol className="stepper" aria-label="ขั้นตอนของ Task List">{STEPS.map((s,i)=>{const idx=STEPS.indexOf(sheet.state==="Amended"?"Draft":sheet.state);return <li key={s} aria-current={s===sheet.state?"step":undefined} className={i<idx?"done":i===idx?"current":""}>{STEP_TEXT[s]}</li>;})}</ol>}
    {sheet.state==="Amended"&&<p className="notice warning-notice">อยู่ระหว่าง Controlled amendment — ใบงานเดิมถูกระงับใช้ แก้แผนแล้วยืนยัน/Finalize ใหม่ (สร้าง Revision ใหม่ ของเดิมไม่ถูกแก้)</p>}
    <TaskContext w={w} sheet={sheet} sheetNo={sheetNo}/>
    <div className="row"><h2>แผนผังตัวอย่าง — ตำแหน่ง {(sheetNo-1)*16+1}–{sheetNo*16}</h2>{editable&&w.allowed.assign&&<button className="button secondary" type="button" disabled={busy||sheetStats(w.slots,sheetNo).empty===0} onClick={()=>setDialog({type:"fill"})}>เติมตัวอย่างจากคิว</button>}</div>
@@ -114,19 +117,19 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
     {sheet.execution_started_at&&<><dt>เริ่มปฏิบัติ (เวลาที่ Server บันทึก)</dt><dd>{bkk(sheet.execution_started_at)}</dd></>}</dl>}
    <div className="action-bar">
     {(sheet.state==="Draft"||sheet.state==="Amended")&&w.allowed.finalize&&<button className="button" type="button" disabled={busy} onClick={()=>setDialog({type:"plancheck"})}>ยืนยันแผนตำแหน่ง</button>}
-    {sheet.state==="PlanChecked"&&w.allowed.finalize&&<button className="button" type="button" disabled={busy} onClick={()=>act("finalize",{sheetNumber:sheetNo},"Finalize Placement แล้ว — สร้าง Snapshot ที่แก้ไม่ได้")}>Finalize Placement</button>}
-    {sheet.state==="PlacementFinalized"&&w.allowed.finalize&&<button className="button" type="button" disabled={busy} onClick={()=>act("issuePreWork",{sheetNumber:sheetNo},"ออกใบงาน Pre-work (F2) แล้ว")}>ออกใบงาน Pre-work (F2)</button>}
+    {sheet.state==="PlanChecked"&&w.allowed.finalize&&<button className="button" type="button" disabled={busy} onClick={()=>act("finalize",{sheetNumber:sheetNo},"ล็อกตำแหน่งแล้ว — ใช้รหัสจากฉบับนี้ในใบงาน")}>ล็อกตำแหน่ง Task List</button>}
+    {!w.operational&&sheet.state==="PlacementFinalized"&&w.allowed.finalize&&<button className="button" type="button" disabled={busy} onClick={()=>act("issuePreWork",{sheetNumber:sheetNo},"ออกใบงาน Pre-work (F2) แล้ว")}>ออกใบงาน Pre-work (F2)</button>}
     {["PlacementFinalized","PreWorkIssued"].includes(sheet.state)&&w.allowed.amend&&<button className="button secondary" type="button" disabled={busy} onClick={()=>setDialog({type:"amend"})}>Controlled amendment</button>}
-    {sheet.state==="PreWorkIssued"&&w.allowed.execute&&<button className="button" type="button" disabled={busy} onClick={()=>act("start",{sheetNumber:sheetNo},"บันทึกเริ่มปฏิบัติแล้ว (เวลา Server)")}>เริ่มปฏิบัติงานจริง</button>}
-    {sheet.state==="InExecution"&&w.allowed.execute&&<button className="button secondary" type="button" disabled={busy} onClick={()=>act("end",{sheetNumber:sheetNo},"บันทึกจบการปฏิบัติแล้ว")}>บันทึกจบการปฏิบัติ</button>}
-    {sheet.state==="ExecutionRecorded"&&w.allowed.verify&&<button className="button" type="button" disabled={busy||!comp.ready} onClick={()=>act("verify",{sheetNumber:sheetNo},"ทวนสอบหลักฐานการปฏิบัติครบแล้ว")}>ยืนยัน Execution Verified</button>}
-    {sheet.state==="ExecutionVerified"&&w.allowed.execute&&<button className="button" type="button" disabled={busy} onClick={()=>act("issueCompleted",{sheetNumber:sheetNo},"ออกบันทึกหลังปฏิบัติ (F2 Completed) แล้ว")}>ออก F2 Completed</button>}
+    {!w.operational&&sheet.state==="PreWorkIssued"&&w.allowed.execute&&<button className="button" type="button" disabled={busy} onClick={()=>act("start",{sheetNumber:sheetNo},"บันทึกเริ่มปฏิบัติแล้ว (เวลา Server)")}>เริ่มปฏิบัติงานจริง</button>}
+    {!w.operational&&sheet.state==="InExecution"&&w.allowed.execute&&<button className="button secondary" type="button" disabled={busy} onClick={()=>act("end",{sheetNumber:sheetNo},"บันทึกจบการปฏิบัติแล้ว")}>บันทึกจบการปฏิบัติ</button>}
+    {!w.operational&&sheet.state==="ExecutionRecorded"&&w.allowed.verify&&<button className="button" type="button" disabled={busy||!comp.ready} onClick={()=>act("verify",{sheetNumber:sheetNo},"ทวนสอบหลักฐานการปฏิบัติครบแล้ว")}>ยืนยัน Execution Verified</button>}
+    {!w.operational&&sheet.state==="ExecutionVerified"&&w.allowed.execute&&<button className="button" type="button" disabled={busy} onClick={()=>act("issueCompleted",{sheetNumber:sheetNo},"ออกบันทึกหลังปฏิบัติ (F2 Completed) แล้ว")}>ออก F2 Completed</button>}
    </div>
    <div className="action-bar" aria-label={`PDF ของ Task List ${sheetNo}`}>
     {sheet.placement_revision>0&&sheet.state!=="Cancelled"&&w.allowed.execute?<>
      <button className="button secondary" type="button" disabled={busy} onClick={()=>void taskPdf(sheetNo,"view")}>ดูตัวอย่าง PDF Task List {sheetNo}</button>
      <button className="button secondary" type="button" disabled={busy} onClick={()=>void taskPdf(sheetNo,"download")}>ดาวน์โหลด PDF Task List {sheetNo}</button>
-     <span className="help">สำเนาตรวจทานจาก Excel Master — ไม่ใช่เอกสารควบคุม (เอกสารควบคุมคือใบงาน Pre-work / Completed ด้านล่าง)</span></>
+     <span className="help">{w.operational?"PDF ผูกกับตำแหน่งและวันที่ใน Task List ฉบับนี้ พิมพ์เพื่อบันทึกการทำงานบนกระดาษได้":"สำเนาตรวจทานจาก Excel Master — ไม่ใช่เอกสารควบคุม"}</span></>
     :editable&&w.allowed.draft?<><button className="button secondary" type="button" disabled={busy} onClick={()=>void labPdf(`/api/p4/batches/${w.batch.id}/draft-pdf`,{sheetNumber:sheetNo}).catch(e=>setMsg({ok:false,text:failureText(e)}))}>ดูตัวอย่าง PDF ฉบับร่าง (DRAFT)</button>
      <span className="help">ฉบับร่างก่อน Finalize มีลายน้ำ DRAFT — ไม่ใช่เอกสารควบคุม ไม่มีเลขเอกสาร และใช้ปฏิบัติงานไม่ได้ · PDF จาก Excel Master พร้อมเมื่อ Finalize แล้ว</span></>
     :<span className="help">PDF ของ Task List {sheetNo} พร้อมเมื่อ Finalize Placement แล้ว</span>}
@@ -159,7 +162,7 @@ function TaskContext({w,sheet,sheetNo}:{w:Workspace;sheet:Sheet;sheetNo:number})
  return <section className="task-context" aria-label={`สรุป Task List ${sheetNo}`}>
   <dl>
    <div><dt>Task List</dt><dd><strong>{sheetNo}</strong> · ตำแหน่ง {(sheetNo-1)*16+1}–{sheetNo*16} · {STEP_TEXT[sheet.state]??sheet.state}</dd></div>
-   <div><dt>Run</dt><dd className="mono">{w.batch.runLabel} · {strips.s1} · {strips.s2}</dd></div>
+   <div><dt>Run</dt><dd className="mono">{w.batch.runLabel}{!w.operational&&<> · {strips.s1} · {strips.s2}</>}</dd></div>
    <div><dt>ตัวอย่างผู้ป่วย</dt><dd>{st.placed}/{st.capacity} · ว่าง {st.empty}</dd></div>
    <div><dt>Control</dt><dd>{st.control?<><span className="badge">{st.control.controlLabel}</span> <span className="mono">{st.control.controlCode??"รอวันที่ปฏิบัติงาน"}</span></>:"—"}</dd></div>
    <div><dt>วันที่ทำ Library Preparation (วางแผน)</dt><dd>{displayBe(sheet.planned_work_date)} · ผู้ปฏิบัติ {sheet.planned_operator??"—"}</dd></div>
@@ -248,7 +251,7 @@ function QcPanel({w,busy,act,userId}:{w:Workspace;busy:boolean;act:Act;userId:st
  const obs=(slot:number|null,field:string,item="")=>w.observations.find(o=>o.slot===slot&&o.fieldId===field&&o.item===item);
  const slotInfo=(slot:number)=>w.slots.find(s=>s.slot===slot)!;
  return <section className="panel stack" aria-labelledby="qc-h"><h2 id="qc-h">QC1 Library Concentration (F3)</h2>
-  <p className="notice warning-notice">เกณฑ์ QC1 ยังไม่ได้รับรอง (OD-31 / WC-03): {w.criteria.map(c=>c.label).join(" · ")} — ระบบแสดงการอ่านค่าเทียบเกณฑ์ที่เสนอ แต่ไม่ตัดสินผ่าน/ไม่ผ่านเอง ผู้รับรองต้องตัดสินพร้อมเหตุผล</p>
+  <p className="notice warning-notice">{w.operational?"เกณฑ์ QC1 ตาม Master ล่าสุด: ":"เกณฑ์ QC1 ที่เสนอ: "}{w.criteria.map(c=>c.label).join(" · ")} — ผู้รับรองทบทวนค่าจริงและบันทึกผลการตัดสิน</p>
   {w.allowed.qcRecord&&<SourceControls copies={copies.map(c=>({id:c.id,label:`${c.doc_code} Rev ${c.revision} สำเนาที่ ${c.copy_number}`}))} value={src} onChange={setSrc}/>}
   <div className="form-grid">{[["F3-05","STD1","Standard 1"],["F3-05","STD2","Standard 2"],["F3-01","OPERATOR","ผู้ปฏิบัติงาน QC"]].map(([f,item,label])=>{const o=obs(null,f,item),k=f+item;return <div key={k} className="field"><label htmlFor={`qc-${k}`}>{label}</label>{o?<p>{o.valueText} · {o.status==="Verified"?"ทวนสอบแล้ว":"รอทวนสอบ"}</p>:w.allowed.qcRecord&&<div className="row"><input id={`qc-${k}`} value={vals[k]??""} onChange={e=>setVals({...vals,[k]:e.target.value})}/><button className="button small" type="button" disabled={busy||!(vals[k]??"").trim()} onClick={()=>act("record",{fieldId:f,item,value:f==="F3-01"?{text:vals[k]}:{value:vals[k],unit:"ng/uL"},...sourcePayload(src)},"บันทึกแล้ว")}>บันทึก</button></div>}</div>;})}</div>
   <div className="table-wrap" role="region" aria-label="ผลวัดความเข้มข้น" tabIndex={0}><table className="data-table"><thead><tr><th scope="col">ตน.</th><th scope="col">Sample ID / Control</th><th scope="col">Concentration (ng/µL)</th><th scope="col">อ่านค่าเทียบเกณฑ์ที่เสนอ (ไม่ใช่การตัดสิน)</th><th scope="col">Stage QC1</th></tr></thead>

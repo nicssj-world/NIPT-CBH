@@ -12,6 +12,8 @@ import {registerIntake,parseIntake} from './intake';
 import {missingRequired,type Parsed} from './parser';
 import {resultPredicates,noticePredicates,decideGate,crossFailures,type Cmp,type CrossCheck,type Purpose,type GateDecision,type GatePredicate} from './gates';
 import {attemptEvidence} from './evidence';
+import {benchAttemptEvidence} from '../lab/bench-evidence';
+import {reviewBenchForResult} from '../lab/bench-review';
 import {operationalWorkflow} from '../lab/operational';
 import {digest} from '../pooling/calculation';
 import {isoDate} from '../domain/thai-date';
@@ -88,8 +90,10 @@ async function roundRequest(db:Queryable,roundId:string):Promise<RoundRequest>{
  const r=(await db.query<{request_mode:string|null;draft:{patient?:{dob?:string|null};pregnancy?:{edd?:string|null;type?:string|null;fetalSex?:string|null}}|null;panel:{dob?:string|null;edd?:string|null;pregnancyType?:string;fetalSex?:string}|null;round_date:string|null;dates:string[]}>(
   `SELECT (SELECT request_mode FROM p2_workspace WHERE round_id=$1) request_mode,(SELECT d.payload->'draft' FROM p2_document_revision d WHERE d.round_id=$1 AND d.kind='REQUEST' ORDER BY d.version DESC LIMIT 1) draft,
    (SELECT p.panel FROM p2_paper_review p WHERE p.round_id=$1 AND p.kind='REQUEST' AND p.status='Verified' ORDER BY p.created_at DESC LIMIT 1) panel,
-   (SELECT collection_date::text FROM specimen_round WHERE id=$1) round_date,
+   (SELECT collection_date::text FROM specimen_round_current WHERE id=$1) round_date,
    ARRAY(SELECT y.d FROM (SELECT DISTINCT ON(f.source) f.collection_date::text d FROM p2_collection_fact f WHERE f.round_id=$1 ORDER BY f.source,f.sequence DESC) y) dates`,[roundId])).rows[0];
+ const lab=(await db.query<{dob:string|null;edd:string;pregnancy:'Singleton'|'Twins'}>(`SELECT left(f.parsed->>'dob',10) dob,l.edd::text,l.pregnancy FROM specimen_round_current sr JOIN lab_operational_registration l ON l.case_id=sr.case_id JOIN his_order_current o ON o.round_id=sr.id JOIN his_inbound_file_current f ON f.id=o.inbound_file_id WHERE sr.id=$1 AND l.paper_request AND l.paper_consent ORDER BY (l.round_id=sr.id) DESC,l.created_at DESC LIMIT 1`,[roundId])).rows[0];
+ if(lab&&r.request_mode==='Paper'&&!r.panel)return {dob:lab.dob,edd:lab.edd,pregnancy:lab.pregnancy,fetalSex:null,dates:[...new Set([...r.dates,...(r.round_date?[r.round_date]:[])])]};
  const paper=r.request_mode==='Paper',pt=paper?r.panel?.pregnancyType:r.draft?.pregnancy?.type??r.panel?.pregnancyType??null;
  return {dob:paper?r.panel?.dob??null:r.draft?.patient?.dob??null,edd:paper?r.panel?.edd??null:r.draft?.pregnancy?.edd??null,pregnancy:pt==='Singleton'||pt==='Twins'?pt:null,fetalSex:paper?r.panel?.fetalSex??null:r.draft?.pregnancy?.fetalSex??r.panel?.fetalSex??null,dates:[...new Set([...r.dates,...(r.round_date?[r.round_date]:[])])]};
 }
@@ -118,7 +122,7 @@ export async function linkCandidates(db:Queryable,user:Staff|null,p:Parsed,s:Res
   `SELECT a.id attempt_id,a.attempt_number,a.state attempt_state,a.printed_sample_id,a.attempt_number=(SELECT max(b.attempt_number) FROM analytical_attempt b WHERE b.round_id=a.round_id) latest,
     r.id round_id,r.round_number,r.state round_state,r.collection_date::text,c.id case_id,c.current_round_id,c.registration_origin,l.ln,n.ln_halos,i.hn,
     (SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=c.id ORDER BY s.unit_id LIMIT 1) unit_id
-   FROM analytical_attempt a JOIN specimen_round r ON r.id=a.round_id JOIN nipt_case c ON c.id=a.case_id JOIN case_ln l ON l.id=r.case_ln_id
+   FROM analytical_attempt a JOIN specimen_round_current r ON r.id=a.round_id JOIN nipt_case c ON c.id=a.case_id JOIN case_ln l ON l.id=r.case_ln_id
    LEFT JOIN p2_case_identity i ON i.case_id=c.id LEFT JOIN specimen_lab_number n ON n.round_id=r.id
    WHERE c.registration_origin<>'HISTORICAL' AND (ltrim(i.hn,'0')=$1 OR a.printed_sample_id=$2 OR n.ln_halos=$2 OR l.ln=$2 OR n.ln_halos=substring($2 from 1 for 12))
    ORDER BY c.id,r.round_number DESC,a.attempt_number DESC LIMIT 60`,[hn,lab])).rows.filter(r=>!user||caseVisible(user,r));
@@ -197,7 +201,7 @@ export async function confirmImport(db:Queryable,user:Staff,input:unknown){
 async function versionOf(db:Queryable,id:string,lock=false){const v=(await db.query<VersionRow>(`SELECT * FROM result_report_version WHERE id=$1${lock?' FOR UPDATE':''}`,[uuid.parse(id)])).rows[0];if(!v)throw new LabError('NOT_FOUND',404);return v;}
 /** Lock order of Plan §3.6 / §11.5, shared with P4: LN → Case → Specimen round → Attempt → Report version(s). */
 async function lockChain(db:Queryable,roundId:string,attemptId:string|null,versionIds:string[]){
- const r=(await db.query<{ln:string;case_id:string}>('SELECT l.ln,r.case_id FROM specimen_round r JOIN case_ln l ON l.id=r.case_ln_id WHERE r.id=$1',[roundId])).rows[0];if(!r)throw new LabError('NOT_FOUND',404);
+ const r=(await db.query<{ln:string;case_id:string}>('SELECT l.ln,r.case_id FROM specimen_round_current r JOIN case_ln l ON l.id=r.case_ln_id WHERE r.id=$1',[roundId])).rows[0];if(!r)throw new LabError('NOT_FOUND',404);
  await lockLn(db,r.ln);await db.query('SELECT id FROM nipt_case WHERE id=$1 FOR UPDATE',[r.case_id]);await db.query('SELECT id FROM specimen_round WHERE id=$1 FOR UPDATE',[roundId]);
  if(attemptId)await db.query('SELECT id FROM analytical_attempt WHERE id=$1 FOR UPDATE',[attemptId]);
  for(const id of [...versionIds].sort())await db.query('SELECT id FROM result_report_version WHERE id=$1 FOR UPDATE',[id]);
@@ -208,7 +212,7 @@ async function targetOf(db:Queryable,user:Staff,v:VersionRow,roundId:string,atte
  const t=(await db.query<{round_id:string;case_id:string;attempt_round:string|null;unit_id:string|null;registration_origin:string;hn:string|null;printed_sample_id:string|null;ln_halos:string|null;ln:string}>(
   `SELECT r.id round_id,r.case_id,(SELECT a.round_id FROM analytical_attempt a WHERE a.id=$2) attempt_round,(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=r.case_id ORDER BY s.unit_id LIMIT 1) unit_id,c.registration_origin,i.hn,
    (SELECT a.printed_sample_id FROM analytical_attempt a WHERE a.id=$2) printed_sample_id,n.ln_halos,l.ln
-   FROM specimen_round r JOIN nipt_case c ON c.id=r.case_id JOIN case_ln l ON l.id=r.case_ln_id LEFT JOIN p2_case_identity i ON i.case_id=c.id LEFT JOIN specimen_lab_number n ON n.round_id=r.id WHERE r.id=$1`,[roundId,attemptId])).rows[0];
+   FROM specimen_round_current r JOIN nipt_case c ON c.id=r.case_id JOIN case_ln l ON l.id=r.case_ln_id LEFT JOIN p2_case_identity i ON i.case_id=c.id LEFT JOIN specimen_lab_number n ON n.round_id=r.id WHERE r.id=$1`,[roundId,attemptId])).rows[0];
  if(!t||!caseVisible(user,t))throw new LabError('NOT_FOUND',404);
  if(t.registration_origin==='HISTORICAL')throw new LabError('HISTORICAL_LINK_PROHIBITED',409);
  if(v.kind==='RESULT'&&!attemptId)throw new LabError('ATTEMPT_REQUIRED_FOR_RESULT',422);
@@ -352,7 +356,7 @@ async function gateFor(db:Queryable,v:VersionRow,purpose:Purpose,certifierId?:st
    EXISTS(SELECT 1 FROM role_assignment a WHERE a.user_id=$5 AND a.role='LAB_CERTIFIER' AND a.approved_by IS NOT NULL AND a.effective_from<=now() AND (a.expires_at IS NULL OR a.expires_at>now())) certifier,
    (SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=$6 ORDER BY s.unit_id LIMIT 1) unit_id`,
   [v.id,v.round_id,v.kind,v.imported_at,certifierId??null,v.case_id])).rows[0];
- const t=(await db.query<{hn:string|null;printed_sample_id:string|null;ln_halos:string|null;ln:string}>('SELECT i.hn,(SELECT a.printed_sample_id FROM analytical_attempt a WHERE a.id=$2) printed_sample_id,n.ln_halos,l.ln FROM specimen_round r JOIN case_ln l ON l.id=r.case_ln_id LEFT JOIN p2_case_identity i ON i.case_id=r.case_id LEFT JOIN specimen_lab_number n ON n.round_id=r.id WHERE r.id=$1',[v.round_id,v.attempt_id])).rows[0];
+ const t=(await db.query<{hn:string|null;printed_sample_id:string|null;ln_halos:string|null;ln:string}>('SELECT i.hn,(SELECT a.printed_sample_id FROM analytical_attempt a WHERE a.id=$2) printed_sample_id,n.ln_halos,l.ln FROM specimen_round_current r JOIN case_ln l ON l.id=r.case_ln_id LEFT JOIN p2_case_identity i ON i.case_id=r.case_id LEFT JOIN specimen_lab_number n ON n.round_id=r.id WHERE r.id=$1',[v.round_id,v.attempt_id])).rows[0];
  const req=await roundRequest(db,v.round_id),cross=crossCheck(v.parsed,t,req,s.gaToleranceDays);
  const issues=(await db.query<{n:number;revoked:boolean}>("SELECT (SELECT count(*) FROM his_intake_issue i WHERE i.case_id=$1 AND i.state IN ('Open','Proposed'))::int n,EXISTS(SELECT 1 FROM p2_revocation r WHERE r.case_id=$1) revoked",[v.case_id])).rows[0];
  const reviewed=x.reviewed&&!x.open_proposal;
@@ -371,7 +375,7 @@ async function gateFor(db:Queryable,v:VersionRow,purpose:Purpose,certifierId?:st
   linked:!!v.link_mode&&['Linked','ValidationBlocked','PendingCertification','CertifiedReleased'].includes(v.state),linkMode:v.link_mode as 'MANUAL_REVIEWED'|'AUTO_UNIQUE'|null,openProposal:x.open_proposal,cross,
   attemptState:a.attempt_state,attemptIsLatest:latestAttempt,hold:a.hold,qc1Accepted:y.qc1_accepted,nonMeasuredQc1:y.non_measured,batchCancelled:y.batch_cancelled||a.attempt_state==='BatchCancelled',activeSlot:a.slot_batch_id!==null,
   upstreamCurrent:evidence.current,upstreamReason:evidence.reason,analysisAccepted:evidence.analysisAccepted,finalQcAccepted:evidence.finalQcAccepted,
-  isCurrentRound:cf.isCurrentRound,roundState:cf.roundState,roundNumber:cf.roundNumber,openRepeat:y.open_repeat,openIdentityIssues:cf.openIdentityIssues,clinicalState:operational?((await db.query<{ready:boolean}>('SELECT p2_clinical_ready($1) ready',[v.round_id])).rows[0]?.ready?'Pass':'PendingClinicalReview'):cf.clinicalState,consentRevoked:cf.consentRevoked,consent:cf.consentRoundEvidence,
+  isCurrentRound:cf.isCurrentRound,roundState:cf.roundState,roundNumber:cf.roundNumber,openRepeat:y.open_repeat,openIdentityIssues:cf.openIdentityIssues,clinicalState:operational?((await db.query<{ready:boolean}>('SELECT p2_clinical_ready($1) OR lab_owner_paper_ready($1) ready',[v.round_id])).rows[0]?.ready?'Pass':'PendingClinicalReview'):cf.clinicalState,consentRevoked:cf.consentRevoked,consent:cf.consentRoundEvidence,
   pregnancy:req.pregnancy,sexPreference:req.fetalSex,sexShown:v.parsed.results.fetalSex.value!==null,versionState:v.state,latestInSeries:x.latest,activeReleaseInSeries:x.active_release,reviewedCurrent:reviewed,certifierRoleActive:x.certifier,operationalReviewed},purpose),'RG');
 }
 async function recordGate(db:Queryable,v:VersionRow,g:GateDecision,purpose:Purpose,outcome:'BLOCKED'|'PENDING_CERTIFICATION'|'RELEASE_HOLD'|'CERTIFIED_RELEASED',actor:string|null,key:string|null){
@@ -404,18 +408,23 @@ export async function recordReview(db:Queryable,user:Staff,input:unknown){
 export async function recordQc5(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'qc.accept');need(user,'result.review');
  if(!await operationalWorkflow(db))throw new LabError('OWNER_DECISIONS_HOLD',423);
- const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,criteriaReference:reasonText,templateReviewed:z.literal(true),disclosureReviewed:z.literal(true),abnormalAcknowledged:z.boolean(),reason:reasonText}).parse(input);
+ const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,criteriaReference:reasonText,templateReviewed:z.literal(true),disclosureReviewed:z.literal(true),abnormalAcknowledged:z.boolean(),reason:reasonText,benchRevision:z.number().int().positive().optional(),benchMeasurementsReviewed:z.literal(true).optional()}).parse(input);
  const pre=await versionOf(db,d.versionId);if(!pre.round_id||!pre.attempt_id||pre.kind!=='RESULT')throw new LabError('QC5_LINKED_RESULT_REQUIRED',409);
  await lockChain(db,pre.round_id,pre.attempt_id,[pre.id]);let v=await versionOf(db,pre.id,true);
  if(v.row_version!==d.expectedRowVersion)throw new LabError('VERSION_CONFLICT',409);
  if(!['Linked','ValidationBlocked','PendingCertification'].includes(v.state))throw new LabError('QC5_LINKED_RESULT_REQUIRED',409);
  if(v.parsed.abnormal&&!d.abnormalAcknowledged)throw new LabError('ABNORMAL_ACK_REQUIRED',422);
- const upstream=await attemptEvidence(db,v.attempt_id!);
- if(!upstream.current||!upstream.analysisAccepted||!upstream.poolId||!upstream.dnbId||!upstream.sequencingId)throw new LabError('QC5_ACCEPTED_UPSTREAM_REQUIRED',409);
+ let upstream=await attemptEvidence(db,v.attempt_id!);
+ if(!upstream.current||!upstream.analysisAccepted||upstream.benchReviewId){
+  await reviewBenchForResult(db,user,v.attempt_id!,{revision:d.benchRevision,measurementsReviewed:d.benchMeasurementsReviewed,reason:d.reason});
+  upstream=await attemptEvidence(db,v.attempt_id!);
+ }
+ if(!upstream.current||!upstream.analysisAccepted||!upstream.benchReviewId&&(!upstream.poolId||!upstream.dnbId||!upstream.sequencingId))throw new LabError('QC5_ACCEPTED_UPSTREAM_REQUIRED',409);
  const reviewed=(await db.query('SELECT id FROM result_review WHERE version_id=$1 ORDER BY created_at DESC LIMIT 1',[v.id])).rows[0];if(!reviewed)throw new LabError('REVIEW_NOT_RECORDED',409);
- const sourceHash=digest({report:v.sha256,attemptId:v.attempt_id,poolId:upstream.poolId,dnbId:upstream.dnbId,sequencingId:upstream.sequencingId,reviewId:reviewed.id});
- const qc5=(await db.query<{id:string}>(`INSERT INTO result_qc5_review(version_id,attempt_id,pool_id,dnb_id,sequencing_id,report_sha256,source_sha256,review_id,criteria_reference,reason,reviewer_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,[v.id,v.attempt_id,upstream.poolId,upstream.dnbId,upstream.sequencingId,v.sha256,sourceHash,reviewed.id,d.criteriaReference,d.reason,user.id])).rows[0];
+ const sourceHash=digest({report:v.sha256,attemptId:v.attempt_id,poolId:upstream.poolId,dnbId:upstream.dnbId,sequencingId:upstream.sequencingId,benchReviewId:upstream.benchReviewId??null,reviewId:reviewed.id});
+ const qc5=(await db.query<{id:string}>(`INSERT INTO result_qc5_review(version_id,attempt_id,pool_id,dnb_id,sequencing_id,report_sha256,source_sha256,review_id,criteria_reference,reason,reviewer_id,bench_review_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,[v.id,v.attempt_id,upstream.poolId,upstream.dnbId,upstream.sequencingId,v.sha256,sourceHash,reviewed.id,d.criteriaReference,d.reason,user.id,upstream.benchReviewId??null])).rows[0];
  const a=(await db.query<{state:string}>('SELECT state FROM analytical_attempt WHERE id=$1',[v.attempt_id])).rows[0];
+ if(a.state==='Assigned'&&upstream.benchReviewId){await db.query("UPDATE analytical_attempt SET state='InProgress' WHERE id=$1",[v.attempt_id]);a.state='InProgress';await db.query('UPDATE specimen_round SET analysis_started=true WHERE id=$1',[v.round_id]);}
  if(a.state==='InProgress')await db.query("UPDATE analytical_attempt SET state='AnalysisComplete' WHERE id=$1",[v.attempt_id]);
  if(['InProgress','AnalysisComplete'].includes(a.state))await db.query("UPDATE analytical_attempt SET state='FinalQcAccepted' WHERE id=$1",[v.attempt_id]);
  const gate=(await gateFor(db,v,'VALIDATION'))!;
@@ -462,7 +471,7 @@ export async function certifyAttempt(db:Queryable,user:Staff,input:unknown){
 export const EXTERNAL_FINAL_CRITERIA='EXTERNAL_FINAL_REPORT_CERTIFIED (Owner P5-B 2026-10-18)';
 export async function acceptAndRelease(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);
- const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,idempotencyKey:z.string().regex(/^[A-Za-z0-9_-]{16,80}$/),externalFinalCertified:z.literal(true),identityAndValuesMatchPdf:z.literal(true),disclosureReviewed:z.literal(true),abnormalAcknowledged:z.boolean(),note:z.string().trim().max(500).refine(x=>!/\d{13}/.test(x),'REASON_TEXT_INVALID').optional()}).parse(input);
+ const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,idempotencyKey:z.string().regex(/^[A-Za-z0-9_-]{16,80}$/),externalFinalCertified:z.literal(true),identityAndValuesMatchPdf:z.literal(true),disclosureReviewed:z.literal(true),abnormalAcknowledged:z.boolean(),note:z.string().trim().max(500).refine(x=>!/\d{13}/.test(x),'REASON_TEXT_INVALID').optional(),benchRevision:z.number().int().positive().optional(),benchMeasurementsReviewed:z.literal(true).optional()}).parse(input);
  if(!await operationalWorkflow(db))throw new LabError('OPERATIONAL_MODE_REQUIRED',409);
  need(user,'result.review');need(user,'result.certify');
  // A replayed key returns the recorded outcome without re-recording anything.
@@ -473,7 +482,7 @@ export async function acceptAndRelease(db:Queryable,user:Staff,input:unknown){
  let v=await versionOf(db,pre.id);
  if(v.kind==='RESULT'){
   need(user,'qc.accept');
-  await recordQc5(db,user,{versionId:v.id,expectedRowVersion:v.row_version,criteriaReference:EXTERNAL_FINAL_CRITERIA,templateReviewed:true,disclosureReviewed:true,abnormalAcknowledged:d.abnormalAcknowledged,reason:'ตรวจรับ PDF Final จากระบบวิเคราะห์ภายนอกและยืนยันส่งผล'});
+  await recordQc5(db,user,{versionId:v.id,expectedRowVersion:v.row_version,criteriaReference:EXTERNAL_FINAL_CRITERIA,templateReviewed:true,disclosureReviewed:true,abnormalAcknowledged:d.abnormalAcknowledged,reason:'ตรวจรับ PDF Final จากระบบวิเคราะห์ภายนอกและยืนยันส่งผล',...(d.benchRevision?{benchRevision:d.benchRevision}:{}),...(d.benchMeasurementsReviewed?{benchMeasurementsReviewed:true}:{})});
   v=await versionOf(db,v.id);
  }
  return certifyAttempt(db,user,{versionId:v.id,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:v.row_version,confirmed:true});
@@ -505,13 +514,14 @@ export async function versionDetail(db:Queryable,user:Staff,id:string){
   db.query("SELECT w.abnormal_acknowledged,w.note,w.created_at,u.display_name reviewer,w.reviewer_id FROM result_review w JOIN app_user u ON u.id=w.reviewer_id WHERE w.version_id=$1 ORDER BY w.created_at",[v.id])]);
  const s=await resultSettings(db);
  const proposal=await openProposal(db,v.id);
- const target=v.round_id?(await db.query<{round_number:number;ln:string;ln_halos:string|null;printed_sample_id:string|null;attempt_number:number|null;attempt_state:string|null;current:boolean}>('SELECT r.round_number,l.ln,n.ln_halos,a.printed_sample_id,a.attempt_number,a.state attempt_state,c.current_round_id=r.id current FROM specimen_round r JOIN nipt_case c ON c.id=r.case_id JOIN case_ln l ON l.id=r.case_ln_id LEFT JOIN specimen_lab_number n ON n.round_id=r.id LEFT JOIN analytical_attempt a ON a.id=$2 WHERE r.id=$1',[v.round_id,v.attempt_id])).rows[0]:null;
+ const target=v.round_id?(await db.query<{round_number:number;ln:string;ln_halos:string|null;printed_sample_id:string|null;attempt_number:number|null;attempt_state:string|null;current:boolean}>('SELECT r.round_number,l.ln,n.ln_halos,a.printed_sample_id,a.attempt_number,a.state attempt_state,c.current_round_id=r.id current FROM specimen_round_current r JOIN nipt_case c ON c.id=r.case_id JOIN case_ln l ON l.id=r.case_ln_id LEFT JOIN specimen_lab_number n ON n.round_id=r.id LEFT JOIN analytical_attempt a ON a.id=$2 WHERE r.id=$1',[v.round_id,v.attempt_id])).rows[0]:null;
  const conflicts=await versionNameConflicts(db,v);
  const candidates=v.state==='Unlinked'&&v.kind!=='UNKNOWN'?await linkCandidates(db,user,v.parsed,s):[];
  const auto=v.state==='Unlinked'&&!proposal&&candidates[0]?autoMatchCandidate(candidates,{kind:v.kind,nameConflicts:conflicts.length,openRevision:!!await openInSeries(db,v,candidates[0].round.id)}):null;
  const operational=await operationalWorkflow(db);
  return {operational,nameConflicts:conflicts,version:{id:v.id,kind:v.kind,templateKind:v.template_kind,templateVersion:v.template_version,parserVersion:v.parser_version,state:v.state,rowVersion:v.row_version,sha256:v.sha256,importedAt:v.imported_at,caseId:v.case_id,roundId:v.round_id,attemptId:v.attempt_id,linkMode:v.link_mode,supersedesId:v.supersedes_id,revision:v.revision},
   parsed:v.parsed,summary:summary(v.parsed),intake:{...intake,size:Number(intake.byte_size)},target,proposal,
+  benchEvidence:v.attempt_id&&authorize(user,'worksheet.read',{},'read')?await benchAttemptEvidence(db,v.attempt_id):null,
   candidates,autoMatch:auto?{caseId:auto.caseId,roundId:auto.round.id,attemptId:auto.attempt.id,reason:AUTO_MATCH_REASON,linksDirectly:s.linkageMode==='UNIQUE_AUTO_LINK'}:null,
   gate:v.round_id?await gateFor(db,v,'VALIDATION'):null,events:events.rows,links:links.rows,gates:gates.rows,reviews:reviews.rows,
   can:{propose:authorize(user,'result.link.manual',{},'propose')&&v.state==='Unlinked'&&!proposal,decide:!!proposal&&authorize(user,'result.link.manual',{actorId:proposal.actor_id},'approve'),
@@ -538,7 +548,7 @@ export async function ancCaseResults(db:Queryable,user:Staff,caseId:string){
  const c=(await db.query<{id:string;current_round_id:string;registration_origin:string;unit_id:string|null}>('SELECT c.id,c.current_round_id,c.registration_origin,(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=c.id ORDER BY s.unit_id LIMIT 1) unit_id FROM nipt_case c WHERE c.id=$1',[uuid.parse(caseId)])).rows[0];
  if(!c||!authorize(user,'result.read.released',{unitId:c.unit_id??undefined,origin:c.registration_origin as 'ANC'},'read'))throw new LabError('NOT_FOUND',404);
  const [rounds,redraws,releases]=await Promise.all([
-  db.query<{id:string;round_number:number;state:string;collection_date:string|null}>('SELECT id,round_number,state,collection_date::text FROM specimen_round WHERE case_id=$1 ORDER BY round_number DESC',[c.id]),
+  db.query<{id:string;round_number:number;state:string;collection_date:string|null}>('SELECT id,round_number,state,collection_date::text FROM specimen_round_current WHERE case_id=$1 ORDER BY round_number DESC',[c.id]),
   db.query<{source_round_id:string;reason_code:string;state:string;requested_at:Date}>("SELECT source_round_id,reason_code,state,requested_at FROM redraw_request WHERE case_id=$1 AND state IN ('Requested','Completed')",[c.id]),
   db.query<{id:string;round_id:string;kind:string;state:string;certified_at:Date;revised:boolean}>("SELECT r.id,r.round_id,r.kind,r.state,r.certified_at,v.supersedes_id IS NOT NULL revised FROM result_release r JOIN result_report_version v ON v.id=r.version_id WHERE r.case_id=$1 AND r.state IN ('Active','Superseded','Voided') ORDER BY r.certified_at DESC",[c.id])]);
  await db.query("INSERT INTO result_access_log(actor_id,case_id,purpose) VALUES($1,$2,'ANC_RESULT_LIST')",[user.id,c.id]);
@@ -566,7 +576,7 @@ export const MANUAL_UPLOAD_CHANNEL='MANUAL_UPLOAD';
 const caseUploadTarget=z.strictObject({caseId:uuid,roundId:uuid,attemptId:uuid.nullable()});
 type CaseUploadTarget=z.infer<typeof caseUploadTarget>;
 async function caseTarget(db:Queryable,user:Staff,t:CaseUploadTarget,kind:'RESULT'|'REDRAW_NOTICE'){
- const round=(await db.query<{case_id:string}>('SELECT case_id FROM specimen_round WHERE id=$1',[t.roundId])).rows[0];
+ const round=(await db.query<{case_id:string}>('SELECT case_id FROM specimen_round_current WHERE id=$1',[t.roundId])).rows[0];
  if(!round||round.case_id!==t.caseId)throw new LabError('NOT_FOUND',404);
  return targetOf(db,user,{kind} as VersionRow,t.roundId,kind==='RESULT'?t.attemptId:null);
 }
@@ -641,7 +651,7 @@ export async function caseResultStatus(db:Queryable,user:Staff,caseId:string){
  await assertSession(db,user);need(user,'result.review','read');
  const c=(await db.query<{id:string;current_round_id:string;registration_origin:string;unit_id:string|null;hn:string|null}>('SELECT c.id,c.current_round_id,c.registration_origin,(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=c.id ORDER BY s.unit_id LIMIT 1) unit_id,i.hn FROM nipt_case c LEFT JOIN p2_case_identity i ON i.case_id=c.id WHERE c.id=$1',[uuid.parse(caseId)])).rows[0];
  if(!c||!caseVisible(user,c))throw new LabError('NOT_FOUND',404);
- const rounds=(await db.query<{id:string;round_number:number;received_at:Date|null}>('SELECT id,round_number,received_at FROM specimen_round WHERE case_id=$1 ORDER BY round_number',[c.id])).rows;
+ const rounds=(await db.query<{id:string;round_number:number;received_at:Date|null}>('SELECT id,round_number,received_at FROM specimen_round_current WHERE case_id=$1 ORDER BY round_number',[c.id])).rows;
  const attempts=(await db.query<{id:string;round_id:string;attempt_number:number;state:string;printed_sample_id:string|null}>('SELECT id,round_id,attempt_number,state,printed_sample_id FROM analytical_attempt WHERE case_id=$1 ORDER BY attempt_number DESC',[c.id])).rows;
  const versions=(await db.query<{id:string;round_id:string|null;state:string;kind:string;imported_at:Date;link_mode:string|null;manual:boolean;open_proposal:boolean}>(
   `SELECT v.id,v.round_id,v.state,v.kind,v.imported_at,v.link_mode,

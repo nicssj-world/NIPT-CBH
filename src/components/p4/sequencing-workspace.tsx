@@ -1,5 +1,6 @@
 'use client';
 import {useState} from 'react';
+import {LabBench} from "./lab-bench";
 import Link from 'next/link';
 import type {sequencingWorkspace} from '../../server/p4c';
 import {QC3_CRITERIA,QC4_CRITERIA} from '../../../packages/sequencing/constants';
@@ -25,6 +26,7 @@ export function SequencingWorkspace({initial,userId,today,canWrite,canReview,can
  const submit=(build:(f:FormData)=>Promise<void>|void)=>(e:React.FormEvent<HTMLFormElement>)=>{e.preventDefault();const f=new FormData(e.currentTarget);void Promise.resolve().then(()=>build(f)).catch(e=>setMessage(String(e)));};
  const handoff=c?.handoffs[0],sequence=c?.sequences[0],currentTransfer=handoff?c?.transfers.filter(t=>t.handoff_id===handoff.id).at(-1):undefined;
  const timeData=(f:FormData)=>value(f,'source')==='PAPER_TRANSCRIPTION'?{copyId:value(f,'copyId'),eventPrecision:value(f,'eventTime')?'MINUTE':'NOT_RECORDED',...(value(f,'eventTime')?{eventTime:new Date(value(f,'eventTime')+':00+07:00').toISOString()}:{}),paperOperator:value(f,'paperOperator'),paperEvidenceHash:value(f,'paperEvidenceHash')}:{};
+ if(w.operational)return <LabBench batchId={w.batchId} canWrite={canWrite} initialStage="SEQ"/>;
  return <section className="panel stack p4c-workspace"><p><Link href={`/lab/batches/${w.batchId}`}>กลับ Batch / Task List</Link> · <Link href={`/lab/batches/${w.batchId}/pooling`}>Pooling / QC2 / F4</Link></p>
  <header><h1>DNB / Sequencing / F5</h1><p>{w.runLabel}</p></header>
  {!w.operational&&<p className="notice">แบบจำลองเท่านั้น — ห้ามใช้ปฏิบัติงานจริง · Acceptance: HOLD<br/>Pool HOLD ไม่อนุญาต DNB จริงหรือ F5 ปฏิบัติการ · ไม่มี Vendor-compatible export<br/>รอ {w.holds.join(', ')}</p>}{w.operational&&<p>ใช้ Accepted Pool และหลักฐาน QC ที่ตรวจแล้ว · <Link href={`/lab/batches/${w.batchId}/workbook`}>เปิด Final Task List / Seq Task-G50</Link></p>}

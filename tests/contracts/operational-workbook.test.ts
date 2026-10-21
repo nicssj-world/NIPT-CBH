@@ -40,7 +40,7 @@ describe('Native operational HALOS XLSX',()=>{
 describe('Locked task master identity',()=>{
   it('refuses a different file even if it resembles a spreadsheet',()=>expect(()=>generateTaskWorkbook(Buffer.from('not approved'),{})).toThrow('TASK_MASTER_SHA256_MISMATCH'));
 });
-const masterPath=process.env.NIPT_TASK_MASTER_PATH??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx';
+const masterPath=process.env.NIPT_TASK_MASTER_PATH??'.local/lab-owner-evidence/lab-combined-master.xlsx';
 describe.skipIf(!existsSync(masterPath))('Exact owner-master native derivative integration',()=>{
   const master=()=>readFileSync(masterPath);
   it('identifies all six sheets and all 149 formulas, with actual bound cell evidence',()=>{

@@ -8,7 +8,7 @@ import {contentHash} from '../p2/service';
 import {P4_TEMPLATE_VERSION,type P4Document} from '../pdf/p4';
 import {CONTROL_LABEL,getSheetNumber,getPlatePosition,stripLabels,controlTypeOf,formatPrintedControlId} from './rules';
 import {FIELDS,FIELD_INVENTORY_STATUS,fieldDef,requiredSheetFields,type FieldDef} from './fields';
-import {qc1Candidates,QC1_CRITERIA} from './qc';
+import {qc1Candidates,QC1_CRITERIA,OWNER_QC1_CRITERIA} from './qc';
 import {LabError,uuid,reasonText,need,assertSession,audit,caseEvent,attemptEvent,setAttemptState,attemptFacts,candidatePrintedId,caseVisible,DISPOSITION_REASONS,type Staff} from './core';
 import {lockBatch,sheetOf,latestSnapshot,FINALIZED,EDITABLE,type PlacementPayload} from './batch';
 import {isNativeIssue,type NativeIssuePort} from '../workbook/controlled';
@@ -92,7 +92,9 @@ export async function recordObservation(db:Queryable,user:Staff,input:unknown){
  const warnings:string[]=[];
  // Warning only (OD-L): compared with the Task's planned work date, else the Bangkok calendar day (never UTC).
  if(def.kind==='LOT'&&String(value.expiry)<(sheet?.planned_work_date??bangkokIsoDay()))warnings.push('LOT_EXPIRED_BEFORE_WORK_DATE_OD33');
- const candidates=def.kind==='NUMBER'&&d.slot?qc1Candidates(String(value.value),rowKind(d.slot)):null;
+ const physical=d.slot&&sheet?(await latestSnapshot(db,sheet.id)).payload.slots.find(s=>s.slot===d.slot):null;
+ const actualKind=physical?.control?CONTROL_LABEL[physical.control] as 'PC'|'NC'|'BLANK':'PATIENT';
+ const candidates=def.kind==='NUMBER'&&d.slot?qc1Candidates(String(value.value),actualKind,await operationalWorkflow(db)?'OWNER_MASTER':'LEGACY_REFERENCE'):null;
  return {id,warnings,candidates};
 }
 const rowKind=(slot:number)=>{const c=controlTypeOf(slot);return c?CONTROL_LABEL[c] as 'PC'|'NC'|'BLANK':'PATIENT' as const;};
@@ -167,12 +169,12 @@ export async function decideStageQc1(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'qc.accept');
  const d=z.strictObject({attemptId:uuid,decision:z.enum(['Accepted','Failed','Remeasure','Hold']),reason:reasonText,criteriaReference:reasonText.optional()}).parse(input);
  const operational=await operationalWorkflow(db),criteriaStatus=operational?'REVIEWED_OPERATIONAL':'UNAPPROVED_OD31';
- if(operational&&!d.criteriaReference)throw new LabError('QC1_CRITERIA_REFERENCE_REQUIRED',422);
  const a=(await db.query<{id:string;case_id:string;state:string;repeat_order_id:string|null}>('SELECT id,case_id,state,repeat_order_id FROM analytical_attempt WHERE id=$1 FOR UPDATE',[d.attemptId])).rows[0];
  if(!a)throw new LabError('NOT_FOUND',404);if(a.state!=='InProgress')throw new LabError('STAGE_QC_REQUIRES_IN_PROGRESS',409);
  const o=(await db.query<{id:string;value:{value:string};batch_id:string;slot_number:number}>("SELECT o.id,o.value,o.batch_id,o.slot_number FROM lab_observation o JOIN lab_slot_assignment x ON x.batch_id=o.batch_id AND x.slot_number=o.slot_number AND x.removed_at IS NULL WHERE x.attempt_id=$1 AND o.field_id='F3-03' AND o.status='Verified' ORDER BY o.sequence DESC LIMIT 1",[a.id])).rows[0];
  if(!o)throw new LabError('STAGE_QC_REQUIRES_VERIFIED_VALUE',409);
- const id=(await db.query<{id:string}>("INSERT INTO attempt_stage_qc(attempt_id,stage,decision,observation_id,criteria_status,criteria_consulted,reason,decided_by) VALUES($1,'QC1',$2,$3,$4,$5,$6,$7) RETURNING id",[a.id,d.decision,o.id,criteriaStatus,operational?[d.criteriaReference!]:QC1_CRITERIA.map(c=>c.code),d.reason,user.id])).rows[0].id;
+ if(operational&&d.decision==='Accepted'&&qc1Candidates(o.value.value,'PATIENT','OWNER_MASTER')[0].outcome!=='WITHIN')throw new LabError('QC1_OWNER_MEASUREMENT_OUT_OF_RANGE',409);
+ const id=(await db.query<{id:string}>("INSERT INTO attempt_stage_qc(attempt_id,stage,decision,observation_id,criteria_status,criteria_consulted,reason,decided_by) VALUES($1,'QC1',$2,$3,$4,$5,$6,$7) RETURNING id",[a.id,d.decision,o.id,criteriaStatus,operational?[OWNER_QC1_CRITERIA.code]:QC1_CRITERIA.map(c=>c.code),d.reason,user.id])).rows[0].id;
  const hold=(await db.query<{e:string}>("SELECT event_type e FROM attempt_event WHERE attempt_id=$1 AND event_type IN ('HOLD_SET','HOLD_RELEASED') ORDER BY sequence DESC LIMIT 1",[a.id])).rows[0]?.e==='HOLD_SET';
  if(d.decision==='Failed'){
   await setAttemptState(db,user,a,'QcFailed',{stageQcId:id},{qcFailedStage:'QC1'});
@@ -182,7 +184,7 @@ export async function decideStageQc1(db:Queryable,user:Staff,input:unknown){
  await db.query('UPDATE lab_batch SET version=version+1 WHERE id=$1',[o.batch_id]);
  await caseEvent(db,user,a.case_id,'LAB_STAGE_QC1_DECIDED',{decision:d.decision,criteria:criteriaStatus});
  await audit(db,user,'LAB_STAGE_QC1_DECIDED','attempt_stage_qc',id,{outcome:d.decision,ruleVersion:criteriaStatus});
- return {id,decision:d.decision,criteriaStatus,candidates:qc1Candidates(o.value.value,'PATIENT')};
+ return {id,decision:d.decision,criteriaStatus,candidates:qc1Candidates(o.value.value,'PATIENT',operational?'OWNER_MASTER':'LEGACY_REFERENCE')};
 }
 
 type QcStatus='MEASURED'|'AWAITING_DECISION'|'NOT_PERFORMED'|'EXCLUDED'|'STOPPED'|'REQUIRED_PENDING'|'NOT_APPLICABLE';
@@ -400,8 +402,10 @@ export async function documentCopies(db:Queryable,user:Staff,batchId:string){
 export async function observationsView(db:Queryable,user:Staff,batchId:string){
  await assertSession(db,user);need(user,'worksheet.read','read');
  const obs=await liveObservations(db,uuid.parse(batchId));
+ const operational=await operationalWorkflow(db),placements=(await db.query<{payload:PlacementPayload}>(`SELECT DISTINCT ON(t.sheet_number) p.payload FROM lab_placement_snapshot p JOIN lab_task_sheet t ON t.id=p.sheet_id WHERE t.batch_id=$1 ORDER BY t.sheet_number,p.revision DESC`,[batchId])).rows;
+ const kinds=new Map(placements.flatMap(p=>p.payload.slots.map(s=>[s.slot,s.control?CONTROL_LABEL[s.control] as 'PC'|'NC'|'BLANK':'PATIENT' as const] as const)));
  return obs.map(o=>{const def=fieldDef(o.field_id,o.item);return {id:o.id,sheetId:o.sheet_id,slot:o.slot_number,fieldId:o.field_id,item:o.item,label:def.label,cls:def.cls,value:o.value,valueText:valueText(def,o.value),source:o.source,eventTime:o.event_time,eventPrecision:o.event_time_precision,recordedAt:o.recorded_at,recorder:o.recorder,recordedBy:o.recorded_by,reviewer:o.reviewer,status:o.status,
-  candidates:o.field_id==='F3-03'&&o.slot_number?qc1Candidates(String(o.value.value),rowKind(o.slot_number)):null};});
+  candidates:o.field_id==='F3-03'&&o.slot_number?qc1Candidates(String(o.value.value),kinds.get(o.slot_number)??rowKind(o.slot_number),operational?'OWNER_MASTER':'LEGACY_REFERENCE'):null};});
 }
 export async function dispositionsView(db:Queryable,user:Staff,batchId:string){
  await assertSession(db,user);need(user,'worksheet.read','read');

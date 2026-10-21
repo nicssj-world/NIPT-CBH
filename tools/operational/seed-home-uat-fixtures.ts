@@ -22,10 +22,10 @@ async function writeOnce(file:string,bytes:Buffer) {
  catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;await writeFile(file,bytes,{flag:'wx'});}
 }
 const cases:PatientFixture[]=[];
-const day=localDay(),yyMMdd=day.slice(2);
+const day=localDay();
 if(process.env.NIPT_MODE!=='operational')throw Error('OPERATIONAL_MODE_REQUIRED');
 const pdfDate=day.slice(6,8)+'-'+new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Bangkok',month:'short'}).format(new Date(day.slice(0,4)+'-'+day.slice(4,6)+'-'+day.slice(6,8)+'T12:00:00'))+'-'+day.slice(0,4);
-const fixtureRoot=localPath('NIPT_HOME_UAT_FIXTURE_ROOT','.local/owner-local-uat-1.0.2/fixtures');
+const fixtureRoot=localPath('NIPT_HOME_UAT_FIXTURE_ROOT','.local/owner-local-uat-1.0.2/fixtures-lab-20261022');
 const petRoot=path.join(fixtureRoot,'pet'),reportRoot=path.join(fixtureRoot,'reports');
 const simRoot=localPath('NIPT_HOME_UAT_SIMULATOR_ROOT','.local/owner-local-uat-1.0.2/integration');
 const marker=path.join(fixtureRoot,'fixture-manifest.json');
@@ -38,7 +38,7 @@ try {
 } catch(error) {if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
 await mkdir(petRoot,{recursive:true});await mkdir(reportRoot,{recursive:true});await mkdir(path.join(simRoot,'inbound'),{recursive:true});
 for(let i=0;i<45;i++) {
- const serial=9701+i,ln=yyMMdd+String(serial).padStart(6,'0'),hn=String(serial).padStart(8,'0')+'/69';
+ const ln=String(9903001000+i),hn=String(9900041000+i);
  const fixtureId=i===0?'S1-01':i===1?'TWIN-01':i===2?'RE-LIB-01':i===3?'S2-01':'BATCH-'+String(i+1).padStart(2,'0');
  const pet='pet/'+ln+'-7.pet',ok='pet/'+ln+'-7.ok';
  const scenario=i===0?'Singleton S1':i===1?'Owner selects Twin in the request form':i===2?'Re-Library review case':i===3?'S2 after an approved resampling/redraw action':'Task-list capacity fixture; enter test data through the application';

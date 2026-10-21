@@ -3,7 +3,7 @@ import {existsSync,readFileSync} from 'node:fs';
 import {generateTaskWorkbook,MASTER_SHA256} from '../../packages/workbook/master';
 import {readArchive,sha256} from '../../packages/workbook/archive';
 
-const source=process.env.NIPT_TASK_MASTER_PATH??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx';
+const source=process.env.NIPT_TASK_MASTER_PATH??'.local/lab-owner-evidence/lab-combined-master.xlsx';
 // The immutable owner file is external to the repository. An explicitly configured missing file still fails.
 it.skipIf(!process.env.NIPT_TASK_MASTER_PATH&&!existsSync(source))('highlights only PC1, NC25 and BLANK40 in generated files, preserving master, formulas and every other cell',()=>{
  const master=readFileSync(source);

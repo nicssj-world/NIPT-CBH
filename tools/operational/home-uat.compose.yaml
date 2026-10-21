@@ -1,6 +1,6 @@
 name: nipt-cbh-owner-local-102-20261020
 x-build: &app-build
-  context: .
+  context: ${NIPT_UAT_BUILD_CONTEXT:-.}
   dockerfile: Dockerfile
   args:
     SOURCE_REVISION: ${SOURCE_REVISION:?launcher must set committed source SHA}
@@ -60,12 +60,12 @@ services:
     image: nipt-cbh-owner-local-102-operations:20261020
     environment:
       <<: *common-env
-      NIPT_HOME_UAT_FIXTURE_ROOT: /app/.local/owner-local-uat-1.0.2/fixtures
+      NIPT_HOME_UAT_FIXTURE_ROOT: /app/.local/owner-local-uat-1.0.2/fixtures-lab-20261022
       NIPT_HOME_UAT_SIMULATOR_ROOT: /app/.local/owner-local-uat-1.0.2/integration
     volumes:
       - type: bind
-        source: .local/owner-local-uat-1.0.2/fixtures
-        target: /app/.local/owner-local-uat-1.0.2/fixtures
+        source: .local/owner-local-uat-1.0.2/fixtures-lab-20261022
+        target: /app/.local/owner-local-uat-1.0.2/fixtures-lab-20261022
       - type: bind
         source: .local/owner-local-uat-1.0.2/integration
         target: /app/.local/owner-local-uat-1.0.2/integration
@@ -143,6 +143,8 @@ services:
       DATABASE_URL_FILE: /run/secrets/web_url
       INTEGRATION_PUBLIC_KEY_FILE: /run/secrets/integration_public
       NIPT_TASK_MASTER_PATH: /approved/master.xlsx
+      NIPT_POOL_CSV_TEMPLATE: /approved/pooling.csv
+      NIPT_NIFTY_XLSX_TEMPLATE: /approved/nifty.xlsx
       NIPT_ANC_FORM_REGISTRY: /forms/registry.json
       NIPT_LOCAL_UAT_BANNER: "1"
       NIPT_NATIVE_EXCEL_SPOOL: /excel-spool
@@ -156,8 +158,18 @@ services:
         target: /simulator
         read_only: true
       - type: bind
-        source: .local/owner-local-uat-1.0.2/master/approved-combined.xlsx
+        source: .local/owner-local-uat-1.0.2/master/approved-combined-20261021.xlsx
         target: /approved/master.xlsx
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: .local/owner-local-uat-1.0.2/master/Pooling Sheet Template_R001.csv
+        target: /approved/pooling.csv
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: .local/owner-local-uat-1.0.2/master/NIFTY_Test_Request_FormHNZ_filled.xlsx
+        target: /approved/nifty.xlsx
         read_only: true
         bind: {create_host_path: false}
       - type: bind

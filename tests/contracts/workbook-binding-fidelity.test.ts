@@ -4,7 +4,7 @@ import {verifyBindingFidelity} from '../../tools/operational/verify-binding-fide
 import {generateTaskWorkbook,inspectTaskMaster} from '../../packages/workbook/master';
 import {readArchive} from '../../packages/workbook/archive';
 
-const source=process.env.NIPT_TASK_MASTER_PATH??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx';
+const source=process.env.NIPT_TASK_MASTER_PATH??'.local/lab-owner-evidence/lab-combined-master.xlsx';
 describe.skipIf(!existsSync(source))('Exhaustive exact-master binding verification',()=>{
   it('fits a long filled HALOS identifier using a cloned alignment, preserving the source font and all original styles',()=>{
     const master=readFileSync(source),before=readArchive(master),out=readArchive(generateTaskWorkbook(master,{'slot.1.printedSampleId':'26B261015001R-VERY-LONG-ID'}).bytes);
@@ -20,7 +20,7 @@ describe.skipIf(!existsSync(source))('Exhaustive exact-master binding verificati
     expect(result.evidence.bindingCount).toBe(316);
     expect(result.evidence.formulaCount).toBe(149);
     expect(result.evidence.readback).toHaveLength(316);
-    expect(result.evidence.media).toHaveLength(14);
+    expect(result.evidence.media).toHaveLength(25);
     expect(result.evidence.media.every(m=>m.unchanged)).toBe(true);
   },180000);
   it('binds the actual sequencing chip confirmation while preserving all source rich runs, including unchecked state',()=>{

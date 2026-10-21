@@ -10,6 +10,7 @@ import {CONTROL_HIGHLIGHTS} from '../../packages/workbook/control-highlights';
 
 const cellMap=(xml:string)=>new Map([...xml.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)].map(m=>[/\br="([A-Z]+\d+)"/.exec(m[1])![1],{attributes:m[1],body:m[2]??'',xml:m[0]}]));
 const withoutCache=(xml:string)=>xml.replace(/(<c\b[^>]*>)([\s\S]*?)(<\/c>)/g,(all,start,body,end)=>/<f\b/.test(body)?start+body.replace(/<v\b[^>]*>[\s\S]*?<\/v>/g,'')+end:all);
+const ownerAlerts=/<conditionalFormatting sqref="(?:A8:B55|E14)"><cfRule type="expression" dxfId="\d+" priority="\d+"><formula>(?:AND\(ISNUMBER\(\$B8\),\$B8&lt;2\)|AND\(ISNUMBER\(E14\),OR\(E14&lt;3,E14&gt;3\.6\)\))<\/formula><\/cfRule><\/conditionalFormatting>/g;
 const texts=(xml:string)=>[...xml.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map(m=>xmlDecode(m[1])).join('');
 const coord=(ref:string)=>{const [,letters,row]=/^([A-Z]+)(\d+)$/.exec(ref)!;return {col:[...letters].reduce((n,c)=>n*26+c.charCodeAt(0)-64,0),row:Number(row)};};
 const contains=(range:string,ref:string)=>{const [first,last=first]=range.split(':'),a=coord(first),b=coord(last),c=coord(ref);return c.col>=a.col&&c.col<=b.col&&c.row>=a.row&&c.row<=b.row;};
@@ -31,7 +32,11 @@ export function verifyBindingFidelity(master:Buffer) {
   const originalFills=fills(before.get('xl/styles.xml')!),generatedFills=fills(after.get('xl/styles.xml')!);
   assert.deepEqual(generatedFills.slice(0,originalFills.length),originalFills,'original fills changed');
   assert.deepEqual(generatedFills.slice(originalFills.length),CONTROL_HIGHLIGHTS.map(c=>`<fill><patternFill patternType="solid"><fgColor rgb="${c.argb}"/><bgColor indexed="64"/></patternFill></fill>`));
-  const stripStyles=(bytes:Buffer)=>bytes.toString().replace(/<cellXfs\b[^>]*>[\s\S]*?<\/cellXfs>/,'').replace(/<fills\b[^>]*>[\s\S]*?<\/fills>/,'');
+  const dxfs=(bytes:Buffer)=>[.../<dxfs\b[^>]*>([\s\S]*?)<\/dxfs>/.exec(bytes.toString())![1].matchAll(/<dxf\b[^>]*>[\s\S]*?<\/dxf>/g)].map(m=>m[0]);
+  const originalDxfs=dxfs(before.get('xl/styles.xml')!),generatedDxfs=dxfs(after.get('xl/styles.xml')!);
+  assert.deepEqual(generatedDxfs.slice(0,originalDxfs.length),originalDxfs,'original conditional formats changed');
+  assert.deepEqual(generatedDxfs.slice(originalDxfs.length),['<dxf><font><color rgb="FFFF0000"/></font></dxf>'],'only Owner red font conditional format may be appended');
+  const stripStyles=(bytes:Buffer)=>bytes.toString().replace(/<cellXfs\b[^>]*>[\s\S]*?<\/cellXfs>/,'').replace(/<fills\b[^>]*>[\s\S]*?<\/fills>/,'').replace(/<dxfs\b[^>]*>[\s\S]*?<\/dxfs>/,'');
   assert.equal(stripStyles(before.get('xl/styles.xml')!),stripStyles(after.get('xl/styles.xml')!),'fonts/other style definitions changed');
   const normalizeStyle=(s:string)=>s.replace(/\s+(?:applyAlignment|shrinkToFit)="[^"]*"/g,'').replace(/<alignment\s*\/>/g,'').replace(/^<xf([^>]*?)\/>$/,'<xf$1></xf>');
   for(const [name,bytes] of before)if(!output.changedParts.includes(name))assert.ok(after.get(name)!.equals(bytes),`immutable part ${name}`);
@@ -69,7 +74,7 @@ export function verifyBindingFidelity(master:Buffer) {
         if(isControl(ref)){const originalCell=originals.get(ref)!;assert.equal(actual.replace(/\bs="\d+"/,''),withoutCache(originalCell.xml).replace(/\bs="\d+"/,''),`${b.key} changed control content ${ref}`);const style=Number(/\bs="(\d+)"/.exec(actual)![1]);assert.equal(baseStyle(individualStyles[style],ref),baseStyle(originalStyles[Number(/\bs="(\d+)"/.exec(originalCell.attributes)![1])],ref),`control style ${ref}`);}
         else assert.equal(actual,withoutCache(c.xml),`${b.key} changed ${ref}`);
       }
-      const stripCells=(s:string)=>s.replace(/<c\b[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g,'');
+      const stripCells=(s:string)=>s.replace(/<c\b[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g,'').replace(ownerAlerts,'');
       assert.equal(stripCells(individual),stripCells(original),`worksheet layout ${b.key}`);
       readback.push({key:b.key,sheet,cell:b.cell,value:values[b.key],type:b.dataType,uniqueSentinelReadback:true,individualLocality:true,mergedAnchor:true,originalStyleAndFontPreserved:true,filledTextShrinkToFit:b.dataType==='text'&&!b.rendering});
     }
@@ -97,7 +102,7 @@ export function verifyBindingFidelity(master:Buffer) {
 }
 
 async function main() {
-  const source=process.env.NIPT_TASK_MASTER_PATH??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx';
+  const source=process.env.NIPT_TASK_MASTER_PATH??'.local/lab-owner-evidence/lab-combined-master.xlsx';
   const master=await readFile(source),result=verifyBindingFidelity(master),directory=path.resolve('.local/workbook-binding-fidelity');
   await mkdir(directory,{recursive:true});
   await writeFile(path.join(directory,'unique-sentinels.xlsx'),result.bytes);

@@ -111,3 +111,13 @@ GRANT SELECT,INSERT,UPDATE ON run_photo_storage_root,run_photo TO app_rw;
 GRANT SELECT,INSERT ON run_photo_root_location,run_photo_event TO app_rw;
 GRANT SELECT ON run_photo_root_current TO app_rw;
 GRANT SELECT ON run_photo,run_photo_event TO report_ro;
+-- Owner LAB-01/LAB-06/LAB-09/LAB-13 append-only intake, placement options and export provenance.
+GRANT SELECT,INSERT ON lab_operational_registration,lab_slot40_mode,lab_batch_removal,lab_bench_export TO app_rw;
+GRANT USAGE ON SEQUENCE lab_slot40_mode_sequence_seq TO app_rw;
+GRANT SELECT ON lab_operational_registration TO worker_rw;
+GRANT SELECT ON lab_operational_registration,lab_slot40_mode,lab_batch_removal,lab_bench_export TO report_ro;
+GRANT SELECT ON lab_pet_clock_correction,his_inbound_file_current,his_order_current,specimen_round_current TO app_rw,worker_rw,report_ro;
+GRANT SELECT,INSERT ON lab_manual_paper_stage TO app_rw;
+GRANT USAGE ON SEQUENCE lab_manual_paper_stage_sequence_seq TO app_rw;
+GRANT SELECT,INSERT ON lab_bench_review TO app_rw;
+GRANT SELECT ON lab_bench_review TO report_ro;

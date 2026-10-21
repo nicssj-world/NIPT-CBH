@@ -13,7 +13,7 @@ import {staleMetadataInventory} from '../../tools/p0/stale-metadata-core';
 
 // Plan Rev 3.4 §5.1: Task metadata (B4/B5/K5/B16/B17) has one owner, the Lab source. Enforced server-side,
 // including direct API calls and stale drafts saved before this rule existed; history is never rewritten.
-const masterPath=process.env.NIPT_TASK_MASTER_PATH??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx';
+const masterPath=process.env.NIPT_TASK_MASTER_PATH??'.local/lab-owner-evidence/lab-combined-master.xlsx';
 afterEach(()=>vi.unstubAllEnvs());
 const xlsxText=(bytes:Buffer)=>{const parts=readArchive(bytes);return (parts.get('xl/worksheets/sheet1.xml')!.toString())+(parts.get('xl/sharedStrings.xml')?.toString()??'');};
 

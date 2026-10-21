@@ -27,7 +27,7 @@ const rows = {
   "round.attest": "CCCY C--R-".replaceAll(" ", ""),
   "consent.withdraw.receive": "UUYY---R-",
   "consent.withdraw.decide": "---PA--R-",
-  "doctor.manage": "YY--AY-R-",
+  "doctor.manage": "YYYYAY-R-",
   "case.read": "UUYYYB-R-",
   "document.request.read": "UUYYYB---",
   "his.scan": "--YY-YYR-",
@@ -117,6 +117,7 @@ export function authorize(user: Principal, action: string, resource: ResourceSco
   // requires an active, approved historical_backfill + go_live_cutoff setting, so it stays inert (fail closed) until the Owner decides OD-18/OD-27.
   if (resource.origin === "HISTORICAL" && !["history.read", "audit.read"].includes(action)) return false;
   if (["observation.verify", "handoff.verify", "settings.approve", "downtime.approve", "result.link.manual", "his.conflict.resolve"].includes(action) && resource.actorId === user.id) return false;
+  if(action==='history.draft'&&operationalDataEnabled()&&user.roles.some(role=>role==='LAB_STAFF'||role==='LAB_CERTIFIER'))return true;
   const rule = rows[action as Action];
   return user.roles.some(role => {
     const cell = rule[ROLES.indexOf(role)] as Cell;

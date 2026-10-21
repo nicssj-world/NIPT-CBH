@@ -9,7 +9,7 @@ import {createBatch} from '../../packages/lab/batch';
 import {FileStore} from '../../packages/storage';
 import {workbookWorkspace,saveWorkbookDraft,exportWorkbook,downloadWorkbookExport} from '../../packages/workbook/service';
 import {sha256,readArchive} from '../../packages/workbook/archive';
-const masterPath=process.env.NIPT_TASK_MASTER_PATH??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx';
+const masterPath=process.env.NIPT_TASK_MASTER_PATH??'.local/lab-owner-evidence/lab-combined-master.xlsx';
 it.skipIf(!existsSync(masterPath))('native workbook drafts resume, reject stale revisions, export/readback and immutable audit history',async()=>{
   const db=await testDatabase(),u=await labUsers(db),temp=await mkdtemp(path.join(tmpdir(),'nipt-workbook-db-'));
   const deps={master:readFileSync(masterPath),store:new FileStore(temp),render:async()=>{throw new Error('NATIVE_RENDERER_NOT_AVAILABLE_IN_DB_TEST');}};

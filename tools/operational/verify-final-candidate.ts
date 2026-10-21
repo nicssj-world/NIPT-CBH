@@ -8,7 +8,7 @@ if(git(['status','--porcelain']))throw Error('CLEAN_CANDIDATE_REQUIRED');
 const head=git(['rev-parse','HEAD']),branch=git(['branch','--show-current']),root=await fs.mkdtemp(path.resolve('.local/final-candidate-'+head.slice(0,7)+'-'));
 const migrationHash=createHash('sha256');for(const name of (await fs.readdir('db/migrations')).filter(n=>n.endsWith('.sql')).sort())migrationHash.update(name+'\0').update(await fs.readFile('db/migrations/'+name));
 const migrationsSha256=migrationHash.digest('hex'),sourceTree=git(['rev-parse','HEAD^{tree}']),master=process.env.NIPT_TASK_MASTER_PATH;if(!master)throw Error('LOCKED_MASTER_REQUIRED');
-const hash=async()=>createHash('sha256').update(await fs.readFile(master)).digest('hex');if(await hash()!=='0f94efbc240b9a38ff9be77bf0c8d92c09d82fa2fe2427b9d274cc739e5607a6')throw Error('LOCKED_MASTER_MISMATCH');
+const hash=async()=>createHash('sha256').update(await fs.readFile(master)).digest('hex');if(await hash()!=='4c5300f9039af57c0d0649160f5da8e4c2ee1ed7ae44dd7aa525823104f9c7f1')throw Error('LOCKED_MASTER_MISMATCH');
 const results:{name:string;head:string;sourceTree:string;migrationsSha256:string;command:string;runtimeMode:string;timestamp:string;finishedAt:string;exitCode:number;log:string}[]=[];
 async function run(name:string,args:string[],mode:string,extra:Partial<NodeJS.ProcessEnv>={}){
  if(git(['rev-parse','HEAD'])!==head||git(['status','--porcelain']))throw Error('CANDIDATE_CHANGED');
@@ -26,7 +26,7 @@ await Promise.all([
 await run('control-highlight-native',['--import','tsx','tools/operational/verify-control-highlights.ts'],'synthetic');
 // Keep native PostgreSQL verification separate from the concurrent browser/Excel and full-suite workload.
 await run('native-upgrade-recovery',['--import','tsx','tools/operational/verify-native-recovery.ts'],'synthetic');
-if(await hash()!=='0f94efbc240b9a38ff9be77bf0c8d92c09d82fa2fe2427b9d274cc739e5607a6')throw Error('MASTER_CHANGED');
+if(await hash()!=='4c5300f9039af57c0d0649160f5da8e4c2ee1ed7ae44dd7aa525823104f9c7f1')throw Error('MASTER_CHANGED');
 const comparison=execFileSync('git',['merge-tree','--trivial-merge',git(['merge-base','HEAD','origin/main']),'HEAD','origin/main'],{encoding:'utf8'});await fs.writeFile(path.join(root,'integration-tree-comparison.txt'),comparison);let currentPath='';const conflicts=new Set<string>();for(const line of comparison.split('\n')){const m=/^  (?:base|our|their)\s+\d+\s+[a-f0-9]+\s+(.+)$/.exec(line);if(m)currentPath=m[1];if(line.startsWith('+<<<<<<<'))conflicts.add(currentPath);}const integrationConflicts=[...conflicts];
 const main=git(['rev-parse','origin/main']),mainIntegrated=git(['merge-base',head,main])===main,parents=git(['rev-list','--parents','-n','1','HEAD']).split(' ').slice(1);
 const passed=results.every(r=>r.exitCode===0),prReady=passed&&mainIntegrated&&integrationConflicts.length===0,report={head,branch,parents,mainIntegrated,prReady,sourceTree,migrationsSha256,environment:'WINDOWS_LOOPBACK_DISPOSABLE_DATABASES_NATIVE_EXCEL_CHROMIUM',masterSha256:await hash(),results,passed,mergeReady:false,integrationConflicts,main,externalTests:['Hospital LAN/UNC/SMB and deployed service ACL','HIS acknowledgement and HALOS hardware','Physical 50x20mm printer calibration','Owner golden visual acceptance','Clinical acceptance','Windows installer NOT STARTED'],timestamp:new Date().toISOString()};

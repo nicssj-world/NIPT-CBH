@@ -2,17 +2,22 @@ import {access,mkdir,readFile,writeFile} from 'node:fs/promises';
 import {createHash,generateKeyPairSync,randomBytes} from 'node:crypto';
 import path from 'node:path';
 const root=path.resolve(process.argv[2]??'.local/owner-local-uat-1.0.2');
-const source=path.resolve(process.argv[3]??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx');
+const source=path.resolve(process.argv[3]??'.local/lab-owner-evidence/lab-combined-master.xlsx');
 const expectedRoot=path.resolve('.local/owner-local-uat-1.0.2');
 if(path.relative(expectedRoot,root).startsWith('..')||path.isAbsolute(path.relative(expectedRoot,root)))throw Error('LOCAL_UAT_ROOT_REQUIRED');
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
-const expectedMaster='0f94efbc240b9a38ff9be77bf0c8d92c09d82fa2fe2427b9d274cc739e5607a6';
+const expectedMaster='4c5300f9039af57c0d0649160f5da8e4c2ee1ed7ae44dd7aa525823104f9c7f1';
 const dirs=['secrets','master','files','integration/inbound','integration/results','positive-journey/outbound/res','positive-journey/outbound/pdf','positive-journey/outbound/backup','excel-spool/inbox','excel-spool/processing','excel-spool/outbox','fixtures'];
 for(const dir of dirs)await mkdir(path.join(root,dir),{recursive:true});
-const master=path.join(root,'master/approved-combined.xlsx');
+const master=path.join(root,'master/approved-combined-20261021.xlsx');
 let masterBytes;
 try{masterBytes=await readFile(master);}catch(error){if(error.code!=='ENOENT')throw error;const sourceBytes=await readFile(source);if(sha(sourceBytes)!==expectedMaster)throw Error('APPROVED_MASTER_SHA256_MISMATCH');await writeFile(master,sourceBytes,{flag:'wx'});masterBytes=sourceBytes;}
 if(sha(masterBytes)!==expectedMaster)throw Error('LOCAL_UAT_MASTER_COPY_MISMATCH');
+for(const [filename,expected] of [['Pooling Sheet Template_R001.csv','2ea12e86e1429be6ad9720c3b1b45f90588ad5c1316548146b5062b16bd6977a'],['NIFTY_Test_Request_FormHNZ_filled.xlsx','07c2cd582b85769b789a0ec1f952d623664366c96dcbc28953b1c3c8b07a0ebc']]){
+ const target=path.join(root,'master',filename);let bytes;
+ try{bytes=await readFile(target);}catch(error){if(error.code!=='ENOENT')throw error;bytes=await readFile(path.join('C:/Users/User/Downloads',filename));if(sha(bytes)!==expected)throw Error('LAB_OWNER_TEMPLATE_SHA256_MISMATCH');await writeFile(target,bytes,{flag:'wx'});}
+ if(sha(bytes)!==expected)throw Error('LAB_OWNER_TEMPLATE_SHA256_MISMATCH');
+}
 const secretRoot=path.join(root,'secrets');
 const names=['db-password','migration-url','web-url','worker-url','web-password','worker-password','uat-accounts.json','renderer-token','identity-lookup.key','integration-public.pem','integration-private.pem'];
 const present=[];

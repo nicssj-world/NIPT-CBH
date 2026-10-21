@@ -8,7 +8,7 @@ it('runtime template names the current combined master; loader rejects missing, 
  await expect(loadRuntimeMaster({NIPT_TASK_MASTER_PATH:'//server/master.xlsx'})).rejects.toThrow('TASK_MASTER_LOCAL_PATH_REQUIRED');
  await expect(loadRuntimeMaster({NIPT_TASK_MASTER_PATH:'missing-master.xlsx'})).rejects.toThrow('TASK_MASTER_FILE_NOT_FOUND');
  await expect(loadRuntimeMaster({NIPT_TASK_MASTER_PATH:'package.json'})).rejects.toThrow('TASK_MASTER_SHA256_MISMATCH');
- expect(MASTER_SHA256).toBe('0f94efbc240b9a38ff9be77bf0c8d92c09d82fa2fe2427b9d274cc739e5607a6');
+ expect(MASTER_SHA256).toBe('4c5300f9039af57c0d0649160f5da8e4c2ee1ed7ae44dd7aa525823104f9c7f1');
 });
 it.skipIf(!process.env.NIPT_TASK_MASTER_PATH)('configured owner master loads, while the explicitly supplied obsolete master is rejected',async()=>{
  const result=await loadRuntimeMaster({NIPT_TASK_MASTER_PATH:process.env.NIPT_TASK_MASTER_PATH});expect(result).toBeDefined();

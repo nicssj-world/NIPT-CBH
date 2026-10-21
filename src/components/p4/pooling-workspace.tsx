@@ -1,6 +1,7 @@
 'use client';
 import {useState} from 'react';
 import {HalosOperationalPanel} from './halos-operational-panel';
+import {LabBench} from "./lab-bench";
 import Link from 'next/link';
 import type {workspace} from '../../../packages/pooling/service';
 import {QC2_CRITERIA} from '../../../packages/pooling/constants';
@@ -21,6 +22,7 @@ export function PoolingWorkspace({initial,userId,canWrite=true,canReview=false}:
  const print=async(id:string,kind:string)=>{setBusy(true);try{const r=await fetch(`/api/p4b/documents/${id}`,{method:'POST',headers:{'content-type':'application/json','x-csrf-token':csrf()},body:JSON.stringify({kind,reason:'จำลอง พิมพ์เพื่อทดสอบ F4'})});if(!r.ok){const e=await r.json();throw Error(e.code);}const url=URL.createObjectURL(await r.blob());setPreview(url);setW(await labApi<PoolingData>(api));}catch(e){setMessage(String(e));}finally{setBusy(false);}};
  const active=c&&!c.stopUse&&!['HOLD','Accepted'].includes(c.state);
  const draftPreview=async(kind:string)=>{if(!c)return;setBusy(true);try{const r=await fetch(api,{method:'POST',headers:{'content-type':'application/json','x-csrf-token':csrf()},body:JSON.stringify({action:'previewSynthetic',poolId:c.id,expectedVersion:w.version,kind,purpose:w.operational?'OPERATIONAL':'SYNTHETIC_SIMULATION'})});if(!r.ok){const e=await r.json();throw Error(e.code);}setPreview(URL.createObjectURL(await r.blob()));setW(await labApi<PoolingData>(api));}catch(e){setMessage(String(e));}finally{setBusy(false);}};
+ if(w.operational)return <LabBench batchId={w.batchId} canWrite={canWrite} initialStage="POOL"/>;
  return <section className="panel"><p><Link href={`/lab/batches/${w.batchId}`}>กลับ Batch / Task List</Link> · <Link href={`/lab/batches/${w.batchId}/sequencing`}>DNB / Sequencing / F5 (จำลอง)</Link></p><h1>Pooling / QC2 / F4</h1><p>{w.runLabel}</p>
   {!w.operational&&<p className="notice">ข้อมูลสังเคราะห์ — ห้ามใช้ปฏิบัติงานจริง · Acceptance: HOLD · Export ถูกบล็อก<br/>รอ {w.holds.join(', ')} · ไม่ใช่ AL-4b acceptance</p>}
   {message&&<p role="status">{message}</p>}

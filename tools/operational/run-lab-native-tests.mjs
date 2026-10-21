@@ -1,0 +1,15 @@
+import {readFile,mkdir,writeFile} from 'node:fs/promises';
+import {spawn} from 'node:child_process';
+import {Client} from 'pg';
+const root='.local/lab-owner-evidence';
+await mkdir(root,{recursive:true});
+const config=Object.fromEntries((await readFile('.local/parity-validation-20261021/docker.env','utf8')).trim().split(/\r?\n/).map(line=>{const i=line.indexOf('=');return [line.slice(0,i),line.slice(i+1)];}));
+const url=new URL('postgresql://127.0.0.1:19831/postgres');url.username=config.POSTGRES_USER;url.password=config.POSTGRES_PASSWORD;
+const client=new Client({connectionString:url.toString()});await client.connect();
+const database='nipt_synthetic_lab_owner_'+Date.now();
+await client.query('CREATE DATABASE '+database);await client.end();url.pathname='/'+database;
+const env={...process.env,NIPT_MODE:'synthetic',NIPT_TEST_DATABASE_URL:url.toString()};
+const child=spawn(process.execPath,['node_modules/vitest/vitest.mjs','run',...process.argv.slice(2)],{env,windowsHide:true,stdio:['ignore','pipe','pipe']});
+let output='';child.stdout.on('data',b=>{output+=b;process.stdout.write(b);});child.stderr.on('data',b=>{output+=b;process.stderr.write(b);});
+const code=await new Promise(resolve=>child.on('exit',resolve));
+await writeFile(root+'/native-postgresql.log',output);await writeFile(root+'/native-postgresql.json',JSON.stringify({database,host:'127.0.0.1',port:19831,exitCode:code,tests:process.argv.slice(2)},null,2));process.exitCode=code??1;

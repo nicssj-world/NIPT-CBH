@@ -2,7 +2,8 @@
 param(
   [ValidateSet('Start','Stop','Restart','Health','Logs','StagePET','ListFixtures','SeedPositiveJourney','VerifyAdditionalJourney')]
   [string]$Action='Health',
-  [string]$MasterPath='C:\Users\User\Downloads\NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx',
+  [string]$MasterPath='',
+  [string]$SourceSnapshot='',
   [string]$FixtureId='',
   [ValidateSet(8701,8801)][int]$JourneyStart=8701,
   [ValidateSet(1,2)][int]$Round=1
@@ -11,6 +12,7 @@ $ErrorActionPreference='Stop'
 Set-StrictMode -Version Latest
 $RepoRoot=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 Set-Location -LiteralPath $RepoRoot
+if(-not $MasterPath){$MasterPath=Join-Path $RepoRoot '.local\lab-owner-evidence\lab-combined-master.xlsx'}
 $LocalRoot=Join-Path $RepoRoot '.local\owner-local-uat-1.0.2'
 $ComposeFile=Join-Path $PSScriptRoot 'home-uat.compose.yaml'
 $Project='nipt-cbh-owner-local-102-20261020'
@@ -18,8 +20,8 @@ $HttpsPort=19548
 $DatabasePort=19549
 $Origin='https://127.0.0.1:{0}' -f $HttpsPort
 $ExpectedBranch='fix/consolidated-parity-101'
-$ExpectedMaster='0f94efbc240b9a38ff9be77bf0c8d92c09d82fa2fe2427b9d274cc739e5607a6'
-$MasterCopy=Join-Path $LocalRoot 'master\approved-combined.xlsx'
+$ExpectedMaster='4c5300f9039af57c0d0649160f5da8e4c2ee1ed7ae44dd7aa525823104f9c7f1'
+$MasterCopy=Join-Path $LocalRoot 'master\approved-combined-20261021.xlsx'
 $Secrets=Join-Path $LocalRoot 'secrets'
 $Spool=Join-Path $LocalRoot 'excel-spool'
 $BridgeScript=Join-Path $PSScriptRoot 'native-excel-bridge.ps1'
@@ -49,29 +51,42 @@ function Initialize-LocalFiles {
   $hash=(Get-FileHash -LiteralPath $MasterCopy -Algorithm SHA256).Hash.ToLower()
   if($hash -ne $ExpectedMaster){throw 'HOME_UAT_MASTER_SHA256_MISMATCH'}
   (Get-Item -LiteralPath $MasterCopy).IsReadOnly=$true
-  foreach($folder in @('files','integration\inbound','integration\results','positive-journey\outbound\res','positive-journey\outbound\pdf','positive-journey\outbound\backup','excel-spool\inbox','excel-spool\processing','excel-spool\outbox','fixtures')){
+  foreach($folder in @('files','integration\inbound','integration\results','positive-journey\outbound\res','positive-journey\outbound\pdf','positive-journey\outbound\backup','excel-spool\inbox','excel-spool\processing','excel-spool\outbox','fixtures-lab-20261022')){
     New-Item -ItemType Directory -Path (Join-Path $LocalRoot $folder) -Force|Out-Null
   }
   Set-LocalAcl
   $env:NIPT_MODE='operational'
-  $env:NIPT_HOME_UAT_FIXTURE_ROOT=Join-Path $LocalRoot 'fixtures'
+  $env:NIPT_HOME_UAT_FIXTURE_ROOT=Join-Path $LocalRoot 'fixtures-lab-20261022'
   $env:NIPT_HOME_UAT_SIMULATOR_ROOT=Join-Path $LocalRoot 'integration'
   & node --import tsx (Join-Path $PSScriptRoot 'seed-home-uat-fixtures.ts')
   if($LASTEXITCODE -ne 0){throw 'HOME_UAT_FIXTURE_PROVISION_FAILED'}
   Save-Checkpoint 'local-files-and-fixtures-ready' 'PASS'
 }
 function Set-ComposeContract([switch]$RequireClean,[switch]$RequireExpectedBranch) {
+  $buildRoot=$RepoRoot
+  if($SourceSnapshot) {
+    $buildRoot=(Resolve-Path -LiteralPath $SourceSnapshot).Path
+    $allowedRoot=[IO.Path]::GetFullPath((Join-Path $RepoRoot '.local'))+[IO.Path]::DirectorySeparatorChar
+    if(-not $buildRoot.StartsWith($allowedRoot,[StringComparison]::OrdinalIgnoreCase)){throw 'HOME_UAT_SOURCE_SNAPSHOT_OUTSIDE_LOCAL_ROOT'}
+    $snapshotHead=(& git -C $buildRoot rev-parse HEAD).Trim()
+    $primaryHead=(& git -C $RepoRoot rev-parse HEAD).Trim()
+    if($LASTEXITCODE -ne 0 -or $snapshotHead -ne $primaryHead){throw 'HOME_UAT_SOURCE_SNAPSHOT_HEAD_MISMATCH'}
+    # A separate clean checkout preserves unrelated edits in the primary worktree.
+    $snapshotDirty=@(& git -C $buildRoot status --porcelain)
+    if($LASTEXITCODE -ne 0 -or $snapshotDirty.Count -gt 0){throw 'HOME_UAT_SOURCE_SNAPSHOT_MUST_BE_CLEAN'}
+  }
   if($RequireExpectedBranch) {
     $branch=(& git -C $RepoRoot branch --show-current).Trim()
     if($branch -ne $ExpectedBranch){throw 'HOME_UAT_BRANCH_MISMATCH'}
   }
   if($RequireClean) {
-    $dirty=@(& git -C $RepoRoot status --porcelain)
+    $dirty=@(& git -C $buildRoot status --porcelain)
     if($dirty.Count -gt 0){throw 'HOME_UAT_SOURCE_MUST_BE_COMMITTED_BEFORE_BUILD'}
   }
-  $source=(& git -C $RepoRoot rev-parse HEAD).Trim()
+  $source=(& git -C $buildRoot rev-parse HEAD).Trim()
   if($LASTEXITCODE -ne 0 -or $source -notmatch '^[a-f0-9]{40}$'){throw 'HOME_UAT_SOURCE_REVISION_UNAVAILABLE'}
-  $inventoryCommand="import {migrationInventory} from './deploy/scripts/release-contract.mjs'; const x=await migrationInventory('db/migrations'); console.log(x.sha256)"
+  $env:NIPT_UAT_BUILD_CONTEXT=$buildRoot
+  $inventoryCommand="import {migrationInventory} from './deploy/scripts/release-contract.mjs'; const x=await migrationInventory(process.env.NIPT_UAT_BUILD_CONTEXT+'/db/migrations'); console.log(x.sha256)"
   $migrationHash=(& node --input-type=module -e $inventoryCommand).Trim()
   if($LASTEXITCODE -ne 0 -or $migrationHash -notmatch '^[a-f0-9]{64}$'){throw 'HOME_UAT_MIGRATION_INVENTORY_UNAVAILABLE'}
   $env:SOURCE_REVISION=$source
@@ -362,7 +377,7 @@ function Invoke-SeedPositiveJourney([switch]$Additional) {
 Set-ComposeContract
 switch($Action) {
   'Start' {
-    Set-ComposeContract -RequireExpectedBranch
+    Set-ComposeContract -RequireClean -RequireExpectedBranch
     Assert-PortsAvailable
     Initialize-LocalFiles
     Ensure-NativeBridge
@@ -400,12 +415,12 @@ switch($Action) {
     Invoke-Compose @('logs','--tail','200','--follow')
   }
   'ListFixtures' {
-    Get-Content -LiteralPath (Join-Path $LocalRoot 'fixtures\case-list.csv')
+    Get-Content -LiteralPath (Join-Path $LocalRoot 'fixtures-lab-20261022\case-list.csv')
   }
   'StagePET' {
     if(-not $FixtureId){throw 'FIXTURE_ID_REQUIRED'}
     $env:NIPT_MODE='operational'
-    $env:NIPT_HOME_UAT_FIXTURE_ROOT=Join-Path $LocalRoot 'fixtures'
+    $env:NIPT_HOME_UAT_FIXTURE_ROOT=Join-Path $LocalRoot 'fixtures-lab-20261022'
     $env:NIPT_HOME_UAT_SIMULATOR_ROOT=Join-Path $LocalRoot 'integration'
     $env:NIPT_HOME_UAT_FIXTURE_ID=$FixtureId
     $env:NIPT_HOME_UAT_ROUND=[string]$Round

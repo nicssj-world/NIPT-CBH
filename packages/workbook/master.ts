@@ -1,8 +1,9 @@
 import {readArchive, sha256, writeArchive, xmlDecode, xmlEscape} from './archive';
 import {textFitStyles} from './text-fit';
 import {highlightControls} from './control-highlights';
+import {poolingAlerts} from './pooling-alerts';
 
-export const MASTER_SHA256 = '0f94efbc240b9a38ff9be77bf0c8d92c09d82fa2fe2427b9d274cc739e5607a6';
+export const MASTER_SHA256 = '4c5300f9039af57c0d0649160f5da8e4c2ee1ed7ae44dd7aa525823104f9c7f1';
 export const SHEETS = ['Ext. & Prep. Task List 1','Ext. & Prep. Task List 2','Ext. & Prep. Task List 3','QC measurements','Pooling Table','Seq Task-G50'] as const;
 export type Binding = {key: string; sheet: string; cell: string; dataType: 'text'|'number'|'checkbox'; source: string; requiredCondition: string; defaultBehavior: 'master-value'; mapping: string; editable: true; rendering?:'append'|'parentheses'|'filename'};
 export type InventoryCell = {sheet: string; cell: string; classification: 'editable'|'calculated'|'static'|'unmapped-blank'; text: string; formula: string|null; binding: Binding|null};
@@ -80,7 +81,7 @@ export function validateTaskValues(master: Buffer, values: Record<string,unknown
   }
 }
 /** Always starts from the immutable master. Missing/null values reset to the master, never a previous batch's derivative. */
-export function generateTaskWorkbook(master: Buffer, values: Record<string,unknown>) {
+export function generateTaskWorkbook(master: Buffer, values: Record<string,unknown>,options:{urgent40?:boolean}={}) {
   validateTaskValues(master,values);
   const parts=lockedParts(master), defs=bindings(parts), strings=sharedStrings(parts), changedParts:string[]=[];
   const fitting=textFitStyles(parts);
@@ -121,7 +122,8 @@ export function generateTaskWorkbook(master: Buffer, values: Record<string,unkno
     if(xml!==original) {parts.set(path,Buffer.from(xml));changedParts.push(path);}
   }
   if(fitting.finish())changedParts.push('xl/styles.xml');
-  for(const name of highlightControls(parts))if(!changedParts.includes(name))changedParts.push(name);
+  for(const name of highlightControls(parts,options.urgent40))if(!changedParts.includes(name))changedParts.push(name);
+  for(const name of poolingAlerts(parts,values))if(!changedParts.includes(name))changedParts.push(name);
   if(Object.keys(values).length) {
     const path='xl/workbook.xml', original=parts.get(path)!.toString();
     const calc=/<calcPr\b([^>]*?)\/>/.exec(original);

@@ -1,13 +1,13 @@
 {
-  "source_filename": "NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx",
-  "bytes": 5380051,
-  "sha256": "0f94efbc240b9a38ff9be77bf0c8d92c09d82fa2fe2427b9d274cc739e5607a6",
+  "source_filename": "LAB_Combined_Master_2026-10-21.xlsx",
+  "bytes": 10679212,
+  "sha256": "4c5300f9039af57c0d0649160f5da8e4c2ee1ed7ae44dd7aa525823104f9c7f1",
   "sheets": [
     {
       "index": 1,
       "name": "Ext. & Prep. Task List 1",
       "range": "A1:M53",
-      "sheet_xml_sha256": "ae5acc565228e87026e05df23736b089732949b0e4433ae5640629775a804b5f",
+      "sheet_xml_sha256": "2f14286aa86431bdcabafc16147a4c3f8205aefd9920b4897fe7771159fc1f5d",
       "formulas_count": 0,
       "print_area": "'Ext. & Prep. Task List 1'!$A$1:$M$53",
       "page_setup": {
@@ -32,7 +32,7 @@
       "index": 2,
       "name": "Ext. & Prep. Task List 2",
       "range": "A1:M53",
-      "sheet_xml_sha256": "95fe93203a0172db055461ea1d96645c1e1cbbc20efeaedf98e08c88d05d9a12",
+      "sheet_xml_sha256": "2e213231ff748f4f38c99221f721e3db39e7ceaf75f16c5e2002dde287df35d8",
       "formulas_count": 0,
       "print_area": "'Ext. & Prep. Task List 2'!$A$1:$M$53",
       "page_setup": {
@@ -57,7 +57,7 @@
       "index": 3,
       "name": "Ext. & Prep. Task List 3",
       "range": "A1:M53",
-      "sheet_xml_sha256": "a3a378355ab55c0e72e5e6bb54bede26ebbf26e420ce2f4ce61e6d0a8e71a1b2",
+      "sheet_xml_sha256": "33a0c3632431210de6b6c8d43cf781ae6989a27450ea6e64d421787ce4b6de5b",
       "formulas_count": 0,
       "print_area": "'Ext. & Prep. Task List 3'!$A$1:$M$53",
       "page_setup": {
@@ -173,9 +173,9 @@
     "Times New Roman",
     "宋体"
   ],
-  "font_definitions_count": 58,
-  "cell_format_count": 521,
-  "styles_xml_sha256": "1d087ae7b796816a0b9bd2d566f93c1f9625ee258919a0bb903f2148311e53b4",
+  "font_definitions_count": 62,
+  "cell_format_count": 565,
+  "styles_xml_sha256": "4257acb0c21bce0f60816031fe19ce93288b16e364ea99ede17c741d39eaccce",
   "formula_count": 149,
   "media": [
     {
@@ -259,7 +259,7 @@
       "sha256": "ef72f3a3eeab0e7776c668ac86277161ce345542d94ff071cf58d4e98a7972bd"
     }
   ],
-  "scope": "OWNER_APPROVED_COMPOSITION: locked Task Lists 1-3 retained; QC/Pooling/Seq imported from owner revision; deleted-sheet references restored to original 149 formulas; F52 unchanged.",
+  "scope": "OWNER LAB-13 replacement Task Lists 1-3; runtime fill coordinates preserved; QC/Pooling/Seq worksheet XML byte-identical to prior approved Master; worked examples cleared from all runtime task bindings.",
   "approved_revision": {
     "date": "2026-10-15",
     "sheet": "Pooling Table",
@@ -276,7 +276,13 @@
     "note": "D52 is merge anchor of D52:D53. Preserve fonts, 6 sheets, formulas elsewhere, print settings, shapes and media unchanged."
   },
   "previous_f52_master_sha256": "2f8aef50243c89eae6a4e9115d65fbf9239754a1bd9ce330205378f3a9b3aacf",
-  "composition": {
+  "native_pdf_coordinate_zoom": {
+    "QC measurements": 69,
+    "Pooling Table": 62,
+    "Seq Task-G50": 57
+  },
+  "previous_master_sha256": "0f94efbc240b9a38ff9be77bf0c8d92c09d82fa2fe2427b9d274cc739e5607a6",
+  "previous_composition": {
     "sha256": "0f94efbc240b9a38ff9be77bf0c8d92c09d82fa2fe2427b9d274cc739e5607a6",
     "bytes": 5380051,
     "lockedTaskSourceSha256": "2f8aef50243c89eae6a4e9115d65fbf9239754a1bd9ce330205378f3a9b3aacf",
@@ -395,9 +401,36 @@
       "xl/printerSettings/printerSettings3.bin"
     ]
   },
-  "native_pdf_coordinate_zoom": {
-    "QC measurements": 69,
-    "Pooling Table": 62,
-    "Seq Task-G50": 57
+  "composition": {
+    "sha256": "4c5300f9039af57c0d0649160f5da8e4c2ee1ed7ae44dd7aa525823104f9c7f1",
+    "bytes": 10679212,
+    "lockedTaskSourceSha256": "0f94efbc240b9a38ff9be77bf0c8d92c09d82fa2fe2427b9d274cc739e5607a6",
+    "ownerThreeSheetSourceSha256": "9e69127a4f162796d43ce04f7c80a5b056053e4b74a061363ad2dd00d95fc821",
+    "taskSheetXmlByteIdentical": false,
+    "formulaSheetsByteIdentical": true,
+    "formulaCount": 149,
+    "restoredCrossSheetReferences": [],
+    "importedParts": [
+      "xl/worksheets/sheet1.xml",
+      "xl/drawings/drawing1.xml",
+      "xl/media/image3.png",
+      "xl/media/image2.png",
+      "xl/media/image1.jpeg",
+      "xl/media/image6.png",
+      "xl/media/image5.png",
+      "xl/media/image4.png",
+      "xl/printerSettings/printerSettings1.bin",
+      "xl/worksheets/sheet2.xml",
+      "xl/drawings/drawing2.xml",
+      "xl/media/image8.png",
+      "xl/media/image7.png",
+      "xl/media/image10.png",
+      "xl/media/image9.png",
+      "xl/printerSettings/printerSettings2.bin",
+      "xl/worksheets/sheet3.xml",
+      "xl/drawings/drawing3.xml",
+      "xl/media/image11.png",
+      "xl/printerSettings/printerSettings3.bin"
+    ]
   }
 }

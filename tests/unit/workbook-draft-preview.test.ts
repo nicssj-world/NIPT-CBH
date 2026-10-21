@@ -6,7 +6,7 @@ import {readArchive,sha256} from '../../packages/workbook/archive';
 import {MASTER_SHA256,SHEETS} from '../../packages/workbook/master';
 import {buildDraftTaskWorkbook,renderDraftTaskPdf} from '../../packages/workbook/draft-preview';
 
-const masterPath=process.env.NIPT_TASK_MASTER_PATH??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx';
+const masterPath=process.env.NIPT_TASK_MASTER_PATH??'.local/lab-owner-evidence/lab-combined-master.xlsx';
 const input={sheetNumber:1,runLabel:'Run999/2026',plan:{workDate:'18/10/2569',operator:'SYNTHETIC OPERATOR',extractionLot:'',extractionExpiry:'',libraryLot:'LOT-SYN',libraryExpiry:'20/10/2569'},rows:[{slot:1,printedId:'26N120261018-1'},{slot:2,printedId:'26B261018001-1'}],previewedAt:'2026-10-19T00:00:00Z',previewedBy:'synthetic-user'};
 
 describe.skipIf(!existsSync(masterPath))('native uncontrolled Task draft preview (external approved Master)',()=>{

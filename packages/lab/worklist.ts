@@ -44,7 +44,7 @@ export type WorklistPage={policy:string;operational:boolean;generatedAt:string;t
 
 const FIRST_UNIT=`(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=c.id ORDER BY s.unit_id LIMIT 1)`;
 // Same population as the original worklist: the live attempt (highest number) of each case's current round, never historical imports.
-const ATTEMPTS=`FROM analytical_attempt a JOIN specimen_round r ON r.id=a.round_id JOIN nipt_case c ON c.id=a.case_id JOIN case_ln l ON l.id=r.case_ln_id
+const ATTEMPTS=`FROM analytical_attempt a JOIN specimen_round_current r ON r.id=a.round_id JOIN nipt_case c ON c.id=a.case_id JOIN case_ln l ON l.id=r.case_ln_id
  LEFT JOIN specimen_lab_number n ON n.round_id=r.id LEFT JOIN lab_slot_assignment sa ON sa.attempt_id=a.id AND sa.removed_at IS NULL LEFT JOIN lab_batch b ON b.id=sa.batch_id
  WHERE c.current_round_id=a.round_id AND c.registration_origin<>'HISTORICAL' AND a.attempt_number=(SELECT max(x.attempt_number) FROM analytical_attempt x WHERE x.round_id=a.round_id)
  AND (COALESCE(${FIRST_UNIT}::text,'')||':'||c.registration_origin)=ANY($1::text[])`;
@@ -90,9 +90,9 @@ async function readWorklist(db:Queryable,user:Staff,raw:unknown,tuning:ScanTunin
  const scope=await readableScope(db,user);
  // Counts that need no per-attempt facts.
  const c=(await db.query<{ready:number;in_batch:number;decision:number}>(`SELECT count(*) FILTER (WHERE a.state='Ready')::int ready,count(*) FILTER (WHERE a.state IN ('Assigned','InProgress'))::int in_batch,count(*) FILTER (WHERE a.state NOT IN ('Ready','Assigned','InProgress'))::int decision ${ATTEMPT_IDS}`,[scope])).rows[0];
- const expectedFrom=`FROM specimen_round r JOIN nipt_case c ON c.id=r.case_id AND c.current_round_id=r.id JOIN case_ln l ON l.id=r.case_ln_id JOIN redraw_request d ON d.id=r.redraw_request_id
+ const expectedFrom=`FROM specimen_round_current r JOIN nipt_case c ON c.id=r.case_id AND c.current_round_id=r.id JOIN case_ln l ON l.id=r.case_ln_id JOIN redraw_request d ON d.id=r.redraw_request_id
   WHERE r.round_number>=2 AND r.state='Expected' AND (COALESCE(${FIRST_UNIT}::text,'')||':'||c.registration_origin)=ANY($1::text[])`;
- const missingFrom=`FROM specimen_round r JOIN nipt_case c ON c.id=r.case_id AND c.current_round_id=r.id JOIN case_ln l ON l.id=r.case_ln_id
+ const missingFrom=`FROM specimen_round_current r JOIN nipt_case c ON c.id=r.case_id AND c.current_round_id=r.id JOIN case_ln l ON l.id=r.case_ln_id
   WHERE r.received_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM specimen_lab_number n WHERE n.round_id=r.id) AND (COALESCE(${FIRST_UNIT}::text,'')||':'||c.registration_origin)=ANY($1::text[])`;
  const cnt=async(from:string)=>Number((await db.query<{n:string}>(`SELECT count(*)::text n ${from}`,[scope])).rows[0].n);
  const counts:Record<WorklistTab,number>={READY:0,GATE_BLOCKED:0,IN_BATCH:c.in_batch,DECISION:c.decision,REDRAW_EXPECTED:await cnt(expectedFrom),LN_HALOS_MISSING:await cnt(missingFrom)};
@@ -102,7 +102,7 @@ async function readWorklist(db:Queryable,user:Staff,raw:unknown,tuning:ScanTunin
  const classify=async()=>{
   const activeRG=f.tab==='READY'||f.tab==='GATE_BLOCKED';
   const readyIds=(await db.query<{id:string}>(`SELECT a.id ${ATTEMPT_IDS} AND a.state='Ready'`,[scope])).rows.map(r=>r.id);
-  const ids=readyIds.length?(await db.query<{id:string}>(`SELECT a.id FROM analytical_attempt a JOIN specimen_round r ON r.id=a.round_id JOIN case_ln l ON l.id=r.case_ln_id WHERE a.id=ANY($1::uuid[]) ORDER BY ${fifoSql(activeRG?f.sort:'asc')}`,[readyIds])).rows.map(r=>r.id):[];
+  const ids=readyIds.length?(await db.query<{id:string}>(`SELECT a.id FROM analytical_attempt a JOIN specimen_round_current r ON r.id=a.round_id JOIN case_ln l ON l.id=r.case_ln_id WHERE a.id=ANY($1::uuid[]) ORDER BY ${fifoSql(activeRG?f.sort:'asc')}`,[readyIds])).rows.map(r=>r.id):[];
   const hard=ids.length>HARD;if(hard)ids.length=HARD;
   const need=activeRG?(f.page-1)*f.pageSize+f.pageSize:0;let matched=0;
   for(let i=0;i<ids.length;i+=STEP){

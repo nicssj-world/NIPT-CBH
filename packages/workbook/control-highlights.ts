@@ -4,12 +4,13 @@ export const CONTROL_HIGHLIGHTS=[
  {sheet:2,slot:25,row:8,columns:'HIJKLM',argb:'FFDDEBF7'},
  {sheet:3,slot:40,row:15,columns:'BCDEFG',argb:'FFE7E6E6'},
 ] as const;
-export function highlightControls(parts:Map<string,Buffer>):string[]{
+export function highlightControls(parts:Map<string,Buffer>,urgent40=false):string[]{
  const path='xl/styles.xml',original=parts.get(path)!.toString();
  const fills=/<fills\b([^>]*)>([\s\S]*?)<\/fills>/.exec(original),xfs=/<cellXfs\b([^>]*)>([\s\S]*?)<\/cellXfs>/.exec(original);
  if(!fills||!xfs)throw Error('TASK_CONTROL_STYLES_REQUIRED');
  const fillCount=[...fills[2].matchAll(/<fill\b/g)].length,styles=[...xfs[2].matchAll(/<xf\b[^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g)].map(m=>m[0]),added:string[]=[],changed:string[]=[];
  for(const [index,control]of CONTROL_HIGHLIGHTS.entries()){
+  if(urgent40&&control.slot===40)continue;
   const name=`xl/worksheets/sheet${control.sheet}.xml`,xml=parts.get(name)!.toString(),indexes=new Map<number,number>();let count=0;
   const generated=xml.replace(/<c\b([^>]*?)(?:\/>|>[\s\S]*?<\/c>)/g,(cell,attrs:string)=>{
    const ref=/\br="([A-Z]+)(\d+)"/.exec(attrs);if(!ref||Number(ref[2])!==control.row||!control.columns.split('').includes(ref[1]))return cell;

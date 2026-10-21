@@ -15,7 +15,10 @@ type Sheet={id:string;batch_id:string;sheet_number:number;state:string;planned_w
 const sheetCols="id,batch_id,sheet_number,state,planned_work_date::text,planned_operator,planned_extraction_lot,planned_extraction_expiry::text,planned_library_lot,planned_library_expiry::text,plan_checked_by,plan_checked_at,plan_checked_version,placement_version,finalized_by,finalized_at,placement_revision,execution_started_at,execution_ended_at,verified_at";
 
 export async function lockBatch(db:Queryable,batchId:string,expectedVersion?:number){
- const b=(await db.query<Batch>('SELECT * FROM lab_batch WHERE id=$1 FOR UPDATE',[uuid.parse(batchId)])).rows[0];
+ // Upgrade rehearsals also exercise this read on the pinned pre-111 schema.
+ // Once 111 exists, removed drafts always remain inaccessible.
+ const hasRemoval=(await db.query<{present:boolean}>("SELECT to_regclass('public.lab_batch_removal') IS NOT NULL present")).rows[0].present;
+ const b=(await db.query<Batch>(`SELECT * FROM lab_batch WHERE id=$1${hasRemoval?' AND NOT EXISTS(SELECT 1 FROM lab_batch_removal WHERE batch_id=lab_batch.id)':''} FOR UPDATE`,[uuid.parse(batchId)])).rows[0];
  if(!b)throw new LabError('NOT_FOUND',404);if(b.state==='Cancelled')throw new LabError('BATCH_CANCELLED',409);
  if(expectedVersion!==undefined&&b.version!==expectedVersion)throw new LabError('VERSION_CONFLICT',409,{version:b.version});
  return b;
@@ -35,7 +38,9 @@ async function batchEvent(db:Queryable,user:Staff,batchId:string,type:string,she
 export async function createBatch(db:Queryable,user:Staff){
  await assertSession(db,user);need(user,'batch.draft');
  await db.query('SELECT pg_advisory_xact_lock(75432811)');
- const existing=(await db.query<{id:string;run_label:string}>("SELECT id,run_label FROM lab_batch WHERE state='Draft'")).rows[0];
+ // Upgrade rehearsals create a baseline Draft before migration 111 exists; there can be no removal row on that schema.
+ const hasRemoval=(await db.query<{present:boolean}>("SELECT to_regclass('public.lab_batch_removal') IS NOT NULL present")).rows[0].present;
+ const existing=(await db.query<{id:string;run_label:string}>(hasRemoval?"SELECT id,run_label FROM lab_batch WHERE state='Draft' AND NOT EXISTS(SELECT 1 FROM lab_batch_removal WHERE batch_id=lab_batch.id)":"SELECT id,run_label FROM lab_batch WHERE state='Draft'")).rows[0];
  if(existing)return {batchId:existing.id,runLabel:existing.run_label,created:false};
  const {templateVersion,formulaVersion}=await pendingPolicy(db);
  const year=(await db.query<{y:number}>("SELECT extract(year FROM now() AT TIME ZONE 'Asia/Bangkok')::int y")).rows[0].y;
@@ -52,17 +57,18 @@ export async function createBatch(db:Queryable,user:Staff){
 type SlotView={slot:number;sheet:number;plate:string;barcode:number;control:ControlType|null;controlLabel:string|null;controlCode:string|null;assignment:null|{attemptId:string;caseId:string;roundId:string;roundNumber:number;hisLn:string;lnHalos:string|null;labelCode:string|null;printedSampleId:string|null;attemptState:string;repeat:boolean;urgent:boolean;ga:ReturnType<typeof gestationalAge>;labelPrints:number}};
 export async function batchDetail(db:Queryable,user:Staff,batchId:string){
  await assertSession(db,user);need(user,'worksheet.read','read');
- const b=(await db.query<Batch&{cancel_reason:string|null}>('SELECT * FROM lab_batch WHERE id=$1',[uuid.parse(batchId)])).rows[0];if(!b)throw new LabError('NOT_FOUND',404);
+ const b=(await db.query<Batch&{cancel_reason:string|null}>('SELECT * FROM lab_batch WHERE id=$1 AND NOT EXISTS(SELECT 1 FROM lab_batch_removal WHERE batch_id=lab_batch.id)',[uuid.parse(batchId)])).rows[0];if(!b)throw new LabError('NOT_FOUND',404);
  const sheets=(await db.query<Sheet>(`SELECT ${sheetCols} FROM lab_task_sheet WHERE batch_id=$1 ORDER BY sheet_number`,[b.id])).rows;
  const facts=await attemptFacts(db,'a.id IN (SELECT attempt_id FROM lab_slot_assignment WHERE batch_id=$1 AND removed_at IS NULL)',[b.id]);
  const bySlot=new Map(facts.map(f=>[f.slot_number!,f]));
- const slots:SlotView[]=Array.from({length:48},(_,i)=>{const slot=i+1,sheet=getSheetNumber(slot),control=controlTypeOf(slot),f=bySlot.get(slot),date=sheets[sheet-1].planned_work_date;
+ const urgent40=(await db.query<{enabled:boolean}>('SELECT lab_urgent40_enabled($1) enabled',[b.id])).rows[0].enabled;
+ const slots:SlotView[]=Array.from({length:48},(_,i)=>{const slot=i+1,sheet=getSheetNumber(slot),control=slot===40&&urgent40?null:controlTypeOf(slot),f=bySlot.get(slot),date=sheets[sheet-1].planned_work_date;
   return {slot,sheet,plate:getPlatePosition(slot),barcode:slot,control,controlLabel:control?CONTROL_LABEL[control]:null,controlCode:control&&date?formatPrintedControlId(control,date):null,
    assignment:f&&caseVisible(user,f)?{attemptId:f.attempt_id,caseId:f.case_id,roundId:f.round_id,roundNumber:f.round_number,hisLn:f.ln,lnHalos:f.ln_halos,labelCode:f.ln_halos?specimenDisplayCode(f.ln_halos,f.pregnancy,f.ln_halos_resampling):f.ln_halos,printedSampleId:f.printed_sample_id,attemptState:f.attempt_state,repeat:f.repeat_order_id!==null,urgent:f.urgent,ga:gestationalAge(f),labelPrints:f.label_prints}:null};});
  const documents=(await db.query('SELECT d.id,d.form,d.kind,d.revision,d.doc_code,d.status,d.status_reason,d.file_sha256,d.issued_at,u.display_name issued_by,t.sheet_number,(SELECT count(*) FROM lab_document_copy c WHERE c.document_id=d.id AND c.kind=\'WORKING_COPY\')::int working_copies,(SELECT count(*) FROM lab_document_copy c WHERE c.document_id=d.id AND c.kind=\'WORKING_COPY\' AND c.recalled_at IS NULL)::int unrecalled FROM lab_document d JOIN app_user u ON u.id=d.issued_by LEFT JOIN lab_task_sheet t ON t.id=d.sheet_id WHERE d.batch_id=$1 ORDER BY d.issued_at',[b.id])).rows;
  const events=(await db.query('SELECT e.event_type,e.sheet_number,e.reason,e.created_at,u.display_name actor FROM lab_batch_event e JOIN app_user u ON u.id=e.actor_id WHERE e.batch_id=$1 ORDER BY e.sequence DESC LIMIT 100',[b.id])).rows;
  const snapshots=(await db.query('SELECT s.id,t.sheet_number,s.revision,s.content_hash,s.created_at FROM lab_placement_snapshot s JOIN lab_task_sheet t ON t.id=s.sheet_id WHERE s.batch_id=$1 ORDER BY t.sheet_number,s.revision',[b.id])).rows;
- return {batch:{id:b.id,runLabel:b.run_label,state:b.state,version:b.version,templateVersion:b.template_version,formulaVersion:b.formula_version,createdAt:b.created_at,cancelReason:b.cancel_reason},sheets,slots,documents,events,snapshots};
+ return {urgent40,batch:{id:b.id,runLabel:b.run_label,state:b.state,version:b.version,templateVersion:b.template_version,formulaVersion:b.formula_version,createdAt:b.created_at,cancelReason:b.cancel_reason},sheets,slots,documents,events,snapshots};
 }
 const flagOf=z.union([z.boolean(),z.enum(['0','1','true','false'])]).default(false).transform(v=>v===true||v==='1'||v==='true');
 const runListInput=z.strictObject({q:z.string().trim().max(40).default(''),open:flagOf,...pageFields(25)});
@@ -72,7 +78,7 @@ export type RunListRow={id:string;run_label:string;state:string;version:number;c
  * edited - what the "add to Batch" dialog needs - so an old, finished Run can never push an open Draft out of that list. */
 export async function listBatchPage(db:Queryable,user:Staff,raw:unknown={}){
  await assertSession(db,user);need(user,'worksheet.read','read');
- const f=runListInput.parse(raw),values:unknown[]=[],where:string[]=['true'];
+ const f=runListInput.parse(raw),values:unknown[]=[],where:string[]=['NOT EXISTS(SELECT 1 FROM lab_batch_removal WHERE batch_id=b.id)'];
  if(f.q){values.push(f.q.toLowerCase());where.push(`strpos(lower(b.run_label),$${values.length})>0`);}
  if(f.open)where.push(`b.state<>'Cancelled' AND EXISTS(SELECT 1 FROM lab_task_sheet t WHERE t.batch_id=b.id AND t.state=ANY(ARRAY['${EDITABLE.join("','")}']))`);
  const total=Number((await db.query<{n:string}>(`SELECT count(*)::text n FROM lab_batch b WHERE ${where.join(' AND ')}`,values)).rows[0].n);
@@ -97,7 +103,7 @@ async function fifoOvertaken(db:Queryable,user:Staff,attemptIds:string[],policy:
 /** Read-only (P0-3): tells the user before submitting whether a selection overtakes FIFO and so needs a recorded reason. */
 export async function previewAssignment(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'batch.assign');
- const d=z.strictObject({attemptIds:z.array(uuid).min(1).max(45).refine(v=>new Set(v).size===v.length,'DUPLICATE_ATTEMPT')}).parse(input);
+ const d=z.strictObject({attemptIds:z.array(uuid).min(1).max(46).refine(v=>new Set(v).size===v.length,'DUPLICATE_ATTEMPT')}).parse(input);
  const {policy}=await pendingPolicy(db);
  const selected=await attemptFacts(db,'a.id=ANY($1::uuid[])',[d.attemptIds]);
  if(selected.length!==d.attemptIds.length||selected.some(r=>!caseVisible(user,r)))throw new LabError('NOT_FOUND',404);
@@ -107,7 +113,7 @@ export async function previewAssignment(db:Queryable,user:Staff,input:unknown){
 /** Assignment Gate (BG-01..07 + BG-08A/09A) per attempt, in this transaction; FIFO proposal skips control slots. */
 export async function assignToBatch(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'batch.assign');
- const d=z.strictObject({batchId:uuid,expectedVersion:z.number().int().min(0),attemptIds:z.array(uuid).min(1).max(45).refine(v=>new Set(v).size===v.length,'DUPLICATE_ATTEMPT'),queueOverrideReason:reasonText.optional(),sheetNumber:z.number().int().min(1).max(3).optional()}).parse(input);
+ const d=z.strictObject({batchId:uuid,expectedVersion:z.number().int().min(0),attemptIds:z.array(uuid).min(1).max(46).refine(v=>new Set(v).size===v.length,'DUPLICATE_ATTEMPT'),queueOverrideReason:reasonText.optional(),sheetNumber:z.number().int().min(1).max(3).optional()}).parse(input);
  const b=await lockBatch(db,d.batchId,d.expectedVersion);
  const {policy}=await pendingPolicy(db);
  // Lock order: attempts by id, then their cases (shared with redraw/receipt via the case row).
@@ -120,14 +126,14 @@ export async function assignToBatch(db:Queryable,user:Staff,input:unknown){
  // OD-G: the user may choose the destination Task; slot, control and eligibility rules are unchanged.
  if(d.sheetNumber&&!EDITABLE.includes((await sheetOf(db,b.id,d.sheetNumber)).state))throw new LabError('PLACEMENT_LOCKED',409);
  const free=(await db.query<{slot_number:number;sheet_number:number}>(`SELECT s.slot_number,s.sheet_number FROM lab_batch_slot s JOIN lab_task_sheet t ON t.batch_id=s.batch_id AND t.sheet_number=s.sheet_number
-  WHERE s.batch_id=$1 AND s.control_type IS NULL AND t.state IN ('Draft','PlanChecked','Amended') AND ($2::int IS NULL OR s.sheet_number=$2) AND NOT EXISTS(SELECT 1 FROM lab_slot_assignment a WHERE a.batch_id=s.batch_id AND a.slot_number=s.slot_number AND a.removed_at IS NULL) ORDER BY s.slot_number`,[b.id,d.sheetNumber??null])).rows;
+  WHERE s.batch_id=$1 AND (s.control_type IS NULL OR s.slot_number=40 AND lab_urgent40_enabled(s.batch_id)) AND t.state IN ('Draft','PlanChecked','Amended') AND ($2::int IS NULL OR s.sheet_number=$2) AND NOT EXISTS(SELECT 1 FROM lab_slot_assignment a WHERE a.batch_id=s.batch_id AND a.slot_number=s.slot_number AND a.removed_at IS NULL) ORDER BY s.slot_number`,[b.id,d.sheetNumber??null])).rows;
  const placed:{attemptId:string;slot:number;printedSampleId:string}[]=[],rejected:{attemptId:string;failed:string[];pending:string[]}[]=[];
  // Slots are proposed in the order the user saw the selected rows (Receive Date Sorting Owner Lock §2.3), never click order.
  const byId=new Map(selected.map(r=>[r.attempt_id,r]));
  for(const r of d.attemptIds.map(id=>byId.get(id)!)){
   const g=assignmentDecision(r,policy);
   if(!g.eligible){rejected.push({attemptId:r.attempt_id,failed:g.failed,pending:policy==='HOLD'?g.pending:[]});continue;}
-  const slot=free.shift();if(!slot){rejected.push({attemptId:r.attempt_id,failed:['BATCH_FULL'],pending:[]});continue;}
+  const index=free.findIndex(s=>s.slot_number===40&&r.urgent);const candidate=index>=0?index:free.findIndex(s=>s.slot_number!==40||r.urgent);const slot=candidate>=0?free.splice(candidate,1)[0]:undefined;if(!slot){rejected.push({attemptId:r.attempt_id,failed:['BATCH_FULL'],pending:[]});continue;}
   const id=candidatePrintedId(r);
   if(!r.printed_sample_id){await db.query('UPDATE analytical_attempt SET printed_sample_id=$2 WHERE id=$1',[r.attempt_id,id.id]);await attemptEvent(db,user,{attemptId:r.attempt_id,caseId:r.case_id,type:'PRINTED_ID_ASSIGNED',details:{printedSampleId:id.id}});}
   await db.query('INSERT INTO lab_slot_assignment(batch_id,slot_number,attempt_id,assigned_by) VALUES($1,$2,$3,$4)',[b.id,slot.slot_number,r.attempt_id,user.id]);
@@ -152,7 +158,7 @@ export async function previewFill(db:Queryable,user:Staff,input:unknown){
 async function fillProposal(db:Queryable,user:Staff,batchId:string,sheetNumber:number){
  const s=await sheetOf(db,batchId,sheetNumber,false);
  if(!EDITABLE.includes(s.state))throw new LabError('PLACEMENT_LOCKED',409);
- const free=(await db.query<{n:number}>(`SELECT count(*)::int n FROM lab_batch_slot s WHERE s.batch_id=$1 AND s.sheet_number=$2 AND s.control_type IS NULL
+ const free=(await db.query<{n:number}>(`SELECT count(*)::int n FROM lab_batch_slot s WHERE s.batch_id=$1 AND s.sheet_number=$2 AND (s.control_type IS NULL OR s.slot_number=40 AND lab_urgent40_enabled(s.batch_id))
   AND NOT EXISTS(SELECT 1 FROM lab_slot_assignment a WHERE a.batch_id=s.batch_id AND a.slot_number=s.slot_number AND a.removed_at IS NULL)`,[batchId,sheetNumber])).rows[0].n;
  const {policy}=await pendingPolicy(db),queue=await eligibleQueue(db,user,policy);
  const take=queue.slice(0,Math.min(free,15));
@@ -178,7 +184,8 @@ export async function moveSlot(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'batch.draft');
  const d=z.strictObject({batchId:uuid,expectedVersion:z.number().int().min(0),fromSlot:z.number().int().min(1).max(48),toSlot:z.number().int().min(1).max(48),reason:reasonText.optional()}).refine(v=>v.fromSlot!==v.toSlot,'SAME_SLOT').parse(input);
  const b=await lockBatch(db,d.batchId,d.expectedVersion);
- if(controlTypeOf(d.fromSlot)||controlTypeOf(d.toSlot))throw new LabError('CONTROL_SLOT_PROTECTED',409);
+ const urgent40=(await db.query<{enabled:boolean}>('SELECT lab_urgent40_enabled($1) enabled',[b.id])).rows[0].enabled;
+ if([d.fromSlot,d.toSlot].some(slot=>!!controlTypeOf(slot)&&!(slot===40&&urgent40)))throw new LabError('CONTROL_SLOT_PROTECTED',409);
  const sheets=[getSheetNumber(d.fromSlot),getSheetNumber(d.toSlot)];
  for(const n of sheets){const s=await sheetOf(db,b.id,n);if(!EDITABLE.includes(s.state))throw new LabError('PLACEMENT_LOCKED',409);if(s.state==='PlanChecked'&&!d.reason)throw new LabError('REASON_REQUIRED_AFTER_PLAN_CHECK',422);}
  const from=await liveAssignment(db,b.id,d.fromSlot);if(!from)throw new LabError('SLOT_EMPTY',409);
@@ -248,11 +255,11 @@ export async function finalizeSheet(db:Queryable,user:Staff,input:unknown){
  const revision=s.placement_revision+1,date=s.planned_work_date!;
  const users=new Map((await db.query<{id:string;display_name:string}>('SELECT id,display_name FROM app_user WHERE id=ANY($1::uuid[])',[[user.id,s.plan_checked_by]])).rows.map(u=>[u.id,u.display_name]));
  const bySlot=new Map(results.map(x=>[x.f.slot_number!,x]));
- const lo=(d.sheetNumber-1)*16+1;
+ const lo=(d.sheetNumber-1)*16+1,urgent40=(await db.query<{enabled:boolean}>('SELECT lab_urgent40_enabled($1) enabled',[b.id])).rows[0].enabled;
  const payload={synthetic:true,batchId:b.id,runLabel:b.run_label,sheetNumber:d.sheetNumber,placementRevision:revision,templateVersion:b.template_version,formulaVersion:b.formula_version,
   plan:{workDate:date,operator:s.planned_operator,extractionLot:s.planned_extraction_lot,extractionExpiry:s.planned_extraction_expiry,libraryLot:s.planned_library_lot,libraryExpiry:s.planned_library_expiry},
   planCheck:{by:users.get(s.plan_checked_by!)??null,at:s.plan_checked_at?.toISOString()??null},finalizedBy:users.get(user.id),gate:{ruleVersion:GATE_RULE_VERSION,policy,pendingAccepted:[...new Set(results.flatMap(x=>x.g.syntheticPendingAccepted?x.g.pending:[]))]},
-  slots:Array.from({length:16},(_,i)=>{const slot=lo+i,control=controlTypeOf(slot),x=bySlot.get(slot);
+  slots:Array.from({length:16},(_,i)=>{const slot=lo+i,control=slot===40&&urgent40?null:controlTypeOf(slot),x=bySlot.get(slot);
    return {slot,plate:getPlatePosition(slot),barcode:slot,control,controlCode:control?formatControlCode(control,date):null,printedControlId:control?formatPrintedControlId(control,date):null,
     attemptId:x?.f.attempt_id??null,caseId:x?.f.case_id??null,roundId:x?.f.round_id??null,roundNumber:x?.f.round_number??null,lnHalos:x&&x.f.ln_halos&&x.f.pregnancy?effectiveLnHalos(x.f.ln_halos,x.f.pregnancy):null,printedSampleId:x?.f.printed_sample_id??null,repeat:x?x.f.repeat_order_id!==null:false};})};
  if(payload.slots.some(x=>x.attemptId&&!x.printedSampleId))throw new LabError('PRINTED_ID_MISSING',409);
@@ -275,10 +282,16 @@ export async function latestSnapshot(db:Queryable,sheetId:string){
 }
 
 /** Controlled amendment before physical execution (§12.9, §12.22): Stop-use + recall; snapshots and PDFs are never edited. */
+async function hasRecordedBenchWork(db:Queryable,batchId:string){
+ const schema=(await db.query<{present:boolean}>("SELECT to_regclass('public.task_workbook_revision') IS NOT NULL present")).rows[0].present;
+ if(!schema)return false;
+ return (await db.query<{recorded:boolean}>(`SELECT EXISTS(SELECT 1 FROM task_workbook_revision r CROSS JOIN LATERAL jsonb_each(r.values) e WHERE r.batch_id=$1 AND jsonb_typeof(e.value)='number' AND e.key ~ '^(slot\\.[0-9]+\\.libraryQc|qc\\.[123]\\.(standard1|standard2|standard2Concentration)|pool\\.(concentration|standard1|standard2|standard2Concentration|dilutionC1)|seq\\.(standard1|standard2|standard2Concentration|dnbConcentration|dilutedConcentration|driveMemoryTb|negativePressureKpa|loadedDnb|q30|bic|fit))$') recorded`,[batchId])).rows[0].recorded;
+}
 export async function amendSheet(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'batch.amend');
  const d=z.strictObject({batchId:uuid,expectedVersion:z.number().int().min(0),sheetNumber:z.number().int().min(1).max(3),reason:reasonText}).parse(input);
  const b=await lockBatch(db,d.batchId,d.expectedVersion);const s=await sheetOf(db,b.id,d.sheetNumber);
+ if(await hasRecordedBenchWork(db,b.id))throw new LabError('AMEND_ONLY_BEFORE_EXECUTION',409);
  if(!['PlacementFinalized','PreWorkIssued'].includes(s.state))throw new LabError('AMEND_ONLY_BEFORE_EXECUTION',409);
  const stopped=(await db.query<{id:string}>("UPDATE lab_document SET status='StopUse',status_reason=$3,status_changed_by=$4,status_changed_at=now() WHERE batch_id=$1 AND status='Issued' AND kind='PRE_WORK' AND (sheet_id=$2 OR form='F3') RETURNING id",[b.id,s.id,d.reason,user.id])).rows.length;
  await db.query("UPDATE lab_task_sheet SET state='Amended',plan_checked_by=NULL,plan_checked_at=NULL,plan_checked_version=NULL,placement_version=placement_version+1 WHERE id=$1",[s.id]);
@@ -294,6 +307,7 @@ export async function cancelBatch(db:Queryable,user:Staff,input:unknown){
  const b=await lockBatch(db,d.batchId,d.expectedVersion);
  const sheets=(await db.query<Sheet>(`SELECT ${sheetCols} FROM lab_task_sheet WHERE batch_id=$1 ORDER BY sheet_number FOR UPDATE`,[b.id])).rows;
  const everFinalized=sheets.some(s=>s.placement_revision>0);need(user,everFinalized?'batch.unlock':'batch.draft');
+ if(await hasRecordedBenchWork(db,b.id))throw new LabError('CANCEL_ONLY_BEFORE_EXECUTION',409);
  if(sheets.some(s=>['InExecution','ExecutionRecorded','ExecutionVerified','CompletedIssued'].includes(s.state)))throw new LabError('CANCEL_ONLY_BEFORE_EXECUTION',409);
  const live=(await db.query<{id:string;attempt_id:string;case_id:string;state:string;repeat_order_id:string|null;sheet_number:number}>(`SELECT x.id,x.attempt_id,a.case_id,a.state,a.repeat_order_id,bs.sheet_number FROM lab_slot_assignment x JOIN analytical_attempt a ON a.id=x.attempt_id JOIN lab_batch_slot bs ON bs.batch_id=x.batch_id AND bs.slot_number=x.slot_number WHERE x.batch_id=$1 AND x.removed_at IS NULL FOR UPDATE OF x,a`,[b.id])).rows;
  for(const a of live){
@@ -334,4 +348,22 @@ export async function endExecution(db:Queryable,user:Staff,input:unknown){
  const version=(await db.query<{version:number}>('UPDATE lab_batch SET version=version+1 WHERE id=$1 RETURNING version',[b.id])).rows[0].version;
  await batchEvent(db,user,b.id,'EXECUTION_RECORDED',d.sheetNumber,null);await audit(db,user,'LAB_EXECUTION_RECORDED','lab_batch',b.id,{version});
  return {version};
+}
+
+/** Owner LAB-06: hide an empty draft while retaining Run allocation, controls, audit and all historical evidence. */
+export async function deleteEmptyDraft(db:Queryable,user:Staff,input:unknown){
+ await assertSession(db,user);if(!user.roles.some(r=>['LAB_STAFF','LAB_CERTIFIER','APP_ADMIN'].includes(r)))throw new LabError('FORBIDDEN',403);
+ const d=z.strictObject({batchId:uuid,expectedVersion:z.number().int().min(0)}).parse(input),b=await lockBatch(db,d.batchId,d.expectedVersion);
+ try{await db.query('INSERT INTO lab_batch_removal(batch_id,actor_id) VALUES($1,$2)',[b.id,user.id]);}catch(e){if(e instanceof Error&&e.message.includes('ONLY_EMPTY_DRAFT_BATCH_CAN_BE_REMOVED'))throw new LabError('ONLY_EMPTY_DRAFT_BATCH_CAN_BE_REMOVED',409);throw e;}
+ await db.query("UPDATE lab_task_sheet SET state='Cancelled' WHERE batch_id=$1",[b.id]);
+ await db.query("UPDATE lab_batch SET state='Cancelled',cancelled_by=$2,cancelled_at=now(),cancel_reason='EMPTY_DRAFT_REMOVED',version=version+1 WHERE id=$1",[b.id,user.id]);
+ await batchEvent(db,user,b.id,'EMPTY_DRAFT_REMOVED',null,null);await audit(db,user,'LAB_EMPTY_DRAFT_REMOVED','lab_batch',b.id);return {removed:true};
+}
+export async function setUrgentSlot40(db:Queryable,user:Staff,input:unknown){
+ await assertSession(db,user);need(user,'batch.draft');
+ const d=z.strictObject({batchId:uuid,expectedVersion:z.number().int().min(0),enabled:z.boolean()}).parse(input),b=await lockBatch(db,d.batchId,d.expectedVersion);
+ const s=await sheetOf(db,b.id,3);if(!EDITABLE.includes(s.state)||s.placement_revision)throw new LabError('SLOT40_MODE_LOCKED',409);
+ if(await liveAssignment(db,b.id,40))throw new LabError('SLOT40_MODE_LOCKED',409);
+ await db.query('INSERT INTO lab_slot40_mode(batch_id,enabled,actor_id) VALUES($1,$2,$3)',[b.id,d.enabled,user.id]);
+ const version=await touch(db,b.id,[3]);await batchEvent(db,user,b.id,'SLOT40_MODE_CHANGED',3,null,{urgentPatient:d.enabled});return {version};
 }

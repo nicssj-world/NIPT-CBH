@@ -12,7 +12,7 @@ import {FileStore} from '../../packages/storage';
 import {workbookWorkspace,saveWorkbookDraft,exportWorkbook} from '../../packages/workbook/service';
 import {exportTaskPdfs} from '../../packages/workbook/native-pdf';
 import {MASTER_SHA256} from '../../packages/workbook/master';
-const source=process.env.NIPT_TASK_MASTER_PATH??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx';
+const source=process.env.NIPT_TASK_MASTER_PATH??'.local/lab-owner-evidence/lab-combined-master.xlsx';
 it.skipIf(!existsSync(source))('091 upgrades existing immutable old-master drafts without rewriting history and requires explicit rebind before new export',async()=>{
  const db=new PGlite(),dir=await mkdtemp(path.join(tmpdir(),'nipt-f52-upgrade-'));
  try{

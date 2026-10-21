@@ -40,7 +40,7 @@ export interface SyntheticPetSpec{ln:string;hn:string;name?:string;dob?:string;s
 export function buildSyntheticPet(s:SyntheticPetSpec){
  const section=s.section??NIPT_SECTION,specimen=s.specimenAt??s.receivedAt;
  const h=['H','\\^&','','','CBH','','','','','CIT5K','P','',s.headerAt??s.receivedAt];
- const p=Array<string>(35).fill('');Object.assign(p,{0:'P',1:'1',2:s.ln,3:s.hn,4:'^',5:s.name??'SYNTHETIC^^นาง จำลอง',7:s.dob??'20000101',8:s.sex??'F',9:'^^^',21:s.receivedAt,23:specimen+'^'+s.receivedAt,33:`${s.ward??'SYNTHETIC-WARD'}^${s.identity??'SYNTHETIC-ID-P3'}`});
+ const p=Array<string>(35).fill('');Object.assign(p,{0:'P',1:'1',2:s.ln,3:s.hn,4:'^',5:s.name??'SYNTHETIC^^นาง จำลอง',7:s.dob??'20000101',8:s.sex??'F',9:'^^^',21:s.orderAt??specimen,23:specimen+'^'+s.receivedAt,33:`${s.ward??'SYNTHETIC-WARD'}^${s.identity??'SYNTHETIC-ID-P3'}`});
  const o=Array<string>(29).fill('');Object.assign(o,{0:'O',1:'1',2:s.ln,4:`^^^${s.testCode??NIPT_TEST_CODE}^B^^`,11:'A',14:s.orderAt??specimen,15:'118',18:section,28:'O'});
  return {filename:`${s.ln}-${section}.pet`,bytes:iconv.encode([h.join('|'),p.join('|'),o.join('|'),'L|1|N',''].join('\r\n'),'windows-874')};
 }

@@ -1,3 +1,4 @@
+import {registryGa} from '../lab/registry-ga';
 import {DCC_CONSENT,isCurrentConsent} from '../forms/consent-content';
 import {z} from 'zod';
 import {operationalDataEnabled} from '../security/runtime';
@@ -28,7 +29,7 @@ export async function assertStaff(db:Queryable,user:Staff,allowSuspended=false){
 }
 export async function scopedCase(db:Queryable,user:Staff,id:string,action='case.read',operation:Operation='read'){
  uuid.parse(id);await assertStaff(db,user);
- const r=await db.query<CaseScope>('SELECT c.id,l.ln,i.hn,c.registration_origin,c.current_round_id,s.unit_id,r.state,r.analysis_started,r.round_number FROM nipt_case c JOIN case_ln l ON l.case_id=c.id LEFT JOIN p2_case_identity i ON i.case_id=c.id JOIN case_unit_scope s ON s.case_id=c.id JOIN specimen_round r ON r.id=c.current_round_id WHERE c.id=$1 AND NOT EXISTS(SELECT 1 FROM p2_registration_void v WHERE v.case_id=c.id)',[id]);
+ const r=await db.query<CaseScope>('SELECT c.id,l.ln,i.hn,c.registration_origin,c.current_round_id,s.unit_id,r.state,r.analysis_started,r.round_number FROM nipt_case c JOIN case_ln l ON l.case_id=c.id LEFT JOIN p2_case_identity i ON i.case_id=c.id JOIN case_unit_scope s ON s.case_id=c.id JOIN specimen_round_current r ON r.id=c.current_round_id WHERE c.id=$1 AND NOT EXISTS(SELECT 1 FROM p2_registration_void v WHERE v.case_id=c.id)',[id]);
  const item=r.rows.find(x=>authorize(user,action,{unitId:x.unit_id,origin:x.registration_origin},operation));if(!item)throw new P2Error('FORBIDDEN',403);return item;
 }
 async function event(db:Queryable,user:Principal,caseId:string,action:string,details:Record<string,unknown>={}){
@@ -51,12 +52,13 @@ export async function registrationIntakePresence(db:Queryable,user:Staff,input:u
  return r;
 }
 /** `intake.store` gives the D-49 hook read access to stored HIS intake bytes; without it a waiting intake fails registration closed. */
+export const labOperationalSchema=z.strictObject({gaWeeks:z.number().int().min(0).max(45),gaDays:z.number().int().min(0).max(6),edd:date,pregnancy:z.enum(['Singleton','Twins']),paperRequest:z.literal(true),paperConsent:z.literal(true),doctorVersionId:uuid.nullable().optional()});
 export async function registerP2(db:Queryable,user:Staff,input:unknown,key:Buffer,intake:{store?:FileStore}={}){
  // The 32-byte lookup key must be the one the worker matches with; a missing/short key never mints identity digests.
  if(key.length!==32)throw new P2Error('IDENTITY_LOOKUP_KEY_INVALID',500);
  await assertStaff(db,user);
  // LAB_DIRECT blind entry records where the identifiers were read (Plan §4.7 L3, D-40); ANC may record it too.
- const d=z.strictObject({ln:p2Ln,hn:z.string().trim().max(32).refine(v=>operationalDataEnabled()?/^[A-Za-z0-9][A-Za-z0-9./-]{0,31}$/.test(v):/^0*990[0-9]{3,17}$/.test(v)),unitId:uuid,origin:z.enum(['ANC','LAB_DIRECT']),idempotencyKey:z.string(),identifierSource:z.enum(IDENTIFIER_SOURCES).optional()}).refine(v=>v.origin!=='LAB_DIRECT'||v.identifierSource!==undefined,{path:['identifierSource'],message:'IDENTIFIER_SOURCE_REQUIRED'}).parse(input);
+ const d=z.strictObject({ln:p2Ln,hn:z.string().trim().max(32).refine(v=>operationalDataEnabled()?/^[A-Za-z0-9][A-Za-z0-9./-]{0,31}$/.test(v):/^0*990[0-9]{3,17}$/.test(v)),unitId:uuid,origin:z.enum(['ANC','LAB_DIRECT']),idempotencyKey:z.string(),identifierSource:z.enum(IDENTIFIER_SOURCES).optional(),labOperational:labOperationalSchema.optional()}).refine(v=>(!v.labOperational||v.origin==='LAB_DIRECT')&&(v.origin!=='LAB_DIRECT'||v.identifierSource!==undefined||!!v.labOperational),{path:['identifierSource'],message:'IDENTIFIER_SOURCE_REQUIRED'}).parse(input);
  const ln=d.ln.replaceAll('-','');requirePermission(user,d.origin==='ANC'?'case.register.anc':'case.register.lab',{unitId:d.unitId,origin:d.origin});
  if(!(await db.query('SELECT id FROM unit WHERE id=$1',[d.unitId])).rows[0])throw new P2Error('UNIT_REQUIRED');
  // Match BOTH identifiers under a keyed HMAC; generic P1 normalization remains unchanged.
@@ -67,7 +69,19 @@ export async function registerP2(db:Queryable,user:Staff,input:unknown,key:Buffe
  if(!result.caseId)return {outcome:'IDENTITY_UNVERIFIED',caseId:null};
  // A same-key replay returns the stored CREATED outcome: scope/HN already exist and must not be re-inserted or re-pointed.
  if(result.outcome==='CREATED'){const scope=(await db.query<{unit_id:string}>('SELECT unit_id FROM case_unit_scope WHERE case_id=$1',[result.caseId])).rows;if(!scope.length){await db.query('INSERT INTO case_unit_scope(case_id,unit_id) VALUES($1,$2)',[result.caseId,d.unitId]);await db.query('INSERT INTO p2_case_identity(case_id,hn,synthetic) VALUES($1,$2,$3)',[result.caseId,d.hn,!operationalDataEnabled()]);}else if(!scope.some(x=>x.unit_id===d.unitId))throw new P2Error('IDEMPOTENCY_CONFLICT',409);}
- const c=await scopedCase(db,user,result.caseId);await workspace(db,c,user);
+ const c=await scopedCase(db,user,result.caseId);const initialWorkspace=await workspace(db,c,user);
+ if(d.labOperational&&result.outcome==='CREATED'){
+  const metadata=d.labOperational,hash=contentHash(metadata);
+  const prior=(await db.query<{input_sha256:string}>('SELECT input_sha256 FROM lab_operational_registration WHERE round_id=$1',[c.current_round_id])).rows[0];
+  if(prior&&prior.input_sha256!==hash)throw new P2Error('IDEMPOTENCY_CONFLICT',409);
+  if(!prior){
+   if(metadata.doctorVersionId&&!(await db.query("SELECT 1 FROM p2_doctor_version v WHERE v.id=$1 AND EXISTS(SELECT 1 FROM p2_doctor_event e WHERE e.doctor_version_id=v.id AND e.event_type='Approved')",[metadata.doctorVersionId])).rows.length)throw new P2Error('DOCTOR_VERSION_NOT_APPROVED',422);
+   await db.query('INSERT INTO lab_operational_registration(round_id,case_id,ga_weeks,ga_days,edd,pregnancy,doctor_version_id,paper_request,paper_consent,input_sha256,actor_id) VALUES($1,$2,$3,$4,$5,$6,$7,true,true,$8,$9)',[c.current_round_id,c.id,metadata.gaWeeks,metadata.gaDays,metadata.edd,metadata.pregnancy,metadata.doctorVersionId??null,hash,user.id]);
+   const draft=structuredClone(initialWorkspace.draft);draft.pregnancy.edd=metadata.edd;draft.pregnancy.type=metadata.pregnancy;draft.ordering.doctorVersionId=metadata.doctorVersionId??null;
+   await db.query("UPDATE p2_workspace SET draft=$2,request_mode='Paper',consent_mode='Paper',version=version+1,updated_by=$3,updated_at=clock_timestamp() WHERE round_id=$1",[c.current_round_id,draft,user.id]);
+   await event(db,user,c.id,'LAB_OPERATIONAL_REGISTERED',{paperRequest:true,paperConsent:true,clinicalAcceptance:false});
+  }
+ }
  // D-49: link any waiting HIS intake in this same transaction under the LN lock already held; rolls back with registration.
  const linked=await linkIntakeAtRegistration(db,user,{caseId:result.caseId,ln,hn:d.hn,identifierSource:d.identifierSource??null},{lookupKey:key,store:intake.store});
  return {...result,intake:linked};
@@ -79,7 +93,7 @@ export async function voidIncorrectRegistration(db:Queryable,user:Staff,id:strin
  await lockLn(db,c.ln);await db.query('SELECT id FROM nipt_case WHERE id=$1 FOR UPDATE',[id]);
  if((await db.query('SELECT 1 FROM p2_registration_void WHERE case_id=$1',[id])).rows.length)throw new P2Error('REGISTRATION_ALREADY_VOID',409);
  const blocked=await db.query(`SELECT 1 WHERE
-  EXISTS(SELECT 1 FROM specimen_round WHERE case_id=$1 AND (received_at IS NOT NULL OR analysis_started)) OR
+  EXISTS(SELECT 1 FROM specimen_round_current WHERE case_id=$1 AND (received_at IS NOT NULL OR analysis_started)) OR
   EXISTS(SELECT 1 FROM his_order h JOIN case_ln l ON l.id=h.case_ln_id WHERE l.case_id=$1) OR
   EXISTS(SELECT 1 FROM p2_document_revision WHERE case_id=$1) OR
   EXISTS(SELECT 1 FROM p2_final_consent f JOIN p2_document_revision d ON d.id=f.document_id WHERE d.case_id=$1) OR
@@ -88,7 +102,7 @@ export async function voidIncorrectRegistration(db:Queryable,user:Staff,id:strin
   EXISTS(SELECT 1 FROM redraw_request WHERE case_id=$1) OR
   EXISTS(SELECT 1 FROM repeat_work_order WHERE case_id=$1) OR
   EXISTS(SELECT 1 FROM specimen_lab_number WHERE case_id=$1) OR
-  EXISTS(SELECT 1 FROM analytical_attempt a JOIN specimen_round r ON r.id=a.round_id WHERE r.case_id=$1) OR
+  EXISTS(SELECT 1 FROM analytical_attempt a JOIN specimen_round_current r ON r.id=a.round_id WHERE r.case_id=$1) OR
   EXISTS(SELECT 1 FROM clinical_snapshot WHERE case_id=$1 AND (result->>'passed'='true' OR rule_version='CBH-AUTHORIZED-REVIEW-v1')) OR
   EXISTS(SELECT 1 FROM result_report_version WHERE case_id=$1) OR
   EXISTS(SELECT 1 FROM p2_revocation WHERE case_id=$1)`,[id]);
@@ -107,20 +121,20 @@ export async function getCase(db:Queryable,user:Staff,id:string){
  await db.query('SELECT *,collection_date::text AS collection_date FROM p2_collection_fact WHERE case_id=$1 ORDER BY created_at',[id]),
  await db.query('SELECT v.*,u.display_name AS actor_name FROM p2_revocation v LEFT JOIN app_user u ON u.id=v.actor_id WHERE v.case_id=$1 ORDER BY v.created_at',[id]),
  await db.query('SELECT s.id,s.document_id,s.decision,s.signature_hash,s.signed_at FROM p2_consent_signature s JOIN p2_document_revision d ON d.id=s.document_id WHERE d.case_id=$1 ORDER BY signed_at DESC',[id]),await db.query('SELECT f.id,f.document_id,f.content_hash,f.hash_algorithm,f.payload,f.created_at FROM p2_final_consent f JOIN p2_document_revision d ON d.id=f.document_id WHERE d.case_id=$1 ORDER BY f.created_at DESC',[id])];
- const roundReceipt=(await db.query(`SELECT id AS "roundId",received_source AS "receivedSource",${preciseUtc('received_at')} AS "receivedAt",collection_date::text AS "collectionDate" FROM specimen_round WHERE id=$1`,[c.current_round_id])).rows[0];
+ const roundReceipt=(await db.query(`SELECT id AS "roundId",received_source AS "receivedSource",${preciseUtc('received_at')} AS "receivedAt",collection_date::text AS "collectionDate" FROM specimen_round_current WHERE id=$1`,[c.current_round_id])).rows[0];
  const currentCollectionFacts=(await db.query('SELECT DISTINCT ON(f.source) f.source,f.collection_date::text AS collection_date,f.collection_time,f.actor_id,u.display_name AS actor_name,u.job_position AS actor_position,f.reason,f.sequence FROM p2_collection_fact f LEFT JOIN app_user u ON u.id=f.actor_id WHERE f.round_id=$1 ORDER BY f.source,f.sequence DESC',[c.current_round_id])).rows;
- const history={rounds:(await db.query('SELECT id,round_number,state,received_source FROM specimen_round WHERE case_id=$1 ORDER BY round_number,id',[id])).rows,events:(await db.query("SELECT e.event_type,e.created_at,e.details->>'actorId' AS actor_id,u.display_name,u.job_position FROM case_event e LEFT JOIN app_user u ON u.id=(e.details->>'actorId')::uuid WHERE e.case_id=$1 ORDER BY e.created_at DESC,e.id DESC LIMIT 200",[id])).rows};
- const patientName=(await db.query<{name:string|null}>(`SELECT NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),'') AS name FROM p2_workspace w JOIN specimen_round r ON r.id=w.round_id WHERE w.case_id=$1 AND NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),'') IS NOT NULL ORDER BY r.round_number DESC LIMIT 1`,[id])).rows[0]?.name??null;
+ const history={rounds:(await db.query('SELECT id,round_number,state,received_source FROM specimen_round_current WHERE case_id=$1 ORDER BY round_number,id',[id])).rows,events:(await db.query("SELECT e.event_type,e.created_at,e.details->>'actorId' AS actor_id,u.display_name,u.job_position FROM case_event e LEFT JOIN app_user u ON u.id=(e.details->>'actorId')::uuid WHERE e.case_id=$1 ORDER BY e.created_at DESC,e.id DESC LIMIT 200",[id])).rows};
+ const patientName=(await db.query<{name:string|null}>(`SELECT NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),'') AS name FROM p2_workspace w JOIN specimen_round_current r ON r.id=w.round_id WHERE w.case_id=$1 AND NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),'') IS NOT NULL ORDER BY r.round_number DESC LIMIT 1`,[id])).rows[0]?.name??null;
  const consentDecision=(await db.query<{d:string|null}>('SELECT p2_consent_latest_decision($1) AS d',[c.current_round_id])).rows[0].d;
  const clinicalReady=operationalDataEnabled()&&(await db.query<{ready:boolean}>('SELECT p2_clinical_ready($1) AS ready',[c.current_round_id])).rows[0]?.ready===true;
  const actions=['clinical.correct','request.edit','request.correct','consent.prepare','paper.verify','consent.withdraw.receive'].filter(a=>authorize(user,a,{unitId:c.unit_id,origin:c.registration_origin},'write'));
  await recordPhiAccess(db,user.id,[id],'CASE_DETAIL_VIEW');
  return {operational:operationalDataEnabled(),case:c,patientName,workspace:w,consentDecision,history,roundReceipt,currentCollectionFacts,revisions:revisions.rows,paper:paper.rows,clinical:clinical.rows,collection:collection.rows,revocations:revocations.rows,signatures:signatures.rows,finalConsents:finalConsents.rows,allowedActions:actions,gate:{passed:clinicalReady,state:revocations.rows.length?'RevokedHold':clinicalReady?'ClinicalPassed':'PendingClinicalReview',reason:clinicalReady?'AUTHORIZED_CLINICAL_REVIEW':'CLINICAL_REVIEW_REQUIRED'}};
 }
-async function collectionConflict(db:Queryable,c:CaseScope,dateValue?:string|null){const r=await db.query<{collection_date:string|Date}>('SELECT DISTINCT ON(source) collection_date::text AS collection_date FROM p2_collection_fact WHERE round_id=$1 ORDER BY source,sequence DESC',[c.current_round_id]);const his=await db.query<{collection_date:string|Date}>('SELECT collection_date::text AS collection_date FROM specimen_round WHERE id=$1 AND received_source=\'HIS_PET_RECEIPT\' AND collection_date IS NOT NULL',[c.current_round_id]);const dates=new Set([...r.rows,...his.rows].map(x=>new Date(x.collection_date).toISOString().slice(0,10)));if(dateValue)dates.add(dateValue);return dates.size>1;}
+async function collectionConflict(db:Queryable,c:CaseScope,dateValue?:string|null){const r=await db.query<{collection_date:string|Date}>('SELECT DISTINCT ON(source) collection_date::text AS collection_date FROM p2_collection_fact WHERE round_id=$1 ORDER BY source,sequence DESC',[c.current_round_id]);const his=await db.query<{collection_date:string|Date}>('SELECT collection_date::text AS collection_date FROM specimen_round_current WHERE id=$1 AND received_source=\'HIS_PET_RECEIPT\' AND collection_date IS NOT NULL',[c.current_round_id]);const dates=new Set([...r.rows,...his.rows].map(x=>new Date(x.collection_date).toISOString().slice(0,10)));if(dateValue)dates.add(dateValue);return dates.size>1;}
 async function collect(db:Queryable,c:CaseScope,user:Staff,d:RequestDraft,reason='SYNTHETIC_CAPTURE'){if(d.pregnancy.collectionDate&&d.pregnancy.collectionSource){
  const p=d.pregnancy,today=new Date(Date.now()+7*3600000).toISOString().slice(0,10);if(p.collectionDate!>today)throw new P2Error('COLLECTION_DATE_FUTURE',422);
- const prior=(await db.query<{round_id:string;collection_date:string}>(`SELECT round_id,collection_date::text FROM (SELECT DISTINCT ON(f.round_id,f.source) f.round_id,f.source,f.collection_date FROM p2_collection_fact f JOIN specimen_round r ON r.id=f.round_id WHERE r.case_id=$1 AND r.round_number<$2 ORDER BY f.round_id,f.source,f.sequence DESC) latest UNION ALL SELECT id,collection_date::text FROM specimen_round WHERE case_id=$1 AND round_number<$2 AND received_source IS NOT NULL AND collection_date IS NOT NULL`,[c.id,c.round_number])).rows;
+ const prior=(await db.query<{round_id:string;collection_date:string}>(`SELECT round_id,collection_date::text FROM (SELECT DISTINCT ON(f.round_id,f.source) f.round_id,f.source,f.collection_date FROM p2_collection_fact f JOIN specimen_round_current r ON r.id=f.round_id WHERE r.case_id=$1 AND r.round_number<$2 ORDER BY f.round_id,f.source,f.sequence DESC) latest UNION ALL SELECT id,collection_date::text FROM specimen_round_current WHERE case_id=$1 AND round_number<$2 AND received_source IS NOT NULL AND collection_date IS NOT NULL`,[c.id,c.round_number])).rows;
  const previousDates=new Map<string,Set<string>>();for(const fact of prior){const dates=previousDates.get(fact.round_id)??new Set<string>();dates.add(fact.collection_date);previousDates.set(fact.round_id,dates);}if([...previousDates.values()].some(dates=>dates.size>1))throw new P2Error('PREVIOUS_ROUND_COLLECTION_CONFLICT',409);if(prior.some(f=>f.collection_date>p.collectionDate!))throw new P2Error('COLLECTION_DATE_BEFORE_PREVIOUS_ROUND',422);
  const latest=(await db.query<{collection_date:Date|string;collection_time:string|null}>('SELECT collection_date::text AS collection_date,collection_time FROM p2_collection_fact WHERE round_id=$1 AND source=$2 ORDER BY sequence DESC LIMIT 1',[c.current_round_id,p.collectionSource])).rows[0];if(latest&&new Date(latest.collection_date).toISOString().slice(0,10)===p.collectionDate&&latest.collection_time===p.collectionTime)return;
  await db.query('INSERT INTO p2_collection_fact(case_id,round_id,source,collection_date,collection_time,actor_id,reason) VALUES($1,$2,$3,$4,$5,$6,$7)',[c.id,c.current_round_id,p.collectionSource,p.collectionDate,p.collectionTime,user.id,reason]);}}
@@ -313,10 +327,10 @@ export async function listP2Cases(db:Queryable,user:Staff,input:unknown={}){
  // LN Halos is Lab numbering: searchable only by roles that can already read the Lab worksheet. The printed code may carry a D/R suffix.
  const base=`FROM nipt_case c JOIN case_ln l ON l.id=(SELECT cl.id FROM case_ln cl WHERE cl.case_id=c.id ORDER BY cl.id LIMIT 1) LEFT JOIN p2_case_identity i ON i.case_id=c.id
   JOIN LATERAL(SELECT us.unit_id FROM case_unit_scope us WHERE us.case_id=c.id AND (us.unit_id::text||':'||c.registration_origin)=ANY($2::text[]) ORDER BY us.unit_id LIMIT 1) s ON true
-  JOIN specimen_round r ON r.id=c.current_round_id LEFT JOIN p2_workspace w ON w.round_id=r.id
+  JOIN specimen_round_current r ON r.id=c.current_round_id LEFT JOIN p2_workspace w ON w.round_id=r.id
   LEFT JOIN LATERAL (
    SELECT NULLIF(btrim(older.draft#>>'{patient,syntheticName}'),'') AS name
-   FROM p2_workspace older JOIN specimen_round older_round ON older_round.id=older.round_id
+   FROM p2_workspace older JOIN specimen_round_current older_round ON older_round.id=older.round_id
    WHERE older.case_id=c.id AND NULLIF(btrim(older.draft#>>'{patient,syntheticName}'),'') IS NOT NULL
    ORDER BY older_round.round_number DESC LIMIT 1
   ) patient_history ON true
@@ -324,10 +338,10 @@ export async function listP2Cases(db:Queryable,user:Staff,input:unknown={}){
    OR ($3::boolean AND EXISTS(SELECT 1 FROM specimen_lab_number n WHERE n.case_id=c.id AND n.ln_halos ILIKE $4)))`;
  const total=Number((await db.query<{n:string}>(`SELECT count(*)::text n ${base}`,values)).rows[0].n);
  const meta=clampPage(requested,total,pageSize);
- const rows=(await db.query<CaseScope&{received_at:Date|null;received_source:string|null;draft:RequestDraft|null;patient_name:string|null;version:number|null;request_mode:string|null;consent_mode:string|null;consent_decision:string|null}>(
-  `SELECT c.id,l.ln,i.hn,c.registration_origin,c.current_round_id,s.unit_id,r.state,r.analysis_started,r.round_number,r.received_at,r.received_source,w.draft,COALESCE(NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),''),patient_history.name) patient_name,w.version,w.request_mode,w.consent_mode,(CASE WHEN w.round_id IS NULL THEN NULL ELSE p2_consent_latest_decision(w.round_id) END) consent_decision ${base}
+ const rows=(await db.query<CaseScope&{received_at:Date|null;received_source:string|null;draft:RequestDraft|null;patient_name:string|null;collection_date:string|null;version:number|null;request_mode:string|null;consent_mode:string|null;consent_decision:string|null}>(
+  `SELECT c.id,l.ln,i.hn,c.registration_origin,c.current_round_id,s.unit_id,r.state,r.analysis_started,r.round_number,r.received_at,r.received_source,r.collection_date::text,w.draft,COALESCE(NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),''),patient_history.name) patient_name,w.version,w.request_mode,w.consent_mode,(CASE WHEN w.round_id IS NULL THEN NULL ELSE p2_consent_latest_decision(w.round_id) END) consent_decision ${base}
    ORDER BY ${receiveOrderSql('r.received_at',sort,['(CASE WHEN r.received_at IS NULL THEN c.created_at END) DESC NULLS LAST','l.ln','c.id'])} LIMIT ${pageSize} OFFSET ${offsetOf(meta)}`,values)).rows;
- const seen=new Set<string>();const cases=rows.filter(c=>{if(seen.has(c.id)||!authorize(user,'case.read',{unitId:c.unit_id,origin:c.registration_origin},'read'))return false;seen.add(c.id);return true;}).map(({draft,...c})=>({...c,patient_name:c.patient_name?.trim()||null,identityVerified:c.hn!==null,progress:draft?{missing:requestProgressIssues(draft),savedVersion:c.version}:null}));
+ const seen=new Set<string>();const cases=rows.filter(c=>{if(seen.has(c.id)||!authorize(user,'case.read',{unitId:c.unit_id,origin:c.registration_origin},'read'))return false;seen.add(c.id);return true;}).map(({draft,...c})=>({...c,patient_name:c.patient_name?.trim()||null,ga:registryGa(draft?.pregnancy.edd,c.collection_date??draft?.pregnancy.collectionDate),identityVerified:c.hn!==null,progress:draft?{missing:requestProgressIssues(draft),savedVersion:c.version}:null}));
  const units=allUnits.filter(u=>authorize(user,'case.register.anc',{unitId:u.id,origin:'ANC'})||authorize(user,'case.register.lab',{unitId:u.id,origin:'LAB_DIRECT'}));
  if(cases.length)await recordPhiAccess(db,user.id,cases.map(c=>c.id),'REGISTRY_VIEW');
  return {cases,units,page:meta};

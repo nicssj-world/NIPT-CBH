@@ -5,7 +5,7 @@ import {identityLookup} from '../security/envelope';
 export function safeField(value:string){if(/[\r\n\0|]/.test(value))throw Error('STRUCTURAL_INJECTION');return value;}
 export function wireDate(value:string){if(!/^\d{8}(\d{6})?$/.test(value))throw Error('INVALID_DATE');const y=+value.slice(0,4),m=+value.slice(4,6),d=+value.slice(6,8);const h=+(value.slice(8,10)||0),n=+(value.slice(10,12)||0),s=+(value.slice(12,14)||0);const date=new Date(Date.UTC(y,m-1,d,h,n,s));if(y<1900||date.getUTCFullYear()!==y||date.getUTCMonth()!==m-1||date.getUTCDate()!==d||h>23||n>59||s>59)throw Error('INVALID_DATE');return `${value.slice(0,4)}-${value.slice(4,6)}-${value.slice(6,8)}T${String(h).padStart(2,'0')}:${String(n).padStart(2,'0')}:${String(s).padStart(2,'0')}+07:00`;}
 export const SYNTHETIC_NUMERIC_HN=/^0*990\d{3,17}$/;
-export const PARSER_VERSION='pet-strict-cp874-v1';
+export const PARSER_VERSION='pet-strict-cp874-owner-clock-v2';
 export interface Pet{ln:string;hn:string;name:string;dob:string;sex:string;receivedAt:string;specimenAt:string;orderAt:string;ward:string;identity:string;hash:string;filename:string;}
 export function parsePet(bytes:Buffer,filename:string):Pet{
  const match=/^(\d+)-7\.pet$/i.exec(filename);if(!match)throw Error('INVALID_FILENAME');
@@ -15,9 +15,10 @@ export function parsePet(bytes:Buffer,filename:string):Pet{
  for(const row of records)for(const field of row)safeField(field);
  // Synthetic ranges only: LN 99000… (leading zeros kept), HN SYNTHETIC-… or the P2 numeric synthetic HN range 990….
  if(!operationalDataEnabled()&&(!/^0*99000\d*$/.test(p[2])||!(p[3].startsWith('SYNTHETIC-')||SYNTHETIC_NUMERIC_HN.test(p[3]))||!p[5].includes('SYNTHETIC')||!p[33].split('^')[1]?.startsWith('SYNTHETIC-')))throw Error('SYNTHETIC_ONLY');
+ const collectionReceipt=p[23].split('^');if(collectionReceipt.length!==2||collectionReceipt.some(value=>!/^\d{14}$/.test(value)))throw Error('INVALID_PET_COLLECTION_RECEIPT');
  // NIPTY_handover test_empty_citizen_id_ok: HIS may send no citizen ID (P[33] '301^'). Matching uses LN + HN, so an empty ID is
  // accepted as in the legacy parser; a present ID is still validated.
- const [ward,identity='']=p[33].split('^');if(operationalDataEnabled()&&(!/^[A-Za-z0-9][A-Za-z0-9./-]{0,31}$/.test(p[3])||!p[5].trim()||p[5].length>500||/[\u0000-\u001f\u007f]/.test(p[5])||identity.length>100||/[\u0000-\u0020\u007f]/.test(identity)||!['F','M','U','O'].includes(p[8])))throw Error('INVALID_PATIENT_IDENTITY');return {ln:p[2],hn:p[3],name:p[5],dob:wireDate(p[7]),sex:p[8],receivedAt:wireDate(p[21]),specimenAt:wireDate(p[23].split('^')[0]),orderAt:wireDate(o[14]),ward,identity,hash:sha256(bytes),filename};
+ const [ward,identity='']=p[33].split('^');if(operationalDataEnabled()&&(!/^[A-Za-z0-9][A-Za-z0-9./-]{0,31}$/.test(p[3])||!p[5].trim()||p[5].length>500||/[\u0000-\u001f\u007f]/.test(p[5])||identity.length>100||/[\u0000-\u0020\u007f]/.test(identity)||!['F','M','U','O'].includes(p[8])))throw Error('INVALID_PATIENT_IDENTITY');return {ln:p[2],hn:p[3],name:p[5],dob:wireDate(p[7]),sex:p[8],receivedAt:wireDate(collectionReceipt[1]),specimenAt:wireDate(collectionReceipt[0]),orderAt:wireDate(p[21]),ward,identity,hash:sha256(bytes),filename};
 }
 export function syntheticPet(index:number,date='20261011120000'){const ln=`99000${String(index).padStart(7,'0')}`;const p=Array<string>(35).fill('');Object.assign(p,{0:'P',1:'1',2:ln,3:`SYNTHETIC-HN-${index}`,5:'SYNTHETIC^^นาง SYNTHETIC',7:'20000101',8:'F',21:date,23:date+'^'+date,33:`SYNTHETIC-WARD^SYNTHETIC-ID-${index}`});const o=Array<string>(29).fill('');Object.assign(o,{0:'O',1:'1',4:'^^^70096^B^0',14:date,18:'7'});return {ln,filename:ln+'-7.pet',bytes:iconv.encode(['H',p.join('|'),o.join('|'),'L|1|N'].join('\r\n'),'windows-874')};}
 

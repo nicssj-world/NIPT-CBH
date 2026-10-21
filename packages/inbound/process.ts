@@ -37,7 +37,7 @@ async function autoClose(db:Queryable,fileId:string,kind:IssueKind,reasonCode:st
  for(const row of r.rows)await db.query("INSERT INTO his_intake_issue_event(issue_id,event,details) VALUES($1,'AUTO_CLOSED',$2)",[row.id,json({reasonCode})]);
 }
 
-/** S1 only (LD-02/LD-04): his_order + VERIFIED_BY_PET (trigger) + round 1 ReceivedInHIS at immutable P[21]. Caller holds the LN lock. */
+/** S1 only (LD-02/LD-04): his_order + VERIFIED_BY_PET (trigger) + round 1 ReceivedInHIS at immutable P[23] component 2. Caller holds the LN lock. */
 export async function applyS1(db:Queryable,file:{id:string},pet:Pet,target:Target,via:'AUTOMATIC'|'REGISTRATION'|'TWO_PERSON',actorId?:string){
  await db.query("UPDATE his_inbound_file SET state='Applied(S1)',case_id=$2,processed_at=now(),error_code=NULL WHERE id=$1",[file.id,target.case_id]);
  await db.query('INSERT INTO his_order(case_ln_id,inbound_file_id,his_received_at) VALUES($1,$2,$3)',[target.case_ln_id,file.id,pet.receivedAt]);
@@ -76,7 +76,7 @@ async function collectionProvenance(db:Queryable,caseId:string,roundId:string,pe
 export async function lockedTarget(db:Queryable,ln:string){
  return (await db.query<Target>("SELECT l.id AS case_ln_id,l.case_id,c.registration_origin AS origin FROM case_ln l JOIN nipt_case c ON c.id=l.case_id WHERE l.ln=$1 AND l.verification<>'RETIRED' ORDER BY l.version DESC LIMIT 1 FOR UPDATE OF l",[ln])).rows[0];
 }
-export async function readPet(store:FileStore,file:{sha256:string;filename:string;ln:string}){
+export async function readPet(store:Pick<FileStore,'get'>,file:{sha256:string;filename:string;ln:string}){
  const pet=parsePet(await store.get(file.sha256),file.filename);if(pet.ln!==file.ln||pet.hash!==file.sha256)throw Error('UNVERIFIED_PET');return pet;
 }
 
@@ -99,7 +99,7 @@ export async function processInboundFile(db:Queryable,fileId:string,deps:Inbound
   // LD-10: no apply, no round, no origin change and no promotion from an intake.
   await setState(db,file.id,'HistoricalIntake',target.case_id);await openIssue(db,file,'HISTORICAL_LN_INTAKE',target.case_id);await autoClose(db,file.id,'UNLINKED','HISTORICAL_LN');return 'HISTORICAL_LN_INTAKE';
  }
- const order=(await db.query<{sha256:string;filename:string;ln:string}>('SELECT f.sha256,f.filename,$2::text AS ln FROM his_order o JOIN his_inbound_file f ON f.id=o.inbound_file_id JOIN specimen_round r ON r.id=o.round_id WHERE o.case_ln_id=$1 ORDER BY r.round_number DESC LIMIT 1',[target.case_ln_id,file.ln])).rows[0];
+ const order=(await db.query<{sha256:string;filename:string;ln:string}>('SELECT f.sha256,f.filename,$2::text AS ln FROM his_order_current o JOIN his_inbound_file_current f ON f.id=o.inbound_file_id JOIN specimen_round r ON r.id=o.round_id WHERE o.case_ln_id=$1 ORDER BY r.round_number DESC LIMIT 1',[target.case_ln_id,file.ln])).rows[0];
  if(order){
   // §6.6 (b): S1 already received. Never re-receive, never touch later rounds.
   await autoClose(db,file.id,'UNLINKED','S1_ALREADY_RECEIVED');
@@ -107,7 +107,7 @@ export async function processInboundFile(db:Queryable,fileId:string,deps:Inbound
   if(diff.identity.length){const kind=diff.identity.includes('hn')?'LN_REUSED_DIFFERENT_PATIENT':'LN_REUSED_OR_CHANGED';await setState(db,file.id,'Conflict',target.case_id);await openIssue(db,file,kind,target.case_id,diff.identity);await caseEvent(db,target.case_id,'HIS_LN_CONFLICT',{kind,fields:diff.identity,inboundFileId:file.id});return kind;}
   if(diff.order.length){
    const round=(await db.query<{id:string;round_number:number;previous_received_at:Date}>(`SELECT r.id,r.round_number,s.received_at previous_received_at
-    FROM nipt_case c JOIN specimen_round r ON r.id=c.current_round_id JOIN redraw_request d ON d.id=r.redraw_request_id JOIN specimen_round s ON s.id=d.source_round_id
+    FROM nipt_case c JOIN specimen_round r ON r.id=c.current_round_id JOIN redraw_request d ON d.id=r.redraw_request_id JOIN specimen_round_current s ON s.id=d.source_round_id
     WHERE c.id=$1 AND r.case_ln_id=$2 AND r.state='Expected' AND r.received_at IS NULL AND d.state='Requested' FOR UPDATE OF r`,[target.case_id,target.case_ln_id])).rows[0];
    // New receipt time, same immutable patient identity and an explicitly requested current round are all required.
    if(round?.round_number===2 && diff.order.includes('receivedAt') && new Date(pet.receivedAt)>round.previous_received_at){

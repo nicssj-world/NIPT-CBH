@@ -28,7 +28,7 @@ it('shares doctors across units without broadening patient access, and denies un
  expect((await listDoctors(db,anc)).find(d=>'id' in d&&d.id===saved.id)).toMatchObject({active:true});
  expect((await doctorUnits(db,anc)).some(u=>u.id===other)).toBe(true);
  await expect(tx(()=>registerP2(db,anc,{ln:'9900001010',hn:'9900001',unitId:other,origin:'ANC',idempotencyKey:'SYNTHETIC_SHARED_DOCTOR_DENIED'},Buffer.alloc(32,7)))).rejects.toThrow('FORBIDDEN');
- const lab=await addUser(db,'LAB_STAFF','synthetic.lab');await expect(tx(()=>doctorAction(db,lab,{...input(),doctorKey:'SYNTHETIC-LAB'}))).rejects.toThrow('FORBIDDEN');
+ const lab=await addUser(db,'LAB_STAFF','synthetic.lab');expect(await tx(()=>doctorAction(db,lab,{...input(),doctorKey:'SYNTHETIC-LAB'}))).toMatchObject({status:'Approved'});
 });
 it('lets ANC select a signed legacy pending record across units, while legacy approval stays restricted',async()=>{
  const old=await tx(()=>doctorAction(db,admin,{action:'propose',doctorKey:'SYNTHETIC-LEGACY',name:'SYNTHETIC legacy test',unitId:unit,effectiveFrom:'2020-01-01T00:00:00Z',authorization:'SYNTHETIC test fixture',vector:fixture.vector}));

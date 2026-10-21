@@ -82,7 +82,7 @@ it.each(['MANUAL_STEPS','OWNER_P5_SINGLE_CONFIRMATION','CASE_PAGE_UPLOAD'] as co
   const qc4={sequencingId:run.id,lane:'L01',metrics:{totalReads:'100000',uniqueReads:'90000',q30:'90',gcPercent:'40',fetalFraction:'10',dim:'1'},source:'DIRECT_ENTRY',evidenceHash:'c'.repeat(64)};
   await sc(seq.recordQc4,{...qc4,scope:'LANE'});for(const m of members)await sc(seq.recordQc4,{...qc4,scope:'SAMPLE',memberKey:m.memberKey});
   for(const o of (await seq.qc4Evidence(f.db,created.id!,run.id)).observations)await sc(seq.reviewQc4,{qc4Id:o.id,result:'Accepted',criteriaVersion:'WI-T-BM20-21 controlled QC4 review',note:'Reviewed observed sequencing quality metrics'},f.u.certifier);
-  const masterPath=process.env.NIPT_TASK_MASTER_PATH??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx';
+  const masterPath=process.env.NIPT_TASK_MASTER_PATH??'.local/lab-owner-evidence/lab-combined-master.xlsx';
   if(existsSync(masterPath)){
    const workbook=await f.run(t=>workbookWorkspace(t,f.u.staff,lab.batchId,{master:readFileSync(masterPath),store:f.store,render:async()=>{throw Error('NATIVE_EXPORT_NOT_REQUESTED');}}));
    expect(workbook.automaticValues).toMatchObject({'seq.dnbId':(await seq.getDnb(f.db,lab.batchId,created.id!)).dnb_label,'seq.standard1':20,'seq.standard2':20,'seq.dnbConcentration':20,'seq.loadedDnb':100,'seq.q30':90,'pool.concentration':20});

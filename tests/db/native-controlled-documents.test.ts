@@ -8,7 +8,7 @@ import {issueNativeWorkbook} from '../../packages/workbook/controlled';
 import {SHEETS,MASTER_SHA256} from '../../packages/workbook/master';
 import {sha256} from '../../packages/workbook/archive';
 import {PDFDocument} from 'pdf-lib';
-const masterPath=process.env.NIPT_TASK_MASTER_PATH??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx';
+const masterPath=process.env.NIPT_TASK_MASTER_PATH??'.local/lab-owner-evidence/lab-combined-master.xlsx';
 afterEach(()=>vi.unstubAllEnvs());
 it.skipIf(!existsSync(masterPath))('native artifacts obey existing issue, frozen-copy, stop-use, recall, supersession and DB integrity controls',async()=>{
  const db=await testDatabase(),u=await labUsers(db),docs=await docDeps();

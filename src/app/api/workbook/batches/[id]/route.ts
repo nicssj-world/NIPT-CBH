@@ -14,7 +14,9 @@ export async function POST(request:NextRequest,{params}:{params:Promise<{id:stri
     if(action==='export') {
       let out;
       try{out=await withTransaction(db=>exportWorkbook(db,user,input,deps));}catch(error){return workbookError(error);}
-      return new NextResponse(new Uint8Array(out.bytes),{headers:{...noStore,'Content-Type':data.format==='PDF'?'application/pdf':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':`attachment; filename="task-${out.id}.${data.format==='PDF'?'pdf':'xlsx'}"`,'X-Document-SHA256':out.sha256,'X-Task-Formula-Errors':String(Array.isArray(out.manifest.formulaErrors)?out.manifest.formulaErrors.length:0)}});
+      // Serve the committed, hash-verified artifact, independent of renderer buffers.
+      const bytes=await deps.store.get(out.sha256);
+      return new NextResponse(new Uint8Array(bytes),{headers:{...noStore,'Content-Length':String(bytes.length),'Content-Type':data.format==='PDF'?'application/pdf':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':`attachment; filename="task-${out.id}.${data.format==='PDF'?'pdf':'xlsx'}"`,'X-Document-SHA256':out.sha256,'X-Task-Formula-Errors':String(Array.isArray(out.manifest.formulaErrors)?out.manifest.formulaErrors.length:0)}});
     }
     throw new Error('ACTION_NOT_ALLOWED');
   });

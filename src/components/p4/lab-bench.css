@@ -1,0 +1,14 @@
+.lab-bench nav { margin-bottom: 16px; }
+.lab-bench .action-bar { margin-block: 16px; }
+.lab-bench .action-bar [aria-pressed="true"] { background: var(--info-bg); border-color: var(--color-brand); color: var(--color-brand); font-weight: 600; }
+.lab-bench table { border-collapse: collapse; width: 100%; min-width: 680px; }
+.lab-bench th, .lab-bench td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--color-line); }
+.lab-bench th:last-child, .lab-bench td:last-child { text-align: right; font-variant-numeric: tabular-nums; min-width: 180px; }
+.lab-bench td:nth-child(2) { white-space: nowrap; }
+.lab-bench-standards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-block: 24px; }
+.lab-bench fieldset { padding: 16px; border: 1px solid var(--color-line); }
+.lab-bench label { display: grid; gap: 8px; margin-block: 12px; }
+.lab-bench .check-label { display: flex; }
+.lab-bench td input { max-width: 14rem; }
+.lab-bench-alert { color: var(--color-danger); font-weight: 700; }
+@media (max-width: 768px) { .lab-bench-standards { grid-template-columns: 1fr; } }

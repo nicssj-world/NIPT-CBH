@@ -4,7 +4,7 @@ import manifest from '../../packages/workbook/master-manifest.json';
 import {inspectTaskMaster,generateTaskWorkbook,MASTER_SHA256} from '../../packages/workbook/master';
 import {readArchive,sha256} from '../../packages/workbook/archive';
 import {poolDilutionReady} from '../../packages/workbook/dilution';
-const source=process.env.NIPT_TASK_MASTER_PATH??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx';
+const source=process.env.NIPT_TASK_MASTER_PATH??'.local/lab-owner-evidence/lab-combined-master.xlsx';
 it('D52 readiness distinguishes absent, zero, negative and positive concentrations without rewriting Excel formulas',()=>{
  for(const value of [undefined,null,0,-1,NaN,Infinity,'10'])expect(poolDilutionReady({'pool.dilutionC1':value})).toBe(false);
  expect(poolDilutionReady({'pool.dilutionC1':10})).toBe(true);
