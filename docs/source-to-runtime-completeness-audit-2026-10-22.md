@@ -55,7 +55,7 @@ First complete source/runtime build `3777eac3e0be34d3437a5a06af090ba4414d462a`: 
 | Dual XLSX | INCLUDED | Current authenticated downloads, SHA equals immutable manifest; NIFTY Q=ANC on every data row; HALOS physical D equals pooled positions |
 | PDF Preview/Result | INCLUDED | Native Excel1A4 Seq PDF renders in actual iframe; saved Final PDFs and2CertifiedReleased states read without new clinical actions |
 
-Runtime smoke `.local/source-parity-audit/runtime-smoke.mjs` writes exact-revision feature evidence only after every check passes. At start it invalidates the current validation session; failures write FAIL so a previous PASS cannot hide a failed rerun. Feature records are not evidence of hospital/clinical/Owner acceptance.
+Runtime smoke `tools/operational/verify-source-complete-uat.mjs` writes exact-revision feature evidence only after every check passes. At start it invalidates the current validation session; failures write FAIL so a previous PASS cannot hide a failed rerun. Feature records are not evidence of hospital/clinical/Owner acceptance.
 
 The HALOS readback harness initially included D1's shared-string index3 as a physical position. Source/template inspection confirmed row1 is the Barcode header and data start at2; verification was corrected to read data rows/cell types and cell-boundary Q values. No exporter rules or data were changed to pass the audit.
 
@@ -66,7 +66,7 @@ Migration ledger63/63:62exact hashes plus migration105's **existing approved his
 ```powershell
 node tools/operational/pre-uat-source-parity.mjs --snapshot .local/source-complete-uat --phase preflight --output .local/source-parity-audit/preflight-final.json --summary
 & tools/operational/Home-UAT.ps1 -Action Start -SourceSnapshot '.local/source-complete-uat'
-node --import tsx .local/source-parity-audit/runtime-smoke.mjs
+node --import tsx tools/operational/verify-source-complete-uat.mjs
 node tools/operational/pre-uat-source-parity.mjs --snapshot .local/source-complete-uat --phase delivery --output .local/source-parity-audit/final-delivery.json --summary
 & tools/operational/Home-UAT.ps1 -Action Health -SourceSnapshot '.local/source-complete-uat'
 ```
