@@ -33,9 +33,9 @@ try{
  if(!detail.finalConsents.length){
   await page.getByRole('button',{name:'เปลี่ยนช่องทางเอกสาร',exact:true}).click();dialog=page.getByRole('dialog');
   await expect(dialog.getByLabel('เหตุผลเปลี่ยนช่องทาง',{exact:false})).toHaveCount(0);
-  await dialog.getByLabel('ช่องทางใบขอส่งตรวจ',{exact:true}).selectOption('Paper');await dialog.getByRole('button',{name:'บันทึกช่องทาง',exact:true}).click();await expect(dialog).not.toBeVisible();
+  await dialog.getByLabel('ช่องทางใบขอส่งตรวจ',{exact:true}).selectOption('Paper');await dialog.getByRole('button',{name:'บันทึกช่องทาง',exact:true}).click();await expect(dialog).not.toBeVisible();await page.reload();await expect(page.getByRole('heading',{name:'แบบขอส่งตรวจ · กระดาษ',exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'จัดเตรียมใบขอส่งตรวจกระดาษ',exact:true})).toHaveCount(0);
-  await page.getByRole('button',{name:'เปลี่ยนช่องทางเอกสาร',exact:true}).click();dialog=page.getByRole('dialog');await dialog.getByLabel('ช่องทางใบขอส่งตรวจ',{exact:true}).selectOption('Electronic');await dialog.getByRole('button',{name:'บันทึกช่องทาง',exact:true}).click();await expect(dialog).not.toBeVisible();
+  await page.getByRole('button',{name:'เปลี่ยนช่องทางเอกสาร',exact:true}).click();dialog=page.getByRole('dialog');await dialog.getByLabel('ช่องทางใบขอส่งตรวจ',{exact:true}).selectOption('Electronic');await dialog.getByRole('button',{name:'บันทึกช่องทาง',exact:true}).click();await expect(dialog).not.toBeVisible();await page.reload();await expect(page.getByRole('heading',{name:'แบบขอส่งตรวจ · อิเล็กทรอนิกส์',exact:true})).toBeVisible();
   detail=await api('/api/p2/cases/'+caseId);const doctors=await api('/api/p2/doctors?caseId='+caseId),doctor=(Array.isArray(doctors)?doctors:doctors.doctors).find(d=>d.active);assert.ok(doctor);
   const draft=structuredClone(emptyRequest);Object.assign(draft.patient,{syntheticName:'SYNTHETIC ANC OWNER CLOSEOUT',dob:'1989-05-19',identifier:'0000000000001',identifierType:'ThaiNationalId',entitlement:'SELF_PAY'});
   Object.assign(draft.pregnancy,{type:'Singleton',edd:'2027-04-04',collectionDate:'2026-10-15',collectionTime:'11:11',collectionSource:'ANC',weightKg:60,heightCm:160,vanishingTwin:'No',fetalSex:'DoNotWant',sca:null});
