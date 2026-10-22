@@ -19,6 +19,7 @@ export function snapshotConsentFields(s:P2PdfInput):ConsentFields{
  const signer=typeof representative.name==='string'?`ผู้แทนโดยชอบธรรม: ${representative.name}${typeof representative.relationship==='string'?` (${representative.relationship})`:''}`:typeof frozen.patientName==='string'?frozen.patientName:null;
  return {patientName:signer,doctor:typeof frozen.doctor==='string'?frozen.doctor:null,
   acknowledged:DCC_CONSENT.clauses.map(()=>signed),decision:signed?sig.decision as 'Granted'|'Declined':null,
+  documentCreatedDate:s.documentCreatedAt?displayBe(new Date(new Date(s.documentCreatedAt).getTime()+7*3600000).toISOString().slice(0,10),''):null,
   patientSignedDate:signed?displayBe(new Date(new Date(String(sig.signed_at)).getTime()+7*3600000).toISOString().slice(0,10),''):null};
 }
 function signatureBytes(value:unknown){

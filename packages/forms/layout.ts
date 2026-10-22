@@ -15,7 +15,7 @@ export type RequestFields={
  art:Answer;pregnancyNumber:string|null;gpa:{gravida:string|null;para:string|null;abortion:string|null}|null;history:[Answer,Answer,Answer,Answer,Answer,Answer,Answer];priorMethod:string|null;priorResult:string|null;item8:string|null;
  fetalSex:'Want'|'DoNotWant'|null;draw:{date:Digits8;time:string|null};receive:{condition:'ACCEPTABLE'|'REJECTED'|null;reason:string|null;date:string|null;time:string|null};ackA:boolean;ackB:boolean;
 };
-export type ConsentFields={patientName:string|null;doctor:string|null;acknowledged:boolean[];decision:'Granted'|'Declined'|null;patientSignedDate:string|null};
+export type ConsentFields={patientName:string|null;doctor:string|null;acknowledged:boolean[];decision:'Granted'|'Declined'|null;patientSignedDate:string|null;documentCreatedDate?:string|null};
 
 const text=(x:number,y:number,w:number,value:string|null,size=9,extra:Partial<{align:'left'|'center';lines:number}>={}):OverlayItem[]=>value?[{kind:'text',x,y,w,size,text:value,...extra}]:[];
 const digits=(xs:number[],y:number,d:Digits8):OverlayItem[]=>d?xs.map((x,i)=>({kind:'digit' as const,x,y,text:d[i]})).filter(i=>i.text):[];
@@ -54,15 +54,16 @@ function gpaItems(gpa:RequestFields['gpa']):OverlayItem[]{
 }
 const CLAUSE_ROWS=[687.8,657.9,628.1,598.1,568.3,519.4,472.5,442.6,412.7,382.9,338.3,323.1];
 /** Owner-authorized rendered signature block; installed original remains hash-identical. */
-export const CONSENT_SIGNATURE_MASKS=[{x:38,y:133,width:517,height:82}];
-export const CONSENT_SIGNATURE_LAYOUT={patient:{x:80,y:178,width:205,height:24},doctor:{x:325,y:178,width:220,height:24}};
+export const CONSENT_SIGNATURE_MASKS=[{x:38,y:106,width:517,height:109}];
+export const CONSENT_SIGNATURE_LAYOUT={patient:{x:55,y:157,width:230,height:24},doctor:{x:325,y:157,width:220,height:24}};
 export function consentItems(f:ConsentFields):OverlayItem[]{
  return [
   ...CLAUSE_ROWS.flatMap((y,i)=>check(f.acknowledged[i]===true,536,y+3.5)),
   ...check(f.decision==='Granted',373.35,247),...check(f.decision==='Declined',373.35,228.9),
-  ...text(55,205,230,'ผู้รับบริการ / ผู้แทนโดยชอบธรรม',9,{align:'center'}),...text(325,205,220,'แพทย์ผู้สั่งตรวจ',9,{align:'center'}),
-  ...text(55,164,230,f.patientName,10,{align:'center',lines:2}),...text(325,164,220,f.doctor,10,{align:'center',lines:2}),
-  ...text(55,138,230,f.patientSignedDate?`วันที่ ${f.patientSignedDate}`:'วันที่',9,{align:'center'}),
+  ...text(55,189,230,'ผู้รับบริการ / ผู้แทนโดยชอบธรรม',9,{align:'center'}),...text(325,189,220,'แพทย์ผู้สั่งตรวจ',9,{align:'center'}),
+  ...text(55,128,230,f.patientName,10,{align:'center',lines:2}),...text(325,128,220,f.doctor,10,{align:'center',lines:2}),
+  ...text(55,112,230,f.patientSignedDate?`วันที่ ${f.patientSignedDate}`:'วันที่',9,{align:'center'}),
+  ...text(325,112,220,f.documentCreatedDate?`วันที่จัดทำเอกสาร ${f.documentCreatedDate}`:'วันที่จัดทำเอกสาร',9,{align:'center'}),
  ];
 }
 export const REQUEST_PAGE={width:595.2,height:841.92},CONSENT_PAGE={width:594.96,height:842.04};

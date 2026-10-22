@@ -28,6 +28,14 @@ it('DCC clause ticks require complete final evidence for the exact frozen conten
 });
 it('prints the named legal representative in the DCC signer field when representative signing was recorded',()=>{const input=base();input.payload.representative={name:'SYNTHETIC guardian',relationship:'SYNTHETIC parent',authorityBasis:'SYNTHETIC verified legal basis',authorityConfirmed:true};input.finalConsent=final();expect(snapshotConsentFields(input).patientName).toBe('ผู้แทนโดยชอบธรรม: SYNTHETIC guardian (SYNTHETIC parent)');});
 
+it('uses only the actual document creation instant for the doctor-side preparation date, never render/signature/registry dates',()=>{
+ const input={...base(),documentCreatedAt:'2026-10-17T18:30:00Z'};input.finalConsent=final();
+ expect(snapshotConsentFields(input)).toMatchObject({patientSignedDate:'19/10/2569',documentCreatedDate:'18/10/2569'});
+ input.generatedAt='2030-01-01T00:00:00Z';expect(snapshotConsentFields(input).documentCreatedDate).toBe('18/10/2569');
+ const missing=base();missing.payload.formFields={...missing.payload.formFields as object,documentCreatedDate:'01/01/2500'};
+ expect(snapshotConsentFields(missing).documentCreatedDate).toBeNull();
+});
+
 async function inspect(bytes:Buffer){
  const {getDocument,OPS,Util}=await import('pdfjs-dist/legacy/build/pdf.mjs');
  const task=getDocument({data:new Uint8Array(bytes),useSystemFonts:true});
@@ -49,8 +57,9 @@ describe.skipIf(!process.env.NIPT_ANC_REQUEST_PDF||!process.env.NIPT_ANC_CONSENT
  beforeAll(async()=>{root=await mkdtemp(path.join(os.tmpdir(),'nipt-dcc-pdf-'));await stageFormAssets(root,{request:process.env.NIPT_ANC_REQUEST_PDF,consent:process.env.NIPT_ANC_CONSENT_PDF});process.env.NIPT_ANC_FORM_REGISTRY=releaseFormEnvironment(root).NIPT_ANC_FORM_REGISTRY;process.env.NIPT_MODE='operational';process.env.APP_ORIGIN='https://localhost:19992';});
  afterAll(async()=>{await rm(root,{recursive:true,force:true});for(const [key,value] of Object.entries({NIPT_MODE:prior.mode,APP_ORIGIN:prior.origin,NIPT_ANC_FORM_REGISTRY:prior.registry}))if(value===undefined)delete process.env[key];else process.env[key]=value;});
  it('keeps original dimensions and hashes; Request1 + Consent1 join to2; signatures are images on actual originals',async()=>{
-  const consent=base();const unsigned=await renderP2Pdf(consent),unsignedInfo=await inspect(unsigned);
+  const consent={...base(),documentCreatedAt:'2026-10-17T18:30:00Z'};const unsigned=await renderP2Pdf(consent),unsignedInfo=await inspect(unsigned);
   const signed=await renderP2Pdf({...consent,finalConsent:final()}),signedInfo=await inspect(signed);
+  expect(signedInfo.text).toContain('18/10/2569');expect(signedInfo.text).toContain('19/10/2569');
   expect(unsignedInfo.pages).toBe(1);expect(signedInfo.pages).toBe(1);expect(signedInfo.images).toBe(unsignedInfo.images+1);
   for(const [matrix,box] of signedInfo.imageMatrices.slice(-2).map((m,i)=>[m,i===0?CONSENT_SIGNATURE_LAYOUT.doctor:CONSENT_SIGNATURE_LAYOUT.patient] as const)){expect(matrix[4]).toBeGreaterThanOrEqual(box.x);expect(matrix[4]+matrix[0]).toBeLessThanOrEqual(box.x+box.width);expect(matrix[5]).toBeCloseTo(box.y,1);expect(matrix[3]).toBeCloseTo(box.height,1);}
   expect(unsignedInfo.text).toContain('UNSIGNED');expect(signedInfo.text).toContain('DRAFT / DCC NOT APPROVED');expect(signedInfo.text).toContain('signed evidence recorded');

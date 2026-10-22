@@ -79,7 +79,11 @@
     "packages/p2/schema.ts",
     "packages/p2/forms.ts",
     "packages/pdf/dcc-snapshot.ts",
-    "tools/operational/verify-anc-owner-closeout.mjs"
+    "tools/operational/verify-anc-owner-closeout.mjs",
+    "packages/forms/layout.ts",
+    "packages/p2/documents.ts",
+    "packages/pdf/p2.ts",
+    "tools/operational/verify-anc-consent-layout.mjs"
    ]
   }
  ],

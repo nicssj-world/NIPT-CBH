@@ -1,5 +1,10 @@
 # Codex Handoff — NIPT-CBH LAB-01..LAB-13 to Local Owner UAT
 
+## Latest Consent signature spacing/date amendment — 2026-10-23
+
+[Current patch scope/evidence and Owner review](anc-consent-signature-layout-evidence-2026-10-23.md): move signature labels clear of the table; doctor side now uses Owner-selected **วันที่จัดทำเอกสาร** from the exact Consent revision creation timestamp, while patient date remains actual signing time. Original Masters/signed evidence/workflow unchanged.54 affected PDF/service tests +2 parity tests PASS; actual PDF visual inspected. Final Browser,61-case data retention, all11feature parity and health are recorded at the exact committed runtime in `.local/anc-consent-layout-20261023/`. Earlier c566ad5 closeout is baseline, not the latest runtime identity; use that folder's final manifest. OWNER-UAT=PENDING. No repeat full-suite claim, no hospital/EXE work. Wait-time wording remains locked but unapplied; top nav remains suggestion-only.
+
+
 ## Latest consolidated ANC Owner closeout — 2026-10-23
 
 The authorized ANC batch has **25/25 checklist items PASS**, with [current evidence, exact revision boundaries, review cases and Start/Stop commands](anc-owner-consolidated-evidence-2026-10-23.md). OWNER-UAT remains **PENDING**. Application code `ea12d61`, validated clean runtime `de1b701`; final documentation/test-only closeout SHA and all3 runtime SHAs are recorded after commit in `.local/anc-owner-closeout-20261023/final-delivery.json` / `FINAL-REPORT.md`. READY requires that exact final manifest to pass, all11 features INCLUDED and no MISSING/BLOCKED. Earlier source/snapshot/READY notes below are historical.

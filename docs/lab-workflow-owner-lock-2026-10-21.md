@@ -2,6 +2,11 @@
 Status: **OWNER-LOCKED REQUIREMENTS; Codex implementation and Development PC Local UAT authorized 2026-10-21. No hospital upgrade EXE or production deployment yet.**
 Scope: Development worktree `NIPT-CBH-PARITY-REMEDIATION`; P0 already completed. This document records Owner decisions, **not an implementation-complete statement**. Do not ask the Owner to reconfirm the locked decisions, reinterpret them, or introduce approval steps.
 
+## Latest Owner amendment — Consent signature spacing and date (2026-10-23)
+Owner requested more space between the Consent table border and the two signature labels, with balanced columns. Explicit subsequent decision: doctor side shows **“วันที่จัดทำเอกสาร”**, using actual creation time of that prepared Consent revision, not the render/current date, patient signing date or doctor's registry authorization date. Patient side retains actual signing date. This is a rendered derivative only; preserve original Masters, immutable signatures/final payloads and workflow. [Patch evidence](anc-consent-signature-layout-evidence-2026-10-23.md).
+
+Separately locked copy **“ระยะเวลาตั้งแต่รับตัวอย่างเลือดครั้งแรก”** remains wording-only/lock-only; do not apply it as part of this PDF patch. Sidebar/top-navigation remains recommendation-only.
+
 ## Latest Owner amendment — consolidated ANC changes (2026-10-23)
 Owner explicitly authorized implementing all locked ANC corrections recorded in [the 25-item checklist](anc-owner-consolidated-checklist-2026-10-23.md), including SCA preference removal, direct paper Request channel without a preparation form, optional channel-change reason, DOB-derived age **at collection date** (explicit reply), actionable readiness presentation, same-case signing return, rendered Consent signature-block cleanup and actual signed Consent in the combined document. These override conflicting older UI/requirements only for the listed items. Preserve existing original templates/signed snapshots, patient identity, consent refusal/revocation, one authorized clinical review and all LAB/QC/result/HIS guards. No sidebar-to-top navigation replacement was approved; Owner requested advice only. Owner acceptance stays PENDING.
 

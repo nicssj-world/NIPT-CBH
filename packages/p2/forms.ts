@@ -42,9 +42,9 @@ export async function formSources(db:Queryable,user:Staff,caseId:string){
  const fact=(await db.query<{collection_date:string;collection_time:string|null;source:string}>("SELECT collection_date::text,collection_time,source FROM p2_collection_fact WHERE round_id=$1 ORDER BY sequence DESC LIMIT 1",[c.current_round_id])).rows[0]??null;
  const round=(await db.query<{received_at:Date|null;received_source:string|null}>('SELECT received_at,received_source FROM specimen_round WHERE id=$1',[c.current_round_id])).rows[0];
  const acceptance=(await db.query<{condition:'ACCEPTABLE'|'REJECTED';reason:string;created_at:Date}>('SELECT condition,reason,created_at FROM specimen_acceptance WHERE round_id=$1 ORDER BY created_at DESC LIMIT 1',[c.current_round_id]).catch(()=>({rows:[]}))).rows[0]??null;
- const signedDocs=await db.query<{id:string;round_id:string;template_version:P2PdfInput['templateVersion'];content_hash:string;payload:Record<string,unknown>&{doctor?:{id?:string;name?:string};consentContent?:unknown}}>("SELECT d.* FROM p2_document_revision d JOIN p2_final_consent f ON f.document_id=d.id WHERE d.case_id=$1 AND d.kind='CONSENT' ORDER BY f.created_at DESC",[c.id]);
+ const signedDocs=await db.query<{id:string;round_id:string;template_version:P2PdfInput['templateVersion'];content_hash:string;created_at?:Date|string;payload:Record<string,unknown>&{doctor?:{id?:string;name?:string};consentContent?:unknown}}>("SELECT d.* FROM p2_document_revision d JOIN p2_final_consent f ON f.document_id=d.id WHERE d.case_id=$1 AND d.kind='CONSENT' ORDER BY f.created_at DESC",[c.id]);
  if(signedDocs.rows.length>1)throw new P2Error('AMBIGUOUS_CONSENT_EVIDENCE_REQUIRES_GOVERNANCE',409);
- const consentDoc=signedDocs.rows[0]??(await db.query<{id:string;round_id:string;template_version:P2PdfInput['templateVersion'];content_hash:string;payload:Record<string,unknown>&{doctor?:{id?:string;name?:string};consentContent?:unknown}}>("SELECT * FROM p2_document_revision WHERE round_id=$1 AND kind='CONSENT' ORDER BY version DESC LIMIT 1",[c.current_round_id])).rows[0]??null;
+ const consentDoc=signedDocs.rows[0]??(await db.query<{id:string;round_id:string;template_version:P2PdfInput['templateVersion'];content_hash:string;created_at?:Date|string;payload:Record<string,unknown>&{doctor?:{id?:string;name?:string};consentContent?:unknown}}>("SELECT * FROM p2_document_revision WHERE round_id=$1 AND kind='CONSENT' ORDER BY version DESC LIMIT 1",[c.current_round_id])).rows[0]??null;
  const final=consentDoc?(await db.query<{content_hash:string;payload:Record<string,unknown>&{signature?:{decision?:string;signed_at?:string;png?:string};acknowledgments?:{item:number|string}[]}}>('SELECT payload,content_hash FROM p2_final_consent WHERE document_id=$1 ORDER BY created_at DESC LIMIT 1',[consentDoc.id])).rows[0]??null:null;
  const paperConsent=(await db.query<{panel:{decision?:string;signatures?:string}}>("SELECT panel FROM p2_paper_review WHERE round_id=$1 AND kind='CONSENT' AND status='Verified' ORDER BY created_at DESC LIMIT 1",[c.current_round_id])).rows[0]??null;
  const revoked=(await db.query('SELECT 1 FROM p2_revocation WHERE case_id=$1 LIMIT 1',[c.id])).rows.length>0;
@@ -112,7 +112,7 @@ export async function ancFormPreview(db:Queryable,user:Staff,caseId:string,kind:
  const banner=(code:string,extra:string)=>`${approved?'ฉบับพิมพ์ตัวอย่าง':'ฉบับร่างเพื่อดูตัวอย่าง (DRAFT PREVIEW) — ไม่ใช่เอกสารควบคุม · DCC ยังไม่อนุมัติ'} · ${code} · ชุดแบบฟอร์ม ${t.set.id} · ${when} · ${extra}`;
  const watermark=approved?'':'ฉบับร่าง — ไม่ใช่เอกสารควบคุม';
  const reqPage:OverlayPage={...REQUEST_PAGE,items:requestItems(r.fields),banner:banner(t.set.request.docCode,r.missing.length?`ยังไม่มีข้อมูล ${r.missing.length} รายการ (เว้นว่างตามจริง)`:'ข้อมูลครบตามที่บันทึก'),watermark};
- const conPage:OverlayPage={...CONSENT_PAGE,items:consentItems(cf.fields),banner:banner(t.set.consent.docCode,`สถานะความยินยอม: ${STATUS_TEXT[cf.status]}${cf.doctorMismatch?' · แพทย์ในเอกสารยินยอมไม่ตรงกับแพทย์ผู้สั่งตรวจ':''}`),watermark};
+ const conPage:OverlayPage={...CONSENT_PAGE,items:consentItems({...cf.fields,documentCreatedDate:s.consentDoc?.created_at?displayBe(new Date(new Date(s.consentDoc.created_at).getTime()+7*3600000).toISOString().slice(0,10),''):null}),banner:banner(t.set.consent.docCode,`สถานะความยินยอม: ${STATUS_TEXT[cf.status]}${cf.doctorMismatch?' · แพทย์ในเอกสารยินยอมไม่ตรงกับแพทย์ผู้สั่งตรวจ':''}`),watermark};
  const signed=kind!=='REQUEST'&&cf.status==='SIGNED_ELECTRONIC'&&!!s.consentDoc&&!!s.final?.payload.signature?.png;
  const wanted=signed?(kind==='BOTH'?[reqPage]:[]):kind==='REQUEST'?[reqPage]:kind==='CONSENT'?[conPage]:[reqPage,conPage];
  const overlays=wanted.length?await render({pages:wanted}):[];
@@ -121,7 +121,7 @@ export async function ancFormPreview(db:Queryable,user:Staff,caseId:string,kind:
  if(wanted.length)parts.push(await composeForms(wanted.map((p,i)=>({template:p===reqPage?t.request:t.consent,overlay:overlays[i],width:p.width,height:p.height,...(p===conPage?{masks:CONSENT_SIGNATURE_MASKS}:{})})),`DRAFT ${kind} ${t.set.id}`));
  if(signed){
   const document=s.consentDoc!,final=s.final!;
-  parts.push(await renderSnapshot({id:document.id,kind:'CONSENT',templateVersion:document.template_version,hash:final.content_hash,payload:document.payload,finalConsent:final.payload,generatedAt:new Date().toISOString()}));
+  parts.push(await renderSnapshot({id:document.id,kind:'CONSENT',templateVersion:document.template_version,hash:final.content_hash,payload:document.payload,finalConsent:final.payload,documentCreatedAt:document.created_at?new Date(document.created_at).toISOString():undefined,generatedAt:new Date().toISOString()}));
  }
  // Recheck session/scope after both rendering roundtrips; patient signing may have suspended staff.
  await scopedCase(db,user,s.c.id,'document.request.read','read');
