@@ -85,6 +85,7 @@
 }
 .p2-dialog .request-section :is(.request-patient-grid,.request-pregnancy-grid) > .field > label,
 .p2-dialog .request-section :is(.request-patient-grid,.request-pregnancy-grid) > .request-choice > legend {min-height: 0;display: block;}
+.p2-dialog .request-section .request-metric-label {min-height: 0;margin-bottom: 8px;line-height: 1.5;}
 .p2-dialog .request-section :is(.form-grid,.request-patient-grid,.request-pregnancy-grid) {row-gap: 24px;align-items: start;}
 .p2-dialog .request-section .history-fact {padding: 0 0 20px;margin: 0;}
 .p2-dialog .request-section .history-fact:last-child {border-bottom: 0;padding-bottom: 0;}
