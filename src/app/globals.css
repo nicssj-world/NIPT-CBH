@@ -551,9 +551,11 @@ label.check-label,:is(.stack,fieldset,.form-grid) > label.check-label,fieldset l
 .status.status-pill.warning{background:var(--warn-bg);color:var(--color-warning)}
 .status.status-pill.danger{background:var(--bad-bg);color:var(--color-danger)}
 .registry-row{grid-template-columns:minmax(115px,1.1fr) minmax(155px,1.25fr) minmax(145px,1.15fr) minmax(105px,.8fr) minmax(195px,1.5fr) auto;gap:18px;align-items:start;padding:18px 4px}
+.registry-row{transition:background-color .14s ease}
+.registry-row:is(:hover,:focus-within){background:color-mix(in srgb,var(--info-bg) 48%,var(--color-surface));box-shadow:inset 3px 0 var(--color-brand)}
 .registry-label{font-size:12px;line-height:1.5;font-weight:600;margin-bottom:7px;color:var(--color-muted)}
 .registry-row > *{min-width:0}.registry-row .registry-patient strong{font-size:14px;line-height:1.55;overflow-wrap:anywhere}.registry-row .status.status-pill{margin-bottom:8px}
-.registry-row a:last-child{align-self:center;white-space:nowrap}
+.registry-row a:last-child{align-self:center;white-space:nowrap}.registry-row .registry-ln-link{color:var(--color-brand);font-weight:650;text-decoration:underline;text-underline-offset:3px}
 .p2-dialog .form-grid.request-patient-grid,.p2-dialog .form-grid.request-pregnancy-grid{align-items:start;column-gap:20px;row-gap:20px}
 .p2-dialog .request-choice{border-bottom:0;padding:0;min-width:0}
 .p2-dialog .request-choice legend{display:block;min-height:27px;margin:0 0 var(--ui-field-gap);font-size:14px;line-height:1.6;font-weight:600}
@@ -572,6 +574,7 @@ label.check-label,:is(.stack,fieldset,.form-grid) > label.check-label,fieldset l
 @media(max-width:1200px){.registry-row{grid-template-columns:repeat(3,minmax(0,1fr))}.registry-row>:last-child{grid-column:auto}}
 @media(max-width:750px){.registry-row{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.registry-row>:last-child{grid-column:1/-1}.p2-dialog .request-pregnancy-grid>.field,.p2-dialog .request-pregnancy-grid>.request-choice{grid-column:span 6}}
 @media(max-width:550px){.registry-row{grid-template-columns:minmax(0,1fr)}.registry-row>:last-child{grid-column:auto}.p2-dialog .form-grid.request-patient-grid{grid-template-columns:minmax(0,1fr)}.p2-dialog .request-pregnancy-grid>.field,.p2-dialog .request-pregnancy-grid>.request-choice{grid-column:1/-1}.p2-dialog .request-radio-options{grid-template-columns:repeat(2,minmax(0,1fr))}.p2-dialog .request-radio{white-space:normal}}
+@media(prefers-reduced-motion:reduce){.registry-row{transition:none}}
 
 /* Cohesive surfaces and dense-workflow tables across Lab, Results, Historical and Settings. */
 .workspace :is(.data-table,.table){border-collapse:separate;border-spacing:0;width:100%}
