@@ -4,6 +4,17 @@ import {isoDate,parseBeInput,parseBeDateTime,formatBeWall,formatBe,formatBeText,
 import {formatControlCode,formatPrintedControlId,formatLnHalos} from '../../packages/lab/rules';
 
 describe('Thai BE date standard (Plan Rev 3.4 §7)',()=>{
+ it('accepts compact DDMMBBBB from typing/paste without guessing CE years or changing storage',()=>{
+  for(const [input,iso]of [['21102569','2026-10-21'],['02052532','1989-05-02'],['29022567','2024-02-29']]){
+   expect(parseBeInput(input)).toEqual({ok:true,iso});expect(parseBeInput(formatBe(iso))).toEqual({ok:true,iso});
+  }
+  expect(parseBeInput('31022569')).toEqual({ok:false,code:'INVALID_DATE'});
+  expect(parseBeInput('29022569')).toEqual({ok:false,code:'INVALID_DATE'});
+  expect(parseBeInput('21102026')).toEqual({ok:false,code:'USE_BE_YEAR'});
+  for(const input of ['2','21','211','2110','21102','211025','2110256'])expect(parseBeInput(input)).toEqual({ok:false,code:'FORMAT'});
+  expect(parseBeDateTime('21102569 09:30')).toEqual({ok:true,wall:'2026-10-21T09:30'});
+  expect(parseBeDateTime('31022569 09:30')).toEqual({ok:false,code:'INVALID_DATE'});
+ });
  it('parses typed BE dates into ISO CE and formats them back as 4-digit BE',()=>{
   expect(parseBeInput('17/10/2569')).toEqual({ok:true,iso:'2026-10-17'});
   expect(parseBeInput('1/2/2570')).toEqual({ok:true,iso:'2027-02-01'});

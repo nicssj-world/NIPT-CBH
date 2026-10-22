@@ -25,16 +25,16 @@ export const isoDate=z.string()
  .refine(v=>!isLikelyBuddhistEraYear(v),{message:'DATE_LIKELY_BUDDHIST_ERA'});
 
 export type BeParse={ok:true;iso:string}|{ok:false;code:'EMPTY'|'FORMAT'|'USE_BE_YEAR'|'INVALID_DATE'};
-/** Parses a typed BE date `d/m/yyyy` or `dd/mm/yyyy` (also `-` or `.` separators) into ISO CE. */
+/** Parses BE DDMMBBBB or d/m/yyyy (also - or . separators) into ISO CE exactly once. */
 export function parseBeInput(input:string):BeParse{
  const s=input.trim();if(!s)return {ok:false,code:'EMPTY'};
- const m=/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(s);if(!m)return {ok:false,code:'FORMAT'};
+ const m=/^(\d{2})(\d{2})(\d{4})$/.exec(s)??/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(s);if(!m)return {ok:false,code:'FORMAT'};
  const beYear=Number(m[3]);
  if(beYear<BE_YEAR_AS_CE_THRESHOLD)return {ok:false,code:'USE_BE_YEAR'};
  const iso=`${String(beYear-BE_OFFSET).padStart(4,'0')}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
  return isRealIsoDate(iso)?{ok:true,iso}:{ok:false,code:'INVALID_DATE'};
 }
-const DT=/^(\d{1,2}[/.-]\d{1,2}[/.-]\d{4})\s+(\d{1,2}):(\d{2})$/;
+const DT=/^(\d{8}|\d{1,2}[/.-]\d{1,2}[/.-]\d{4})\s+(\d{1,2}):(\d{2})$/;
 /** Parses `dd/mm/yyyy HH:mm` (BE, 24 h, Asia/Bangkok wall time) into the wall string `YYYY-MM-DDTHH:mm` (CE). */
 export function parseBeDateTime(input:string):{ok:true;wall:string}|{ok:false;code:'EMPTY'|'FORMAT_DT'|'FORMAT'|'USE_BE_YEAR'|'INVALID_DATE'|'INVALID_TIME'}{
  const s=input.trim();if(!s)return {ok:false,code:'EMPTY'};
