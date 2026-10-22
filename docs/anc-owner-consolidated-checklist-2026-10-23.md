@@ -31,8 +31,8 @@ Each item stays unchecked until implementation and appropriate tests/browser/art
 | ANC21 | Replace confusing clinical label with actionable readiness states: missing data, awaiting authorized review, reviewed. Explain exact pending work, retain existing one authorized review and all guards. | PASS | Actual complete-evidence→await-review→authorized review→reviewed Browser; role/negative service tests PASS. |
 | ANC22 | Redesign readiness panel: status/action together, separate ANC versus receipt facts, compact label/value pairs and collapsible provenance. | PASS | Six case captures; grouped ANC/receipt facts and collapsible source; keyboard and axe0. |
 | ANC23 | Remove all three overview footnotes shown by Owner. Preserve their underlying counting, release and scope rules. | PASS | Actual overview Browser verifies no .anc-footnote; underlying predicates untouched. |
-| ANC24 | Preserve all existing UAT records/artifacts; restart/hash verification; clean complete source snapshot, Web/Worker/Renderer and migration provenance parity. | OPEN | Pre/post data inventory, restart and delivery gate. |
-| ANC25 | Run affected tests, actual browser journeys and one final full regression on final behavior source; reconcile PASS/FAIL/SKIP truthfully. Deliver URL, login/start/stop instructions, review cases and limitations. | OPEN | Final source-bound report; OWNER-UAT=PENDING. |
+| ANC24 | Preserve all existing UAT records/artifacts; restart/hash verification; clean complete source snapshot, Web/Worker/Renderer and migration provenance parity. | PASS | Original60cases/77files retained by hash; own synthetic fixture makes61cases. Home-UAT Restart ready=true;22record-group hashes and79files/3,756,272bytes identical after frozen-baseline restart; post-restart login/case/Auto-time/PDF PASS; all11features/parity PASS at de1b701. |
+| ANC25 | Run affected tests, actual browser journeys and one final full regression on final behavior source; reconcile PASS/FAIL/SKIP truthfully. Deliver URL, login/start/stop instructions, review cases and limitations. | PASS | 73 affected tests; Native PostgreSQL2 PASS; actual Browser/write/sign/review/PDF and restart PASS. Full raw2378P/1obsolete-SCA-assertionF/59S; corrected test-file4P (+3 age/SCA checks) gives reconciled unique2379P/0unresolvedF/59S. App code unchanged; see regression-skips report and raw/reconciled artifacts. |
 
 ## Impact map
 
@@ -44,7 +44,9 @@ Each item stays unchecked until implementation and appropriate tests/browser/art
 
 ## Completion evidence
 
-ANC01–ANC23 are supported by the actual write/sign/review Browser journey at application revision `ea12d61e633617192e6b92a797abb0b09f64f002`,73 focused tests and all11 runtime feature checks. Evidence root: `.local/anc-owner-closeout-20261023/`. ANC24/25 remain OPEN until final restart, full regression and exact final delivery gate pass. OWNER-UAT remains PENDING.
+ANC01–ANC23 are supported by the actual write/sign/review Browser journey at application revision `ea12d61e633617192e6b92a797abb0b09f64f002`,73 focused tests and all11 runtime feature checks. Evidence root: `.local/anc-owner-closeout-20261023/`. ANC24 also passed actual Restart/Persistence and post-restart Browser at `de1b701ccd4f40b0841210703f712a2403d67569`. ANC25 passed reconciled regression (the only failure was an obsolete SCA assertion corrected to the Owner removal decision; no app code changed). **25/25 PASS; OWNER-UAT=PENDING.** Final rebuilt documentation/test-only revision must also pass the exact delivery gate; use the final manifest linked below. OWNER-UAT remains PENDING.
 
 ## Additional suggestion (not yet approved for implementation)
 ANC three-item sidebar may move to a top navigation; Owner requested recommendation only. Keep it outside the approved implementation checklist until decided.
+
+Final evidence and launch/review instructions: [ANC Owner closeout](anc-owner-consolidated-evidence-2026-10-23.md). Final source/runtime identity is recorded in `.local/anc-owner-closeout-20261023/final-delivery.json` and `FINAL-REPORT.md`; those post-commit manifests prevent a self-referencing document SHA.

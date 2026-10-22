@@ -1,4 +1,13 @@
 # Codex Handoff — NIPT-CBH LAB-01..LAB-13 to Local Owner UAT
+
+## Latest consolidated ANC Owner closeout — 2026-10-23
+
+The authorized ANC batch has **25/25 checklist items PASS**, with [current evidence, exact revision boundaries, review cases and Start/Stop commands](anc-owner-consolidated-evidence-2026-10-23.md). OWNER-UAT remains **PENDING**. Application code `ea12d61`, validated clean runtime `de1b701`; final documentation/test-only closeout SHA and all3 runtime SHAs are recorded after commit in `.local/anc-owner-closeout-20261023/final-delivery.json` / `FINAL-REPORT.md`. READY requires that exact final manifest to pass, all11 features INCLUDED and no MISSING/BLOCKED. Earlier source/snapshot/READY notes below are historical.
+
+73 focused tests and2 disposable Native PostgreSQL suites PASS; actual Browser signing/same-case return/2-page signed PDF/authorized review and Restart/Persistence PASS. Full run2378P/1 obsolete-SCA-assertionF/59S; after correcting only that outdated test, its full4-test file passes and reconciled unique coverage is2379P/0unresolvedF/59S. [All59 SKIP conditions/names/risks](anc-owner-regression-skips-2026-10-23.md); raw failure and targeted correction are retained, not represented as a second full-suite run. No application code changed after the full run.
+
+Original60cases/77files retained; own new synthetic ANC fixture makes61cases. Frozen-baseline restart preserves all22 DB hash groups and79files; post-restart login/Auto timestamp/case/PDF PASS. No new/changed migration or real go-live cutoff. Sidebar/top-nav suggestion is excluded pending approval. No push/merge/deploy/hospital/EXE work.
+
 2026-10-21 | Owner AUTHORIZED Codex to implement and test on Development PC. **No hospital server or EXE upgrade yet.**
 
 ## Source completeness audit supersedes earlier snapshot notes

@@ -20,9 +20,10 @@ describe('Owner ANC UI parity',()=>{
   expect(form).toContain('historyAnswers[4][1]');
   expect(form).not.toContain('const dccHistoryAnswers');
  });
- it('keeps unanswered SCA unanswered instead of offering an explicit unknown choice',()=>{
+ it('omits the SCA preference removed by the latest Owner Request-template decision',()=>{
   const form=readFileSync(path.resolve('src/components/p2/request-form.tsx'),'utf8');
-  expect(form).toContain('select("pregnancy.sca","ความประสงค์เรื่อง SCA"');
+  expect(form).not.toContain('select("pregnancy.sca"');
+  expect(form).not.toContain('data-field="pregnancy.sca"');
   expect(form).not.toContain('["Unspecified","ยังไม่ระบุ"]');
  });
  it('keeps the request controls grouped while retaining GPA and calculated BMI evidence',()=>{
