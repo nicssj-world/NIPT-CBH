@@ -1,0 +1,15 @@
+{
+ "features": [
+  {"id":"anc_highlight_ln","sources":["src/components/anc/dashboard.tsx","src/components/anc/dashboard.css"]},
+  {"id":"registry_highlight_ln","sources":["src/components/p2/registry.tsx","src/app/globals.css"]},
+  {"id":"anc_top_scrollbar","sources":["src/components/anc/dashboard.tsx","src/components/anc/dashboard.css"]},
+  {"id":"thai_date_8_digits","sources":["src/components/shared/thai-date-input.tsx","packages/domain/thai-date.ts"]},
+  {"id":"save_success_toast","sources":["src/components/shared/save-toast.tsx","src/components/shared/save-notice.ts"]},
+  {"id":"anc_request_consent","sources":["src/components/p2/request-form.tsx","src/components/p2/signing.tsx","packages/p2/service.ts"]},
+  {"id":"lab_registration_registry","sources":["src/components/p2/lab-registration.tsx","src/components/p2/registry.tsx"]},
+  {"id":"qc_pooling_seq","sources":["src/components/p4/lab-bench.tsx","packages/lab/bench.ts"]},
+  {"id":"dual_xlsx","sources":["packages/lab/bench.ts"]},
+  {"id":"pdf_preview_result","sources":["src/components/p4/workbook-editor.tsx","src/components/p5/result-review.tsx"]}
+ ],
+ "reviewedExclusions": []
+}

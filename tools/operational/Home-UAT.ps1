@@ -85,6 +85,10 @@ function Set-ComposeContract([switch]$RequireClean,[switch]$RequireExpectedBranc
   }
   $source=(& git -C $buildRoot rev-parse HEAD).Trim()
   if($LASTEXITCODE -ne 0 -or $source -notmatch '^[a-f0-9]{40}$'){throw 'HOME_UAT_SOURCE_REVISION_UNAVAILABLE'}
+  if($RequireClean){
+    & node (Join-Path $RepoRoot 'tools/operational/pre-uat-source-parity.mjs') --repo $RepoRoot --snapshot $buildRoot --phase preflight --summary --output (Join-Path $LocalRoot 'source-parity-preflight.json')
+    if($LASTEXITCODE -ne 0){throw 'HOME_UAT_SOURCE_COMPLETENESS_FAILED'}
+  }
   $env:NIPT_UAT_BUILD_CONTEXT=$buildRoot
   $inventoryCommand="import {migrationInventory} from './deploy/scripts/release-contract.mjs'; const x=await migrationInventory(process.env.NIPT_UAT_BUILD_CONTEXT+'/db/migrations'); console.log(x.sha256)"
   $migrationHash=(& node --input-type=module -e $inventoryCommand).Trim()
@@ -300,8 +304,12 @@ function Get-HomeHealth {
   $masterCorrect=$false
   if($masterMount -is [System.Collections.IDictionary]){$masterCorrect=($masterMount.present -and $masterMount.readOnly -and $masterMount.sha256 -eq $ExpectedMaster)}
   $ready=($servicesHealthy -and $setupServicesHealthy -and $modeCorrect -and $workerFresh -eq 'FRESH' -and $renderer -eq '200' -and $webHealth -eq 'ok|operational' -and $loginPass -and $bridgeAlive -and $masterCorrect -and $portsCorrect -and $networkCorrect)
+  $parity=@{status='BLOCKED';readyForOwnerTest=$false}
+  try {
+    $parity=(& node (Join-Path $RepoRoot 'tools/operational/pre-uat-source-parity.mjs') --repo $RepoRoot --snapshot $env:NIPT_UAT_BUILD_CONTEXT --phase delivery --summary --output (Join-Path $LocalRoot 'source-parity-latest.json'))|ConvertFrom-Json
+  }catch{}
   return [ordered]@{
-    ready=$ready;url=($Origin+'/login');runtimeMode=@{web=$webRuntime;worker=$workerRuntime;database=$databaseMode}
+    servicesReady=$ready;ready=($ready -and $parity.readyForOwnerTest);sourceParity=$parity;url=($Origin+'/login');runtimeMode=@{web=$webRuntime;worker=$workerRuntime;database=$databaseMode}
     services=$services;webHealth=$webHealth;workerHeartbeat=$workerFresh;rendererHealth=$renderer
     localExcelBridge=$bridgeState;master=$masterMount;publishedPorts=$publication;networkIsolation=$networks
     localAccounts=$logins;testData=$counts;localP6=$transferMode
@@ -326,7 +334,7 @@ function Wait-HomeReadiness([int]$Seconds=300) {
   while([DateTime]::UtcNow -lt $deadline) {
     try {
       $lastHealth=Get-HomeHealth
-      if($lastHealth.ready){return $lastHealth}
+      if($lastHealth.servicesReady){return $lastHealth}
     }catch{}
     Start-Sleep -Seconds 2
   }
@@ -386,7 +394,7 @@ switch($Action) {
     Save-Checkpoint 'compose-started' 'PASS'
     Wait-QuickHealth
     $health=Wait-HomeReadiness
-    if(-not $health.ready){Save-Checkpoint 'service-health' 'FAILED';throw 'HOME_UAT_START_NOT_READY'}
+    if(-not $health.servicesReady){Save-Checkpoint 'service-health' 'FAILED';throw 'HOME_UAT_START_NOT_READY'}
     Save-Checkpoint 'service-health' 'PASS'
     $health|ConvertTo-Json -Depth 8
   }
@@ -397,6 +405,7 @@ switch($Action) {
     [pscustomobject]@{compose='STOPPED';excelBridge=$(if($bridgeStopped){'STOPPED'}else{'FINISHING_CURRENT_EXPORT'});data='PRESERVED';volumes='PRESERVED'}|ConvertTo-Json -Compress
   }
   'Restart' {
+    Set-ComposeContract -RequireClean -RequireExpectedBranch
     $before=Get-PersistenceSnapshot
     Ensure-NativeBridge
     Invoke-Compose @('restart','db','renderer','worker','web','proxy')
@@ -404,9 +413,9 @@ switch($Action) {
     $health=Wait-HomeReadiness
     $after=Get-PersistenceSnapshot
     if($before -ne $after){throw 'HOME_UAT_RESTART_PERSISTENCE_MISMATCH'}
-    if(-not $health.ready){throw 'HOME_UAT_RESTART_NOT_READY'}
+    if(-not $health.servicesReady){throw 'HOME_UAT_RESTART_NOT_READY'}
     Save-Checkpoint 'restart-persistence-verified' 'PASS'
-    [pscustomobject]@{persistenceBefore=$before;persistenceAfter=$after;data='PRESERVED';ready=$health.ready;url=$health.url}|ConvertTo-Json
+    [pscustomobject]@{persistenceBefore=$before;persistenceAfter=$after;data='PRESERVED';servicesReady=$health.servicesReady;ready=$health.ready;sourceParity=$health.sourceParity;url=$health.url}|ConvertTo-Json
   }
   'Health' {
     Get-HomeHealth|ConvertTo-Json -Depth 8

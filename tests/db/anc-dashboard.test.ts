@@ -1,11 +1,20 @@
-import {afterAll,beforeAll,describe,expect,it} from 'vitest';
+import {afterAll,beforeAll,describe,expect,it,vi} from 'vitest';
 import type {PGlite} from '@electric-sql/pglite';
-import {testDatabase,addUser} from '../helpers/database';
+import {testDatabase,addUser,TEST_PASSWORD} from '../helpers/database';
 import {syntheticCase,receiveS1,tx} from '../helpers/lab';
 import {dashboard} from '../../packages/anc/service';
 import type {Principal} from '../../packages/security/policy';
+import {authenticate,readSession} from '../../packages/security/session';
+import {registerP2,saveRequest,lockRequest,doctorAction,prepareConsent,startSigning,patientAction} from '../../packages/p2/service';
+import {emptyRequest} from '../../packages/p2/schema';
 import {randomUUID} from 'node:crypto';
 let db:PGlite,anc:Principal,unit:string,other:string,caseId:string;
+function completeDraft(doctorVersionId:string){
+ const d=structuredClone(emptyRequest);d.patient.syntheticName='SYNTHETIC ANC DASHBOARD';d.patient.dob='2000-01-01';d.patient.entitlement='SYNTHETIC SELF_PAY';d.patient.identifierType='Synthetic';d.patient.identifier='SYNTHETIC-ANC-DASH-0001';
+ Object.assign(d.pregnancy,{type:'Singleton',edd:'2027-01-01',collectionDate:'2026-10-20',collectionSource:'ANC',weightKg:60,heightCm:160,vanishingTwin:'No',fetalSex:'DoNotWant',sca:'DoNotWant'});
+ for(const k of ['transfusion4months','heparin24h','immune1month','albumin4weeks','exogenousDna4weeks'] as const)d.history[k].answer='No';
+ Object.assign(d.history,{cancerTreatment:'No',gaUnder8:'No',tumor:'No',priorChromosomeTest:'No',otherHistory:'No'});Object.assign(d.ordering,{doctorVersionId,facility:'SYNTHETIC TEST UNIT',reason:'SYNTHETIC clinical review'});return d;
+}
 beforeAll(async()=>{
  db=await testDatabase();anc=await addUser(db,'ANC_NURSE','synthetic.anc.dashboard');
  unit=(await db.query<{id:string}>("INSERT INTO unit(code,name) VALUES('ANC-DASH-1','ANC 1') RETURNING id")).rows[0].id;
@@ -99,38 +108,55 @@ describe('ANC read-only migrated database aggregation',()=>{
    }finally{await db.query('ROLLBACK');}
   }
  });
- it('binds readiness to active modes, current draft/version and the latest granted consent document',async()=>{
+ it('binds readiness to active modes, current request/version and one immutable granted consent',async()=>{
+  vi.stubEnv('NIPT_MODE','synthetic');
   await db.query('BEGIN');
   try{
-   const c=await syntheticCase(db,{staff:anc,unit});
-   const ready=async()=> (await dashboard(db,anc,{q:c.ln})).queue.items[0].documentsReady;
+   const paperCase=await syntheticCase(db,{staff:anc,unit});
+   const paperReady=async()=> (await dashboard(db,anc,{q:paperCase.ln})).queue.items[0]?.documentsReady??false;
    // A historical paper review without a current workspace never establishes readiness.
-   expect(await ready()).toBe(false);
-   await db.query("INSERT INTO p2_workspace(case_id,round_id,version,draft,request_mode,consent_mode,updated_by) VALUES($1,$2,0,'{\"synthetic\":0}','Paper','Paper',$3)",[c.caseId,c.roundId,anc.id]);
-   expect(await ready()).toBe(true);
-   await db.query("UPDATE p2_workspace SET version=1,request_mode='Electronic',consent_mode='Electronic' WHERE round_id=$1",[c.roundId]);
-   expect(await ready()).toBe(false); // Previous paper evidence cannot satisfy electronic modes.
-   // Synthetic document bindings only, in a rolled-back disposable database transaction.
-   await db.query('SET LOCAL session_replication_role=replica');
-   const document=async(kind:'REQUEST'|'CONSENT',version:number,payload:unknown)=>{
-    const id=randomUUID();await db.query("INSERT INTO p2_document_revision(id,case_id,round_id,kind,version,template_version,payload,content_hash,reason,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'SYNTHETIC_TEST',$9)",[id,c.caseId,c.roundId,kind,version,kind==='REQUEST'?'SYNTHETIC-FM01-v1':'SYNTHETIC-FM02-v1',JSON.stringify(payload),'1'.repeat(64),anc.id]);return id;
-   };
-   const final=async(id:string)=>db.query("INSERT INTO p2_final_consent(session_id,document_id,payload,content_hash) VALUES($1,$2,$3,$4)",[randomUUID(),id,JSON.stringify({signature:{decision:'Granted'}}),'2'.repeat(64)]);
-   await document('REQUEST',1,{draft:{synthetic:0}});
-   const consent1=await document('CONSENT',1,{workspaceVersion:1});await final(consent1);
-   expect(await ready()).toBe(true);
-   // Draft changes invalidate the previously locked request and workspace-bound consent.
-   await db.query("UPDATE p2_workspace SET version=2,draft='{\"synthetic\":1}' WHERE round_id=$1",[c.roundId]);
-   expect(await ready()).toBe(false);
-   await document('REQUEST',2,{draft:{synthetic:1}});
-   expect(await ready()).toBe(false); // Consent still belongs to workspace 1.
-   const consent2=await document('CONSENT',2,{workspaceVersion:2});
-   expect(await ready()).toBe(false); // Newest consent is unsigned; older final cannot satisfy it.
-   await final(consent2);expect(await ready()).toBe(true);
-   await db.query("UPDATE p2_workspace SET version=3,request_mode='Paper',consent_mode='Paper' WHERE round_id=$1",[c.roundId]);
-   expect(await ready()).toBe(true);
-   await db.query("INSERT INTO p2_paper_review(case_id,round_id,kind,template_version,document_reference,panel,status,location,reason,verifier_id,created_at) VALUES($1,$2,'CONSENT','SYNTHETIC-FM02-v1','SYNTHETIC-DECLINED','{\"decision\":\"Declined\"}','Verified','SYNTHETIC','SYNTHETIC_TEST',$3,now()+interval '1 second')",[c.caseId,c.roundId,anc.id]);
-   expect(await ready()).toBe(false); // Verified alone never means consent Granted.
-  }finally{await db.query('ROLLBACK');}
+   expect(await paperReady()).toBe(false);
+   await db.query("INSERT INTO p2_workspace(case_id,round_id,version,draft,request_mode,consent_mode,updated_by) VALUES($1,$2,0,'{}','Paper','Paper',$3)",[paperCase.caseId,paperCase.roundId,anc.id]);
+   expect(await paperReady()).toBe(true);
+   await db.query("INSERT INTO p2_paper_review(case_id,round_id,kind,template_version,document_reference,panel,status,location,reason,verifier_id,created_at) VALUES($1,$2,'CONSENT','SYNTHETIC-FM02-v1','SYNTHETIC-DECLINED','{\"decision\":\"Declined\"}','Declined','SYNTHETIC','SYNTHETIC_TEST',$3,now()+interval '1 second')",[paperCase.caseId,paperCase.roundId,anc.id]);
+   expect(await paperReady()).toBe(false); // A recorded paper refusal remains a gate.
+
+   const admin=await addUser(db,'APP_ADMIN','synthetic.anc.dashboard.admin'),checker=await addUser(db,'CLINICAL_APPROVER','synthetic.anc.dashboard.checker');
+   const login=await authenticate(db,'synthetic.anc.dashboard',TEST_PASSWORD);if(!login)throw new Error('SYNTHETIC_LOGIN_FAILED');
+   const session=await readSession(db,login.token);if(!session)throw new Error('SYNTHETIC_SESSION_MISSING');
+   const staff={...anc,unitIds:[unit],sessionId:session.sessionId};
+   const doctor=await doctorAction(db,admin,{action:'propose',doctorKey:'SYNTHETIC-ANC-DASH-'+randomUUID().slice(0,8).toUpperCase(),name:'SYNTHETIC ANC Dashboard Doctor',unitId:unit,effectiveFrom:'2020-01-01T00:00:00Z',authorization:'SYNTHETIC authorization',vector:{width:600,height:200,strokes:[[[10,10],[80,90],[180,30]]]}});
+   const doctorId=String(doctor.id);await doctorAction(db,checker,{action:'approve',id:doctorId,reason:'SYNTHETIC independent approval'});
+   const suffix=Date.now().toString().slice(-6),ln='009900'+suffix,hn='009900'+suffix.slice(-4);
+   const registered=await registerP2(db,staff,{ln,hn,unitId:unit,origin:'ANC',idempotencyKey:'SYNTHETIC_ANC_DASHBOARD_'+randomUUID()},Buffer.alloc(32,7));
+   if(!registered.caseId)throw new Error('SYNTHETIC_CASE_REGISTRATION_FAILED');
+   const request=completeDraft(doctorId),saved=await saveRequest(db,staff,registered.caseId,{expectedVersion:0,draft:request});
+   await lockRequest(db,staff,registered.caseId,{expectedVersion:saved.version,reason:'SYNTHETIC request lock'});
+   const consent=await prepareConsent(db,staff,registered.caseId,{doctorVersionId:doctorId,representativeRequired:false,reason:'SYNTHETIC consent preparation'});
+   const signing=await startSigning(db,staff,registered.caseId,{documentId:consent.id,devicePresent:true,syntheticPatient:true});
+   const csrf={origin:'http://localhost:3000',expectedOrigin:'http://localhost:3000',token:signing.csrf};
+   for(let item=1;item<=12;item++)await patientAction(db,signing.raw,{action:'acknowledge',item},csrf);
+   await patientAction(db,signing.raw,{action:'complete',decision:'Granted',vector:{width:600,height:200,strokes:[[[10,10],[80,90],[180,30]]]}},csrf);
+   const returnedLogin=await authenticate(db,'synthetic.anc.dashboard',TEST_PASSWORD);if(!returnedLogin)throw new Error('SYNTHETIC_RETURN_LOGIN_FAILED');
+   const returnedSession=await readSession(db,returnedLogin.token);if(!returnedSession)throw new Error('SYNTHETIC_RETURN_SESSION_MISSING');
+   const returnedStaff={...staff,sessionId:returnedSession.sessionId};
+   const electronicReady=async()=> (await dashboard(db,returnedStaff,{q:ln})).queue.items.find(item=>item.ln===ln)?.documentsReady??false;
+   expect(await electronicReady()).toBe(true);
+   const finalRows=await db.query<{session_id:string;document_id:string;payload:unknown;content_hash:string;hash_algorithm:string}>("SELECT f.session_id,f.document_id,f.payload,f.content_hash,f.hash_algorithm FROM p2_final_consent f JOIN p2_document_revision d ON d.id=f.document_id WHERE d.case_id=$1",[registered.caseId]);
+   expect(finalRows.rows).toHaveLength(1);
+   await db.query('SAVEPOINT duplicate_consent_attempt');
+   await expect(db.query('INSERT INTO p2_final_consent(id,session_id,document_id,payload,content_hash,hash_algorithm) VALUES($1,$2,$3,$4,$5,$6)',[randomUUID(),finalRows.rows[0].session_id,finalRows.rows[0].document_id,finalRows.rows[0].payload,finalRows.rows[0].content_hash,finalRows.rows[0].hash_algorithm])).rejects.toThrow('CONSENT_ALREADY_COMPLETED');
+   await db.query('ROLLBACK TO SAVEPOINT duplicate_consent_attempt');
+   expect((await db.query("SELECT f.id FROM p2_final_consent f JOIN p2_document_revision d ON d.id=f.document_id WHERE d.case_id=$1",[registered.caseId])).rows).toHaveLength(1);
+   await expect(prepareConsent(db,returnedStaff,registered.caseId,{doctorVersionId:doctorId,representativeRequired:false,reason:'SYNTHETIC duplicate attempt'})).rejects.toThrow('CONSENT_ALREADY_COMPLETED');
+
+   // A same-round Request amendment invalidates its old Request and consent bindings; the signed Consent stays singular and immutable.
+   const amendedDraft=structuredClone(request);amendedDraft.patient.syntheticName='SYNTHETIC AMENDED REQUEST';
+   const amended=await saveRequest(db,returnedStaff,registered.caseId,{expectedVersion:saved.version,draft:amendedDraft,reason:'SYNTHETIC request amendment after consent'});
+   expect(await electronicReady()).toBe(false);
+   await lockRequest(db,returnedStaff,registered.caseId,{expectedVersion:amended.version,reason:'SYNTHETIC amended request lock'});
+   expect(await electronicReady()).toBe(false); // Request is current, but the single Consent remains bound to the earlier workspace version.
+   expect((await db.query("SELECT f.id FROM p2_final_consent f JOIN p2_document_revision d ON d.id=f.document_id WHERE d.case_id=$1",[registered.caseId])).rows).toHaveLength(1);
+  }finally{await db.query('ROLLBACK');vi.unstubAllEnvs();}
  });
 });
