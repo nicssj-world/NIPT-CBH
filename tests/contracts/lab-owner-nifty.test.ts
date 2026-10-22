@@ -11,6 +11,7 @@ describe('LAB-13 Owner NIFTY immutable schema and row contract',()=>{
   expect(result.patientCount).toBe(urgent?46:45);expect(result.mapping.slice(-2).map(r=>r.physicalSlot)).toEqual([1,25]);
   expect(result.mapping.filter(r=>r.physicalSlot===40)).toHaveLength(urgent?1:0);
   expect(xml).toContain('Positive control');expect(xml).toContain('Negative Control');
+  for(const row of result.mapping)expect(xml).toMatch(new RegExp(`<c[^>]*r="Q${row.exportRow}"[^>]*>[\\s\\S]*?<t[^>]*>ANC</t>`));
   const cell=(ref:string)=>new RegExp(`<c[^>]*r="${ref}"[^>]*>([\\s\\S]*?)</c>`).exec(xml)?.[1];
   expect(cell('Z2')).toContain('<v>1</v>');expect(cell('Z'+result.mapping.at(-2)!.exportRow)).not.toContain('<v>');
   expect(cell('A2')).not.toContain('-1');expect(cell('L2')).not.toContain('hash');

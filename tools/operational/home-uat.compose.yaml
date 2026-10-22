@@ -145,6 +145,7 @@ services:
       NIPT_TASK_MASTER_PATH: /approved/master.xlsx
       NIPT_POOL_CSV_TEMPLATE: /approved/pooling.csv
       NIPT_NIFTY_XLSX_TEMPLATE: /approved/nifty.xlsx
+      NIPT_HALOS_TASK_TEMPLATE: /approved/halos-task.xlsx
       NIPT_ANC_FORM_REGISTRY: /forms/registry.json
       NIPT_LOCAL_UAT_BANNER: "1"
       NIPT_NATIVE_EXCEL_SPOOL: /excel-spool
@@ -170,6 +171,11 @@ services:
       - type: bind
         source: .local/owner-local-uat-1.0.2/master/NIFTY_Test_Request_FormHNZ_filled.xlsx
         target: /approved/nifty.xlsx
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: .local/owner-local-uat-1.0.2/master/Task Import template(3).xlsx
+        target: /approved/halos-task.xlsx
         read_only: true
         bind: {create_host_path: false}
       - type: bind

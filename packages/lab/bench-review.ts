@@ -28,9 +28,11 @@ export async function reviewBenchForResult(db:Queryable,user:Staff,attemptId:str
  try{calculateOwnerPooling(master,rows);}catch(e){throw new LabError('OWNER_POOL_CALCULATION_INVALID',409,{reason:e instanceof Error?e.message:'INVALID'});}
  const ready=(await db.query<{ready:boolean}>('SELECT lab_bench_measurements_ready($1) ready',[batchId])).rows[0].ready;
  if(!ready)throw new LabError('OWNER_WORKSHEET_MEASUREMENTS_REQUIRED',409);
- const prior=(await db.query<{id:string}>(`SELECT id FROM lab_bench_review WHERE workbook_revision_id=$1 AND reviewer_id=$2 AND lab_bench_review_current(id)`,[r.id,user.id])).rows[0];
+ const actual=(await db.query<{id:string}>(`SELECT id FROM lab_actual_pooling WHERE batch_id=$1 AND lab_bench_attempt_actually_pooled($2,id) ORDER BY recorded_at DESC,id DESC LIMIT 1`,[batchId,attemptId])).rows[0];
+ if(!actual)throw new LabError('ACTUAL_POOLING_REQUIRED',409);
+ const prior=(await db.query<{id:string}>(`SELECT id FROM lab_bench_review WHERE workbook_revision_id=$1 AND reviewer_id=$2 AND actual_pooling_id=$3 AND lab_bench_review_current(id)`,[r.id,user.id,actual.id])).rows[0];
  if(prior)return prior;
- const reviewed=(await db.query<{id:string}>(`INSERT INTO lab_bench_review(batch_id,workbook_revision_id,source_sha256,criteria_reference,qc_measurements_reviewed,pooling_reviewed,sequencing_reviewed,reason,reviewer_id) VALUES($1,$2,lab_bench_revision_sha($2),'OWNER-MASTER-LAB-20261022',true,true,true,$3,$4) RETURNING id`,[batchId,r.id,input.reason,user.id])).rows[0];
+ const reviewed=(await db.query<{id:string}>(`INSERT INTO lab_bench_review(batch_id,workbook_revision_id,source_sha256,criteria_reference,qc_measurements_reviewed,pooling_reviewed,sequencing_reviewed,reason,reviewer_id,actual_pooling_id) VALUES($1,$2,lab_bench_revision_sha($2),'OWNER-MASTER-LAB-20261022',true,true,true,$3,$4,$5) RETURNING id`,[batchId,r.id,input.reason,user.id,actual.id])).rows[0];
  await audit(db,user,'LAB_OWNER_WORKSHEETS_REVIEWED','lab_bench_review',reviewed.id,{version:r.revision,outcome:'REVIEWED_ACTUAL_MEASUREMENTS',ruleVersion:'OWNER-MASTER-LAB-20261022'});
  return reviewed;
 }

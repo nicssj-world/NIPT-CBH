@@ -26,12 +26,12 @@ export function exportOwnerNifty(template:Buffer,rows:VendorRow[]){
  const rowXml=[...sheet.matchAll(/<row\b[^>]*\br="(\d+)"[^>]*>[\s\S]*?<\/row>/g)];
  const sourceRow=(n:number)=>rowXml.find(r=>Number(r[1])===n)?.[0];
  if(!sourceRow(2)||!sourceRow(48)||!sourceRow(49))throw Error('NIFTY_TEMPLATE_ROWS_REQUIRED');
- const columns=['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','R','Z','AA'];
+ const columns=['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','Z','AA'];
  const filled=ordered.map((row,index)=>{
   const n=index+2,source=row.kind==='PATIENT'?2:row.kind==='PC'?48:49;
   let xml=sourceRow(source)!.replace(/\br="([A-Z]*)(\d+)"/g,(_,col)=>`r="${col}${n}"`);
   const values:Record<string,string|number>=row.kind==='PATIENT'?patientVendorValues(row,index+1):{A:row.sampleId.replace(/-1$/,''),B:'HNZ0011',C:'Peripheral Blood',D:'6~35°C',E:'',F:'',G:'',H:'',I:'K Tube',J:'',K:row.kind==='PC'?'Positive control':'Negative Control',L:'',M:'',N:'',O:'',P:'Chonburi hospital',R:'',Z:'',AA:''};
-  for(const col of columns){const re=new RegExp(`<c\\b([^>]*\\br="${col}${n}"[^>]*)(?:/>|>[\\s\\S]*?</c>)`),match=re.exec(xml);if(!match)throw Error('NIFTY_COLUMN_MISSING:'+col);const v=values[col],attrs=match[1].replace(/\s+t="[^"]*"/g,'');const replacement=typeof v==='number'?`<c${attrs}><v>${v}</v></c>`:`<c${attrs} t="inlineStr"><is><t xml:space="preserve">${xmlEscape(v)}</t></is></c>`;xml=xml.replace(match[0],replacement);}
+  for(const col of columns){const re=new RegExp(`<c\\b([^>]*\\br="${col}${n}"[^>]*)(?:/>|>[\\s\\S]*?</c>)`),match=re.exec(xml);if(!match)throw Error('NIFTY_COLUMN_MISSING:'+col);const v=col==='Q'?'ANC':values[col],attrs=match[1].replace(/\s+t="[^"]*"/g,'');const replacement=typeof v==='number'?`<c${attrs}><v>${v}</v></c>`:`<c${attrs} t="inlineStr"><is><t xml:space="preserve">${xmlEscape(v)}</t></is></c>`;xml=xml.replace(match[0],replacement);}
   return xml;
  });
  // Remove the example's populated data rows. Keep its blank styled rows and all non-data package parts.

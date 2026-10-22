@@ -19,6 +19,9 @@ for(const [filename,expected] of [['Pooling Sheet Template_R001.csv','2ea12e86e1
  if(sha(bytes)!==expected)throw Error('LAB_OWNER_TEMPLATE_SHA256_MISMATCH');
 }
 const secretRoot=path.join(root,'secrets');
+const halosTemplate=path.join(root,'master/Task Import template(3).xlsx'),halosExpected='1e4ffc979235f3221ca637f37476713c3a02bc7a5c541c8d32688f4af9c0caec';
+let halosBytes;try{halosBytes=await readFile(halosTemplate);}catch(error){if(error.code!=='ENOENT')throw error;halosBytes=await readFile('C:/Users/User/Downloads/Task Import template(3).xlsx');if(sha(halosBytes)!==halosExpected)throw Error('TASK_IMPORT_TEMPLATE_SHA256_MISMATCH');await writeFile(halosTemplate,halosBytes,{flag:'wx'});}
+if(sha(halosBytes)!==halosExpected)throw Error('TASK_IMPORT_TEMPLATE_SHA256_MISMATCH');
 const names=['db-password','migration-url','web-url','worker-url','web-password','worker-password','uat-accounts.json','renderer-token','identity-lookup.key','integration-public.pem','integration-private.pem'];
 const present=[];
 for(const name of names){try{await access(path.join(secretRoot,name));present.push(name);}catch(error){if(error.code!=='ENOENT')throw error;}}

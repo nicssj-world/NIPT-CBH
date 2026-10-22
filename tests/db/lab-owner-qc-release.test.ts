@@ -13,6 +13,7 @@ import * as batch from '../../packages/lab/batch';
 import {benchWorkspace,benchExport} from '../../packages/lab/bench';
 import {saveWorkbookDraft} from '../../packages/workbook/service';
 import {reviewBenchForResult} from '../../packages/lab/bench-review';
+import {recordActualPooling} from '../../packages/lab/seq-export';
 import {importReport,pdfDate,type ResultFixture} from '../helpers/results';
 import * as results from '../../packages/results/service';
 it('Owner paper worksheet path fails closed when no complete current measurements and review exist',async()=>{
@@ -52,6 +53,8 @@ it('actual current Master worksheet, peer review and exact PDF reach authorised 
   expect((await f.db.query<{ready:boolean}>('SELECT lab_bench_measurements_ready($1) ready',[id])).rows[0].ready).toBe(false);
   await run(t=>benchExport(t,u.staff,{batchId:id,revision:1,kind:'POOL_CSV'},deps));await run(t=>benchExport(t,u.staff,{batchId:id,revision:1,kind:'NIFTY_XLSX'},deps));
   expect((await f.db.query<{ready:boolean}>('SELECT lab_bench_measurements_ready($1) ready',[id])).rows[0].ready).toBe(true);
+  await expect(run(t=>reviewBenchForResult(t,u.certifier,a.id,{revision:1,measurementsReviewed:true,reason:'LOCAL TEST missing actual transfer must fail closed'}))).rejects.toThrow('ACTUAL_POOLING_REQUIRED');
+  await run(t=>recordActualPooling(t,u.staff,{batchId:id,revision:1,members:w.slots.map(s=>({slot:s.slot,pooled:['PATIENT','PC','NC'].includes(s.kind)})),note:'LOCAL TEST actual paper pooling transfer recorded by operator'},deps));
   await expect(run(t=>reviewBenchForResult(t,u.staff,a.id,{revision:1,measurementsReviewed:true,reason:'LOCAL TEST must not approve own work'}))).rejects.toThrow('FORBIDDEN');
   const rf={db:f.db,u,store:f.store,root:f.root,run} as unknown as ResultFixture,report=await importReport(rf,{kind:'SINGLETON',labNumber:(await f.db.query<{printed_sample_id:string}>('SELECT printed_sample_id FROM analytical_attempt WHERE id=$1',[a.id])).rows[0].printed_sample_id,hn,dob:'01-Jan-1990',collection:pdfDate('2026-10-20'),gaWeeks:17,gaDays:6,sex:null});
   const rv=async()=>(await f.db.query<{row_version:number}>('SELECT row_version FROM result_report_version WHERE id=$1',[report.versionId])).rows[0].row_version;
@@ -62,6 +65,8 @@ it('actual current Master worksheet, peer review and exact PDF reach authorised 
   expect((await f.db.query('SELECT * FROM result_release')).rows).toHaveLength(1);
   expect((await f.db.query<{eligible:boolean}>('SELECT p6_release_eligible(id,epoch) eligible FROM result_release')).rows[0].eligible).toBe(true);
   expect((await f.db.query('SELECT * FROM lab_bench_review')).rows).toHaveLength(1);
+  await run(t=>recordActualPooling(t,u.staff,{batchId:id,revision:1,members:w.slots.map(s=>({slot:s.slot,pooled:false})),note:'LOCAL TEST corrected actual pooling excludes the previous members'},deps));
+  expect((await f.db.query<{eligible:boolean}>('SELECT p6_release_eligible(id,epoch) eligible FROM result_release')).rows[0].eligible).toBe(false);
   expect((await f.db.query('SELECT * FROM p4b_pool_attempt')).rows).toHaveLength(0);expect((await f.db.query('SELECT * FROM p4c_dnb_attempt')).rows).toHaveLength(0);
   await expect(f.db.query('DELETE FROM lab_bench_review')).rejects.toThrow();
   const latest=await run(t=>benchWorkspace(t,u.staff,id,deps));await run(async t=>saveWorkbookDraft(t,u.staff,{batchId:id,expectedVersion:await version(),expectedRevision:1,values:{...latest.values,'seq.q30':11}},deps));

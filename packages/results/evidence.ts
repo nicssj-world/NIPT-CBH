@@ -12,7 +12,7 @@ export type AttemptEvidence={current:boolean;reason:string|null;analysisAccepted
 export async function attemptEvidence(db:Queryable,attemptId:string):Promise<AttemptEvidence>{
  const result:AttemptEvidence={current:false,reason:null,analysisAccepted:false,finalQcAccepted:false,poolId:null,dnbId:null,sequencingId:null};
  if(await operationalWorkflow(db)){
-  const reviewed=(await db.query<{id:string}>(`SELECT q.id FROM lab_bench_review q JOIN lab_slot_assignment a ON a.batch_id=q.batch_id WHERE a.attempt_id=$1 AND a.removed_at IS NULL AND lab_bench_review_current(q.id) ORDER BY q.created_at DESC LIMIT 1`,[attemptId])).rows[0];
+  const reviewed=(await db.query<{id:string}>(`SELECT q.id FROM lab_bench_review q JOIN lab_slot_assignment a ON a.batch_id=q.batch_id WHERE a.attempt_id=$1 AND a.removed_at IS NULL AND lab_bench_review_current(q.id) AND lab_bench_attempt_actually_pooled($1,q.actual_pooling_id) ORDER BY q.created_at DESC LIMIT 1`,[attemptId])).rows[0];
   if(reviewed){const final=(await db.query<{ok:boolean}>(`SELECT EXISTS(SELECT 1 FROM result_qc5_review q JOIN result_report_version v ON v.id=q.version_id WHERE q.attempt_id=$1 AND q.bench_review_id=$2 AND lab_bench_qc5_valid(q) AND v.state IN ('Linked','ValidationBlocked','PendingCertification','CertifiedReleased') AND NOT EXISTS(SELECT 1 FROM result_report_version newer WHERE newer.round_id=v.round_id AND newer.kind=v.kind AND newer.imported_at>v.imported_at AND newer.state IN ('Linked','ValidationBlocked','PendingCertification','CertifiedReleased'))) ok`,[attemptId,reviewed.id])).rows[0].ok;
    return {...result,current:true,analysisAccepted:true,finalQcAccepted:final,benchReviewId:reviewed.id};
   }

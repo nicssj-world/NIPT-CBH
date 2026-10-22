@@ -121,3 +121,5 @@ GRANT SELECT,INSERT ON lab_manual_paper_stage TO app_rw;
 GRANT USAGE ON SEQUENCE lab_manual_paper_stage_sequence_seq TO app_rw;
 GRANT SELECT,INSERT ON lab_bench_review TO app_rw;
 GRANT SELECT ON lab_bench_review TO report_ro;
+GRANT SELECT,INSERT ON lab_actual_pooling,lab_seq_export_pair TO app_rw;
+GRANT SELECT ON lab_actual_pooling,lab_seq_export_pair TO report_ro;

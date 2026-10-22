@@ -7,6 +7,7 @@ import {createBatch,assignToBatch,updateSheetPlan,planCheck,finalizeSheet,amendS
 import {workbookWorkspace,saveWorkbookDraft} from '../../packages/workbook/service';
 import {benchPooling,benchExport,benchWorkspace} from '../../packages/lab/bench';
 import {benchAttemptEvidence} from '../../packages/lab/bench-evidence';
+import {recordActualPooling,exportSeqPair} from '../../packages/lab/seq-export';
 it('LAB-13 bench persists per-slot QC and 9 standards, uses the saved revision for CSV, rejects stale and missing source',async()=>{
  const f=await inboundFixture();try{
   vi.stubEnv('NIPT_POOL_CSV_TEMPLATE','C:/Users/User/Downloads/Pooling Sheet Template_R001.csv');
@@ -35,13 +36,29 @@ it('LAB-13 bench persists per-slot QC and 9 standards, uses the saved revision f
   expect(evidence).toMatchObject({attemptId:patient.id,roundId:patient.round_id,batchId:id,revision:2,current:true,concentration:20,qcStandardCount:9,qcAcceptance:false});
   expect(evidence?.exports).toHaveLength(1);
   expect(await benchAttemptEvidence(f.db,crypto.randomUUID())).toBeNull();
+  vi.stubEnv('NIPT_NIFTY_XLSX_TEMPLATE','C:/Users/User/Downloads/NIFTY_Test_Request_FormHNZ_filled.xlsx');
+  vi.stubEnv('NIPT_HALOS_TASK_TEMPLATE','C:/Users/User/Downloads/Task Import template(3).xlsx');
+  await expect(tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:2,idempotencyKey:crypto.randomUUID()},deps))).rejects.toThrow('ACTUAL_POOLING_REQUIRED');
+  const members=initial.slots.map(s=>({slot:s.slot,pooled:['PC','NC','PATIENT'].includes(s.kind)}));
+  const actual=await tx(f.db,db=>recordActualPooling(db,u.lab,{batchId:id,revision:2,members,note:'LOCAL TEST actual physical transfer transcription'},deps));
+  expect(actual.current).toBe(true);
+  const key=crypto.randomUUID(),pair=await tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:2,idempotencyKey:key},deps));
+  expect(pair.files).toHaveLength(2);expect(pair.halosPositions).toEqual([1,2,17,25,33]);
+  const replay=await tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:2,idempotencyKey:key},deps));expect(replay.id).toBe(pair.id);
+  await expect(f.db.query('DELETE FROM lab_actual_pooling')).rejects.toThrow();
   values['seq.operator']='SYNTHETIC LAB SEQ';await save(2);
   expect((await tx(f.db,db=>benchPooling(db,u.lab,id,deps))).sourceSha256).toBe(pool.sourceSha256);
-  expect((await tx(f.db,db=>benchWorkspace(db,u.lab,id,deps))).exports[0].current).toBe(true);
-  values['slot.2.libraryQc']=40;await save(3);
+  expect((await tx(f.db,db=>benchWorkspace(db,u.lab,id,deps))).exports.find(e=>e.kind==='POOL_CSV')!.current).toBe(true);
+  values['slot.2.libraryQc']=400;await save(3);
   await expect(tx(f.db,db=>benchExport(db,u.lab,{batchId:id,revision:2,kind:'POOL_CSV'},deps))).rejects.toThrow('TASK_DRAFT_VERSION_CONFLICT');
   const changed=await tx(f.db,db=>benchPooling(db,u.lab,id,deps));expect(changed.calculation.rows[1].volume).not.toBe(pool.calculation.rows[1].volume);
-  expect((await tx(f.db,db=>benchWorkspace(db,u.lab,id,deps))).exports[0].current).toBe(false);
+  expect((await tx(f.db,db=>benchWorkspace(db,u.lab,id,deps))).exports.find(e=>e.kind==='POOL_CSV')!.current).toBe(false);
+  expect((await tx(f.db,db=>benchWorkspace(db,u.lab,id,deps))).actualPooling?.current).toBe(false);
+  await expect(tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:4,idempotencyKey:crypto.randomUUID()},deps))).rejects.toThrow('ACTUAL_POOLING_REQUIRED');
+  await expect(tx(f.db,db=>recordActualPooling(db,u.lab,{batchId:id,revision:4,members,note:'LOCAL TEST calculated zero cannot imply actual transfer'},deps))).rejects.toThrow('ACTUAL_TRANSFER_VOLUME_EVIDENCE_REQUIRED');
+  const verified=members.map(m=>m.slot===2?{...m,actualVolume:1.5,reason:'LOCAL TEST separately measured physical transfer'}:m);
+  await tx(f.db,db=>recordActualPooling(db,u.lab,{batchId:id,revision:4,members:verified,note:'LOCAL TEST explicit measured exception transcribed'},deps));
+  expect((await tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:4,idempotencyKey:crypto.randomUUID()},deps))).halosPositions).toContain(2);
   expect((await workbookWorkspace(f.db,u.lab,id,deps)).draft?.revision).toBe(4);
   await expect(tx(f.db,async db=>amendSheet(db,checker,{batchId:id,expectedVersion:await version(),sheetNumber:1,reason:'LOCAL TEST cannot rearrange after real QC entry'}))).rejects.toThrow('AMEND_ONLY_BEFORE_EXECUTION');
   await expect(tx(f.db,async db=>cancelBatch(db,checker,{batchId:id,expectedVersion:await version(),reason:'LOCAL TEST cannot cancel after real QC entry'}))).rejects.toThrow('CANCEL_ONLY_BEFORE_EXECUTION');
