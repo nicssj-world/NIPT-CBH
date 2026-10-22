@@ -1,15 +1,121 @@
 .anc-dashboard{--brand:var(--color-brand);--ink:var(--color-ink);--muted:var(--color-muted);--line:var(--color-line);--surface:var(--color-surface);--focus:var(--color-focus);--on-brand:var(--on-primary)}
-.anc-dashboard{max-width:1480px;margin:auto}.anc-filters{display:flex;gap:14px;align-items:end;flex-wrap:wrap}.anc-filters label{display:grid;gap:6px;font-size:13px;min-width:0}.anc-filters select{max-width:100%}.anc-filters form{display:flex;align-items:end;gap:8px;flex:1;min-width:180px}.anc-filters form label{flex:1}.anc-filters input{width:100%}.anc-scope{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12px;margin:22px 0 12px;color:var(--muted)}.anc-scope strong{color:var(--brand)}.anc-updated{font-size:12px;color:var(--muted);margin-bottom:12px}.anc-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:0 0 24px}.anc-metric{border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--ink);padding:20px;text-align:left;font:inherit;display:flex;flex-direction:column;gap:10px;min-height:150px}.anc-metric span{font-size:14px}.anc-metric strong{font-size:34px;line-height:1.25;font-variant-numeric:tabular-nums}.anc-metric small{font-size:12px;color:var(--muted)}.anc-metric:first-child{background:var(--brand);color:var(--on-brand,#fff);border-color:var(--brand)}.anc-metric:first-child small{color:inherit}.anc-metric[aria-pressed=true],.anc-stages button[aria-pressed=true]{outline:3px solid var(--focus);outline-offset:3px}.anc-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:20px}.anc-heading p{font-size:13px;margin-top:5px}.anc-stages{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}.anc-stages button{display:flex;flex-direction:column;justify-content:space-between;gap:15px;min-height:112px;border:0;background:var(--raised,#eaf1f7);color:var(--ink);padding:14px;border-radius:9px;font:inherit;text-align:left;font-size:13px}.anc-stages strong{font-size:26px;font-variant-numeric:tabular-nums}.anc-text{background:transparent;border:0;color:var(--brand);text-decoration:underline;text-underline-offset:4px;min-height:44px;padding:8px;font:inherit;font-size:13px}.anc-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}.anc-tabs button{background:none;color:var(--muted);border:0;border-bottom:2px solid transparent;font:inherit;padding:10px;min-height:44px;font-size:13px}.anc-tabs button[aria-pressed=true]{color:var(--brand);border-color:var(--brand);font-weight:600}.anc-chips{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;margin-bottom:16px}.anc-chips .button{font-size:12px;min-height:44px}.anc-table-scrollbar{overflow-x:auto;overflow-y:hidden;max-width:100%;height:16px;margin-bottom:6px;overscroll-behavior-x:contain}.anc-table-scrollbar>div{height:1px}.anc-table-scrollbar:focus-visible{outline:3px solid var(--focus);outline-offset:2px}.anc-table-region{overflow:auto;max-width:100%;border:1px solid var(--line);border-radius:10px}.anc-table-region table{min-width:1140px;width:100%;border-collapse:collapse}.anc-table-region th{background:var(--raised,#eaf1f7);font-size:12px;padding:14px;text-align:left}.anc-table-region td{padding:16px 14px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:top;transition:background-color .12s ease,box-shadow .12s ease}.anc-table-region tbody tr:hover>td,.anc-table-region tbody tr:focus-within>td{background:color-mix(in srgb,var(--brand) 6%,var(--surface))}.anc-table-region tbody tr:hover>td:first-child,.anc-table-region tbody tr:focus-within>td:first-child{box-shadow:inset 3px 0 var(--brand)}.anc-table-region td:first-child{white-space:nowrap}.anc-table-region td small{display:block;margin-top:8px;color:var(--muted);font-size:12px}.anc-table-region td:last-child a{display:inline-flex;align-items:center;min-height:44px;white-space:nowrap}.anc-flags{display:flex;flex-wrap:wrap;gap:5px}.anc-flags button{min-height:44px;border:0;font:inherit;font-size:12px;white-space:nowrap}.anc-pagination{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:18px;font-size:13px;color:var(--muted)}.anc-pagination>div{display:flex;gap:8px}.anc-empty{padding:24px;background:var(--raised,#eaf1f7);border-radius:10px}.anc-mobile-cases{display:none}.anc-footnote{font-size:12px;color:var(--muted);line-height:1.8}.anc-footnote p{margin:8px 0}@media(max-width:1150px){.anc-stages{grid-template-columns:repeat(4,minmax(0,1fr))}.anc-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){.anc-filters>label,.anc-filters form{width:100%;flex-basis:100%}.anc-filters input,.anc-filters select{font-size:16px;min-width:0}.anc-metrics{gap:10px}.anc-metric{padding:14px;min-height:160px}.anc-metric span{font-size:13px}.anc-metric strong{font-size:30px}.anc-heading{align-items:start;flex-wrap:wrap}.anc-stages{grid-template-columns:repeat(2,minmax(0,1fr))}.anc-stages button:last-child{grid-column:1/-1}.anc-table-scrollbar,.anc-table-region{display:none}.anc-mobile-cases{display:block}.anc-mobile-cases article{border-top:1px solid var(--line);padding:18px 0;font-size:14px;transition:background-color .12s ease,box-shadow .12s ease}.anc-mobile-cases article:hover,.anc-mobile-cases article:focus-within{background:color-mix(in srgb,var(--brand) 6%,var(--surface));box-shadow:inset 3px 0 var(--brand)}.anc-mobile-cases strong{display:block;white-space:nowrap}.anc-mobile-cases p{margin:10px 0;font-size:13px}.anc-mobile-cases .button{width:100%;margin-top:12px}.anc-pagination>div{width:100%}.anc-pagination button{flex:1}}
 
-@media(max-width:600px){.anc-filters form{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;width:100%}.anc-filters form label{width:100%;min-width:0}.anc-filters form .button{width:auto;min-width:76px;flex:none}.anc-filters form input{min-width:0;width:100%}}
+.anc-dashboard{max-width:1480px;margin:auto}
+.anc-filters{display:flex;gap:16px;align-items:end;flex-wrap:wrap}
+.anc-filters label{display:grid;gap:8px;font-size:14px;min-width:0}
+.anc-filters select{max-width:100%}
+.anc-filters form{display:flex;align-items:end;gap:8px;flex:1;min-width:180px}
+.anc-filters form label{flex:1}
+.anc-filters input{width:100%}
+.anc-scope{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12px;margin:22px 0 12px;color:var(--muted)}
+.anc-scope strong{color:var(--brand)}
+.anc-updated{font-size:12px;color:var(--muted);margin-bottom:12px}
+.anc-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:0 0 24px}
+.anc-metric{border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--ink);padding:20px;text-align:left;font:inherit;display:flex;flex-direction:column;gap:8px;min-height:136px}
+.anc-metric span{font-size:14px}
+.anc-metric strong{font-size:32px;line-height:1.25;font-variant-numeric:tabular-nums}
+.anc-metric small{font-size:12px;color:var(--muted)}
+.anc-metric:first-child{background:var(--brand);color:var(--on-brand,#fff);border-color:var(--brand)}
+.anc-metric:first-child small{color:inherit}
+.anc-metric[aria-pressed=true],.anc-stages button[aria-pressed=true]{box-shadow:inset 0 0 0 2px var(--brand)}
+.anc-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:20px}
+.anc-heading p{font-size:13px;margin-top:5px}
+.anc-stages{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}
+.anc-stages button{display:flex;flex-direction:column;justify-content:space-between;gap:12px;min-height:108px;border:0;background:var(--raised,#eaf1f7);color:var(--ink);padding:14px;border-radius:9px;font:inherit;text-align:left;font-size:13px}
+.anc-stages strong{font-size:26px;font-variant-numeric:tabular-nums}
+.anc-text{background:transparent;border:0;color:var(--brand);text-decoration:underline;text-underline-offset:4px;min-height:44px;padding:8px;font:inherit;font-size:13px}
+.anc-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.anc-tabs button{background:none;color:var(--muted);border:0;border-bottom:2px solid transparent;font:inherit;padding:10px;min-height:44px;font-size:13px}
+.anc-tabs button[aria-pressed=true]{color:var(--brand);border-color:var(--brand);font-weight:600}
+.anc-chips{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;margin-bottom:16px}
+.anc-chips .button{font-size:12px;min-height:44px}
+.anc-table-scrollbar{overflow-x:auto;overflow-y:hidden;max-width:100%;height:16px;margin-bottom:6px;overscroll-behavior-x:contain}
+.anc-table-scrollbar>div{height:1px}
+.anc-table-scrollbar:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.anc-table-region{overflow:auto;max-width:100%;border:1px solid var(--line);border-radius:10px}
+.anc-table-region table{min-width:1140px;width:100%;border-collapse:collapse}
+.anc-table-region th{background:var(--raised,#eaf1f7);font-size:13px;padding:14px;text-align:left}
+.anc-table-region td{padding:16px 14px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:top;transition:background-color .12s ease,box-shadow .12s ease}
+.anc-table-region tbody tr:hover>td,.anc-table-region tbody tr:focus-within>td{background:color-mix(in srgb,var(--brand) 6%,var(--surface))}
+.anc-table-region tbody tr:hover>td:first-child,.anc-table-region tbody tr:focus-within>td:first-child{box-shadow:inset 3px 0 var(--brand)}
+.anc-table-region td:first-child{white-space:nowrap}
+.anc-table-region td small{display:block;margin-top:8px;color:var(--muted);font-size:12px}
+.anc-table-region td:last-child a{display:inline-flex;align-items:center;min-height:44px;white-space:nowrap}
+.anc-flags{display:flex;flex-wrap:wrap;gap:5px}
+.anc-flags button{min-height:44px;border:0;font:inherit;font-size:12px;white-space:nowrap}
+.anc-pagination{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:18px;font-size:13px;color:var(--muted)}
+.anc-pagination>div{display:flex;gap:8px}
+.anc-empty{padding:24px;background:var(--raised,#eaf1f7);border-radius:10px}
+.anc-mobile-cases{display:none}
+.anc-footnote{font-size:12px;color:var(--muted);line-height:1.8}
+.anc-footnote p{margin:8px 0}
+@media(max-width:1150px){.anc-stages{grid-template-columns:repeat(4,minmax(0,1fr))}
+.anc-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:600px){.anc-filters>label,.anc-filters form{width:100%;flex-basis:100%}
+.anc-filters input,.anc-filters select{font-size:16px;min-width:0}
+.anc-metrics{gap:10px}
+.anc-metric{padding:14px;min-height:140px}
+.anc-metric span{font-size:13px}
+.anc-metric strong{font-size:30px}
+.anc-heading{align-items:start;flex-wrap:wrap}
+.anc-stages{grid-template-columns:repeat(2,minmax(0,1fr))}
+.anc-stages button:last-child{grid-column:1/-1}
+.anc-table-scrollbar,.anc-table-region{display:none}
+.anc-mobile-cases{display:block}
+.anc-mobile-cases article{border-top:1px solid var(--line);padding:18px 0;font-size:14px;transition:background-color .12s ease,box-shadow .12s ease}
+.anc-mobile-cases article:hover,.anc-mobile-cases article:focus-within{background:color-mix(in srgb,var(--brand) 6%,var(--surface));box-shadow:inset 3px 0 var(--brand)}
+.anc-mobile-cases strong{display:block;white-space:nowrap}
+.anc-mobile-cases p{margin:10px 0;font-size:13px}
+.anc-mobile-cases .button{width:100%;margin-top:12px}
+.anc-pagination>div{width:100%}
+.anc-pagination button{flex:1}
+}
+
+@media(max-width:600px){.anc-filters form{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;width:100%}
+.anc-filters form label{width:100%;min-width:0}
+.anc-filters form .button{width:auto;min-width:76px;flex:none}
+.anc-filters form input{min-width:0;width:100%}
+}
+
 /* UX pass 2026-10-19: the global label margin made bottom-aligned buttons sit 8px below the input. */
 .anc-filters label{margin-bottom:0}
 
 /* Case-name column and consistent medical workflow statuses. */
 .anc-table-region table{min-width:1280px}
+
 .anc-table-region th,.anc-table-region td{vertical-align:middle}
+
 .anc-table-region th{white-space:nowrap;font-weight:650}
+
 .anc-table-region td .status.status-pill{white-space:normal;max-width:200px}
+
 .anc-table-region td .status.status-pill+small{margin-top:7px}
+
 .anc-patient-name{font-size:14px;font-weight:600;line-height:1.5;min-width:135px;overflow-wrap:anywhere}
+
 .anc-mobile-cases .anc-patient-name{font-size:14px;margin:8px 0;color:var(--color-ink)}
+
+/* ANC overview: clear groups, readable controls, and consistent interaction states. */
+.anc-dashboard .anc-filters{display:grid;grid-template-columns:minmax(200px,1fr) minmax(180px,1fr) minmax(260px,2fr) auto;gap:16px}
+.anc-filters label{font-weight:600;line-height:1.5}
+.anc-filters form{min-width:0}
+.anc-filters :is(input,select){font-size:14px}
+.anc-workflow .anc-heading{justify-content:flex-end;margin-bottom:16px}
+.anc-metric,.anc-stages button{line-height:1.5;transition:background-color .15s ease,border-color .15s ease}
+.anc-metric:hover:not(:disabled){border-color:var(--brand)}
+.anc-stages button:hover:not(:disabled){background:var(--info-bg)}
+.anc-stages button[aria-pressed=true]{background:var(--info-bg);color:var(--brand)}
+.anc-dashboard :is(.anc-metric,.anc-stages button,.anc-tabs button):focus-visible{outline:3px solid var(--focus);outline-offset:3px}
+.anc-dashboard :is(.anc-metric,.anc-stages button,.anc-tabs button):disabled{opacity:.6;cursor:not-allowed}
+.anc-tabs{gap:4px;border-bottom:1px solid var(--line)}
+.anc-tabs button{font-size:14px;padding:12px;min-height:48px;line-height:1.5}
+.anc-tabs button:hover:not(:disabled){background:var(--raised)}
+.anc-queue .anc-heading{align-items:flex-start}
+.anc-queue .anc-heading>span{flex-shrink:0;font-size:14px;font-variant-numeric:tabular-nums}
+.anc-mobile-cases article{line-height:1.65}
+.anc-mobile-cases article>strong a{display:inline-flex;align-items:center;min-height:44px;text-underline-offset:3px}
+.anc-dashboard :is(.anc-metric strong,.anc-stages strong){font-variant-numeric:tabular-nums}
+@media(max-width:1200px){.anc-dashboard .anc-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.anc-filters form{grid-column:1/-1}.anc-filters>.button{grid-column:2;justify-self:end}}
+@media(max-width:600px){.anc-dashboard .anc-filters{grid-template-columns:minmax(0,1fr);gap:16px}.anc-filters form,.anc-filters>.button{grid-column:auto}.anc-filters>.button{justify-self:stretch}.anc-filters :is(input,select){font-size:16px}.anc-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}.anc-tabs button{padding:10px 4px}.anc-mobile-cases article{padding:20px 4px}.anc-heading{gap:12px}.anc-workflow .anc-heading .button{width:auto;min-width:100px}}
+@media(prefers-reduced-motion:reduce){.anc-metric,.anc-stages button,.anc-table-region td,.anc-mobile-cases article{transition:none}}

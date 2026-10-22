@@ -1,0 +1,72 @@
+/* Keep workflow state and document channel distinct, with one shared badge rhythm. */
+.registry-statuses {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.workspace .registry-statuses :is(.status.status-pill, .badge) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  max-width: 100%;
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* ANC reuses the established palette and form controls, without extra copy. */
+.anc-registry .registry-sortbar {justify-content: space-between; gap: 8px 16px;}
+.anc-registry .registry-row {padding-block: 24px; gap: 20px;}
+.anc-registry .registry-row > div {line-height: 1.65;}
+.anc-registry .registry-row .muted {font-size: 13px; margin-top: 4px;}
+.anc-registry .registry-row > a:last-child {
+  justify-content: center;
+  min-width: 72px;
+  padding: 6px 12px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--ui-control-radius);
+}
+.anc-registry .registry-row > a:last-child:hover {border-color: var(--color-brand);}
+.anc-case-workspace .page-header {align-items: flex-start; gap: 20px;}
+.anc-case-workspace .page-header .status {margin-top: 12px;}
+.anc-case-workspace .document-grid {gap: 24px 32px;}
+.anc-case-workspace .document-grid > div {min-width: 0;}
+.anc-case-workspace .document-grid h3 {font-size: 16px; line-height: 1.6; margin-bottom: 8px;}
+.anc-case-workspace .document-grid p {margin-bottom: 16px;}
+.anc-case-workspace .document-grid .help {display: block; margin-top: 8px;}
+.anc-case-workspace .document-grid .action-bar {align-items: stretch;}
+.anc-case-workspace .document-grid .action-bar .button {flex: 1 1 180px;}
+.anc-case-workspace .panel > h2 {margin-bottom: 16px;}
+.anc-case-workspace .panel > .help:last-child {margin-top: 16px; margin-bottom: 0;}
+.anc-case-workspace dl {row-gap: 12px;}
+.anc-case-workspace .p2-dialog .request-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-block: 20px 12px;
+}
+.anc-case-workspace .request-steps .button {height: 100%; white-space: normal; line-height: 1.5;}
+.anc-case-workspace .save-status {display: flex; align-items: center; padding: 12px 16px;}
+.anc-case-workspace .request-footer {gap: 12px;}
+
+@media (max-width: 900px) {
+  .anc-case-workspace .p2-dialog .request-steps {grid-template-columns: repeat(3, minmax(0, 1fr));}
+}
+@media (max-width: 600px) {
+  .anc-registry .registry-row {gap: 16px; padding-block: 24px;}
+  .anc-registry .registry-row > a:last-child {justify-self: stretch;}
+  .anc-case-workspace .document-grid > div + div {padding-top: 20px; border-top: 1px solid var(--color-line);}
+  .anc-case-workspace .page-header > .row {width: 100%; justify-content: space-between;}
+  .anc-case-workspace .page-header > .row > a {min-height: 44px; display: inline-flex; align-items: center;}
+  .anc-case-workspace .p2-dialog .request-steps {grid-template-columns: repeat(2, minmax(0, 1fr));}
+  .anc-case-workspace .request-steps .button:last-child {grid-column: 1 / -1;}
+}
