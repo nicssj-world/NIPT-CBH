@@ -34,6 +34,8 @@ try {
         await page.goto(route);
         await expect(page.locator(ready).first()).toBeVisible();
         await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+        // Theme colors transition for 150 ms; measure the settled rendered state.
+        await page.waitForTimeout(250);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${surface}/${width}/${theme}: page overflow`);
         if (surface === 'overview') {
           const text = await page.locator('body').innerText();
@@ -45,6 +47,7 @@ try {
         if (surface === 'registry') {
           const group = page.locator('.registry-statuses').filter({hasText: 'Paper Consent'}).first();
           await expect(group).toBeVisible();
+          await group.screenshot({path: path.join(out, `badges-${width}-${theme}.png`)});
           const badges = await group.locator('.status, .badge').evaluateAll(nodes => nodes.map(e => {
             const r = e.getBoundingClientRect(), s = getComputedStyle(e);
             return {text: e.textContent, top: r.top, height: r.height, font: s.font, margin: s.margin, radius: s.borderRadius};
@@ -60,11 +63,12 @@ try {
           await page.keyboard.press('Enter'); await expect(page.locator('.page-header h1')).toContainText('LN');
           await page.goto('/cases'); await expect(page.locator('.registry-row').first()).toBeVisible();
           await page.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+          await page.waitForTimeout(250);
           checks.push({surface: 'badges', width, theme, badges});
         }
         const axe = await new AxeBuilder({page}).include('.workspace').withTags(['wcag2a','wcag2aa','wcag21aa','wcag22aa']).analyze();
         assert.deepEqual(axe.violations.map(v => ({id: v.id, impact: v.impact})), [], `${surface}/${width}/${theme}: accessibility`);
-        await page.screenshot({path: path.join(out, `after-${surface}-${width}-${theme}.png`), fullPage: true});
+        await page.screenshot({path: path.join(out, `after-${surface}-${width}-${theme}.png`), fullPage: surface !== 'registry'});
         checks.push({surface, width, theme, overflow: false, accessibilityViolations: 0});
       }
       await page.getByRole('button', {name: 'เปิดแบบขอส่งตรวจ 5 หมวด', exact: true}).click();

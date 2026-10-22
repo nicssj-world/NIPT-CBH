@@ -62,7 +62,10 @@
   .anc-case-workspace .p2-dialog .request-steps {grid-template-columns: repeat(3, minmax(0, 1fr));}
 }
 @media (max-width: 600px) {
-  .anc-registry .registry-row {gap: 16px; padding-block: 24px;}
+  .anc-registry .registry-row {grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding-block: 24px;}
+  .anc-registry .registry-row > :nth-child(4) {grid-column: auto;}
+  .anc-registry .registry-row > :nth-child(5),
+  .anc-registry .registry-row > a:last-child {grid-column: 1 / -1;}
   .anc-registry .registry-row > a:last-child {justify-self: stretch;}
   .anc-case-workspace .document-grid > div + div {padding-top: 20px; border-top: 1px solid var(--color-line);}
   .anc-case-workspace .page-header > .row {width: 100%; justify-content: space-between;}
