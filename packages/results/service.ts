@@ -93,7 +93,7 @@ async function roundRequest(db:Queryable,roundId:string):Promise<RoundRequest>{
    (SELECT collection_date::text FROM specimen_round_current WHERE id=$1) round_date,
    ARRAY(SELECT y.d FROM (SELECT DISTINCT ON(f.source) f.collection_date::text d FROM p2_collection_fact f WHERE f.round_id=$1 ORDER BY f.source,f.sequence DESC) y) dates`,[roundId])).rows[0];
  const lab=(await db.query<{dob:string|null;edd:string;pregnancy:'Singleton'|'Twins'}>(`SELECT left(f.parsed->>'dob',10) dob,l.edd::text,l.pregnancy FROM specimen_round_current sr JOIN lab_operational_registration l ON l.case_id=sr.case_id JOIN his_order_current o ON o.round_id=sr.id JOIN his_inbound_file_current f ON f.id=o.inbound_file_id WHERE sr.id=$1 AND l.paper_request AND l.paper_consent ORDER BY (l.round_id=sr.id) DESC,l.created_at DESC LIMIT 1`,[roundId])).rows[0];
- if(lab&&r.request_mode==='Paper'&&!r.panel)return {dob:lab.dob,edd:lab.edd,pregnancy:lab.pregnancy,fetalSex:null,dates:[...new Set([...r.dates,...(r.round_date?[r.round_date]:[])])]};
+ if(lab&&(r.request_mode===null||r.request_mode==='Paper')&&!r.panel&&!r.draft)return {dob:lab.dob,edd:lab.edd,pregnancy:lab.pregnancy,fetalSex:null,dates:[...new Set([...r.dates,...(r.round_date?[r.round_date]:[])])]};
  const paper=r.request_mode==='Paper',pt=paper?r.panel?.pregnancyType:r.draft?.pregnancy?.type??r.panel?.pregnancyType??null;
  return {dob:paper?r.panel?.dob??null:r.draft?.patient?.dob??null,edd:paper?r.panel?.edd??null:r.draft?.pregnancy?.edd??null,pregnancy:pt==='Singleton'||pt==='Twins'?pt:null,fetalSex:paper?r.panel?.fetalSex??null:r.draft?.pregnancy?.fetalSex??r.panel?.fetalSex??null,dates:[...new Set([...r.dates,...(r.round_date?[r.round_date]:[])])]};
 }

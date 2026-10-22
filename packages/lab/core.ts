@@ -92,7 +92,7 @@ export function commonFacts(r:AttemptRow):CommonFacts{
  const check=r.receipt_check??{};
  return {labOperationalRoute:r.lab_operational_route===true,isCurrentRound:r.current_round_id===r.round_id,roundNumber:r.round_number,roundState:r.round_state,receivedSource:r.received_source,analysisStarted:r.analysis_started,isRepeatChild:r.repeat_order_id!==null,previouslyFinalized:r.previously_finalized,
   openIdentityIssues:r.open_issues,lnVerifiedByPet:r.ln_verification==='VERIFIED_BY_PET',receiptIdentityAndLabel:check.identity===true&&check.label===true,
-  consentRevoked:r.revoked,consentRoundEvidence:r.consent_ev==='GRANTED'?'GRANTED':r.consent_ev==='DECLINED'?'DECLINED':r.consent_ev==='PAPER_SELECTED'?'PAPER_SELECTED':'NONE',requestRoundEvidence:r.request_ev==='VERIFIED'?'VERIFIED':'NONE',
+  consentRevoked:r.revoked,consentRoundEvidence:r.consent_ev==='GRANTED'?'GRANTED':r.consent_ev==='DECLINED'?'DECLINED':r.consent_ev==='PAPER_SELECTED'||r.lab_operational_route?'PAPER_SELECTED':'NONE',requestRoundEvidence:r.request_ev==='VERIFIED'?'VERIFIED':'NONE',
   clinicalState:r.clinical_state,collectionDates:dates,specimenAccepted:r.specimen_accepted===true};
 }
 export function candidatePrintedId(r:AttemptRow){

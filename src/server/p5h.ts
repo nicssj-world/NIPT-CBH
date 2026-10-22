@@ -9,6 +9,8 @@ import {p4Error,noStore} from "./p4";
 
 export {noStore};
 const MESSAGES:Record<string,string>={
+ MANUAL_PDF_IDENTITY_REQUIRED:"ยังทบทวน Manual ไม่ได้: ตรวจ LN, HN, ชื่อ และวันเกิดที่มีให้ตรงกับ Final PDF และแก้ข้อผิดพลาดในแถวก่อน ไม่ต้องสร้าง PET หรือ QC ใหม่",
+ MANUAL_PDF_HASH_MISMATCH:"ไฟล์ PDF ไม่ตรงกับหลักฐานที่บันทึกไว้ กรุณาตรวจต้นฉบับก่อนทบทวน",
  FORBIDDEN:"ไม่มีสิทธิ์ทำรายการนี้",NOT_FOUND:"ไม่พบรายการ หรือไม่มีสิทธิ์เห็นรายการนี้",
  TABLE_TYPE_NOT_SUPPORTED:"ตารางต้องเป็นไฟล์ .xlsx หรือ .csv",TABLE_EMPTY:"ไฟล์ตารางว่าง",TABLE_TOO_LARGE:"ไฟล์ตารางใหญ่เกิน 5 MB",UPLOAD_TOO_LARGE:"ไฟล์ที่อัปโหลดรวมกันใหญ่เกินกำหนด",TOO_MANY_FILES:"จำนวนไฟล์มากเกินกำหนด (สูงสุด 150 ไฟล์)",
  IDEMPOTENCY_KEY_INVALID:"รหัสป้องกันการส่งซ้ำไม่ถูกต้อง",IDEMPOTENCY_KEY_REUSED:"คำขอนี้ถูกใช้กับรายการอื่นแล้ว กรุณาโหลดหน้าใหม่",

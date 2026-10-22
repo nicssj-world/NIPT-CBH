@@ -1,5 +1,6 @@
 "use client";
 import {ManualStageMarkers} from "./manual-stages";
+import {ManualFinalReview} from "./manual-review";
 import Link from "next/link";
 import {Fragment,useCallback,useEffect,useRef,useState} from "react";
 import {labApi,failureText} from "../p4/lab-api";
@@ -67,7 +68,7 @@ export function HistoricalBatch({id,canImport,canReview}:{id:string;canImport:bo
   {error&&<p className="form-error" role="alert">{error}</p>}{notice&&<p role="status" className="status good">{notice}</p>}
   {waiting&&<p role="status">Worker กำลังตรวจตารางและ PDF ({BATCH_TEXT[data.batch.state]}) — หน้านี้จะอัปเดตเอง</p>}
   {data.batch.state==="Failed"&&<p className="form-error" role="alert">ตรวจตารางไม่สำเร็จ: {data.batch.error_code} — แก้ไฟล์แล้วอัปโหลดใหม่</p>}
-  {data.batch.state==="Staged"&&!data.ready&&<div className="panel" role="status"><strong>ยังยืนยันเป็นชุดไม่ได้ (Fail Closed)</strong><ul>{data.blockers.map(b=><li key={b}>{issueText(b)}</li>)}</ul>
+  {data.batch.state==="Staged"&&!data.ready&&<div className="panel" role="status"><strong>P5H Promotion ยังไม่เปิดใช้</strong><p>บันทึกงานกระดาษ นำเข้า PDF และทบทวน Final PDF — Manual ได้จากแต่ละแถว โดยไม่ต้องมีวัน Go-live หรือสร้าง PET/QC ใหม่ ข้อจำกัดต่อไปนี้ใช้กับการ Promote Historical Case เท่านั้น</p><ul>{data.blockers.map(b=><li key={b}>{issueText(b)}</li>)}</ul>
    {canImport&&<button className="button secondary" disabled={busy} onClick={()=>void act({action:"recheck"},"ตรวจสิทธิ์ใหม่แล้ว")}>ตรวจสิทธิ์อีกครั้ง (หลัง Owner อนุมัติ)</button>}</div>}
   {data.batch.state==="Staged"&&<>
    <div className="panel" aria-label="สรุป"><p><strong>{counts.total}</strong> แถว · พร้อมให้รับรอง <strong>{counts.ready}</strong> · ต้องแก้/ยังไม่มีสิทธิ์ <strong>{counts.problem}</strong> · นำเข้าแล้ว <strong>{counts.done}</strong></p>
@@ -82,7 +83,7 @@ export function HistoricalBatch({id,canImport,canReview}:{id:string;canImport:bo
       <tr><td>{r.rowNo}</td><td>{r.ln}</td><td>{r.identifiers.hn} · {r.identifiers.name}</td><td>{r.pdfName??"—"}</td>
        <td><span className={`status ${STATE_TONE[r.state]??""}`}>{STATE_TEXT[r.state]??r.state}</span></td>
        <td><ul className="plain">{[...r.issues.map(i=>({text:issueText(i.code),warn:i.severity==="WARN"})),...(r.state==="NotEligible"?(r.evaluation?.reasons??[]).map(x=>({text:issueText(x.code),warn:false})):[])].map((x,n)=><li key={n}>{x.warn?"⚠ ":""}{x.text}</li>)}</ul>{r.completeness?.status==="PARTIAL"&&<p className="hint">หลักฐานยังไม่ครบ: {r.completeness.missing.join(", ")}</p>}</td>
-       <td><ManualStageMarkers draftId={r.id} canWrite={canImport}/>{canImport&&["Draft","NotEligible","Discrepancy"].includes(r.state)&&<button className="button small secondary" onClick={()=>startEdit(r)} aria-label={`แก้ไขแถว ${r.rowNo}`}>แก้ไข</button>}</td></tr>
+       <td><ManualStageMarkers draftId={r.id} canWrite={canImport}/><ManualFinalReview batchId={id} draftId={r.id} pdfFileId={pdfFileId(r)}/>{canImport&&["Draft","NotEligible","Discrepancy"].includes(r.state)&&<button className="button small secondary" onClick={()=>startEdit(r)} aria-label={`แก้ไขแถว ${r.rowNo}`}>แก้ไข</button>}</td></tr>
       {editing===r.id&&<tr><td colSpan={7}><div className="panel"><h3>แก้ไขแถว {r.rowNo} (แก้เฉพาะช่องที่ผิด)</h3>
        <div className="form-grid">{EDIT_COLUMNS.map(c=><div className="field" key={c}><label htmlFor={`f-${r.id}-${c}`}>{COLUMN_LABEL[c]}</label><input id={`f-${r.id}-${c}`} value={patch[c]??r.cells[c]??""} onChange={e=>setPatch(p=>({...p,[c]:e.target.value}))}/></div>)}</div>
        <div className="field"><label htmlFor={`why-${r.id}`}>เหตุผลที่แก้ (อย่างน้อย 8 ตัวอักษร — ไม่ใส่เลขประจำตัว)</label><input id={`why-${r.id}`} value={reason} onChange={e=>setReason(e.target.value)}/></div>

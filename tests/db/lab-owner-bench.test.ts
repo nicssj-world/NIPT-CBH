@@ -10,6 +10,11 @@ import {benchAttemptEvidence} from '../../packages/lab/bench-evidence';
 import {recordActualPooling,exportSeqPair} from '../../packages/lab/seq-export';
 import {orderRedraw} from '../../packages/lab/intake';
 import {readArchive} from '../../packages/workbook/archive';
+import {linkCandidates,resultSettings} from '../../packages/results/service';
+import {syntheticReportPdf} from '../../tools/his-simulator/result-pdf';
+import {extract} from '../../packages/results/extract';
+import {parseReport} from '../../packages/results/parser';
+import {attemptFacts,commonFacts} from '../../packages/lab/core';
 it('LAB-13 bench persists per-slot QC and 9 standards, uses the saved revision for CSV, rejects stale and missing source',async()=>{
  const f=await inboundFixture();try{
   vi.stubEnv('NIPT_POOL_CSV_TEMPLATE','C:/Users/User/Downloads/Pooling Sheet Template_R001.csv');
@@ -49,6 +54,15 @@ it('LAB-13 bench persists per-slot QC and 9 standards, uses the saved revision f
   expect(pair.files).toHaveLength(2);expect(pair.halosPositions).toEqual([1,2,17,25,33]);
   const niftyXml=readArchive(await f.store.get(pair.files[0].sha256)).get('xl/worksheets/sheet1.xml')!.toString();
   expect(niftyXml).toContain('10/20/2026 11:00');expect(niftyXml).toContain('10/20/2026 12:00');
+  const sample=initial.slots.find(s=>s.slot===2)!;
+  const extracted=await extract(syntheticReportPdf({kind:'SINGLETON',labNumber:sample.sampleId.replace(/-1$/,''),hn:'9900012341',dob:'01-Jan-2000',collection:'20-Oct-2026',received:'20-Oct-2026',reported:'22-Oct-2026',gaWeeks:17,gaDays:6}));
+  if(extracted.container==='ZIP_BATCH')throw Error('PDF_EXPECTED');
+  const parsed=parseReport(extracted.text,'SYNTHETIC-S2.pdf');
+  const s2=(await linkCandidates(f.db,u.lab,parsed,await resultSettings(f.db))).find(c=>c.round.number===2)!;
+  expect(s2.cross).toMatchObject({dob:'MATCH',pregnancy:'MATCH',gestationalAge:'MATCH',collectionDate:'MATCH'});
+  const rawFacts=(await attemptFacts(f.db,'a.id=$1',[s2.attempt.id]))[0],facts=commonFacts(rawFacts);expect(facts.consentRoundEvidence).toBe('PAPER_SELECTED');
+  expect(commonFacts({...rawFacts,consent_ev:'DECLINED'}).consentRoundEvidence).toBe('DECLINED');
+  expect(commonFacts({...rawFacts,revoked:true}).consentRevoked).toBe(true);
   const replay=await tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:2,idempotencyKey:key},deps));expect(replay.id).toBe(pair.id);
   await expect(f.db.query('DELETE FROM lab_actual_pooling')).rejects.toThrow();
   values['seq.operator']='SYNTHETIC LAB SEQ';await save(2);
