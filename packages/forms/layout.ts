@@ -53,12 +53,16 @@ function gpaItems(gpa:RequestFields['gpa']):OverlayItem[]{
  return items;
 }
 const CLAUSE_ROWS=[687.8,657.9,628.1,598.1,568.3,519.4,472.5,442.6,412.7,382.9,338.3,323.1];
+/** Owner-authorized rendered signature block; installed original remains hash-identical. */
+export const CONSENT_SIGNATURE_MASKS=[{x:38,y:133,width:517,height:82}];
+export const CONSENT_SIGNATURE_LAYOUT={patient:{x:80,y:178,width:205,height:24},doctor:{x:325,y:178,width:220,height:24}};
 export function consentItems(f:ConsentFields):OverlayItem[]{
  return [
   ...CLAUSE_ROWS.flatMap((y,i)=>check(f.acknowledged[i]===true,536,y+3.5)),
   ...check(f.decision==='Granted',373.35,247),...check(f.decision==='Declined',373.35,228.9),
-  ...text(105,170.5,178,f.patientName,10,{align:'center',lines:2}),...text(325,170.5,220,f.doctor,10,{align:'center',lines:2}),
-  ...text(101,149.5,180,f.patientSignedDate,10),
+  ...text(55,205,230,'ผู้รับบริการ / ผู้แทนโดยชอบธรรม',9,{align:'center'}),...text(325,205,220,'แพทย์ผู้สั่งตรวจ',9,{align:'center'}),
+  ...text(55,164,230,f.patientName,10,{align:'center',lines:2}),...text(325,164,220,f.doctor,10,{align:'center',lines:2}),
+  ...text(55,138,230,f.patientSignedDate?`วันที่ ${f.patientSignedDate}`:'วันที่',9,{align:'center'}),
  ];
 }
 export const REQUEST_PAGE={width:595.2,height:841.92},CONSENT_PAGE={width:594.96,height:842.04};

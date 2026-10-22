@@ -19,9 +19,9 @@ describe('ANC form field mapping',()=>{
  });
 
  it('keeps a legacy signature as history without projecting its choice, date or acknowledgments onto the current DCC preview',()=>{
-  const legacy={payload:{signature:{decision:'Granted',signed_at:'2026-10-12T02:00:00Z'},acknowledgments:Array.from({length:12},(_,i)=>({item:i+1}))}};
+  const legacy={content_hash:'a'.repeat(64),payload:{signature:{decision:'Granted',signed_at:'2026-10-12T02:00:00Z'},acknowledgments:Array.from({length:12},(_,i)=>({item:i+1}))}};
   const before=structuredClone(legacy);
-  const result=consentFields(base(structuredClone(emptyRequest),{consentDoc:{id:'legacy',payload:{doctor:{id:'d1'}}},final:legacy}));
+  const result=consentFields(base(structuredClone(emptyRequest),{consentDoc:{round_id:'r',template_version:'CBH-FM02-v1',content_hash:'a'.repeat(64),id:'legacy',payload:{doctor:{id:'d1'}}},final:legacy}));
   expect(result).toMatchObject({status:'LEGACY_ELECTRONIC',fields:{decision:null,patientSignedDate:null}});
   expect(result.fields.acknowledged.some(Boolean)).toBe(false);expect(consentItems(result.fields).filter(i=>i.kind==='check')).toEqual([]);
   expect(legacy).toEqual(before);
@@ -42,11 +42,11 @@ describe('ANC form field mapping',()=>{
  it('consent: unsigned → nothing ticked; completed signing → 12 ticks, decision and signing date; partial evidence → no ticks',()=>{
   const unsigned=consentFields(base(structuredClone(emptyRequest)));
   expect(unsigned).toMatchObject({status:'UNSIGNED',fields:{decision:null,patientSignedDate:null}});expect(consentItems(unsigned.fields).filter(i=>i.kind==='check')).toEqual([]);
-  const final=(n:number)=>({payload:{consentContent:DCC_CONSENT,signature:{decision:'Granted',signed_at:'2026-10-12T02:00:00Z'},acknowledgments:Array.from({length:n},(_,i)=>({item:i+1,clauseId:DCC_CONSENT.clauses[i]?.id,contentVersion:DCC_CONSENT.id,contentSha256:DCC_CONSENT.sha256}))}});
-  const signed=consentFields(base(structuredClone(emptyRequest),{consentDoc:{id:'doc',payload:{doctor:{id:'d1'},consentContent:DCC_CONSENT}},final:final(12)}));
+  const final=(n:number)=>({content_hash:'a'.repeat(64),payload:{consentContent:DCC_CONSENT,signature:{decision:'Granted',signed_at:'2026-10-12T02:00:00Z'},acknowledgments:Array.from({length:n},(_,i)=>({item:i+1,clauseId:DCC_CONSENT.clauses[i]?.id,contentVersion:DCC_CONSENT.id,contentSha256:DCC_CONSENT.sha256}))}});
+  const signed=consentFields(base(structuredClone(emptyRequest),{consentDoc:{round_id:'r',template_version:'CBH-FM02-v1',content_hash:'a'.repeat(64),id:'doc',payload:{doctor:{id:'d1'},consentContent:DCC_CONSENT}},final:final(12)}));
   expect(signed).toMatchObject({status:'SIGNED_ELECTRONIC',fields:{decision:'Granted',patientSignedDate:'12/10/2569'}});expect(signed.fields.acknowledged.every(Boolean)).toBe(true);
   expect(consentItems(signed.fields).filter(i=>i.kind==='check')).toHaveLength(13); // 12 clauses + ยินยอม
-  expect(consentFields(base(structuredClone(emptyRequest),{consentDoc:{id:'doc',payload:{}},final:final(11)})).fields.acknowledged.some(Boolean)).toBe(false);
+  expect(consentFields(base(structuredClone(emptyRequest),{consentDoc:{round_id:'r',template_version:'CBH-FM02-v1',content_hash:'a'.repeat(64),id:'doc',payload:{}},final:final(11)})).fields.acknowledged.some(Boolean)).toBe(false);
   expect(consentFields(base(structuredClone(emptyRequest),{revoked:true})).status).toBe('REVOKED');
   const paper=consentFields(base(structuredClone(emptyRequest),{paperConsent:{panel:{decision:'Declined'}}}));expect(paper).toMatchObject({status:'PAPER_VERIFIED',fields:{decision:'Declined',patientSignedDate:null}});
   expect(paper.fields.acknowledged.some(Boolean)).toBe(false); // paper ticks are on the paper original, not invented
@@ -58,6 +58,6 @@ describe('ANC form field mapping',()=>{
  it('the doctor printed is the registry doctor of the request; an inactive or mismatched doctor is left blank, never replaced',()=>{
   const d=structuredClone(emptyRequest);
   expect(requestFields(base(d,{doctor:{id:'d1',name:'SYNTHETIC นพ.ทะเบียน',doctor_key:'K',active:false}})).fields.doctor).toBeNull();
-  const mismatch=consentFields(base(d,{consentDoc:{id:'doc',payload:{doctor:{id:'other'}}}}));expect(mismatch).toMatchObject({doctorMismatch:true,fields:{doctor:null}});
+  const mismatch=consentFields(base(d,{consentDoc:{round_id:'r',template_version:'CBH-FM02-v1',content_hash:'a'.repeat(64),id:'doc',payload:{doctor:{id:'other'}}}}));expect(mismatch).toMatchObject({doctorMismatch:true,fields:{doctor:null}});
  });
 });

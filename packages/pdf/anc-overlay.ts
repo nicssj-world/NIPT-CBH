@@ -2,7 +2,7 @@ import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {z} from 'zod';
 import {chromium} from 'playwright';
-import {PDFDocument} from 'pdf-lib';
+import {PDFDocument,rgb} from 'pdf-lib';
 import type {OverlayPage} from '../forms/layout';
 
 // ANC form preview = the unchanged DCC PDF page (embedded as a vector form XObject) + a transparent overlay page carrying only the
@@ -67,11 +67,13 @@ export async function requestAncOverlay(input:z.infer<typeof overlaySchema>):Pro
 }
 export async function joinPdfs(parts:Buffer[]){const d=await PDFDocument.create();for(const b of parts){const s=await PDFDocument.load(b);for(const p of await d.copyPages(s,s.getPageIndices()))d.addPage(p);}return Buffer.from(await d.save());}
 /** Template page (vector, unchanged) with the overlay page drawn on top, page by page, at the template's own size. */
-export async function composeForms(pages:{template:Buffer;overlay:Buffer;width:number;height:number}[],title:string){
+export async function composeForms(pages:{template:Buffer;overlay:Buffer;width:number;height:number;masks?:{x:number;y:number;width:number;height:number}[]}[],title:string){
  const out=await PDFDocument.create();out.setTitle(title);out.setCreator('NIPT-CBH ANC form preview');out.setProducer('NIPT-CBH');
  for(const p of pages){
   const [bg]=await out.embedPdf(p.template,[0]),[ov]=await out.embedPdf(p.overlay,[0]);
-  const page=out.addPage([p.width,p.height]);page.drawPage(bg,{x:0,y:0,width:p.width,height:p.height});page.drawPage(ov,{x:0,y:0,width:p.width,height:p.height});
+  const page=out.addPage([p.width,p.height]);page.drawPage(bg,{x:0,y:0,width:p.width,height:p.height});
+  for(const mask of p.masks??[])page.drawRectangle({...mask,color:rgb(1,1,1)});
+  page.drawPage(ov,{x:0,y:0,width:p.width,height:p.height});
  }
  return Buffer.from(await out.save());
 }

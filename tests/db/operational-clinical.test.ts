@@ -18,11 +18,11 @@ it('requires a current verified Request; a Paper Consent marker proceeds without
  expect((await getCase(db,reviewer,caseId)).workspace).toMatchObject({request_mode:'Paper',consent_mode:'Electronic'});
  expect((await db.query('SELECT p2_clinical_documents_ready($1) AS ready',[round])).rows[0]).toEqual({ready:false});
  await expect(approveClinicalP2(db,reviewer,caseId,review)).rejects.toThrow('CURRENT_GRANTED_CONSENT_REQUIRED');
- await setModes(db,lab,caseId,{expectedVersion:0,requestMode:'Paper',consentMode:'Paper',reason:'ANC/Lab เลือกใช้ Paper Consent'});
+ await setModes(db,lab,caseId,{expectedVersion:0,requestMode:'Paper',consentMode:'Paper'});
  // Owner 2026-10-18: the marker alone (consent_mode='Paper') is enough; no print, upload, receipt or verification of the consent paper.
  expect((await getCase(db,reviewer,caseId)).workspace.consent_mode).toBe('Paper');
  expect((await db.query("SELECT count(*)::int n FROM p2_paper_review WHERE round_id=$1 AND kind='CONSENT'",[round])).rows[0]).toEqual({n:0});
- expect((await db.query('SELECT p2_clinical_documents_ready($1) AS ready',[round])).rows[0]).toEqual({ready:true});
+ expect((await db.query('SELECT p2_clinical_documents_ready($1) AS ready',[round])).rows[0]).toEqual({ready:true});expect((await getCase(db,reviewer,caseId)).readiness).toMatchObject({state:'PendingClinicalReview',missing:[],canReview:true});expect((await getCase(db,lab,caseId)).readiness.canReview).toBe(false);
  const current={...review,expectedVersion:(await getCase(db,reviewer,caseId)).workspace.version};
  await expect(approveClinicalP2(db,lab,caseId,current)).rejects.toThrow('FORBIDDEN');
  const approved=await approveClinicalP2(db,reviewer,caseId,current);expect(approved).toMatchObject({passed:true,state:'ClinicalPassed',reviewerId:reviewer.id});expect((await db.query('SELECT p2_clinical_ready($1) AS ready',[round])).rows[0]).toEqual({ready:true});expect((await getCase(db,reviewer,caseId)).gate.passed).toBe(true);

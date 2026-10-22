@@ -73,3 +73,52 @@
   .anc-case-workspace .p2-dialog .request-steps {grid-template-columns: repeat(2, minmax(0, 1fr));}
   .anc-case-workspace .request-steps .button:last-child {grid-column: 1 / -1;}
 }
+
+/* Request groups use one rhythm; label space is content-driven, never a blank row. */
+.p2-dialog:has(.request-steps) .request-section {gap: 20px;}
+.p2-dialog:has(.request-steps) .request-section > :is(h3,h4,p) {margin: 0;}
+.p2-dialog .request-section :is(.field > label,.request-choice > legend) {
+  min-height: 0;
+  margin-bottom: 8px;
+  display: block;
+  line-height: 1.5;
+}
+.p2-dialog .request-section :is(.request-patient-grid,.request-pregnancy-grid) > .field > label,
+.p2-dialog .request-section :is(.request-patient-grid,.request-pregnancy-grid) > .request-choice > legend {min-height: 0;display: block;}
+.p2-dialog .request-section :is(.form-grid,.request-patient-grid,.request-pregnancy-grid) {row-gap: 24px;align-items: start;}
+.p2-dialog .request-section .history-fact {padding: 0 0 20px;margin: 0;}
+.p2-dialog .request-section .history-fact:last-child {border-bottom: 0;padding-bottom: 0;}
+.p2-dialog .request-section .history-fact .request-choice {margin: 0;}
+.p2-dialog .request-section > label.check-label.dcc-condition {align-items: flex-start;margin: 0;gap: 12px;line-height: 1.65;}
+.p2-dialog .request-section > label.check-label.dcc-condition input {flex: 0 0 auto;margin-top: 5px;}
+.p2-dialog .request-section .request-doctor-fields {display: grid;gap: 16px;}
+.p2-dialog .request-section .calculated-value {display: flex;align-items: center;min-height: var(--ui-control-height);padding: 10px 14px;background: var(--info-bg);color: var(--color-brand);border-radius: var(--ui-control-radius);font-size: 18px;font-weight: 600;font-variant-numeric: tabular-nums;}
+.p2-dialog:has(.request-steps) .save-status {max-width: none;flex-wrap: wrap;gap: 0 5px;border-radius: 10px;line-height: 1.6;}
+.p2-dialog:has(.request-steps) .request-footer {margin-top: 24px;padding-top: 20px;}
+.p2-dialog:has(.request-steps) .request-radio {min-height: 48px;}
+
+/* Outlined destructive actions retain readable danger text on hover and when disabled. */
+:is(.workspace,.p2-dialog) .button.danger.secondary {background: var(--color-surface);color: var(--color-danger);border-color: var(--color-danger);}
+:is(.workspace,.p2-dialog) .button.danger.secondary:hover:not(:disabled) {background: var(--bad-bg);color: var(--color-danger);border-color: var(--color-danger);}
+:is(.workspace,.p2-dialog) .button.danger.secondary:disabled {background: var(--raised);color: var(--color-muted);border-color: var(--color-line);opacity: 1;cursor: not-allowed;}
+
+.clinical-readiness .clinical-readiness-header {display: flex;align-items: flex-start;justify-content: space-between;gap: 16px;margin-bottom: 16px;}
+.clinical-readiness .clinical-readiness-header h2 {margin: 0 0 12px;}
+.clinical-readiness > p {margin: 12px 0 20px;}
+.clinical-readiness .clinical-pending {padding: 16px;background: var(--raised);border-radius: 10px;margin-bottom: 20px;}
+.clinical-readiness .clinical-pending p {margin: 0;font-weight: 600;}
+.clinical-readiness .clinical-pending ul {margin: 8px 0 16px;padding-left: 22px;}
+.clinical-readiness .clinical-facts {display: grid;grid-template-columns: repeat(2,minmax(0,1fr));gap: 24px;}
+.clinical-readiness .clinical-facts h3 {margin: 0 0 12px;font-size: 15px;}
+.clinical-readiness .clinical-facts dl {display: grid;grid-template-columns: minmax(120px,.9fr) minmax(0,1.1fr);gap: 12px 16px;margin: 0;font-size: 14px;}
+.clinical-readiness .clinical-facts :is(dt,dd) {margin: 0;line-height: 1.6;overflow-wrap: anywhere;}
+.clinical-readiness .clinical-provenance {margin-top: 24px;border-top: 1px solid var(--color-line);padding-top: 16px;}
+.clinical-readiness .clinical-provenance summary {min-height: 44px;}
+.clinical-readiness .clinical-provenance li {margin-top: 12px;overflow-wrap: anywhere;font-size: 13px;}
+@media (max-width: 900px) {.clinical-readiness .clinical-facts {grid-template-columns: minmax(0,1fr);}}
+@media (max-width: 600px) {
+  .clinical-readiness .clinical-readiness-header {flex-direction: column;}
+  .clinical-readiness .clinical-facts dl {grid-template-columns: minmax(0,1fr);gap: 4px;}
+  .clinical-readiness .clinical-facts dd {margin-bottom: 12px;}
+  .p2-dialog .request-section :is(.field > label,.request-choice > legend) {min-height: 0;}
+}

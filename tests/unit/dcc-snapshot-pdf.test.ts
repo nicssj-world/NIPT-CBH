@@ -8,7 +8,7 @@ import {snapshotConsentFields} from '../../packages/pdf/dcc-snapshot';
 import {joinPdfs} from '../../packages/pdf/anc-overlay';
 import {deriveSignature} from '../../packages/p2/signature';
 import {DCC_CONSENT} from '../../packages/forms/consent-content';
-import {CONSENT_PAGE,REQUEST_PAGE} from '../../packages/forms/layout';
+import {CONSENT_PAGE,REQUEST_PAGE,CONSENT_SIGNATURE_LAYOUT} from '../../packages/forms/layout';
 import {FORM_ASSETS,stageFormAssets,releaseFormEnvironment} from '../../tools/win-installer/form-assets.mjs';
 import {sha256Bytes} from '../../tools/win-installer/lib.mjs';
 
@@ -52,7 +52,7 @@ describe.skipIf(!process.env.NIPT_ANC_REQUEST_PDF||!process.env.NIPT_ANC_CONSENT
   const consent=base();const unsigned=await renderP2Pdf(consent),unsignedInfo=await inspect(unsigned);
   const signed=await renderP2Pdf({...consent,finalConsent:final()}),signedInfo=await inspect(signed);
   expect(unsignedInfo.pages).toBe(1);expect(signedInfo.pages).toBe(1);expect(signedInfo.images).toBe(unsignedInfo.images+1);
-  for(const [matrix,minX] of signedInfo.imageMatrices.slice(-2).map((m,i)=>[m,i===0?350:115] as const)){expect(matrix[4]).toBeGreaterThanOrEqual(minX);expect(matrix[4]+matrix[0]).toBeLessThanOrEqual(minX+130);expect(matrix[5]).toBeCloseTo(185,1);expect(matrix[3]).toBeCloseTo(26,1);}
+  for(const [matrix,box] of signedInfo.imageMatrices.slice(-2).map((m,i)=>[m,i===0?CONSENT_SIGNATURE_LAYOUT.doctor:CONSENT_SIGNATURE_LAYOUT.patient] as const)){expect(matrix[4]).toBeGreaterThanOrEqual(box.x);expect(matrix[4]+matrix[0]).toBeLessThanOrEqual(box.x+box.width);expect(matrix[5]).toBeCloseTo(box.y,1);expect(matrix[3]).toBeCloseTo(box.height,1);}
   expect(unsignedInfo.text).toContain('UNSIGNED');expect(signedInfo.text).toContain('DRAFT / DCC NOT APPROVED');expect(signedInfo.text).toContain('signed evidence recorded');
   const request=base('REQUEST'),withDoctor=await renderP2Pdf(request);request.payload.doctor={name:'SYNTHETIC doctor'};
   const noDoctor=await renderP2Pdf(request);expect((await inspect(withDoctor)).images).toBe((await inspect(noDoctor)).images+1);

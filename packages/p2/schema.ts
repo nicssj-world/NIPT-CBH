@@ -25,7 +25,8 @@ export function calculations(d:RequestDraft){
  const p=d.pregnancy;
  const gaDays=p.edd&&p.collectionDate?280+Math.round((Date.parse(p.collectionDate)-Date.parse(p.edd))/86400000):null;
  const bmi=p.weightKg!==null&&p.heightCm!==null&&p.heightCm>0?p.weightKg/(p.heightCm/100)**2:null;
- const ageYears=d.patient.ageYears??null;
+ const birth=d.patient.dob,at=p.collectionDate;
+ const ageYears=birth&&at&&birth<=at?Number(at.slice(0,4))-Number(birth.slice(0,4))-(at.slice(5)<birth.slice(5)?1:0):null;
  return {gaDays,gaWeeks:gaDays!==null?Math.floor(gaDays/7):null,gaRemainder:gaDays!==null?gaDays%7:null,bmi,ageYears};
 }
 export function requestIssues(d:RequestDraft){
@@ -38,7 +39,7 @@ export function requestIssues(d:RequestDraft){
  if(h.otherHistory==='Yes'&&!h.otherDetails)issues.push('history.otherDetails');
  if(p.type==='Singleton'&&(!p.fetalSex||p.fetalSex==='Unspecified'))issues.push('pregnancy.fetalSex');
  if(p.type==='Twins'&&p.fetalSex!==null&&p.fetalSex!=='Unspecified')issues.push('pregnancy.twinsNoEachFetusSex');
- if(!p.sca||p.sca==='Unspecified')issues.push('pregnancy.sca.ClarificationRequired');
+ if(d.patient.dob&&p.collectionDate&&d.patient.dob>p.collectionDate)issues.push('patient.dob');
  if(!p.vanishingTwin||p.vanishingTwin==='Unknown')issues.push('pregnancy.vanishingTwin');
  if(p.vanishingTwin==='Yes'&&(!p.vanishingDate||p.vanishingGaDays===null))issues.push('pregnancy.vanishingDetails');
  if(c.bmi===null)issues.push('pregnancy.bmi.NotEvaluable');
@@ -59,7 +60,7 @@ export function requestProgressIssues(raw:unknown):string[]{
 }
 export function evaluateClinical(d:RequestDraft,dateConflict=false){
  const c=calculations(d),issues=requestIssues(d),h=d.history;
- const invalid=c.gaDays!==null&&(c.gaDays<0||c.gaDays>315)||c.ageYears!==null&&c.ageYears<0;
+ const invalid=c.gaDays!==null&&(c.gaDays<0||c.gaDays>315)||!!(d.patient.dob&&d.pregnancy.collectionDate&&d.patient.dob>d.pregnancy.collectionDate)||c.ageYears!==null&&c.ageYears<0;
  const answerConflict=c.gaDays!==null&&['Yes','No'].includes(h.gaUnder8??'')&&((c.gaDays<56)!==(h.gaUnder8==='Yes'));
  const negative=[h.transfusion4months.answer,h.heparin24h.answer,h.immune1month.answer,h.cancerTreatment,h.gaUnder8].includes('Yes');
  const state=dateConflict||invalid||answerConflict?'ClinicalDataConflict':negative?'BlockedWithReason':issues.length?'PendingData':'PendingClinicalReview';
