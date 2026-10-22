@@ -8,6 +8,8 @@ import {workbookWorkspace,saveWorkbookDraft} from '../../packages/workbook/servi
 import {benchPooling,benchExport,benchWorkspace} from '../../packages/lab/bench';
 import {benchAttemptEvidence} from '../../packages/lab/bench-evidence';
 import {recordActualPooling,exportSeqPair} from '../../packages/lab/seq-export';
+import {orderRedraw} from '../../packages/lab/intake';
+import {readArchive} from '../../packages/workbook/archive';
 it('LAB-13 bench persists per-slot QC and 9 standards, uses the saved revision for CSV, rejects stale and missing source',async()=>{
  const f=await inboundFixture();try{
   vi.stubEnv('NIPT_POOL_CSV_TEMPLATE','C:/Users/User/Downloads/Pooling Sheet Template_R001.csv');
@@ -18,7 +20,8 @@ it('LAB-13 bench persists per-slot QC and 9 standards, uses the saved revision f
    const ln='99000123456'+n,hn='990001234'+n;
    const r=await tx(f.db,db=>registerP2(db,u.lab,{ln,hn,unitId:u.unit,origin:'LAB_DIRECT',idempotencyKey:'lab_owner_bench_case_'+n,labOperational:{gaWeeks:17,gaDays:6,edd:'2027-03-24',pregnancy:'Singleton',paperRequest:true,paperConsent:true}},f.lookupKey,{store:f.store}));
    await writePet(f.root,'20261020',{ln,hn,orderAt:'20261020070000',specimenAt:'20261020080000',receivedAt:'20261020100000'});await cycle(f,{now:new Date('2026-10-20T05:00:00Z')});
-   const attempt=(await f.db.query<{id:string}>('SELECT id FROM analytical_attempt WHERE case_id=$1',[r.caseId])).rows[0].id;
+   if(n===1){await tx(f.db,db=>orderRedraw(db,checker,{caseId:r.caseId,reasonCode:'OTHER',note:'LOCAL TEST new S2 keeps recorded LAB paper markers and current PET source'}));await writePet(f.root,'20261020',{ln,hn,orderAt:'20261020070000',specimenAt:'20261020110000',receivedAt:'20261020120000'});await cycle(f,{now:new Date('2026-10-20T06:00:00Z')});}
+   const attempt=(await f.db.query<{id:string}>('SELECT a.id FROM analytical_attempt a JOIN nipt_case c ON c.current_round_id=a.round_id WHERE a.case_id=$1',[r.caseId])).rows[0].id;
    await tx(f.db,async db=>assignToBatch(db,u.lab,{batchId:id,expectedVersion:await version(),attemptIds:[attempt],sheetNumber:n}));
    await tx(f.db,async db=>updateSheetPlan(db,u.lab,{batchId:id,expectedVersion:await version(),sheetNumber:n,plannedWorkDate:'2026-10-20',plannedOperator:'SYNTHETIC LAB',plannedExtractionLot:null,plannedExtractionExpiry:null,plannedLibraryLot:null,plannedLibraryExpiry:null}));
    await tx(f.db,async db=>planCheck(db,u.lab,{batchId:id,expectedVersion:await version(),sheetNumber:n,confirm:{controlsAtTemplate:true,identifiersMatch:true,noDuplicates:true}}));
@@ -44,6 +47,8 @@ it('LAB-13 bench persists per-slot QC and 9 standards, uses the saved revision f
   expect(actual.current).toBe(true);
   const key=crypto.randomUUID(),pair=await tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:2,idempotencyKey:key},deps));
   expect(pair.files).toHaveLength(2);expect(pair.halosPositions).toEqual([1,2,17,25,33]);
+  const niftyXml=readArchive(await f.store.get(pair.files[0].sha256)).get('xl/worksheets/sheet1.xml')!.toString();
+  expect(niftyXml).toContain('10/20/2026 11:00');expect(niftyXml).toContain('10/20/2026 12:00');
   const replay=await tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:2,idempotencyKey:key},deps));expect(replay.id).toBe(pair.id);
   await expect(f.db.query('DELETE FROM lab_actual_pooling')).rejects.toThrow();
   values['seq.operator']='SYNTHETIC LAB SEQ';await save(2);

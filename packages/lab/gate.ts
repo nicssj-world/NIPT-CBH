@@ -29,7 +29,7 @@ export function commonPredicates(f: CommonFacts): Predicate[] {
     : f.receiptIdentityAndLabel ? p("BG-03", "PASS", "RECEIPT_IDENTITY_AND_LABEL_CHECKED") : p("BG-03", "FAIL", "RECEIPT_CHECK_INCOMPLETE");
   const bg04 = f.consentRevoked ? p("BG-04", "FAIL", "CONSENT_REVOKED") : f.consentRoundEvidence === "GRANTED" ? p("BG-04", "PASS", "CONSENT_GRANTED")
     : f.consentRoundEvidence === "PAPER_SELECTED" ? p("BG-04", "PASS", "PAPER_CONSENT_SELECTED")
-    : f.consentRoundEvidence === "DECLINED" ? p("BG-04", "FAIL", "CONSENT_DECLINED") : f.roundNumber >= 2 ? p("BG-04", "PENDING", "REDRAW_CONSENT_APPLICABILITY", "OD-16") : p("BG-04", "FAIL", "CONSENT_NOT_GRANTED");
+    : f.consentRoundEvidence === "DECLINED" ? p("BG-04", "FAIL", "CONSENT_DECLINED") : f.labOperationalRoute ? p("BG-04", "PASS", "LAB_PAPER_CONSENT_PRESENT") : f.roundNumber >= 2 ? p("BG-04", "PENDING", "REDRAW_CONSENT_APPLICABILITY", "OD-16") : p("BG-04", "FAIL", "CONSENT_NOT_GRANTED");
   const bg05 = f.labOperationalRoute ? p("BG-05","PASS","LAB_PAPER_REQUEST_PRESENT") : f.requestRoundEvidence === "VERIFIED" ? p("BG-05", "PASS", "REQUEST_VERIFIED") : f.roundNumber >= 2 ? p("BG-05", "PENDING", "REDRAW_REQUEST_APPLICABILITY", "OD-16") : p("BG-05", "FAIL", "REQUEST_NOT_VERIFIED");
   const bg06 = f.labOperationalRoute&&!f.clinicalState ? p("BG-06","PASS","OWNER_LAB_DIRECT_PAPER_ROUTE") : f.clinicalState==='ClinicalPassed'?p('BG-06','PASS','CURRENT_CLINICAL_REVIEW_ACCEPTED'):f.clinicalState === "PendingClinicalReview" ? p("BG-06", "PENDING", "CLINICAL_RULES_NOT_APPROVED", "OD-08") : f.clinicalState ? p("BG-06", "FAIL", `CLINICAL_${f.clinicalState.replace(/[^A-Za-z]/g, "_").toUpperCase()}`) : p("BG-06", "FAIL", "CLINICAL_NOT_ASSESSED");
   const dates = new Set(f.collectionDates);
