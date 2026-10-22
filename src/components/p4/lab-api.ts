@@ -1,11 +1,12 @@
 "use client";
+import {notifySavedCommand} from "../shared/save-notice";
 import {csrf} from "../p2/shared";
 import {displayBeDateTime} from "../../../packages/domain/thai-date";
 export class LabFailure extends Error{constructor(public code:string,public text:string,public details?:unknown,public status=400){super(code);}}
 /** JSON API call that keeps the server's Thai explanation and structured details (e.g. Finalize Gate failures). */
 export async function labApi<T>(path:string,body?:unknown):Promise<T>{
  const r=await fetch(path,{method:body===undefined?"GET":"POST",cache:"no-store",headers:body===undefined?{}:{"content-type":"application/json","x-csrf-token":csrf()},...(body===undefined?{}:{body:JSON.stringify(body)})});
- const d=await r.json().catch(()=>({}));if(!r.ok)throw new LabFailure(d.code??"REQUEST_FAILED",d.error??"ทำรายการไม่สำเร็จ กรุณาลองอีกครั้ง",d.details,r.status);return d as T;
+ let parsed=true;const d=await r.json().catch(()=>{parsed=false;return {};});if(!r.ok)throw new LabFailure(d.code??"REQUEST_FAILED",d.error??"ทำรายการไม่สำเร็จ กรุณาลองอีกครั้ง",d.details,r.status);if(parsed)notifySavedCommand(path,body);return d as T;
 }
 /** POST that returns a PDF; opens it in a new tab for preview/print from the browser's PDF viewer. */
 export async function labPdf(path:string,body:unknown){

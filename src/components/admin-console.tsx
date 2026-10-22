@@ -1,4 +1,5 @@
 "use client";
+import {notifySavedCommand} from "./shared/save-notice";
 import {useCallback,useEffect,useRef,useState} from 'react';
 import type {AdminUser} from '../../packages/admin/service';
 type Unit={id:string;code:string;name:string;active:boolean;version:number};
@@ -6,7 +7,7 @@ type Access={id:string;kind:string;state:string;expected_version:number;current_
 type Data={users:{rows:AdminUser[];total:number};units:{rows:Unit[];total:number};requests:Access[];referencedUnits:Unit[];roles:string[];sensitiveRoles:string[];userId:string;canWrite:boolean;canApprove:boolean};
 export const thaiTime=(v:string|Date|null)=>v?new Date(v).toLocaleString('th-TH',{timeZone:'Asia/Bangkok'}):'ยังไม่มีหลักฐาน';
 export function Required(){return <span className="required" aria-hidden="true"> *</span>;}
-export async function mutate(url:string,input:unknown){const me=await fetch('/api/me',{cache:'no-store'}).then(r=>r.json());const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','x-csrf-token':me.csrf},body:JSON.stringify(input)});const d=await r.json();if(!r.ok)throw Error(d.error??'ทำรายการไม่สำเร็จ');return d;}
+export async function mutate(url:string,input:unknown){const me=await fetch('/api/me',{cache:'no-store'}).then(r=>r.json());const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','x-csrf-token':me.csrf},body:JSON.stringify(input)});const d=await r.json();if(!r.ok)throw Error(d.error??'ทำรายการไม่สำเร็จ');notifySavedCommand(url,input);return d;}
 export function Pagination({page,total,onChange}:{page:number;total:number;onChange:(n:number)=>void}){return <div className="row"><button className="button secondary" disabled={page===1} onClick={()=>onChange(page-1)}>ก่อนหน้า</button><span>หน้า {page} · {total} รายการ</span><button className="button secondary" disabled={page*20>=total} onClick={()=>onChange(page+1)}>ถัดไป</button></div>;}
 export function useUnsaved(dirty:boolean){useEffect(()=>{const warn=(e:BeforeUnloadEvent)=>{if(dirty){e.preventDefault();e.returnValue='';}};const click=(e:MouseEvent)=>{if(dirty&&(e.target as Element)?.closest('a[href]')&&!window.confirm('มีข้อมูลยังไม่บันทึก ต้องการออกจากหน้านี้หรือไม่?')){e.preventDefault();e.stopPropagation();}};window.addEventListener('beforeunload',warn);document.addEventListener('click',click,true);return()=>{window.removeEventListener('beforeunload',warn);document.removeEventListener('click',click,true);};},[dirty]);}
 export function AdminConsole({mode}:{mode:'users'|'units'}){

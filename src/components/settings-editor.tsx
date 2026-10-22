@@ -1,4 +1,5 @@
 "use client";
+import {notifySaved} from "./shared/save-notice";
 import {useEffect,useMemo,useState} from "react";
 import {HisSettingsStatus} from "./his-settings-status";
 import {HisProfileFields,HisCertifierFields} from './his-profile-fields';
@@ -27,7 +28,7 @@ export function SettingsEditor(){
  async function load(){const r=await fetch("/api/settings");if(!r.ok)throw new Error();const d=await r.json();setUserId(d.userId);setCertifierUsers(d.certifierUsers??[]);setCanApprove(d.canApprove);setCanRetry(d.canRetry);setCatalog(d.catalog);setRevisions(d.revisions);setForms(d.forms);setActive(d.active);setCoverage(d.coverage);setCategories(d.coverageCategories);return d as {catalog:Category[];active:Values};}
  useEffect(()=>{const wanted=params.get("key")??"general";Promise.resolve().then(load).then(d=>{const k=d.catalog.some(c=>c.key===wanted)?wanted:"general";setKey(k);setValue(startValue(k,d.catalog,d.active));}).catch(()=>setError("โหลดการตั้งค่าไม่ได้ กรุณาโหลดหน้านี้ใหม่"));},[params]);
  useUnsaved(dirty);
- async function action(operation:string,id?:string){setBusy(true);setError("");setMessage("");try{const me=await fetch("/api/me").then(r=>r.json());const input={operation,id,key,value:operation==="propose"?value:undefined,reason};const r=await fetch("/api/settings",{method:"POST",headers:{"Content-Type":"application/json","x-csrf-token":me.csrf},body:JSON.stringify(input)});const data=await r.json();if(!r.ok){setError(data.error);return;}
+ async function action(operation:string,id?:string){setBusy(true);setError("");setMessage("");try{const me=await fetch("/api/me").then(r=>r.json());const input={operation,id,key,value:operation==="propose"?value:undefined,reason};const r=await fetch("/api/settings",{method:"POST",headers:{"Content-Type":"application/json","x-csrf-token":me.csrf},body:JSON.stringify(input)});const data=await r.json();if(!r.ok){setError(data.error);return;}if(operation==="propose"||operation==="activate"||operation==="approve")notifySaved();
   setMessage(data.queued?"เข้าคิวทดสอบที่ Worker แล้ว — รอผลในส่วน Test Connection ด้านล่าง แล้วบันทึกผลทดสอบผ่าน":operation==="propose"?"บันทึกร่างแล้ว — กด ทดสอบร่าง ในรายการรุ่นด้านล่างก่อนส่งอนุมัติ":operation==="validate"?"ทดสอบร่างแล้ว ตรวจผลในรายการรุ่น":"บันทึกการเปลี่ยนแปลงแล้ว ตรวจสถานะรุ่นด้านล่าง");setDirty(false);const d=await load();if(operation==="activate"){setValue(startValue(key,d.catalog,d.active));router.refresh();}}
   catch{setError("บันทึกไม่สำเร็จ หรือเชื่อมต่อไม่ได้ กรุณาลองอีกครั้ง");}finally{setBusy(false);}}
  const category=catalog.find(c=>c.key===key),form=forms[key];
