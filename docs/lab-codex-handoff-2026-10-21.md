@@ -1,6 +1,10 @@
 # Codex Handoff — NIPT-CBH LAB-01..LAB-13 to Local Owner UAT
 2026-10-21 | Owner AUTHORIZED Codex to implement and test on Development PC. **No hospital server or EXE upgrade yet.**
 
+## Source completeness audit supersedes earlier snapshot notes
+
+Use clean `.local/source-complete-uat` and the mandatory preflight/delivery gate. The pending Owner top scrollbar and real-service ANC DB tests are now included; all original dirty/untracked files were individually reviewed. `servicesReady` is technical health; `ready` also requires exact source/runtime hashes and all10feature checks. [Audit review/commands](source-to-runtime-completeness-audit-2026-10-22.md); final exact SHA/results are `.local/source-parity-audit/FINAL-REPORT.md` / `final-delivery.json`. Earlier snapshots below are retained historical evidence. OWNER-UAT=PENDING.
+
 ## Current runtime — existing LN links/highlights restored (2026-10-22)
 
 **c7cba91bdf79ae3673193b9d9b6689cc413f9209**, clean `.local/ln-highlight-uat-source`, is the latest loopback UAT and includes prior date/Toast patches. Existing Owner UI changes were preserved but omitted from prior clean builds; scoped restoration now includes overview/registry LN anchors and row highlights. ANC/LAB actual mouse/keyboard navigation and Desktop/Mobile Light/Dark checks PASS,22affected tests PASS, health ready=true,60cases/16artifacts preserved. [Evidence and current launch commands](ln-highlight-restoration-evidence-2026-10-22.md). Separate scrollbar/ANC DB-test dirty edits remain preserved in primary; no reset. **OWNER-UAT=PENDING.** Earlier runtime notes below are historical evidence.

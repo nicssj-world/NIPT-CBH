@@ -1,6 +1,6 @@
 # LAB-01–LAB-13 Development evidence
 
-Status: **READY FOR OWNER TEST — Local Development only**. **OWNER-UAT = PENDING** until Owner personally tests and approves.
+Historical LAB status: **READY FOR OWNER TEST — Local Development only**. Current delivery additionally requires the [mandatory source-completeness audit](source-to-runtime-completeness-audit-2026-10-22.md) PASS; final exact report `.local/source-parity-audit/FINAL-REPORT.md`. **OWNER-UAT = PENDING** until Owner personally tests and approves.
 
 Latest runtime after restoring the existing LN links/highlights: **c7cba91bdf79ae3673193b9d9b6689cc413f9209**, `.local/ln-highlight-uat-source`; affected22tests and actual ANC/LAB overview/registry pointer/keyboard/hover/focus checks PASS, final health ready=true, existing UAT hashes preserved. [Restoration evidence](ln-highlight-restoration-evidence-2026-10-22.md). Later notes' earlier SHAs are retained historical evidence, not the currently running revision.
 
