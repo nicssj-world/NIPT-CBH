@@ -1,4 +1,5 @@
 import {zipEntries,zipRead,isZip} from '../results/zip';
+import {writeArchive,xmlEscape} from '../workbook/archive';
 
 /**
  * Bulk Import table reader (Excel .xlsx / CSV). Pure and bounded; reads bytes in memory only, never writes or executes anything.
@@ -20,6 +21,22 @@ export type ColumnKey=typeof TABLE_COLUMNS[number]['key'];
 export type TableRow={rowNo:number;cells:Partial<Record<ColumnKey,string>>};
 export type ParsedTable={rows:TableRow[]};
 export const templateCsv=()=>'﻿'+TABLE_COLUMNS.map(c=>c.key).join(',')+'\r\n';
+
+/** LAB-UAT-005: import data and a separate, non-importable column guide. */
+export function templateXlsx():Buffer{
+ const ns='http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+ const letters=(n:number)=>{let s='';for(n++;n;n=Math.floor((n-1)/26))s=String.fromCharCode(65+(n-1)%26)+s;return s;};
+ const sheet=(rows:string[][])=>`<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="${ns}"><sheetData>${rows.map((r,i)=>`<row r="${i+1}">${r.map((v,c)=>`<c r="${letters(c)}${i+1}" t="inlineStr"><is><t>${xmlEscape(v)}</t></is></c>`).join('')}</row>`).join('')}</sheetData></worksheet>`;
+ const guide=TABLE_COLUMNS.map(c=>{const date=c.key==='dob'||c.key.endsWith('_date');return[c.key,c.label,c.required?'Yes':'No',date?'YYYY-MM-DD (ค.ศ.) หรือ unknown':c.key.endsWith('_paper')?'Y/N':'Text',date?'2026-10-01':c.key==='ln'?'9903000001':c.key==='hn'?'000001':c.key==='name'?'SYNTHETIC TEST':'',date?'ไม่ทราบให้เว้นว่างหรือ unknown; ไม่แปลงปี พ.ศ. อัตโนมัติ':c.key==='ln'||c.key==='hn'?'เก็บทุกหลักรวมศูนย์นำหน้า':''];});
+ return writeArchive(new Map(Object.entries({
+  '[Content_Types].xml':`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`,
+  '_rels/.rels':'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
+  'xl/workbook.xml':`<workbook xmlns="${ns}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Import" sheetId="1" r:id="rId1"/><sheet name="คำอธิบาย" sheetId="2" r:id="rId2"/></sheets></workbook>`,
+  'xl/_rels/workbook.xml.rels':'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/></Relationships>',
+  'xl/worksheets/sheet1.xml':sheet([TABLE_COLUMNS.map(c=>c.key)]),
+  'xl/worksheets/sheet2.xml':sheet([['Column','Description','Required','Format','Example','Remark'],...guide]),
+ }).map(([k,v])=>[k,Buffer.from(v)])));
+}
 
 const KEYS=new Set<string>(TABLE_COLUMNS.map(c=>c.key));
 function shape(grid:string[][]):ParsedTable{
@@ -83,7 +100,15 @@ export function parseXlsx(bytes:Buffer):ParsedTable{
  if(!sheets.length)throw new TableError('TABLE_NOT_XLSX');
  const sst=read('xl/sharedStrings.xml');
  const strings=sst?[...sst.matchAll(/<si(?:\s[^>]*)?>([\s\S]*?)<\/si>/g)].map(m=>textOf(m[1])):[];
- const xml=read(sheets[0])!;
+ const workbook=read('xl/workbook.xml'),relationships=read('xl/_rels/workbook.xml.rels');
+ const declared=workbook?[...workbook.matchAll(/<sheet\b([^>]*)\/?\s*>/g)].map(m=>m[1]):[];
+ const selected=declared.find(a=>/\bname="Import"/i.test(a))??declared[0];
+ const relId=selected?/\br:id="([^"]+)"/.exec(selected)?.[1]:null;
+ const relation=relationships&&relId?[...relationships.matchAll(/<Relationship\b([^>]*)\/?\s*>/g)].find(m=>new RegExp(`\\bId="${relId.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}"`).test(m[1]))?.[1]:null;
+ const target=relation?/\bTarget="([^"]+)"/.exec(relation)?.[1]:null;
+ const path=target?(target.startsWith('/')?target.slice(1):`xl/${target}`):sheets[0];
+ if(!/^xl\/worksheets\/[^/]+\.xml$/.test(path))throw new TableError('TABLE_NOT_XLSX');
+ const xml=read(path);if(!xml)throw new TableError('TABLE_NOT_XLSX');
  const grid:string[][]=[];
  for(const rm of xml.matchAll(/<row\b[^>]*?\br="(\d+)"[^>]*>([\s\S]*?)<\/row>/g)){
   const rowIdx=Number(rm[1])-1;if(rowIdx>TABLE_LIMITS.rows+5)throw new TableError('TABLE_TOO_MANY_ROWS');
@@ -96,7 +121,12 @@ export function parseXlsx(bytes:Buffer):ParsedTable{
    if(t==='s')value=strings[Number(v)]??'';
    else if(t==='inlineStr')value=textOf(body);
    else if(t==='str'||t==='b')value=entity(v??'');
-   else if(v!==undefined){const n=Number(v);const iso=Number.isInteger(n)?excelSerialToIso(n):null;value=iso??entity(v);}
+   else if(v!==undefined){
+    // Only declared date columns may decode Excel serials. LN/HN stay literal.
+    const key=grid.find(r=>r.some(Boolean))?.[ci]?.trim().toLowerCase();
+    const date=key==='dob'||key?.endsWith('_date');
+    value=date?(excelSerialToIso(Number(v))??entity(v)):entity(v);
+   }
    row[ci]=value;
   }
   while(grid.length<rowIdx)grid.push([]);

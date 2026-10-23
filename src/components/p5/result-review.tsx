@@ -1,4 +1,5 @@
 "use client";
+import {PdfPreviewButton} from '../shared/pdf-preview';
 import Link from "next/link";
 import {useCallback,useEffect,useState} from "react";
 import {labApi,failureText,bkk,LabFailure} from "../p4/lab-api";
@@ -66,7 +67,7 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
   <div className="p5-review">
    <section className="panel p5-original" aria-labelledby="orig-h">
     <h2 id="orig-h">ไฟล์ต้นฉบับ</h2>
-    {d.intake.container==="PDF"?<iframe className="pdf-frame" title="PDF ต้นฉบับ (อ่านอย่างเดียว)" src={`/api/p5/results/${v.id}/file`}/>
+    {d.intake.container==="PDF"?<PdfPreviewButton src={`/api/p5/results/${v.id}/file`} title="PDF ต้นฉบับ (อ่านอย่างเดียว)"/>
      :<p className="notice">ต้นฉบับเป็น {CONTAINER_TEXT[d.intake.container]} — <a href={`/api/p5/results/${v.id}/file`}>ดาวน์โหลดไฟล์ต้นฉบับ</a> เพื่อเทียบค่า</p>}
     <dl className="plan-dl p5-facts">
      <dt>ที่มา</dt><dd>{d.intake.source==="FOLDER"?"โฟลเดอร์ผล":"เลือกไฟล์จากเครื่อง"}{d.intake.relative_path&&<> · <span className="mono">{d.intake.relative_path}</span></>}</dd>

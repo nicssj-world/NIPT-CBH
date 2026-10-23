@@ -20,7 +20,7 @@ describe("every role × action × scope × operation cell",()=>{
     expect(authorize(p(["HISTORICAL_VERIFIER"]),"history.promote",{},"write")).toBe(false);
     for(const role of ROLES)for(const op of ["read","write","propose","approve"] as const)expect(authorize(p([role]),"history.send",{},op)).toBe(false);
     expect(authorize(p(["LAB_STAFF"]),"history.draft",{},"write")).toBe(true);
-    expect(authorize({...p(["LAB_STAFF"]),permissions:[]},"history.draft",{},"write")).toBe(false);
+    expect(authorize({...p(["LAB_STAFF"]),permissions:[]},"history.draft",{},"write")).toBe(true);
   });
   it("Admin never inherits PHI, certifier, breakglass or unknown permissions",()=>{
     const admin:Principal={id:"admin",roles:["APP_ADMIN"],unitIds:[],permissions:[]};

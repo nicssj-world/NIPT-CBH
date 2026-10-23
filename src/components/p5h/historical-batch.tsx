@@ -1,21 +1,24 @@
 "use client";
+import {HistoricalRevisions} from './revisions';
 import {ManualStageMarkers} from "./manual-stages";
 import {ManualFinalReview} from "./manual-review";
 import Link from "next/link";
+import {ReplaceHistoricalPdf} from './replace-pdf';
+import {PdfPreview} from '../shared/pdf-preview';
 import {Fragment,useCallback,useEffect,useRef,useState} from "react";
 import {labApi,failureText} from "../p4/lab-api";
-import {STATE_TEXT,STATE_TONE,BATCH_TEXT,COLUMN_LABEL,OUTCOME_TEXT,REJECT_TEXT,issueText} from "./labels";
+import {STATE_TONE,BATCH_TEXT,COLUMN_LABEL,OUTCOME_TEXT,REJECT_TEXT,issueText} from "./labels";
 import {Pager} from "../shared/pager";
 
 type Issue={code:string;severity:"ERROR"|"WARN";ref?:string};
 type DateValue={precision:string;value?:string};
-type Row={id:string;rowNo:number;ln:string;state:string;version:number;issues:Issue[];pdfName:string|null;canVerify:boolean;cells:Record<string,string>;
+type Row={id:string;rowNo:number;ln:string;state:string;version:number;issues:Issue[];pdfName:string|null;manualCompleted:boolean;canVerify:boolean;cells:Record<string,string>;
  evaluation:{outcome:string;reasons:{code:string;ref?:string}[]}|null;identifiers:{hn:string|null;name:string|null;dob:string|null};originalLocation:string|null;
  evidence:{id:string;kind:string;date:DateValue}[];events:{id:string;type:string;date:DateValue}[];completeness:{status:string;missing:string[]}|null;pastCertification:{state:string;text?:string}};
 type PageInfo={number:number;size:number;total:number;totalPages:number};
 /** One page of rows plus a summary counted over the WHOLE batch (the server pages and searches; nothing here loads every row). */
 type Batch={batch:{id:string;state:string;table_name:string;row_count:number|null;error_code:string|null;issues:{code:string;ref?:string}[]};ready:boolean;blockers:string[];files:{id:string;role:string;original_name:string;state:string;reject_code:string|null}[];
- summary:{total:number;ready:number;problem:number;done:number};view:string;page:PageInfo;rows:Row[]};
+ summary:{total:number;ready:number;problem:number;done:number};manualSummary:{total:number;ready:number;problem:number;done:number};view:string;page:PageInfo;rows:Row[]};
 type Outcome={draftId:string;rowNo:number;outcome:string;code?:string};
 type Check={ln:boolean;anchor:boolean;pdf:boolean;identity:boolean;ids:Set<string>};
 type ListParams={q:string;page:number;pageSize:number};
@@ -24,15 +27,16 @@ const dateText=(d:DateValue)=>d.precision==="UNKNOWN"?"ไม่ทราบ":d.
 const SIZES=[50,100] as const;
 
 export function HistoricalBatch({id,canImport,canReview}:{id:string;canImport:boolean;canReview:boolean}){
+ const [pdfPreview,setPdfPreview]=useState<string|null>(null);
  const [data,setData]=useState<Batch|null>(null),[review,setReview]=useState<Batch|null>(null),[error,setError]=useState(""),[notice,setNotice]=useState(""),[busy,setBusy]=useState(false);
- const [onlyProblems,setOnlyProblems]=useState(true),[fix,setFix]=useState<ListParams>({q:"",page:1,pageSize:50}),[typedFix,setTypedFix]=useState("");
+ const [onlyProblems,setOnlyProblems]=useState(false),[fix,setFix]=useState<ListParams>({q:"",page:1,pageSize:50}),[typedFix,setTypedFix]=useState("");
  const [look,setLook]=useState<ListParams>({q:"",page:1,pageSize:50}),[typedLook,setTypedLook]=useState("");
  const [editing,setEditing]=useState<string|null>(null),[patch,setPatch]=useState<Record<string,string>>({}),[reason,setReason]=useState("");
  // Ticks and the rows they belong to survive paging, so the reviewer can work through several pages and confirm everything ticked at once.
  const [checks,setChecks]=useState<Record<string,Check>>({}),[seen,setSeen]=useState<Record<string,Row>>({}),[outcomes,setOutcomes]=useState<Outcome[]|null>(null);
  const timer=useRef<ReturnType<typeof setTimeout>|null>(null),seq=useRef({fix:0,look:0});
  const fetchView=useCallback((view:string,p:ListParams)=>labApi<Batch>(`/api/p5h/batches/${id}?${new URLSearchParams({view,q:p.q,page:String(p.page),pageSize:String(p.pageSize)})}`),[id]);
- const loadFix=useCallback(async()=>{const n=++seq.current.fix;try{const d=await fetchView(onlyProblems?"auto":"all",fix);if(n===seq.current.fix){setData(d);setError("");}}catch(e){if(n===seq.current.fix)setError(failureText(e));}},[fetchView,onlyProblems,fix]);
+ const loadFix=useCallback(async()=>{const n=++seq.current.fix;try{const d=await fetchView(onlyProblems?"manual-problems":"all",fix);if(n===seq.current.fix){setData(d);setError("");}}catch(e){if(n===seq.current.fix)setError(failureText(e));}},[fetchView,onlyProblems,fix]);
  const staged=data?.batch.state==="Staged";
  const loadLook=useCallback(async()=>{const n=++seq.current.look;try{const d=await fetchView("ready",look);if(n===seq.current.look){setReview(d);setSeen(s=>({...s,...Object.fromEntries(d.rows.map(r=>[r.id,r]))}));}}catch(e){if(n===seq.current.look)setError(failureText(e));}},[fetchView,look]);
  useEffect(()=>{void Promise.resolve().then(loadFix);return()=>{if(timer.current)clearTimeout(timer.current);};},[loadFix]);
@@ -45,7 +49,7 @@ export function HistoricalBatch({id,canImport,canReview}:{id:string;canImport:bo
  useEffect(()=>{const t=setTimeout(()=>setLook(p=>p.q===typedLook.trim()?p:{...p,q:typedLook.trim(),page:1}),350);return()=>clearTimeout(t);},[typedLook]);
  const reloadAll=async()=>{await Promise.all([loadFix(),staged&&canReview?loadLook():Promise.resolve()]);};
  const act=async(body:Record<string,unknown>,done:string)=>{setBusy(true);setError("");setNotice("");try{const r=await labApi<Record<string,unknown>>(`/api/p5h/batches/${id}`,body);setNotice(done);await reloadAll();return r;}catch(e){setError(failureText(e));return null;}finally{setBusy(false);}};
- const counts=data?.summary??{total:0,ready:0,problem:0,done:0};
+ const counts=data?.manualSummary??data?.summary??{total:0,ready:0,problem:0,done:0};
  const startEdit=(r:Row)=>{setEditing(r.id);setPatch({});setReason("");};
  const checkOf=(rowId:string):Check=>checks[rowId]??{ln:false,anchor:false,pdf:false,identity:false,ids:new Set()};
  const setCheck=(rowId:string,c:Partial<Check>)=>setChecks(s=>({...s,[rowId]:{...checkOf(rowId),...c}}));
@@ -63,27 +67,28 @@ export function HistoricalBatch({id,canImport,canReview}:{id:string;canImport:bo
  const shown=data.rows,lookRows=review?.rows??[];
  return <>
   <p><Link href="/historical">← ชุดนำเข้าทั้งหมด</Link></p>
+  {pdfPreview&&<PdfPreview src={pdfPreview} title="Final PDF ต้นฉบับ" onClose={()=>setPdfPreview(null)}/>}
   <h1>ชุดนำเข้า: {data.batch.table_name}</h1>
-  <ol className="request-steps" aria-label="ขั้นตอน"><li aria-current={undefined}>① อัปโหลดแล้ว</li><li aria-current={data.batch.state==="Staged"&&counts.problem>0?"step":undefined}>② ตรวจสอบและแก้ไข</li><li aria-current={data.batch.state==="Staged"&&counts.problem===0?"step":undefined}>③ ผู้ตรวจรับรองและยืนยัน</li></ol>
+  <ol className="request-steps" aria-label="ขั้นตอน"><li aria-current={undefined}>① อัปโหลดแล้ว</li><li aria-current={data.batch.state==="Staged"&&counts.problem>0?"step":undefined}>② ตรวจสอบและแก้ไข</li><li aria-current={data.batch.state==="Staged"&&counts.problem===0?"step":undefined}>③ บันทึกเสร็จสิ้น</li></ol>
   {error&&<p className="form-error" role="alert">{error}</p>}{notice&&<p role="status" className="status good">{notice}</p>}
   {waiting&&<p role="status">Worker กำลังตรวจตารางและ PDF ({BATCH_TEXT[data.batch.state]}) — หน้านี้จะอัปเดตเอง</p>}
   {data.batch.state==="Failed"&&<p className="form-error" role="alert">ตรวจตารางไม่สำเร็จ: {data.batch.error_code} — แก้ไฟล์แล้วอัปโหลดใหม่</p>}
-  {data.batch.state==="Staged"&&!data.ready&&<div className="panel" role="status"><strong>P5H Promotion ยังไม่เปิดใช้</strong><p>บันทึกงานกระดาษ นำเข้า PDF และทบทวน Final PDF — Manual ได้จากแต่ละแถว โดยไม่ต้องมีวัน Go-live หรือสร้าง PET/QC ใหม่ ข้อจำกัดต่อไปนี้ใช้กับการ Promote Historical Case เท่านั้น</p><ul>{data.blockers.map(b=><li key={b}>{issueText(b)}</li>)}</ul>
+  {data.batch.state==="Staged"&&!data.ready&&<div hidden className="panel" role="status"><strong>P5H Promotion ยังไม่เปิดใช้</strong><p>บันทึกงานกระดาษ นำเข้า PDF และทบทวน Final PDF — Manual ได้จากแต่ละแถว โดยไม่ต้องมีวัน Go-live หรือสร้าง PET/QC ใหม่ ข้อจำกัดต่อไปนี้ใช้กับการ Promote Historical Case เท่านั้น</p><ul>{data.blockers.map(b=><li key={b}>{issueText(b)}</li>)}</ul>
    {canImport&&<button className="button secondary" disabled={busy} onClick={()=>void act({action:"recheck"},"ตรวจสิทธิ์ใหม่แล้ว")}>ตรวจสิทธิ์อีกครั้ง (หลัง Owner อนุมัติ)</button>}</div>}
   {data.batch.state==="Staged"&&<>
-   <div className="panel" aria-label="สรุป"><p><strong>{counts.total}</strong> แถว · พร้อมให้รับรอง <strong>{counts.ready}</strong> · ต้องแก้/ยังไม่มีสิทธิ์ <strong>{counts.problem}</strong> · นำเข้าแล้ว <strong>{counts.done}</strong></p>
+   <div className="panel" aria-label="สรุป"><p><strong>{counts.total}</strong> แถว · รอดำเนินการ <strong>{counts.ready}</strong> · มีปัญหา <strong>{counts.problem}</strong> · บันทึกเสร็จสิ้น <strong>{counts.done}</strong></p>
     {data.batch.issues.length>0&&<ul>{data.batch.issues.map((i,n)=><li key={n}>{i.code==="PDF_NOT_USED"?`ไฟล์ PDF ไม่ถูกใช้โดยแถวใด: ${i.ref}`:`ไฟล์ถูกปฏิเสธ (${i.code.replace("FILE_REJECTED_","")}): ${i.ref}`}</li>)}</ul>}</div>
 
    <section className="panel" aria-labelledby="hist-step2"><h2 id="hist-step2">② ตรวจสอบรายการ</h2>
-    <div className="filters"><div className="field grow"><label htmlFor="hist-q2">ค้นหา LN ในชุดนี้</label><input id="hist-q2" type="search" value={typedFix} onChange={e=>setTypedFix(e.target.value)} autoComplete="off" maxLength={40}/></div>
+    <div className="filters"><div className="field grow"><label htmlFor="hist-q2">ค้นหา LN / HN ในชุดนี้</label><input id="hist-q2" type="search" value={typedFix} onChange={e=>setTypedFix(e.target.value)} autoComplete="off" maxLength={40}/></div>
      <label className="check"><input type="checkbox" checked={onlyProblems} onChange={e=>{setOnlyProblems(e.target.checked);setFix(p=>({...p,page:1}));}}/> แสดงเฉพาะแถวที่ต้องแก้ไข ({counts.problem})</label></div>
     {shown.length===0?<p className="empty-state" role="status">{counts.problem===0&&data.view==="all"&&!fix.q?"ไม่มีแถวในชุดนี้":fix.q?"ไม่พบแถวที่ตรงกับ LN ที่ค้น":"ไม่มีแถวที่ต้องแก้ไข"}</p>:
     <div className="table-wrap" role="region" aria-label="รายการที่นำเข้า" tabIndex={0}><table className="data-table"><caption className="sr-only">รายการที่นำเข้า</caption><thead><tr><th scope="col">แถว</th><th scope="col">LN</th><th scope="col">HN / ชื่อ</th><th scope="col">PDF</th><th scope="col">สถานะ</th><th scope="col">สิ่งที่ต้องแก้ / ข้อสังเกต</th><th scope="col"><span className="sr-only">การทำงาน</span></th></tr></thead>
      <tbody>{shown.map(r=><Fragment key={r.id}>
-      <tr><td>{r.rowNo}</td><td>{r.ln}</td><td>{r.identifiers.hn} · {r.identifiers.name}</td><td>{r.pdfName??"—"}</td>
-       <td><span className={`status ${STATE_TONE[r.state]??""}`}>{STATE_TEXT[r.state]??r.state}</span></td>
+      <tr><td>{r.rowNo}</td><td>{r.ln}</td><td>{r.identifiers.hn} · {r.identifiers.name}</td><td>{r.pdfName&&pdfFileId(r)?<button type="button" className="button secondary small" onClick={()=>setPdfPreview(`/api/p5h/batches/${id}/files/${pdfFileId(r)}`)}>เปิด Final PDF</button>:"—"}{canImport&&<ReplaceHistoricalPdf draftId={r.id} version={r.version} onDone={loadFix}/>}</td>
+       <td><span className={`status ${STATE_TONE[r.state]??""}`}>{r.manualCompleted?"บันทึกเสร็จสิ้น":r.issues.some(i=>i.severity==="ERROR")?"มีปัญหา":"รอดำเนินการ"}</span></td>
        <td><ul className="plain">{[...r.issues.map(i=>({text:issueText(i.code),warn:i.severity==="WARN"})),...(r.state==="NotEligible"?(r.evaluation?.reasons??[]).map(x=>({text:issueText(x.code),warn:false})):[])].map((x,n)=><li key={n}>{x.warn?"⚠ ":""}{x.text}</li>)}</ul>{r.completeness?.status==="PARTIAL"&&<p className="hint">หลักฐานยังไม่ครบ: {r.completeness.missing.join(", ")}</p>}</td>
-       <td><ManualStageMarkers draftId={r.id} canWrite={canImport}/><ManualFinalReview batchId={id} draftId={r.id} pdfFileId={pdfFileId(r)}/>{canImport&&["Draft","NotEligible","Discrepancy"].includes(r.state)&&<button className="button small secondary" onClick={()=>startEdit(r)} aria-label={`แก้ไขแถว ${r.rowNo}`}>แก้ไข</button>}</td></tr>
+       <td><HistoricalRevisions draftId={r.id}/><ManualStageMarkers draftId={r.id} canWrite={canImport}/><ManualFinalReview batchId={id} draftId={r.id} pdfFileId={pdfFileId(r)} onDone={loadFix}/>{canImport&&["Draft","NotEligible","Discrepancy"].includes(r.state)&&<button className="button small secondary" onClick={()=>startEdit(r)} aria-label={`แก้ไขแถว ${r.rowNo}`}>แก้ไข</button>}</td></tr>
       {editing===r.id&&<tr><td colSpan={7}><div className="panel"><h3>แก้ไขแถว {r.rowNo} (แก้เฉพาะช่องที่ผิด)</h3>
        <div className="form-grid">{EDIT_COLUMNS.map(c=><div className="field" key={c}><label htmlFor={`f-${r.id}-${c}`}>{COLUMN_LABEL[c]}</label><input id={`f-${r.id}-${c}`} value={patch[c]??r.cells[c]??""} onChange={e=>setPatch(p=>({...p,[c]:e.target.value}))}/></div>)}</div>
        <div className="field"><label htmlFor={`why-${r.id}`}>เหตุผลที่แก้ (อย่างน้อย 8 ตัวอักษร — ไม่ใส่เลขประจำตัว)</label><input id={`why-${r.id}`} value={reason} onChange={e=>setReason(e.target.value)}/></div>
@@ -95,7 +100,7 @@ export function HistoricalBatch({id,canImport,canReview}:{id:string;canImport:bo
     {counts.problem===0&&<p role="status">ไม่มีแถวที่ต้องแก้ไข</p>}
    </section>
 
-   <section className="panel" aria-labelledby="hist-step3"><h2 id="hist-step3">③ ผู้ตรวจตรวจกับต้นฉบับและยืนยันเป็นชุด</h2>
+   <section hidden className="panel" aria-labelledby="hist-step3"><h2 id="hist-step3">③ ผู้ตรวจตรวจกับต้นฉบับและยืนยันเป็นชุด</h2>
     {!canReview?<p>ขั้นตอนนี้ทำได้เฉพาะผู้ตรวจ (Historical Verifier) ที่ไม่ใช่ผู้นำเข้าหรือผู้แก้ไขแถวนั้น</p>:<>
      <p className="hint">ตรวจแต่ละแถวกับเอกสารต้นฉบับ แล้วติ๊กทุกข้อก่อน ระบบไม่มีปุ่มติ๊กทั้งชุดโดยตั้งใจ — แถวที่ไม่ได้ติ๊กครบจะไม่ถูกยืนยัน แถวที่ติ๊กครบไว้ในหน้าอื่นยังนับอยู่ ({toConfirm.length} แถว)</p>
      <div className="filters"><div className="field grow"><label htmlFor="hist-q3">ค้นหา LN ในแถวที่รอรับรอง</label><input id="hist-q3" type="search" value={typedLook} onChange={e=>setTypedLook(e.target.value)} autoComplete="off" maxLength={40}/></div></div>

@@ -1,6 +1,7 @@
 'use client';
 import {useEffect,useState} from 'react';
 import Link from 'next/link';
+import {PdfPreview} from '../shared/pdf-preview';
 import {csrf} from '../p2/shared';
 import {labApi} from './lab-api';
 import type {workbookWorkspace} from '../../../packages/workbook/service';
@@ -22,7 +23,7 @@ export function WorkbookEditor({batchId,canWrite}:{batchId:string;canWrite:boole
     if(view)setPreview(url);else{const a=document.createElement('a');a.href=url;a.download=`Task-${data.draft.revision}.${format==='PDF'?'pdf':'xlsx'}`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
     await reload();setMessage(Number(response.headers.get('X-Task-Formula-Errors'))>0?'สร้างไฟล์ตรวจทานและบันทึกประวัติแล้ว (ไม่ใช่เอกสารควบคุม) — พบข้อผิดพลาดสูตรใน Master โปรดตรวจผลคำนวณก่อนใช้งาน':'สร้างไฟล์ตรวจทานและบันทึกประวัติแล้ว (ไม่ใช่เอกสารควบคุม)');
   }catch(e){setMessage(String(e));}finally{setBusy(false);}}
-  return <section className="panel"><p><Link href={`/lab/batches/${batchId}`}>กลับ Batch / Task List</Link></p><h1>แบบฟอร์ม Excel ต้นฉบับ</h1>
+  return <section className="panel" data-enter-navigation><p><Link href={`/lab/batches/${batchId}`}>กลับ Batch / Task List</Link></p><h1>แบบฟอร์ม Excel ต้นฉบับ</h1>
     {message&&<p role="status" className="save-status">{message}</p>}
     {data&&<>
       <p>Draft ฉบับ {data.draft?.revision??0} · สูตร Excel {data.matrix.formulaCount} สูตร</p>
@@ -39,9 +40,9 @@ export function WorkbookEditor({batchId,canWrite}:{batchId:string;canWrite:boole
           {field.dataType==='checkbox'?<input type="checkbox" checked={value===true} disabled={!canWrite||busy||automatic} onChange={e=>setValues(v=>({...v,[field.key]:e.target.checked}))}/>:<input type={field.dataType==='number'?'number':'text'} step={field.dataType==='number'?'any':undefined} value={value===null||value===undefined?'':String(value)} disabled={!canWrite||busy||automatic} onChange={e=>setValues(v=>({...v,[field.key]:e.target.value===''?null:field.dataType==='number'?Number(e.target.value):e.target.value}))}/>}
         </label>;
       })}</div></details>)}</div>
-      {canWrite&&<div className="action-bar workbook-actions"><button className="button" disabled={busy} onClick={()=>void save()}>บันทึก Draft / ผูกข้อมูลล่าสุด</button><button className="button secondary" disabled={busy||!data.draft||data.sourceStale} onClick={()=>void output('XLSX')}>Export XLSX</button><label className="workbook-sheet-picker">ชีต PDF<select value={sheet} onChange={e=>setSheet(e.target.value)}>{[...new Set(data.matrix.bindings.map(f=>f.sheet))].map(name=><option key={name}>{name}</option>)}</select></label><button className="button secondary" disabled={busy||!data.draft||data.sourceStale} onClick={()=>void output('PDF',true)}>ดูตัวอย่าง PDF (ไม่ใช่เอกสารควบคุม)</button></div>}
+      {canWrite&&<div className="action-bar workbook-actions worksheet-save-bar"><button data-worksheet-save className="button" disabled={busy} onClick={()=>void save()}>บันทึก Draft / ผูกข้อมูลล่าสุด</button><button className="button secondary" disabled={busy||!data.draft||data.sourceStale} onClick={()=>void output('XLSX')}>Export XLSX</button><label className="workbook-sheet-picker">ชีต PDF<select value={sheet} onChange={e=>setSheet(e.target.value)}>{[...new Set(data.matrix.bindings.map(f=>f.sheet))].map(name=><option key={name}>{name}</option>)}</select></label><button className="button secondary" disabled={busy||!data.draft||data.sourceStale} onClick={()=>void output('PDF',true)}>ดูตัวอย่าง PDF (ไม่ใช่เอกสารควบคุม)</button></div>}
       <h2 className="workbook-history">ประวัติเอกสาร</h2><ul>{data.exports.map((entry)=>{const item=entry as {id:string;format:string;sheet:string|null;revision:number};return <li key={item.id}><a href={`/api/workbook/exports/${item.id}`}>ฉบับ {item.revision} · {item.format}{item.sheet?` · ${item.sheet}`:''}</a></li>;})}</ul>
     </>}
-    {preview&&<div className="p5-original"><button className="button secondary" onClick={()=>setPreview(null)}>ปิด PDF</button><iframe title="PDF จาก Excel ต้นฉบับ" src={preview} className="pdf-frame"/></div>}
+    {preview&&<PdfPreview src={preview} title="PDF จาก Excel ต้นฉบับ" onClose={()=>setPreview(null)}/>}
   </section>;
 }

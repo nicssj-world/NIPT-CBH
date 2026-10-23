@@ -3,7 +3,7 @@ import {withTransaction} from "../../../../../packages/db/connection";
 import * as svc from "../../../../../packages/run-photos/service";
 import {protect,readJson} from "../../../../server/http";
 import {photoMutation,photoError,noStore} from "../../../../server/run-photos";
-export async function GET(request:NextRequest){try{const user=await protect(request);return NextResponse.json(await withTransaction(db=>svc.storageOverview(db,user)),{headers:noStore});}catch(e){return photoError(e);}}
+export async function GET(request:NextRequest){try{const user=await protect(request,"settings.read",{},"read");return NextResponse.json(await withTransaction(db=>svc.storageOverview(db,user)),{headers:noStore});}catch(e){return photoError(e);}}
 // test: checks a candidate path now, as the storing account. activate: re-tests that same path and switches new uploads to it.
 export async function POST(request:NextRequest){return photoMutation(request,"RUN_PHOTO_STORAGE",async user=>{const {action,...data}=await readJson(request);
  if(action==="test")return NextResponse.json(await svc.testStoragePath(user,{path:data.path}),{headers:noStore});

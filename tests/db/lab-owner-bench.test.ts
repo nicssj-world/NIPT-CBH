@@ -74,7 +74,8 @@ it('LAB-13 bench persists per-slot QC and 9 standards, uses the saved revision f
   expect((await tx(f.db,db=>benchWorkspace(db,u.lab,id,deps))).exports.find(e=>e.kind==='POOL_CSV')!.current).toBe(false);
   expect((await tx(f.db,db=>benchWorkspace(db,u.lab,id,deps))).actualPooling?.current).toBe(false);
   await expect(tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:4,idempotencyKey:crypto.randomUUID()},deps))).rejects.toThrow('ACTUAL_POOLING_REQUIRED');
-  await expect(tx(f.db,db=>recordActualPooling(db,u.lab,{batchId:id,revision:4,members,note:'LOCAL TEST calculated zero cannot imply actual transfer'},deps))).rejects.toThrow('ACTUAL_TRANSFER_VOLUME_EVIDENCE_REQUIRED');
+  // LAB-UAT-026/027: explicit checked-and-saved pooling confirms calculated defaults, without a mandatory reason.
+  const confirmed=await tx(f.db,db=>recordActualPooling(db,u.lab,{batchId:id,revision:4,members},deps));expect(confirmed.current).toBe(true);
   const verified=members.map(m=>m.slot===2?{...m,actualVolume:1.5,reason:'LOCAL TEST separately measured physical transfer'}:m);
   await tx(f.db,db=>recordActualPooling(db,u.lab,{batchId:id,revision:4,members:verified,note:'LOCAL TEST explicit measured exception transcribed'},deps));
   expect((await tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:4,idempotencyKey:crypto.randomUUID()},deps))).halosPositions).toContain(2);

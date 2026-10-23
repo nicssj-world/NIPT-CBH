@@ -115,7 +115,7 @@ describe('P5H sheet dates and PDF matching',()=>{
   const {issues}=buildDraftData({rowNo:2,cells:{ln:'12A',hn:'12345',name:'Real Person',original_location:'',request_paper:'maybe'}},null);
   expect(issues.map(i=>i.code).sort()).toEqual(['HN_INVALID','LN_INVALID','NAME_INVALID','ORIGINAL_LOCATION_REQUIRED','YES_NO_INVALID']);
  });
- it('cross-checks the PDF identity: HN/DOB/report date differences block, name/LN differences warn',()=>{
+ it('cross-checks the PDF identity: HN/DOB/report date differences block, name/LN differences block (LAB-UAT-011)',()=>{
   const cells={ln:'2610100001',hn:'9901001',name:'SYNTHETIC A',dob:'1990-01-02',original_location:'CAB',report_date:'2025-12-01'};
   const p=(parsed:object)=>({fileId:'f',name:'f.pdf',sha256:'a'.repeat(64),parsed:{ln:'2610100001',hn:'9901001',name:'SYNTHETIC A',dob:'1990-01-02',reportedDate:'2025-12-01',...parsed}});
   expect(buildDraftData({rowNo:2,cells},p({})).issues).toEqual([]);
@@ -123,8 +123,8 @@ describe('P5H sheet dates and PDF matching',()=>{
   expect(buildDraftData({rowNo:2,cells},p({hn:'0009901001'})).issues).toEqual([]);   // leading zeros are not identity
   expect(buildDraftData({rowNo:2,cells},p({dob:'1990-01-03'})).issues[0].code).toBe('PDF_DOB_MISMATCH');
   expect(buildDraftData({rowNo:2,cells},p({reportedDate:'2026-02-01'})).issues[0]).toMatchObject({code:'PDF_REPORT_DATE_MISMATCH',severity:'ERROR'});
-  expect(buildDraftData({rowNo:2,cells},p({name:'Other'})).issues).toEqual([{code:'PDF_NAME_DIFFERS',severity:'WARN',field:'pdf_file'}]);
-  expect(buildDraftData({rowNo:2,cells},p({ln:'1'})).issues).toEqual([{code:'PDF_LN_DIFFERS',severity:'WARN',field:'pdf_file'}]);
-  expect(buildDraftData({rowNo:2,cells},{...p({}),parsed:null}).issues).toEqual([{code:'PDF_CONTENT_NOT_READ',severity:'WARN',field:'pdf_file'}]);
+  expect(buildDraftData({rowNo:2,cells},p({name:'Other'})).issues).toEqual([{code:'PDF_NAME_DIFFERS',severity:'ERROR',field:'pdf_file'}]);
+  expect(buildDraftData({rowNo:2,cells},p({ln:'1'})).issues).toEqual([{code:'PDF_LN_DIFFERS',severity:'ERROR',field:'pdf_file'}]);
+  expect(buildDraftData({rowNo:2,cells},{...p({}),parsed:null}).issues).toEqual([{code:'PDF_CONTENT_NOT_READ',severity:'ERROR',field:'pdf_file'}]);
  });
 });

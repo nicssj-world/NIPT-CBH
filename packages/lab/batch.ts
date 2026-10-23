@@ -54,17 +54,18 @@ export async function createBatch(db:Queryable,user:Staff){
  return {batchId:b,runLabel:label,created:true};
 }
 
-type SlotView={slot:number;sheet:number;plate:string;barcode:number;control:ControlType|null;controlLabel:string|null;controlCode:string|null;assignment:null|{attemptId:string;caseId:string;roundId:string;roundNumber:number;hisLn:string;lnHalos:string|null;labelCode:string|null;printedSampleId:string|null;attemptState:string;repeat:boolean;urgent:boolean;ga:ReturnType<typeof gestationalAge>;labelPrints:number}};
+type SlotView={slot:number;sheet:number;plate:string;barcode:number;control:ControlType|null;controlLabel:string|null;controlCode:string|null;assignment:null|{attemptId:string;caseId:string;roundId:string;roundNumber:number;hisLn:string;hn:string|null;lnHalos:string|null;labelCode:string|null;printedSampleId:string|null;attemptState:string;repeat:boolean;urgent:boolean;ga:ReturnType<typeof gestationalAge>;labelPrints:number}};
 export async function batchDetail(db:Queryable,user:Staff,batchId:string){
  await assertSession(db,user);need(user,'worksheet.read','read');
  const b=(await db.query<Batch&{cancel_reason:string|null}>('SELECT * FROM lab_batch WHERE id=$1 AND NOT EXISTS(SELECT 1 FROM lab_batch_removal WHERE batch_id=lab_batch.id)',[uuid.parse(batchId)])).rows[0];if(!b)throw new LabError('NOT_FOUND',404);
  const sheets=(await db.query<Sheet>(`SELECT ${sheetCols} FROM lab_task_sheet WHERE batch_id=$1 ORDER BY sheet_number`,[b.id])).rows;
  const facts=await attemptFacts(db,'a.id IN (SELECT attempt_id FROM lab_slot_assignment WHERE batch_id=$1 AND removed_at IS NULL)',[b.id]);
  const bySlot=new Map(facts.map(f=>[f.slot_number!,f]));
+ const identities=new Map((await db.query<{case_id:string;hn:string}>('SELECT case_id,hn FROM p2_case_identity WHERE case_id=ANY($1::uuid[])',[facts.map(f=>f.case_id)])).rows.map(i=>[i.case_id,i.hn]));
  const urgent40=(await db.query<{enabled:boolean}>('SELECT lab_urgent40_enabled($1) enabled',[b.id])).rows[0].enabled;
  const slots:SlotView[]=Array.from({length:48},(_,i)=>{const slot=i+1,sheet=getSheetNumber(slot),control=slot===40&&urgent40?null:controlTypeOf(slot),f=bySlot.get(slot),date=sheets[sheet-1].planned_work_date;
   return {slot,sheet,plate:getPlatePosition(slot),barcode:slot,control,controlLabel:control?CONTROL_LABEL[control]:null,controlCode:control&&date?formatPrintedControlId(control,date):null,
-   assignment:f&&caseVisible(user,f)?{attemptId:f.attempt_id,caseId:f.case_id,roundId:f.round_id,roundNumber:f.round_number,hisLn:f.ln,lnHalos:f.ln_halos,labelCode:f.ln_halos?specimenDisplayCode(f.ln_halos,f.pregnancy,f.ln_halos_resampling):f.ln_halos,printedSampleId:f.printed_sample_id,attemptState:f.attempt_state,repeat:f.repeat_order_id!==null,urgent:f.urgent,ga:gestationalAge(f),labelPrints:f.label_prints}:null};});
+   assignment:f&&caseVisible(user,f)?{attemptId:f.attempt_id,caseId:f.case_id,roundId:f.round_id,roundNumber:f.round_number,hisLn:f.ln,hn:identities.get(f.case_id)??null,lnHalos:f.ln_halos,labelCode:f.ln_halos?specimenDisplayCode(f.ln_halos,f.pregnancy,f.ln_halos_resampling):f.ln_halos,printedSampleId:f.printed_sample_id,attemptState:f.attempt_state,repeat:f.repeat_order_id!==null,urgent:f.urgent,ga:gestationalAge(f),labelPrints:f.label_prints}:null};});
  const documents=(await db.query('SELECT d.id,d.form,d.kind,d.revision,d.doc_code,d.status,d.status_reason,d.file_sha256,d.issued_at,u.display_name issued_by,t.sheet_number,(SELECT count(*) FROM lab_document_copy c WHERE c.document_id=d.id AND c.kind=\'WORKING_COPY\')::int working_copies,(SELECT count(*) FROM lab_document_copy c WHERE c.document_id=d.id AND c.kind=\'WORKING_COPY\' AND c.recalled_at IS NULL)::int unrecalled FROM lab_document d JOIN app_user u ON u.id=d.issued_by LEFT JOIN lab_task_sheet t ON t.id=d.sheet_id WHERE d.batch_id=$1 ORDER BY d.issued_at',[b.id])).rows;
  const events=(await db.query('SELECT e.event_type,e.sheet_number,e.reason,e.created_at,u.display_name actor FROM lab_batch_event e JOIN app_user u ON u.id=e.actor_id WHERE e.batch_id=$1 ORDER BY e.sequence DESC LIMIT 100',[b.id])).rows;
  const snapshots=(await db.query('SELECT s.id,t.sheet_number,s.revision,s.content_hash,s.created_at FROM lab_placement_snapshot s JOIN lab_task_sheet t ON t.id=s.sheet_id WHERE s.batch_id=$1 ORDER BY t.sheet_number,s.revision',[b.id])).rows;
@@ -162,7 +163,8 @@ async function fillProposal(db:Queryable,user:Staff,batchId:string,sheetNumber:n
   AND NOT EXISTS(SELECT 1 FROM lab_slot_assignment a WHERE a.batch_id=s.batch_id AND a.slot_number=s.slot_number AND a.removed_at IS NULL)`,[batchId,sheetNumber])).rows[0].n;
  const {policy}=await pendingPolicy(db),queue=await eligibleQueue(db,user,policy);
  const take=queue.slice(0,Math.min(free,15));
- return {sheetNumber,freeSlots:free,queueSize:queue.length,candidates:take.map(r=>({attemptId:r.attempt_id,hisLn:r.ln,labelCode:r.ln_halos?specimenDisplayCode(r.ln_halos,r.pregnancy,r.ln_halos_resampling):null,printedSampleId:candidatePrintedId(r).id,receivedAt:r.received_at?.toISOString()??null,roundNumber:r.round_number,urgent:r.urgent}))};
+ const identities=new Map((await db.query<{case_id:string;hn:string}>('SELECT case_id,hn FROM p2_case_identity WHERE case_id=ANY($1::uuid[])',[take.map(r=>r.case_id)])).rows.map(i=>[i.case_id,i.hn]));
+ return {sheetNumber,freeSlots:free,queueSize:queue.length,candidates:take.map(r=>({attemptId:r.attempt_id,hisLn:r.ln,hn:identities.get(r.case_id)??null,labelCode:r.ln_halos?specimenDisplayCode(r.ln_halos,r.pregnancy,r.ln_halos_resampling):null,printedSampleId:candidatePrintedId(r).id,receivedAt:r.received_at?.toISOString()??null,roundNumber:r.round_number,urgent:r.urgent}))};
 }
 /** G07 "เติมตัวอย่างจากคิว": places exactly the previewed FIFO head into the chosen Task's empty slots through the normal Assignment Gate.
  * If the queue or the Task changed since the preview, nothing is placed and the user reviews the new proposal. Never triggered by PET receipt. */

@@ -226,22 +226,26 @@ export async function stageBatch(db:Queryable,store:FileStore,batchId:string,act
 
 // ---------- Step 2: read and fix ----------
 const ABANDON_STATES=['Draft','NotEligible','Discrepancy'];
-const listInput=z.strictObject({...pageFields(25)});
+const manualCurrent=(alias:string)=>`EXISTS(SELECT 1 FROM lab_manual_result_review m WHERE m.draft_id=${alias}.id AND m.draft_version=${alias}.version AND m.pdf_file_id=${alias}.pdf_file_id AND m.pdf_sha256=${alias}.data#>>'{pdf,sha256}' AND NOT EXISTS(SELECT 1 FROM lab_manual_paper_stage s WHERE s.draft_id=${alias}.id AND s.recorded_at>m.recorded_at))`;
+const listInput=z.strictObject({q:z.string().trim().max(80).default(''),...pageFields(25)});
 /** Import batches, newest first, one page at a time. The per-batch row counts are computed only for the batches on the page. */
 export async function listBatches(db:Queryable,user:Staff,raw:unknown={}){
  need(user,'history.read','read');
  const f=listInput.parse(raw);
- const total=Number((await db.query<{n:string}>('SELECT count(*)::text n FROM historical_batch')).rows[0].n);
+ const match=`($1='' OR strpos(lower(table_name),lower($1))>0 OR EXISTS(SELECT 1 FROM historical_draft d WHERE d.batch_id=historical_batch.id AND (strpos(d.ln,$1)>0 OR strpos(coalesce(d.data#>>'{identifiers,hn}',''),$1)>0)))`;
+ const total=Number((await db.query<{n:string}>(`SELECT count(*)::text n FROM historical_batch WHERE ${match}`,[f.q])).rows[0].n);
  const meta=clampPage(f.page,total,f.pageSize);
- const batches=(await db.query(`SELECT b.id,b.state,b.table_name,b.row_count,b.error_code,b.created_at,a.submitted,a.promoted,a.needs_attention
-  FROM (SELECT * FROM historical_batch ORDER BY created_at DESC,id DESC LIMIT ${meta.size} OFFSET ${offsetOf(meta)}) b
-  LEFT JOIN LATERAL (SELECT count(*) FILTER(WHERE d.state='Submitted')::int AS submitted,count(*) FILTER(WHERE d.state='Promoted')::int AS promoted,
-    count(*) FILTER(WHERE d.state IN ('Draft','NotEligible','Discrepancy','Conflict'))::int AS needs_attention FROM historical_draft d WHERE d.batch_id=b.id) a ON true
-  ORDER BY b.created_at DESC,b.id DESC`)).rows;
+ const batches=(await db.query(`SELECT b.id,b.state,b.table_name,b.row_count,b.error_code,b.created_at,a.submitted,a.promoted,a.needs_attention,a.manual_completed,a.manual_pending,a.manual_problem
+  FROM (SELECT * FROM historical_batch WHERE ${match} ORDER BY created_at DESC,id DESC LIMIT ${meta.size} OFFSET ${offsetOf(meta)}) b
+  LEFT JOIN LATERAL (SELECT count(*) FILTER(WHERE d.state='Submitted')::int submitted,count(*) FILTER(WHERE d.state='Promoted')::int promoted,count(*) FILTER(WHERE d.state IN ('Draft','NotEligible','Discrepancy','Conflict'))::int needs_attention,
+   count(*) FILTER(WHERE ${manualCurrent('d')})::int manual_completed,
+   count(*) FILTER(WHERE NOT ${manualCurrent('d')} AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(d.issues) x WHERE x->>'severity'='ERROR'))::int manual_pending,
+   count(*) FILTER(WHERE EXISTS(SELECT 1 FROM jsonb_array_elements(d.issues) x WHERE x->>'severity'='ERROR'))::int manual_problem FROM historical_draft d WHERE d.batch_id=b.id) a ON true
+  ORDER BY b.created_at DESC,b.id DESC`,[f.q])).rows;
  return {batches,page:meta};
 }
 const PROBLEM_STATES=['Draft','NotEligible','Discrepancy','Conflict'];
-const batchInput=z.strictObject({view:z.enum(['auto','problems','ready','done','all']).default('all'),q:z.string().trim().max(40).default(''),...pageFields(50,[50,100])});
+const batchInput=z.strictObject({view:z.enum(['auto','problems','manual-problems','ready','done','all']).default('all'),q:z.string().trim().max(40).default(''),...pageFields(50,[50,100])});
 /** One batch: its header and files (at most BATCH_LIMITS.files), a summary counted over the WHOLE batch, and one page of rows.
  * `view` picks the rows (problems = the states that need a fix, ready = Submitted, done = Promoted; `auto` = problems when there are any, else all);
  * `q` finds a row by LN across the whole batch. The confirm / fix / abandon actions never depend on which rows a page shows. */
@@ -252,13 +256,18 @@ export async function getBatch(db:Queryable,user:Staff,id:string,rawInput:unknow
  if(!b)throw err('NOT_FOUND',404);
  const ctx=await loadContext(db);
  const sum=(await db.query<{total:number;ready:number;problem:number;done:number}>(`SELECT count(*)::int total,count(*) FILTER(WHERE state='Submitted')::int ready,count(*) FILTER(WHERE state=ANY($2::text[]))::int problem,count(*) FILTER(WHERE state='Promoted')::int done FROM historical_draft WHERE batch_id=$1`,[id,PROBLEM_STATES])).rows[0];
+ const manualSummary=(await db.query<{total:number;ready:number;problem:number;done:number}>(`SELECT count(*)::int total,
+ count(*) FILTER(WHERE ${manualCurrent('d')})::int done,
+ count(*) FILTER(WHERE EXISTS(SELECT 1 FROM jsonb_array_elements(d.issues) x WHERE x->>'severity'='ERROR'))::int problem,
+ count(*) FILTER(WHERE NOT ${manualCurrent('d')} AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(d.issues) x WHERE x->>'severity'='ERROR'))::int ready
+ FROM historical_draft d WHERE d.batch_id=$1`,[id])).rows[0];
  const view=input.view==='auto'?(sum.problem>0?'problems':'all'):input.view;
  const values:unknown[]=[id],where=['d.batch_id=$1'];
- if(view==='problems'){values.push(PROBLEM_STATES);where.push(`d.state=ANY($${values.length}::text[])`);}else if(view==='ready')where.push("d.state='Submitted'");else if(view==='done')where.push("d.state='Promoted'");
- if(input.q){values.push(input.q.toLowerCase());where.push(`strpos(lower(d.ln),$${values.length})>0`);}
+ if(view==='manual-problems'){where.push("EXISTS(SELECT 1 FROM jsonb_array_elements(d.issues) x WHERE x->>'severity'='ERROR')");}else if(view==='problems'){values.push(PROBLEM_STATES);where.push(`d.state=ANY($${values.length}::text[])`);}else if(view==='ready')where.push("d.state='Submitted'");else if(view==='done')where.push("d.state='Promoted'");
+ if(input.q){values.push(input.q.toLowerCase());where.push(`(strpos(lower(d.ln),$${values.length})>0 OR strpos(lower(coalesce(d.data#>>'{identifiers,hn}','')),$${values.length})>0)`);}
  const matched=Number((await db.query<{n:string}>(`SELECT count(*)::text n FROM historical_draft d WHERE ${where.join(' AND ')}`,values)).rows[0].n),meta=clampPage(input.page,matched,input.pageSize);
- const rows=(await db.query<{id:string;row_no:number;ln:string;state:string;version:number;issues:RowIssue[];data:StoredData;contributor_ids:string[];evaluation:{outcome:string;reasons:Reason[];hash:string;cutoff_version:number|null}|null;pdf_name:string|null}>(
-  `SELECT d.id,d.row_no,d.ln,d.state,d.version,d.issues,d.data,d.contributor_ids,
+ const rows=(await db.query<{id:string;row_no:number;ln:string;state:string;version:number;issues:RowIssue[];data:StoredData;contributor_ids:string[];evaluation:{outcome:string;reasons:Reason[];hash:string;cutoff_version:number|null}|null;pdf_name:string|null;manual_completed:boolean}>(
+  `SELECT d.id,d.row_no,d.ln,d.state,d.version,d.issues,d.data,d.contributor_ids,${manualCurrent('d')} manual_completed,
    (SELECT json_build_object('outcome',e.outcome,'reasons',e.reasons,'hash',e.hash,'cutoff_version',e.cutoff_version) FROM historical_eligibility_evaluation e WHERE e.id=d.evaluation_id) AS evaluation,
    (SELECT f.original_name FROM historical_batch_file f WHERE f.id=d.pdf_file_id) AS pdf_name
    FROM historical_draft d WHERE ${where.join(" AND ")} ORDER BY d.row_no LIMIT ${meta.size} OFFSET ${offsetOf(meta)}`,values)).rows;
@@ -266,8 +275,8 @@ export async function getBatch(db:Queryable,user:Staff,id:string,rawInput:unknow
  await audit(db,user,'HIST_BATCH_VIEWED','HISTORICAL_BATCH',id,'VIEWED',{count:rows.length});
  return {
   batch:b,ready:contextReady(ctx),blockers:[...(ctx.policyConfigured?[]:['ANCHOR_POLICY_NOT_CONFIGURED']),...(ctx.cutoff?[]:['CUTOFF_NOT_CONFIGURED'])],
-  files,summary:sum,view,page:meta,
-  rows:rows.map(r=>({id:r.id,rowNo:r.row_no,ln:r.ln,state:r.state,version:r.version,issues:r.issues,evaluation:r.evaluation,pdfName:r.pdf_name,
+  files,summary:sum,manualSummary,view,page:meta,
+  rows:rows.map(r=>({id:r.id,rowNo:r.row_no,ln:r.ln,state:r.state,version:r.version,issues:r.issues,evaluation:r.evaluation,pdfName:r.pdf_name,manualCompleted:r.manual_completed,
    identifiers:r.data.identifiers,originalLocation:r.data.originalLocation,evidence:r.data.evidence.map(e=>({id:e.id,kind:e.kind,date:e.documentDate,provenance:e.provenance})),events:r.data.events.map(e=>({id:e.id,type:e.type,date:e.date})),
    facts:r.data.facts,pastCertification:r.data.pastCertification,completeness:r.data.completeness,cells:r.data.cells,
    canVerify:!r.contributor_ids.includes(user.id)&&r.state==='Submitted'})),
@@ -276,6 +285,21 @@ export async function getBatch(db:Queryable,user:Staff,id:string,rawInput:unknow
 
 const patchSchema=z.record(z.string(),z.string().max(500));
 const FIXABLE=new Set<string>(['ln','hn','name','dob','collection_date','receipt_date','report_date','control_record_date','request_date','consent_date','pdf_file','original_location','request_paper','consent_paper','consent_decision','pregnancy_type','past_certification']);
+/** LAB-UAT-012: append a new original, then revise only this row; old bytes/revisions remain. */
+export async function replaceRowPdf(db:Queryable,user:Staff,store:FileStore,draftId:string,version:number,file:UploadFile){
+ need(user,'history.draft');const d=await loadDraft(db,z.uuid().parse(draftId),true);if(!d)throw err('NOT_FOUND',404);
+ if(d.version!==version)throw err('STALE_VERSION');if(!ABANDON_STATES.includes(d.state))throw err('ROW_NOT_EDITABLE');
+ screen(file.bytes,BATCH_LIMITS.pdfBytes);if(!isPdf(file.bytes))throw err('NOT_A_PDF',400);
+ const hash=sha256(file.bytes);
+ if((await db.query(`SELECT 1 FROM historical_draft d JOIN historical_batch_file f ON f.id=d.pdf_file_id WHERE f.sha256=$1 AND d.id<>$2 AND d.state<>'Abandoned'`,[hash,d.id])).rows.length)throw err('PDF_SHARED_BY_ROWS');
+ const count=Number((await db.query<{n:string}>("SELECT count(*)::text n FROM historical_batch_file WHERE batch_id=$1 AND role<>'TABLE'",[d.batch_id])).rows[0].n);
+ if(count>=BATCH_LIMITS.files)throw err('TOO_MANY_FILES',413);
+ const original=safeBase(file.name),name=`revision-${d.version+1}-${randomUUID()}-${original}`.slice(0,255),stored=await store.put(file.bytes);
+ const extracted=await extract(file.bytes);if(extracted.container==='ZIP_BATCH')throw err('NOT_A_PDF',400);
+ const p=parseReport(extracted.text,original),parsed=p.templateKind==='UNKNOWN'||p.templateKind==='REDRAW_NOTICE'?null:{ln:p.identifiers.labNumber.value,hn:p.identifiers.hn.value,name:p.identifiers.patientName.value,dob:p.identifiers.dob.value??null,reportedDate:p.identifiers.reportedDate.value??null};
+ await db.query("INSERT INTO historical_batch_file(batch_id,role,original_name,sha256,byte_size,state,parsed) VALUES($1,'PDF',$2,$3,$4,'Parsed',$5)",[d.batch_id,name,stored,file.bytes.length,parsed?JSON.stringify(parsed):null]);
+ return fixRow(db,user,store,d.id,{pdf_file:name},'Final PDF replaced by operator');
+}
 export async function fixRow(db:Queryable,user:Staff,store:FileStore,draftId:string,rawPatch:unknown,reason:string){
  need(user,'history.draft','write');
  const patch=patchSchema.parse(rawPatch);

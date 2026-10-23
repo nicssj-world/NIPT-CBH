@@ -1,0 +1,44 @@
+# LAB Owner UAT 32 — traceability and execution
+
+Baseline: branch fix/consolidated-parity-101; HEAD 11ea92c40b2ca7179b05ad2222357b73ae4d07f8; clean tree. Runtime image revision matches. Existing project nipt-cbh-owner-local-102-20261020, https://127.0.0.1:19548, DB nipt_operational_integrated_owner_uat, volume nipt-cbh-owner-local-102-20261020_database.
+
+Backup: ACL-protected .local/owner-local-uat-1.0.2/lab32-baseline/database.dump; SHA256 9ef689af9d23ac57a23862a8c1a1133f1a26b7ea21ec539f4f4cddc0c04f5bd5; pg_restore list read successfully. 99 original file inventory entries recorded. Full restore rehearsal is pending.
+
+Skills: ui-ux-pro-max (catalog spelling; requested ux-ui-pro-max alias), impeccable both read. Preserve existing Operate design, 12px action gaps, 24px sections, 375/768/1280/1440 px.
+
+Execution: historical identity/parser/manual completion first; role/settings boundaries; shared keyboard/numeric/PDF/upload; single pooling table and scoped layouts; storage based on read-only Genomic reference; initial-install bootstrap tests. Forward migrations only, no new clinical authority, no P5H automatic promotion. Keep immutable evidence and original master hashes. Unit/contract/permission/DB tests then static/build, exact committed source runtime rebuild, browser checks and restart retention.
+
+| ID | Requirement/current behavior | Expected behavior | Source | DB/API impact | Tests | Status | Evidence |
+|---|---|---|---|---|---|---|---|
+| LAB-UAT-001 | LAB Home Cleanup; baseline audit in progress | Owner lock section LAB-UAT-001 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-002 | Settings Permission; baseline audit in progress | Owner lock section LAB-UAT-002 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-003 | Sample Storage; baseline audit in progress | Owner lock section LAB-UAT-003 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-004 | Historical Import Text Cleanup; baseline audit in progress | Owner lock section LAB-UAT-004 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-005 | Historical Import Excel Template; baseline audit in progress | Owner lock section LAB-UAT-005 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-006 | Historical Import Button Spacing; baseline audit in progress | Owner lock section LAB-UAT-006 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-007 | Hide P5H Status Box; baseline audit in progress | Owner lock section LAB-UAT-007 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-008 | Single-Operator Historical Manual Import; baseline audit in progress | Owner lock section LAB-UAT-008 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-009 | Simplified User Roles; baseline audit in progress | Owner lock section LAB-UAT-009 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-010 | Initial Production Admin; baseline audit in progress | Owner lock section LAB-UAT-010 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-011 | PDF Identity Safety; baseline audit in progress | Owner lock section LAB-UAT-011 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-012 | PDF Replacement; baseline audit in progress | Owner lock section LAB-UAT-012 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-013 | Historical Correction; baseline audit in progress | Owner lock section LAB-UAT-013 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-014 | Historical Search; baseline audit in progress | Owner lock section LAB-UAT-014 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-015 | Excel Parser / Template Validation; baseline audit in progress | Owner lock section LAB-UAT-015 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-016 | Import Summary / Batch Discovery; baseline audit in progress | Owner lock section LAB-UAT-016 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-017 | Main Button Layout; baseline audit in progress | Owner lock section LAB-UAT-017 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-018 | Sample ID Detail; baseline audit in progress | Owner lock section LAB-UAT-018 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-019 | Numeric Input Safety; baseline audit in progress | Owner lock section LAB-UAT-019 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-020 | QC Column Alignment; baseline audit in progress | Owner lock section LAB-UAT-020 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-021 | Remove Old QC Help; baseline audit in progress | Owner lock section LAB-UAT-021 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-022 | Red QC Guidelines; baseline audit in progress | Owner lock section LAB-UAT-022 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-023 | Sticky Save Bar; baseline audit in progress | Owner lock section LAB-UAT-023 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-024 | Enter to Next Input; baseline audit in progress | Owner lock section LAB-UAT-024 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-025 | PDF Preview Modal; baseline audit in progress | Owner lock section LAB-UAT-025 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-026 | Simplify Pooling Rows; baseline audit in progress | Owner lock section LAB-UAT-026 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-027 | Single Pooling Calculation Table; baseline audit in progress | Owner lock section LAB-UAT-027 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-028 | Volume Display; baseline audit in progress | Owner lock section LAB-UAT-028 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-029 | Pool Concentration Text; baseline audit in progress | Owner lock section LAB-UAT-029 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-030 | Seq Task-G50 Cleanup; baseline audit in progress | Owner lock section LAB-UAT-030 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-031 | Drag & Drop Upload; baseline audit in progress | Owner lock section LAB-UAT-031 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |
+| LAB-UAT-032 | Result Filter Toolbar; baseline audit in progress | Owner lock section LAB-UAT-032 | Pending source trace | Pending assessment | Automated + real Browser/runtime; persistence where applicable | PENDING | None yet |

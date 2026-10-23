@@ -1,4 +1,5 @@
 "use client";
+import {FileDropInput} from "../shared/file-drop-input";
 import {useEffect,useState} from 'react';
 import Image from 'next/image';
 import {api,Dialog,ErrorNotice,Field,message,type Doctor,type Unit} from './shared';
@@ -23,7 +24,7 @@ export function DoctorRegistry({canManage,operational=false}:{canManage:boolean;
 
  <Field label="วิธีนำเข้าลายเซ็นแพทย์" required>{id=><select id={id} value={method} onChange={e=>setMethod(e.target.value as typeof method)}>{selected&&<option value="stored">ใช้ลายเซ็นที่บันทึกไว้</option>}<option value="upload">อัปโหลดไฟล์ PNG / JPG</option><option value="draw">ลงลายเซ็นด้วยตนเอง</option></select>}</Field>
  {method==='stored'&&selected&&<Image unoptimized src={'/api/p2/doctors?id='+selected.id} alt="ตัวอย่างลายเซ็นแพทย์ที่บันทึกไว้" width={300} height={100} style={{objectFit:'contain',maxWidth:'100%',background:'white'}}/>}
- {method==='upload'&&<><Field label="ไฟล์ลายเซ็นแพทย์" required help="PNG / JPG ไม่เกิน 512 KB ขนาดภาพไม่เกิน 2400 × 1600 พิกเซล">{id=><input id={id} type="file" accept="image/png,image/jpeg" required onChange={e=>void upload(e.target.files?.[0])}/>}</Field>{image&&<figure><Image unoptimized src={'data:'+image.mime+';base64,'+image.data} alt="ตัวอย่างลายเซ็นแพทย์ก่อนบันทึก" width={300} height={100} style={{objectFit:'contain',maxWidth:'100%',background:'white'}}/><figcaption>ตัวอย่างลายเซ็นก่อนบันทึก</figcaption></figure>}</>}
+ {method==='upload'&&<><Field label="ไฟล์ลายเซ็นแพทย์" required help="PNG / JPG ไม่เกิน 512 KB ขนาดภาพไม่เกิน 2400 × 1600 พิกเซล">{id=><FileDropInput id={id} type="file" accept="image/png,image/jpeg" required onChange={e=>void upload(e.target.files?.[0])}/>}</Field>{image&&<figure><Image unoptimized src={'data:'+image.mime+';base64,'+image.data} alt="ตัวอย่างลายเซ็นแพทย์ก่อนบันทึก" width={300} height={100} style={{objectFit:'contain',maxWidth:'100%',background:'white'}}/><figcaption>ตัวอย่างลายเซ็นก่อนบันทึก</figcaption></figure>}</>}
  {method==='draw'&&<SignaturePad operational={operational} label="ลายเซ็นแพทย์" value={vector} onChange={setVector}/>}
  <ErrorNotice error={error}/><button className="button" disabled={busy||(method==='upload'&&!image)||(method==='draw'&&!vector.strokes.length)}>{busy?'กำลังบันทึก…':'บันทึกแพทย์'}</button>
  </form></Dialog>}</>;

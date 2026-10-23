@@ -2,3 +2,6 @@
 .lab-task-panel { min-width: 0; }
 .lab-task-panel > .action-bar .button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .lab-task-panel .plate { min-width: 0; overflow-x: auto; }
+
+.task-tabs { display: flex; flex-wrap: wrap; gap: 12px; margin-block: 24px; }
+.task-tabs [aria-selected="true"] { background: var(--info-bg); color: var(--color-brand); border-color: var(--color-brand); font-weight: 600; }

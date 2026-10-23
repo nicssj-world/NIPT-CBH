@@ -1,0 +1,37 @@
+/** Disposable native PostgreSQL only. Never changes the persistent Owner UAT database. */
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import {randomBytes} from 'node:crypto';
+import {Client} from 'pg';
+import {migrate} from '../migrate';
+import {bootstrapAdministrators} from '../../packages/admin/bootstrap';
+import {authenticate} from '../../packages/security/session';
+import {changePassword,adminCommand} from '../../packages/admin/service';
+import {labUsers,tx} from '../../tests/helpers/lab';
+import {registerP2} from '../../packages/p2/service';
+import {storageCommand,storageSearch,storageLabel} from '../../packages/lab/sample-storage';
+import {FileStore} from '../../packages/storage';
+import {createBatch,stageBatch,getBatch,replaceRowPdf} from '../../packages/historical/service';
+import {reviewManual} from '../../packages/historical/manual-review';
+import {goodRow,pdfFor,csvOf} from '../../tests/helpers/historical';
+import type {Principal} from '../../packages/security/policy';
+const out='.local/owner-local-uat-1.0.2/lab32-native';await fs.mkdir(out,{recursive:true});
+const url=new URL((await fs.readFile('.local/owner-local-uat-1.0.2/secrets/migration-url','utf8')).trim());assert.equal(url.hostname,'db');url.hostname='127.0.0.1';url.port='19549';url.pathname='/postgres';
+const database='nipt_synthetic_lab32_'+Date.now(),host=new Client({connectionString:url.toString()});await host.connect();await host.query(`CREATE DATABASE ${database}`);await host.end();url.pathname='/'+database;
+const db=new Client({connectionString:url.toString()});await db.connect();process.env.NIPT_MODE='synthetic';const checks:string[]=[];
+try{
+ await migrate(db);const password=randomBytes(24).toString('hex'),next=randomBytes(24).toString('hex');
+ const input={admin:{username:'first.admin',displayName:'Test Admin',password},checker:{username:'first.checker',displayName:'Test Checker',password:randomBytes(24).toString('hex')}};
+ await tx(db,d=>bootstrapAdministrators(d,input));const login=await tx(db,d=>authenticate(d,'first.admin',password));assert.ok(login);
+ const admin:Principal={id:login.userId,roles:['APP_ADMIN'],unitIds:[],permissions:[]};await tx(db,d=>changePassword(d,admin,password,next));
+ assert.ok(await tx(db,d=>authenticate(d,'first.admin',next)));await assert.rejects(tx(db,d=>bootstrapAdministrators(d,input)),/EMPTY_INSTALLATION/);
+ const created=await tx(db,d=>adminCommand(d,admin,{operation:'saveUser',username:'first.staff',displayName:'Test Staff',password,jobPosition:'Lab',phone:'',unitId:null,enabled:true,roles:['LAB_STAFF'],unitIds:[],permissions:[]}));assert.ok(created.id);checks.push('First install bootstrap, login, password rotation, role management; restart-safe empty-only guard');
+ const u=await labUsers(db),store=new FileStore(out+'/files'),c=await tx(db,d=>registerP2(d,u.staff,{ln:'9903002902',hn:'9900042902',unitId:u.unit,origin:'LAB_DIRECT',identifierSource:'TUBE_LABEL',idempotencyKey:'native_lab32_storage_001'},Buffer.alloc(32,7),{store}));
+ const round=(await db.query<{id:string}>('SELECT current_round_id id FROM nipt_case WHERE id=$1',[c.caseId])).rows[0].id,box=await tx(db,d=>storageCommand(d,u.staff,{action:'createBox'}));
+ await tx(db,d=>storageCommand(d,u.staff,{action:'store',roundId:round,boxId:box.id,slot:81}));assert.equal((await storageSearch(db,u.staff,{q:'9900042902'})).rows[0].position,'I9');assert.equal((await tx(db,d=>storageLabel(d,u.staff,box.id))).subarray(0,5).toString(),'%PDF-');checks.push('Native storage SQL, grants/schema, exact Box001/I9, HN lookup and PDF label');
+ const r=goodRow(902),b=await tx(db,d=>createBatch(d,u.staff,store,{table:{name:'native.csv',bytes:csvOf([r])},files:[{name:r.pdf_file!,bytes:pdfFor(r)}]}));await tx(db,d=>stageBatch(d,store,b.batchId,u.staff.id));
+ let row=(await tx(db,d=>getBatch(d,u.staff,b.batchId))).rows[0];await tx(db,d=>reviewManual(d,u.staff,store,{draftId:row.id,version:row.version,lnMatchesOriginal:true,pdfBindingMatchesOriginal:true,identityMatchesOriginal:true,identityIdentifiersChecked:['HN','NAME'],finalPdfReviewed:true}));assert.equal((await tx(db,d=>getBatch(d,u.staff,b.batchId))).manualSummary.done,1);
+ await tx(db,d=>replaceRowPdf(d,u.staff,store,row.id,row.version,{name:'replacement.pdf',bytes:pdfFor(r,{labNumber:'9999999999'})}));row=(await tx(db,d=>getBatch(d,u.staff,b.batchId))).rows[0];assert.ok(row.issues.some(i=>i.code==='PDF_LN_DIFFERS'&&i.severity==='ERROR'));assert.equal((await db.query('SELECT 1 FROM result_release')).rowCount,0);checks.push('Native single-operator Manual Completed, PDF replacement, revision history, identity block and no clinical release');
+ const ledger=(await db.query('SELECT name,checksum FROM schema_migration ORDER BY name')).rows;await migrate(db);assert.deepEqual((await db.query('SELECT name,checksum FROM schema_migration ORDER BY name')).rows,ledger);checks.push('Forward migration idempotency; original migration checksums retained');
+ await fs.writeFile(out+'/result.json',JSON.stringify({status:'PASS',database,port:19549,checks},null,2));console.log(JSON.stringify({status:'PASS',database,checks}));
+}catch(e){await fs.writeFile(out+'/result.json',JSON.stringify({status:'FAIL',database,checks,error:e instanceof Error?e.message:String(e)},null,2));throw e;}finally{await db.end();}

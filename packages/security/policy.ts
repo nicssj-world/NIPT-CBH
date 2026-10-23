@@ -10,7 +10,7 @@ const rows = {
   "case.registration.void": "YY---Y---",
   "case.register.lab": "--YY-----",
   "intake.link": "--PA---R-",
-  "history.draft": "--CY---R-",
+  "history.draft": "--YY---R-",
   "history.promote": "--CCC--RA",
   "history.read": "CCYY-B-RY",
   "history.send": "-------R-",
@@ -86,7 +86,7 @@ const rows = {
   "clinical.rules.change": "---PA--R-",
   "history.cutoff.change": "---PA--R-",
   "user.manage": "----AY-R-",
-  "settings.read": "--RRRYRY-",
+  "settings.read": "-----Y---",
   "audit.read": "--RRRYRYY",
   "report.export": "-UYY---R-",
   "backup.manage": "------YR-",
@@ -110,6 +110,8 @@ export type Operation = "read" | "write" | "propose" | "approve";
 
 export function authorize(user: Principal, action: string, resource: ResourceScope = {}, operation: Operation = "write"): boolean {
   if (!(action in rows) || !user.roles.length) return false;
+  // LAB-UAT-002: settings entry, direct URLs and APIs share this boundary.
+  if(action==='settings.read')return user.roles.includes('APP_ADMIN');
   // P1 runtime never enables actual outputs, signing on someone's behalf, historical processing, or certification.
   if (["consent.sign.patient", "his.production.enable", "history.send", "redraw.after.release"].includes(action)) return false;
   if(["result.certify","notice.release"].includes(action)&&!operationalDataEnabled())return false;

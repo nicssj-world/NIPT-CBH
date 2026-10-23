@@ -1,4 +1,5 @@
 "use client";
+import {FileDropInput} from "../shared/file-drop-input";
 /* eslint-disable @next/next/no-img-element -- photos are served by an authenticated endpoint; next/image would proxy them through its optimizer and inject inline styles the CSP blocks */
 import {useCallback,useEffect,useId,useMemo,useRef,useState} from "react";
 import Link from "next/link";
@@ -49,9 +50,9 @@ function Uploader({run,placement,onUploaded}:{run:RunGallery["run"];placement:Pl
  return <section className="panel" aria-labelledby={id+"-h"}>
   <div className="photo-run-head"><h2 id={id+"-h"}>เพิ่มภาพ</h2><p className="muted small">ไม่บังคับ — Run ที่ไม่มีภาพทำงานต่อได้ตามปกติ</p></div>
   <div className="photo-capture">
-   <div><input id={id+"-camera"} type="file" accept="image/*" capture="environment" disabled={busy} onChange={e=>{void add(e.target.files);e.target.value="";}}/>
+   <div><FileDropInput id={id+"-camera"} type="file" accept="image/*" capture="environment" disabled={busy} onChange={e=>{void add(e.target.files);e.target.value="";}}/>
     <label className="button" htmlFor={id+"-camera"}><Icon d={CAMERA}/>ถ่ายภาพด้วยกล้อง</label></div>
-   <div><input id={id+"-pick"} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple disabled={busy} onChange={e=>{void add(e.target.files);e.target.value="";}}/>
+   <div><FileDropInput id={id+"-pick"} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple disabled={busy} onChange={e=>{void add(e.target.files);e.target.value="";}}/>
     <label className="button secondary" htmlFor={id+"-pick"}><Icon d={IMAGES}/>เลือกภาพจากเครื่อง (หลายภาพได้)</label></div>
   </div>
   <div className="photo-fields">

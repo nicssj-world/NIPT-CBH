@@ -113,9 +113,9 @@ export function buildDraftData(row:TableRow,pdf:PdfInfo|null):{data:DraftData;is
   if(p.hn&&normHn(p.hn)!==normHn(hn))issues.push({code:'PDF_HN_MISMATCH',severity:'ERROR',field:'pdf_file'});
   if(p.dob&&dob&&dob.precision==='DAY'){const pd=parseLegacyDate(p.dob).date;if(pd.precision==='DAY'&&pd.value!==dob.value)issues.push({code:'PDF_DOB_MISMATCH',severity:'ERROR',field:'pdf_file'});}
   if(p.reportedDate&&report&&report.precision==='DAY'){const pr=parseLegacyDate(p.reportedDate).date;if(pr.precision==='DAY'&&pr.value!==report.value)issues.push({code:'PDF_REPORT_DATE_MISMATCH',severity:'ERROR',field:'report_date'});}
-  if(p.name&&normName(p.name)!==normName(name))issues.push({code:'PDF_NAME_DIFFERS',severity:'WARN',field:'pdf_file'});
-  if(p.ln&&p.ln!==ln)issues.push({code:'PDF_LN_DIFFERS',severity:'WARN',field:'pdf_file'});
- }else if(pdf)issues.push({code:'PDF_CONTENT_NOT_READ',severity:'WARN',field:'pdf_file'});
+  if(p.name&&normName(p.name)!==normName(name))issues.push({code:'PDF_NAME_DIFFERS',severity:'ERROR',field:'pdf_file'});
+  if(p.ln&&p.ln!==ln)issues.push({code:'PDF_LN_DIFFERS',severity:'ERROR',field:'pdf_file'});
+ }else if(pdf)issues.push({code:'PDF_CONTENT_NOT_READ',severity:'ERROR',field:'pdf_file'});
 
  return {data:{rowNo:row.rowNo,ln,identifiers:{hn:hn||null,name:name||null,dob:dob&&dob.precision==='DAY'?dob.value:null},originalLocation:location||null,evidence,events,facts,pastCertification,pdf:pdf?{fileId:pdf.fileId,name:pdf.name,sha256:pdf.sha256}:null,completeness:null},issues};
 }

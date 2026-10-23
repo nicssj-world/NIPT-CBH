@@ -1,4 +1,5 @@
 "use client";
+import {FileDropInput} from "../shared/file-drop-input";
 import Link from "next/link";
 import {useCallback,useEffect,useMemo,useRef,useState} from "react";
 import {labApi,failureText,bkk} from "../p4/lab-api";
@@ -111,7 +112,7 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
       <div className="bulk-bar"><span>เลือก {picked.size} ไฟล์</span><button type="button" className="button" disabled={!picked.size||!!busy} onClick={doPreview}>{busy==="preview"?"Worker กำลังอ่านไฟล์…":"Preview ไฟล์ที่เลือก"}</button></div>
      </div>)}
    </div>:<div role="tabpanel" aria-label="เลือกไฟล์จากเครื่อง" className="stack">
-    <div className="field"><label htmlFor="p5-files">ไฟล์ผล (.pdf หรือ .zip) ได้สูงสุด 20 ไฟล์</label><input id="p5-files" ref={fileInput} type="file" multiple accept=".pdf,.zip,application/pdf,application/zip" aria-describedby="p5-files-help"/>
+    <div className="field"><label htmlFor="p5-files">ไฟล์ผล (.pdf หรือ .zip) ได้สูงสุด 20 ไฟล์</label><FileDropInput id="p5-files" ref={fileInput} type="file" multiple accept=".pdf,.zip,application/pdf,application/zip" aria-describedby="p5-files-help"/>
      <p id="p5-files-help" className="help">ทางเลือกเมื่อไฟล์ไม่ได้อยู่ในโฟลเดอร์ผล — ระบบกักตรวจและอ่านไฟล์แบบเดียวกับไฟล์จากโฟลเดอร์ ไฟล์ละไม่เกิน {data?.intake.maxUploadMb??"…"} MB</p></div>
     <div className="action-bar"><button type="button" className="button" onClick={doUpload} disabled={!!busy}>{busy==="upload"?"กำลังอัปโหลดและอ่านไฟล์…":"อัปโหลดและ Preview"}</button></div>
     {uploadRejected.length>0&&<ul className="notice" role="alert">{uploadRejected.map(r=><li key={r.name}>{r.name}: {REJECT_TEXT[r.code]??r.code}</li>)}</ul>}
@@ -154,9 +155,9 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
     <button type="button" className="button secondary" disabled={queueLoading} onClick={()=>{setDraftFilters(DEFAULT_FILTERS);setFilters(DEFAULT_FILTERS);setPage(1);}}>ล้างตัวกรอง</button>
    </form>
    <p className="help">ตัวกรองอ้างอิงค่าที่ Parser อ่านได้ ไม่ใช่การรับรองผล — ค่าที่ไม่รู้จักหรืออ่านไม่ครบเป็น Unknown</p>
-   <div className="tabs" role="tablist" aria-label="สถานะรายงาน">{BUCKETS.map(([key,label])=><button key={key} type="button" role="tab" className="tab" aria-selected={bucket===key} onClick={()=>{setBucket(key);setPage(1);}}>{label}</button>)}</div>
+   <div className="tabs result-status-filters" role="tablist" aria-label="สถานะรายงาน">{BUCKETS.map(([key,label])=><button key={key} type="button" role="tab" className="tab" aria-selected={bucket===key} onClick={()=>{setBucket(key);setPage(1);}}>{label}</button>)}</div>
    {queueLoading&&<p className="help" role="status">กำลังโหลดคิว…</p>}{!queueLoading&&!data&&<p className="help" role="status">โหลดคิวไม่สำเร็จ — ลองใช้ตัวกรองอีกครั้ง</p>}
-   {canExport&&<div className="action-bar"><button type="button" className="button secondary" disabled={queueLoading||!data||!!busy} onClick={doExport}>{busy==="csv"?"กำลังส่งออก…":"ส่งออก CSV เฉพาะหน้านี้"}</button>{data&&<span className="help">CSV มีเฉพาะ {data.rows.length} รายการของหน้านี้ (จากทั้งหมด {data.page.total} รายการที่ตรงตัวกรอง) — ส่งออกทีละหน้า</span>}</div>}
+   {canExport&&<div className="action-bar"><button type="button" className="button secondary" disabled={queueLoading||!data||!!busy} onClick={doExport}>{busy==="csv"?"กำลังส่งออก…":"ส่งออก CSV เฉพาะหน้านี้"}</button>{data&&<span className="help">CSV หน้านี้ {data.rows.length} / {data.page.total} รายการ</span>}</div>}
    <div className="table-wrap" role="region" aria-label="รายการรายงาน" tabIndex={0}>
     <table className="data-table p5-queue"><thead><tr><th scope="col">ไฟล์</th><th scope="col">ชนิด</th><th scope="col">HN · เลข Lab</th><th scope="col">วันที่เก็บ</th><th scope="col">LN · รอบ</th><th scope="col">สถานะ</th><th scope="col">อัปเดต</th><th scope="col"><span className="sr-only">เปิด</span></th></tr></thead>
      <tbody>{!data?<tr><td colSpan={8} className="empty-row">{queueLoading?"กำลังโหลด…":"โหลดคิวไม่สำเร็จ"}</td></tr>:rows.length?rows.map(r=><tr key={r.id}>

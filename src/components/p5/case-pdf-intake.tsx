@@ -1,4 +1,6 @@
 "use client";
+import {FileDropInput} from "../shared/file-drop-input";
+import {PdfPreviewButton} from '../shared/pdf-preview';
 import {useCallback,useEffect,useState} from "react";
 import {csrf} from "../p2/shared";
 
@@ -47,7 +49,7 @@ export function CasePdfIntake({caseId}:{caseId:string}){
    <div className="form-grid">
     <div className="field"><label htmlFor="case-pdf-round">รอบตัวอย่าง</label><select id="case-pdf-round" value={roundId} onChange={e=>setRoundId(e.target.value)}>{status.rounds.map(r=><option key={r.id} value={r.id}>รอบที่ {r.number}{r.id===status.currentRoundId?" (ปัจจุบัน)":""}</option>)}</select></div>
     <div className="field"><label htmlFor="case-pdf-attempt">Attempt</label><select id="case-pdf-attempt" value={attempt} onChange={e=>setAttemptId(e.target.value)}>{round?.attempts.map(a=><option key={a.id} value={a.id}>ครั้งที่ {a.number}{a.printedSampleId?` · ${a.printedSampleId}`:""}</option>)}</select></div>
-    <div className="field"><label htmlFor="case-pdf-file">ไฟล์ PDF ผลตรวจ</label><input key={inputKey} id="case-pdf-file" type="file" accept="application/pdf,.pdf" onChange={e=>setFile(e.target.files?.[0]??null)}/></div>
+    <div className="field"><label htmlFor="case-pdf-file">ไฟล์ PDF ผลตรวจ</label><FileDropInput key={inputKey} id="case-pdf-file" type="file" accept="application/pdf,.pdf" onChange={e=>setFile(e.target.files?.[0]??null)}/></div>
    </div>
    <div className="action-bar"><button className="button" disabled={busy||!file||!roundId}>{busy&&!check?"กำลังตรวจไฟล์…":"อัปโหลด PDF ผลตรวจ"}</button></div>
   </form>}
@@ -58,12 +60,12 @@ export function CasePdfIntake({caseId}:{caseId:string}){
    {check?.outcome==="READY"&&<div className="stack" role="region" aria-label="ตรวจ PDF กับรายการที่เลือก">
     <p role="status">ข้อมูลใน PDF ตรงกับรายการที่เลือก — ตรวจตัวอย่างไฟล์แล้วกดยืนยัน</p>
     <table className="data-table"><thead><tr><th scope="col">ข้อมูล</th><th scope="col">ผลเทียบ</th></tr></thead><tbody>{Object.entries(check.cross??{}).map(([k,v])=><tr key={k}><td>{FIELD[k]??k}</td><td>{CMP[v]??v}</td></tr>)}</tbody></table>
-    <iframe title="ตัวอย่าง PDF ที่อัปโหลด" src={`/api/p5/intake/${check.intakeId}/file`} className="pdf-frame case-pdf-frame"/>
+    <PdfPreviewButton src={`/api/p5/intake/${check.intakeId}/file`} title="ตัวอย่าง PDF ที่อัปโหลด"/>
     {check.nameConflict&&<label className="check-label"><input type="checkbox" checked={ack} onChange={e=>setAck(e.target.checked)}/> มีไฟล์ชื่อเดียวกันแต่เนื้อหาต่างในระบบแล้ว — รับทราบ</label>}
     <div className="action-bar"><button type="button" className="button" disabled={busy||(!!check.nameConflict&&!ack)} onClick={()=>void confirm()}>{busy?"กำลังบันทึก…":"ยืนยันแนบ PDF กับรายการนี้"}</button></div>
    </div>}
    {done&&<div className="stack" role="region" aria-label="ผลการอัปโหลด"><p className="notice success" role="status">แนบ PDF แล้ว ({STATE[done.state]??done.state}) — ขั้นต่อไป: {done.next}</p>
-    <iframe title="PDF ที่แนบแล้ว" src={`/api/p5/results/${done.versionId}/file`} className="pdf-frame case-pdf-frame"/>
+    <PdfPreviewButton src={`/api/p5/results/${done.versionId}/file`} title="PDF ที่แนบแล้ว"/>
     <p><a className="button secondary" href={`/results/${done.versionId}`}>เปิดหน้าตรวจรับผล</a></p></div>}
   </div>
  </section>;

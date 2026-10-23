@@ -8,7 +8,7 @@ import {digest} from '../pooling/calculation';
 import {exportOwnerTaskImport} from '../sequencing/owner-task-import';
 const memberSchema=z.strictObject({slot:z.number().int().min(1).max(48),pooled:z.boolean(),actualVolume:z.number().finite().positive().optional(),reason:z.string().trim().max(500).optional()});
 export async function recordActualPooling(db:Queryable,user:Staff,input:unknown,deps:WorkbookDeps){
- const d=z.strictObject({batchId:uuid,revision:z.number().int().positive(),members:z.array(memberSchema).length(48),note:z.string().trim().min(8).max(1000)}).parse(input);
+ const d=z.strictObject({batchId:uuid,revision:z.number().int().positive(),members:z.array(memberSchema).length(48),note:z.string().trim().max(1000).default('')}).parse(input);
  need(user,'qc.record');await db.query('SELECT id FROM lab_batch WHERE id=$1 FOR UPDATE',[d.batchId]);
  const s=await savedSource(db,user,d.batchId,deps);if(s.workbook.draft!.revision!==d.revision)throw new LabError('TASK_DRAFT_VERSION_CONFLICT',409);
  if(new Set(d.members.map(m=>m.slot)).size!==48)throw new LabError('ACTUAL_POOLING_POSITIONS_REQUIRED',422);
@@ -16,8 +16,8 @@ export async function recordActualPooling(db:Queryable,user:Staff,input:unknown,
  const members=d.members.sort((a,b)=>a.slot-b.slot).map(m=>{
   const row=pool.calculation.rows.find(r=>r.slot===m.slot)!,slot=s.slots.find(r=>r.slot===m.slot)!;
   if(m.pooled&&(!row.sampleId||!slot.attemptId&&!slot.control))throw new LabError('ACTUAL_POOLING_EMPTY_POSITION',422,{slot:m.slot});
-  if(m.pooled&&(row.csvVolume==='0'||row.belowTwo||row.volume===null)&&!(m.actualVolume&&m.reason&&m.reason.length>=8))throw new LabError('ACTUAL_TRANSFER_VOLUME_EVIDENCE_REQUIRED',422,{slot:m.slot});
-  return {...m,sampleId:row.sampleId,attemptId:slot.attemptId??null,calculatedVolume:row.volume};
+  if(m.pooled&&row.volume===null&&!m.actualVolume)throw new LabError('ACTUAL_TRANSFER_VOLUME_EVIDENCE_REQUIRED',422,{slot:m.slot});
+  return {...m,...(m.pooled?{actualVolume:m.actualVolume??Number(row.volume)}:{}),sampleId:row.sampleId,attemptId:slot.attemptId??null,calculatedVolume:row.volume};
  });
  const qcValues=Object.fromEntries(Object.entries(s.workbook.values).filter(([k])=>/^slot\.\d+\.libraryQc$|^qc\.[123]\./.test(k)));
  const row=(await db.query<{id:string}>(`INSERT INTO lab_actual_pooling(batch_id,workbook_revision_id,qc_source_sha256,qc_values,placements,members,note,recorded_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,[d.batchId,s.workbook.draft!.id,pool.sourceSha256,JSON.stringify(qcValues),JSON.stringify((s.workbook.draft!.source_snapshot as {placements:unknown}).placements),JSON.stringify(members),d.note,user.id])).rows[0];
