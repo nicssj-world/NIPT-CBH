@@ -9,6 +9,7 @@ import {p4Error,noStore} from "./p4";
 
 export {noStore};
 const MESSAGES:Record<string,string>={
+ STORAGE_POSITION_OCCUPIED:"ตำแหน่งนี้มีตัวอย่างอยู่แล้ว หรือตัวอย่างนี้จัดเก็บแล้ว กรุณาค้นหาและเลือกตำแหน่งว่าง",
  MANUAL_PDF_IDENTITY_REQUIRED:"ยังทบทวน Manual ไม่ได้: ตรวจ LN, HN, ชื่อ และวันเกิดที่มีให้ตรงกับ Final PDF และแก้ข้อผิดพลาดในแถวก่อน ไม่ต้องสร้าง PET หรือ QC ใหม่",
  MANUAL_PDF_HASH_MISMATCH:"ไฟล์ PDF ไม่ตรงกับหลักฐานที่บันทึกไว้ กรุณาตรวจต้นฉบับก่อนทบทวน",
  FORBIDDEN:"ไม่มีสิทธิ์ทำรายการนี้",NOT_FOUND:"ไม่พบรายการ หรือไม่มีสิทธิ์เห็นรายการนี้",

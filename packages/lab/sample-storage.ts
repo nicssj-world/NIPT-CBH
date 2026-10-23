@@ -21,7 +21,9 @@ export async function storageCommand(db:Queryable,user:Staff,raw:unknown){
   const id=(await db.query<{id:string}>(`INSERT INTO lab_storage_box(box_number,box_id,created_by) OVERRIDING SYSTEM VALUE VALUES($1,$2,$3) RETURNING id`,[n,`Box${n.padStart(3,'0')}`,user.id])).rows[0].id;
   await audit(db,user,'LAB_STORAGE_BOX_CREATED','lab_storage_box',id,{outcome:'CREATED'});return{id};
  }
- await db.query('SELECT id FROM lab_storage_box WHERE id=$1 FOR UPDATE',[d.boxId]);
+ // Serialize slot placement without granting UPDATE on immutable box evidence.
+ await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,75432832))',[d.boxId]);
+ if(!(await db.query('SELECT id FROM lab_storage_box WHERE id=$1',[d.boxId])).rows.length)throw new LabError('NOT_FOUND',404);
  if(!(await db.query('SELECT id FROM specimen_round WHERE id=$1',[d.roundId])).rows.length)throw new LabError('NOT_FOUND',404);
  const existing=(await db.query('SELECT id FROM lab_storage_position WHERE round_id=$1 OR (box_id=$2 AND slot=$3)',[d.roundId,d.boxId,d.slot])).rows;
  if(existing.length)throw new LabError('STORAGE_POSITION_OCCUPIED',409);
