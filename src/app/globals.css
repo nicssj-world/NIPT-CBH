@@ -653,3 +653,6 @@ input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-o
 
 .result-status-filters { display: flex; flex-wrap: wrap; gap: 12px; margin-block: 24px; }
 .result-status-filters [aria-selected="true"] { background: var(--info-bg); border-color: var(--color-brand); font-weight: 600; }
+
+.pdf-pages { overflow: auto; padding: 12px; background: var(--color-bg); }
+.pdf-pages canvas { display: block; width: 100%; height: auto; margin-bottom: 16px; background: white; }
