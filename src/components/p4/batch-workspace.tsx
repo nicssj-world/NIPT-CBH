@@ -106,7 +106,7 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
    {sheet.state==="Amended"&&<p className="notice warning-notice">อยู่ระหว่าง Controlled amendment — ใบงานเดิมถูกระงับใช้ แก้แผนแล้วยืนยัน/Finalize ใหม่ (สร้าง Revision ใหม่ ของเดิมไม่ถูกแก้)</p>}
    <TaskContext w={w} sheet={sheet} sheetNo={sheetNo}/>
    <div className="row"><h2>แผนผังตัวอย่าง — ตำแหน่ง {(sheetNo-1)*16+1}–{sheetNo*16}</h2>{editable&&w.allowed.assign&&<button className="button secondary" type="button" disabled={busy||sheetStats(w.slots,sheetNo).empty===0} onClick={()=>setDialog({type:"fill"})}>เติมตัวอย่างจากคิว</button>}</div>
-   <div className="plate">{[0,1].map(strip=><table key={strip} className="data-table plate-table"><caption>Strip {strip===0?"S1":"S2"} (ตำแหน่ง {(sheetNo-1)*16+1+strip*8}–{(sheetNo-1)*16+8+strip*8})</caption>
+   <div className="plate" role="region" aria-label={`ตำแหน่งตัวอย่าง Task List ${sheetNo}`} tabIndex={0}>{[0,1].map(strip=><table key={strip} className="data-table plate-table"><caption>Strip {strip===0?"S1":"S2"} (ตำแหน่ง {(sheetNo-1)*16+1+strip*8}–{(sheetNo-1)*16+8+strip*8})</caption>
     <thead><tr><th scope="col">ตน. / Plate</th><th scope="col">Barcode</th><th scope="col">Sample ID / Control</th><th scope="col">{started?"✓ ตรวจก่อน/หลังดูด":"จัดการ"}</th></tr></thead>
     <tbody>{slots.slice(strip*8,strip*8+8).map(s=><tr key={s.slot} className={s.control?"control-row":s.assignment?"":"empty-row"}>
      <th scope="row">{s.slot}<div className="small muted">{s.plate}</div></th><td className="mono">{s.barcode}</td>

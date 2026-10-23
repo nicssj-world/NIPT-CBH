@@ -19,4 +19,3 @@
 .worksheet-save-bar { position: sticky; bottom: 0; z-index: 5; background: var(--color-surface); border-top: 1px solid var(--color-line); display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0 max(12px, env(safe-area-inset-bottom)); margin-top: 24px; }
 .pool-override { color: var(--color-brand); font-weight: 600; }
 .lab-bench td small { display: block; }
-.historical-actions { gap: 12px; margin-block: 16px; }

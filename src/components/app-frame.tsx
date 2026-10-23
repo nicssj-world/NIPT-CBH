@@ -5,7 +5,7 @@ import {useRef, useSyncExternalStore} from "react";
 import {InputSafety} from "./shared/input-safety";
 import {usePathname} from "next/navigation";
 
-const routeNames:Record<string,string>={"/":"ภาพรวม","/cases":"ทะเบียนกลาง","/inbound":"รับใบสั่งจาก HIS","/lab":"งาน Lab","/lab/batches":"Batch / Task List","/results":"ผลตรวจ NIPT","/historical":"นำเข้าย้อนหลัง","/doctors":"ทะเบียนแพทย์","/settings":"ตั้งค่าระบบ","/health":"สถานะระบบ"};
+const routeNames:Record<string,string>={"/":"ภาพรวม","/cases":"ทะเบียนกลาง","/inbound":"รับใบสั่งจาก HIS","/lab":"งาน Lab","/lab/batches":"Batch / Task List","/sample-storage":"Sample Storage","/results":"ผลตรวจ NIPT","/historical":"นำเข้าย้อนหลัง","/doctors":"ทะเบียนแพทย์","/settings":"ตั้งค่าระบบ","/health":"สถานะระบบ"};
 
 function subscribeTheme(notify:()=>void){window.addEventListener("nipt-theme-change",notify);return ()=>window.removeEventListener("nipt-theme-change",notify);}
 export function ThemeButton(){

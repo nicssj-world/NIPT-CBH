@@ -652,7 +652,8 @@ input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-o
 .file-drop .hint, .file-names { margin-block: 8px; overflow-wrap: anywhere; }
 
 .result-status-filters { display: flex; flex-wrap: wrap; gap: 12px; margin-block: 24px; }
-.result-status-filters [aria-selected="true"] { background: var(--info-bg); border-color: var(--color-brand); font-weight: 600; }
+.result-status-filters [aria-selected="true"] { background: var(--info-bg); border-color: var(--color-brand); color: var(--color-brand); font-weight: 600; }
+.historical-actions { gap: 12px; margin-block: 16px; }
 
 .pdf-pages { overflow: auto; padding: 12px; background: var(--color-bg); }
 .pdf-pages canvas { display: block; width: 100%; height: auto; margin-bottom: 16px; background: white; }
