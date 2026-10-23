@@ -216,11 +216,12 @@ describe('configurable storage path',()=>{
   expect(f.rootPath).toBe(roots.dir('default'));expect(await getPhoto(f.rootPath,f.hash)).toBeTruthy();
   await expect(readFile(path.join(roots.dir('nas'),...photoKey(old.sha256).split('/')))).rejects.toThrow();
   // Absolute paths are only shown to those who may change them.
-  const asAdmin=await run(t=>svc.storageOverview(t,admin)),asAuditor=await run(t=>svc.storageOverview(t,u.auditor));
+  const asAdmin=await run(t=>svc.storageOverview(t,admin));
+  await expect(run(t=>svc.storageOverview(t,u.auditor))).rejects.toThrow('FORBIDDEN'); // LAB-UAT-002 settings are Admin-only.
   expect(asAdmin.roots.map(x=>x.path)).toEqual([roots.dir('nas'),roots.dir('default')]);
-  expect(asAuditor.roots.map(x=>x.path)).toEqual([null,null]);expect(asAuditor.roots[0].lastTest.account).toBeNull();
+
   expect(asAdmin.roots.map(x=>[x.state,x.photos])).toEqual([['Active',1],['Retired',1]]);
-  expect((await run(t=>svc.storageOverview(t,u.staff))).roots.every(x=>x.path===null)).toBe(true);
+  await expect(run(t=>svc.storageOverview(t,u.staff))).rejects.toThrow('FORBIDDEN');
   expect(await code(run(t=>svc.storageOverview(t,u.anc as Staff)))).toBe('FORBIDDEN');
   expect((await db.query<{action:string}>("SELECT action FROM audit_chain WHERE action LIKE 'RUN_PHOTO_STORAGE%' ORDER BY sequence")).rows.map(x=>x.action)).toEqual(['RUN_PHOTO_STORAGE_RETIRED','RUN_PHOTO_STORAGE_ACTIVATED']);
  });

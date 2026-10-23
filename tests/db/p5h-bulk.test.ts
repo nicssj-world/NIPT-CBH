@@ -169,12 +169,12 @@ describe('P5H independent review, discrepancy, conflict and database guards',()=
   // A Conflict draft is terminal: it cannot be edited, abandoned or promoted later.
   await expect(f.run(t=>abandonRow(t,f.maker,(batchRowId(out)),'ยกเลิกแถวที่ขัดแย้ง'))).rejects.toMatchObject({code:'ROW_NOT_EDITABLE'});
  });
- it('rejects a verifier without the role and a maker without HISTORICAL_ENTRY',async()=>{
+ it('preserves promotion authority while LAB_STAFF imports without HISTORICAL_ENTRY (LAB-UAT-008)',async()=>{
   const rows=[goodRow(51)];
   const batch=await importBatch(f,rows,rows.map(r=>({name:r.pdf_file!,bytes:pdfFor(r)})));
   const id=(await view(f,batch)).rows[0].id;
   await expect(f.run(t=>confirmBatch(t,f.u.certifier,batch,LOOKUP_KEY,{idempotencyKey:randomUUID(),rows:[{draftId:id,version:1,attestation:attest()}]}))).rejects.toMatchObject({code:'FORBIDDEN'});
-  await expect(f.run(t=>createBatch(t,{...f.maker,permissions:[]},f.store,{table:{name:'x.csv',bytes:csvOf([goodRow(52)])},files:[]}))).rejects.toMatchObject({code:'FORBIDDEN'});
+  expect(await f.run(t=>createBatch(t,{...f.maker,permissions:[]},f.store,{table:{name:'x.csv',bytes:csvOf([goodRow(52)])},files:[]}))).toHaveProperty('batchId');
   await expect(f.run(t=>createBatch(t,f.u.anc as never,f.store,{table:{name:'x.csv',bytes:csvOf([goodRow(52)])},files:[]}))).rejects.toMatchObject({code:'FORBIDDEN'});
  });
  it('database guards: no direct case, no promotion without a second-person verification, no self-verification, promoted drafts are frozen',async()=>{
