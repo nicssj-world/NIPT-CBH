@@ -1,41 +1,44 @@
 'use client';
 import Link from 'next/link';
-import {useEffect,useRef,useState} from 'react';
+import {useRef,useState} from 'react';
 import {useRouter} from 'next/navigation';
-import {api,Dialog,ErrorNotice,Field,message,type Unit,type Doctor} from './shared';
+import {api,Dialog,ErrorNotice,Field,message,time,type Unit} from './shared';
+import type {RegistrationPet} from '../../../packages/p2/pet-registration';
 
 export function LabRegistration({units,onClose}:{units:Unit[];onClose:()=>void}){
- const router=useRouter(),key=useRef(crypto.randomUUID()),hnRef=useRef<HTMLInputElement>(null);
- const [mode,setMode]=useState<'CHOOSE'|'OPERATIONAL'>('CHOOSE'),[ln,setLn]=useState(''),[hn,setHn]=useState(''),[unit,setUnit]=useState(units[0]?.id??''),[weeks,setWeeks]=useState(''),[days,setDays]=useState(''),[edc,setEdc]=useState(''),[pregnancy,setPregnancy]=useState('Singleton'),[request,setRequest]=useState(false),[consent,setConsent]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[linked,setLinked]=useState<string|null>(null);
- const [doctors,setDoctors]=useState<Doctor[]>([]),[doctor,setDoctor]=useState('');
- useEffect(()=>{let active=true;api<{doctors:Doctor[]}>('/api/p2/doctors').then(result=>{if(active)setDoctors(result.doctors.filter(d=>d.active));}).catch(e=>{if(active)setError(message(e));});return()=>{active=false;};},[]);
- async function submit(){
-  setError('');const match=/^(\d{2})\/(\d{2})\/(\d{4})$/.exec(edc);
-  if(!match){setError('กรอก EDC เป็น MM/DD/YYYY เช่น 03/24/2027');return;}
-  const iso=`${match[3]}-${match[1]}-${match[2]}`;setBusy(true);
-  try{
-   const result=await api<{caseId:string|null;intake?:{outcome:string;fields:string[]}}>('/api/p2/register',{ln:ln.replaceAll('-',''),hn,unitId:unit,origin:'LAB_DIRECT',idempotencyKey:key.current,labOperational:{gaWeeks:Number(weeks),gaDays:Number(days),edd:iso,pregnancy,paperRequest:request,paperConsent:consent,doctorVersionId:doctor||null}});
-   if(!result.caseId){setError('LN/HN ขัดแย้งกับทะเบียน กรุณาตรวจหลอดและใบขอส่งตรวจก่อน');return;}
-   if(result.intake&&!['NO_INTAKE','APPLIED_S1'].includes(result.intake.outcome)){setLinked(result.caseId);setError(`ลงทะเบียนแล้ว แต่ข้อมูล HIS ต้องตรวจสอบ (${result.intake.fields.join(', ')||result.intake.outcome}) จึงยังไม่รับสิ่งส่งตรวจ`);return;}
-   router.push('/lab');router.refresh();
-  }catch(e){setError(message(e));}finally{setBusy(false);}
+ const router=useRouter(),key=useRef(crypto.randomUUID());
+ const [mode,setMode]=useState<'CHOOSE'|'OPERATIONAL'>('CHOOSE'),[ln,setLn]=useState(''),[hn,setHn]=useState(''),[rows,setRows]=useState<RegistrationPet[]|null>(null),[selected,setSelected]=useState(''),[consent,setConsent]=useState<''|'Paper'|'Electronic'>(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const pet=rows?.find(p=>p.fileId===selected),identifiers={...(ln.trim()?{ln:ln.trim().replaceAll('-','')}:{}),...(hn.trim()?{hn:hn.trim()}:{})};
+ function changed(){setRows(null);setSelected('');setError('');key.current=crypto.randomUUID();}
+ async function lookup(){
+  if(!ln.trim()&&!hn.trim()){setError('กรอก LN หรือ HN อย่างใดอย่างหนึ่งก่อนค้นหา');return;}
+  setBusy(true);setError('');setRows(null);setSelected('');
+  try{const result=await api<{candidates:RegistrationPet[]}>('/api/p2/pet-registration',{action:'lookup',...identifiers});setRows(result.candidates);if(result.candidates.length===1)setSelected(result.candidates[0].fileId);}
+  catch(e){setError(message(e));}finally{setBusy(false);}
+ }
+ async function register(){
+  if(!pet||!consent)return;setBusy(true);setError('');
+  try{const result=await api<{caseId:string}>('/api/p2/pet-registration',{action:'register',...identifiers,fileId:pet.fileId,...(units[0]?{unitId:units[0].id}:{}),consentMode:consent,idempotencyKey:key.current});router.push('/cases/'+result.caseId);router.refresh();}
+  catch(e){setError(message(e));}finally{setBusy(false);}
  }
  return <Dialog title="ลงทะเบียนโดย Lab" onClose={onClose} dirty={!!ln||!!hn}>
-  {mode==='CHOOSE'?<div className="stack"><p>เลือกตามงานที่เกิดขึ้นจริง ข้อมูลผู้ป่วยใช้ทะเบียนกลางร่วมกัน</p><Link className="button secondary" href="/historical">ตรวจ Manual เสร็จแล้ว มี PDF</Link><button className="button" type="button" onClick={()=>setMode('OPERATIONAL')}>Lab ได้รับตัวอย่าง + ใบขอส่งตรวจ + Paper Consent แล้ว และจะตรวจตามระบบ</button></div>:<form className="stack" onSubmit={e=>{e.preventDefault();void submit();}}>
-   <p>กรอก LN/HN จากหลอดและใบขอส่งตรวจ ระบบรับตัวอย่างและออก LN Halos อัตโนมัติเมื่อ PET ของ HIS ตรงกัน</p>
-   <div className="form-grid">
-    <Field label="LN HIS" required>{id=><input id={id} autoFocus autoComplete="off" inputMode="numeric" required value={ln} onChange={e=>setLn(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();hnRef.current?.focus();}}}/>}</Field>
-    <Field label="HN" required>{id=><input id={id} ref={hnRef} autoComplete="off" required value={hn} onChange={e=>setHn(e.target.value)}/>}</Field>
-    <Field label="GA สัปดาห์" required>{id=><input id={id} type="number" min="0" max="45" required value={weeks} onChange={e=>setWeeks(e.target.value)}/>}</Field>
-    <Field label="GA วัน" required>{id=><input id={id} type="number" min="0" max="6" required value={days} onChange={e=>setDays(e.target.value)}/>}</Field>
-    <Field label="EDC (MM/DD/YYYY)" required help="เดือน/วัน/ปี ค.ศ.">{id=><input id={id} inputMode="numeric" placeholder="MM/DD/YYYY" required value={edc} onChange={e=>setEdc(e.target.value)}/>}</Field>
-    <Field label="ประเภทครรภ์" required>{id=><select id={id} value={pregnancy} onChange={e=>setPregnancy(e.target.value)}><option value="Singleton">ครรภ์เดี่ยว (Singleton)</option><option value="Twins">ครรภ์แฝด (Twins)</option></select>}</Field>
-    <Field label="หน่วยงาน" required>{id=><select id={id} required value={unit} onChange={e=>setUnit(e.target.value)}><option value="">เลือกหน่วยงาน</option>{units.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select>}</Field>
-    <Field label="แพทย์ผู้ส่งตรวจ" help="เลือกตามใบขอส่งตรวจจากทะเบียนแพทย์ร่วม ไม่ใช่การลงนามใหม่">{id=><select id={id} value={doctor} onChange={e=>setDoctor(e.target.value)}><option value="">ยังไม่ระบุ</option>{doctors.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select>}</Field>
+  {mode==='CHOOSE'?<div className="stack"><p>เลือกตามงานที่เกิดขึ้นจริง ข้อมูลผู้ป่วยใช้ทะเบียนกลางร่วมกัน</p><Link className="button secondary" href="/historical">ตรวจ Manual เสร็จแล้ว มี PDF</Link><button className="button" type="button" onClick={()=>setMode('OPERATIONAL')}>ลงทะเบียนตัวอย่างเพื่อตรวจตามระบบ</button></div>:<div className="stack">
+   <p>กรอก LN หรือ HN อย่างใดอย่างหนึ่ง ระบบใช้ข้อมูล PET ที่พร้อมและตรวจสอบได้จาก HIS</p>
+   <form className="stack" onSubmit={e=>{e.preventDefault();void lookup();}}><div className="form-grid">
+    <Field label="LN HIS" help="กรอก LN หรือ HN อย่างใดอย่างหนึ่ง">{id=><input id={id} autoFocus autoComplete="off" inputMode="numeric" value={ln} disabled={busy} onChange={e=>{setLn(e.target.value);changed();}}/>}</Field>
+    <Field label="HN">{id=><input id={id} autoComplete="off" value={hn} disabled={busy} onChange={e=>{setHn(e.target.value);changed();}}/>}</Field>
+   </div><button className="button secondary" disabled={busy||(!ln.trim()&&!hn.trim())}>{busy?'กำลังตรวจข้อมูล…':'ค้นหาข้อมูลจาก HIS'}</button></form>
+   <div aria-live="polite">{rows?.length===0&&<p className="notice" role="status">ยังไม่พบ PET ที่พร้อมสำหรับตัวระบุนี้ กรุณาตรวจ LN/HN และสถานะ PET / .ok จาก HIS ก่อนลองใหม่ ระบบยังไม่สร้างเคสหรือออก LN Halos</p>}
+    {rows&&rows.length>1&&<fieldset className="stack"><legend>พบหลาย LN — เลือกรายการตรวจที่ถูกต้อง</legend>{rows.map(p=><label className="check-label" key={p.fileId}><input type="radio" name="pet-order" value={p.fileId} checked={selected===p.fileId} disabled={busy} onChange={()=>{setSelected(p.fileId);key.current=crypto.randomUUID();}}/>LN {p.ln} · HN {p.hn} · รับจาก HIS {time(p.receivedAt)}</label>)}</fieldset>}
    </div>
-   <label className="check-label"><input type="checkbox" required checked={request} onChange={e=>setRequest(e.target.checked)}/>มีใบขอส่งตรวจกระดาษที่ Lab</label>
-   <label className="check-label"><input type="checkbox" required checked={consent} onChange={e=>setConsent(e.target.checked)}/>มี Paper Consent ที่ Lab</label>
-   <ErrorNotice error={error}/>{linked?<Link className="button" href={'/cases/'+linked}>เปิดเคสเพื่อตรวจข้อมูล</Link>:<div className="action-bar"><button className="button" disabled={busy}>{busy?'กำลังลงทะเบียน…':'ลงทะเบียนและเข้าคิว Lab'}</button><button className="button secondary" type="button" disabled={busy} onClick={()=>setMode('CHOOSE')}>กลับไปเลือกประเภทงาน</button></div>}
-  </form>}
+   {pet&&<section aria-label="ข้อมูลยืนยันจาก HIS PET"><h3>ข้อมูลยืนยันจาก HIS PET</h3><dl className="compact-facts">
+    {([['LN HIS',pet.ln],['HN',pet.hn],['ชื่อผู้รับบริการ',pet.name],['วันเกิด',pet.dob],['เพศ',pet.sex],['วัน/เวลาเก็บตัวอย่าง',time(pet.specimenAt)],['วัน/เวลารับตัวอย่างใน HIS',time(pet.receivedAt)],['หน่วยงานส่งตรวจ (HIS Ward)',pet.ward||'รอข้อมูลจาก HIS']] as const).map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+   </dl><p className="help">GA, EDD/EDC และประเภทครรภ์กรอกภายหลังในรายละเอียดตัวอย่างได้ LN Halos เกิดจากหลักฐานรับตัวอย่างที่ถูกต้องเท่านั้น หากมีเลขแล้วระบบใช้เลขเดิม</p></section>}
+   {pet&&<form className="stack" onSubmit={e=>{e.preventDefault();void register();}}><fieldset className="stack"><legend>ช่องทาง Consent</legend>
+    <label className="check-label"><input type="radio" name="registration-consent" required checked={consent==='Paper'} disabled={busy} onChange={()=>{setConsent('Paper');key.current=crypto.randomUUID();}}/>Paper Consent</label>
+    <label className="check-label"><input type="radio" name="registration-consent" required checked={consent==='Electronic'} disabled={busy} onChange={()=>{setConsent('Electronic');key.current=crypto.randomUUID();}}/>Electronic Consent</label>
+   </fieldset><p className="help">Paper Consent เป็นเครื่องหมายว่าใช้ต้นฉบับกระดาษที่มากับตัวอย่าง ไม่ต้องสแกน อัปโหลด พิมพ์ หรือลงนามซ้ำ และไม่ใช่การรับรองทางคลินิก เคสเดิมคงเอกสารและ Consent ที่บันทึกไว้</p><button className="button" disabled={busy||!consent}>{busy?'กำลังลงทะเบียน…':'ลงทะเบียนตัวอย่าง'}</button></form>}
+   <ErrorNotice error={error}/><button className="button secondary" type="button" disabled={busy} onClick={()=>setMode('CHOOSE')}>กลับไปเลือกประเภทงาน</button>
+  </div>}
  </Dialog>;
 }

@@ -68,8 +68,8 @@ export async function attemptFacts(db:Queryable,where:string,params:unknown[]):P
   (SELECT condition='ACCEPTABLE' FROM specimen_acceptance WHERE round_id=a.round_id ORDER BY created_at DESC,id DESC LIMIT 1) specimen_accepted,
   ARRAY(SELECT y.d FROM (SELECT DISTINCT ON(f.source) f.collection_date::text d FROM p2_collection_fact f WHERE f.round_id=a.round_id ORDER BY f.source,f.sequence DESC) y) collection_dates,
   COALESCE((SELECT x.pt FROM (SELECT d.created_at,d.payload->'draft'->'pregnancy'->>'type' pt FROM p2_document_revision d WHERE d.round_id=a.round_id AND d.kind='REQUEST'
-    UNION ALL SELECT p.created_at,p.panel->>'pregnancyType' FROM p2_paper_review p WHERE p.round_id=a.round_id AND p.kind='REQUEST' AND p.status='Verified') x WHERE x.pt IN ('Singleton','Twins') ORDER BY x.created_at DESC LIMIT 1),labreg.pregnancy) pregnancy,
-  COALESCE(ga.edd,labreg.edd::text) ga_edd,ga.cd ga_request_collection,
+    UNION ALL SELECT p.created_at,p.panel->>'pregnancyType' FROM p2_paper_review p WHERE p.round_id=a.round_id AND p.kind='REQUEST' AND p.status='Verified') x WHERE x.pt IN ('Singleton','Twins') ORDER BY x.created_at DESC LIMIT 1),labreg.pregnancy,CASE WHEN labreg.round_id IS NOT NULL THEN (SELECT CASE WHEN w.draft#>>'{pregnancy,type}' IN ('Singleton','Twins') THEN w.draft#>>'{pregnancy,type}' END FROM p2_workspace w WHERE w.round_id=r.id) END) pregnancy,
+  COALESCE(ga.edd,labreg.edd::text,CASE WHEN labreg.round_id IS NOT NULL THEN (SELECT w.draft#>>'{pregnancy,edd}' FROM p2_workspace w WHERE w.round_id=r.id) END) ga_edd,ga.cd ga_request_collection,
   EXISTS(SELECT 1 FROM lab_placement_snapshot ps,jsonb_array_elements(ps.payload->'slots') sl WHERE sl->>'attemptId'=a.id::text) previously_finalized,
   (SELECT count(*) FROM analytical_attempt b JOIN repeat_work_order w ON w.id=b.repeat_order_id WHERE b.round_id=a.round_id AND b.id<>a.id AND w.level='RE_LIBRARY')::int other_relibrary,
   COALESCE((SELECT e.event_type='HOLD_SET' FROM attempt_event e WHERE e.attempt_id=a.id AND e.event_type IN ('HOLD_SET','HOLD_RELEASED') ORDER BY e.sequence DESC LIMIT 1),false) hold,
