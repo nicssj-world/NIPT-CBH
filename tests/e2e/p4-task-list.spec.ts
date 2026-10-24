@@ -38,7 +38,7 @@ const operator=(page:Page)=>page.getByLabel("ผู้ปฏิบัติท�
 /** Planned work date for Task n, typed in BE (dd/mm/yyyy) as a user would. Day offset keeps the three Tasks distinct. */
 async function fillPlannedDate(page:Page,n:number){const f=page.getByLabel(/วันที่.*วางแผน/);await f.fill(`${16+n}/10/2569`);await f.blur();}
 /** Fixture owner plays HIS + P2 evidence and activates the labelled synthetic gate policy (same as p4-lab.spec.ts). */
-async function readyCases(count:number,exportable=false){
+async function readyCases(count:number,exportable=false,lnPrefix?:string){
  const db=new Client({connectionString:browserFixtureDatabaseUrl()});await db.connect();const q=db as unknown as Queryable;
  try{
   const id=async(u:string)=>(await db.query<{id:string}>("SELECT id FROM app_user WHERE username=$1",[u])).rows[0].id;
@@ -47,7 +47,7 @@ async function readyCases(count:number,exportable=false){
   const unit=(await db.query<{id:string}>("SELECT id FROM unit WHERE code='SYNTHETIC_ANC'")).rows[0].id;
   const active=(await db.query<{v:string|null}>("SELECT r.value->>'pendingGovernanceGate' v FROM setting_active a JOIN settings_revision r ON r.id=a.revision_id WHERE a.setting_key='laboratory'")).rows[0]?.v;
   if(active!=="PROCEED_SYNTHETIC_LABELLED")await setPendingPolicy(q,{certifier,approver},"PROCEED_SYNTHETIC_LABELLED");
-  const cases=[];for(let i=0;i<count;i++){const c=await tx(q,t=>syntheticCase(t,{staff,unit},exportable?{ln:`99000${Date.now()}${String(i+1).padStart(2,'0')}`}:{ }));await tx(q,t=>receiveS1(t,c,new Date(Date.now()-(count-i)*60000)));cases.push(c);}
+  const cases=[];for(let i=0;i<count;i++){const c=await tx(q,t=>syntheticCase(t,{staff,unit},exportable||lnPrefix?{ln:`${lnPrefix??`99000${Date.now()}`}${String(i+1).padStart(2,'0')}`}:{ }));await tx(q,t=>receiveS1(t,c,new Date(Date.now()-(count-i)*60000)));cases.push(c);}
   return cases;
  }finally{await db.end();}
 }
@@ -192,8 +192,10 @@ test("P0-5 / PDF acceptance: native Excel PDF per Task 1–3 carries only its ow
 
 test("T1-09: more than 50 authenticated Ready attempts paginate and remain searchable from the next page",async({page})=>{
  test.setTimeout(180000);
- const cases=await readyCases(55);
+ const prefix=`99000${Date.now()}`,cases=await readyCases(55,false,prefix);
  await page.setViewportSize({width:1440,height:1000});await login(page,"synthetic.lab");await page.goto("/lab");
+ // Keep exact 55-row/page-size assertions without modifying pre-existing integrated cases.
+ await page.getByLabel("ค้นหา LN / LN Halos / Sample ID / Run").fill(prefix);
  const summary=page.getByRole("status").filter({hasText:/แสดง 1–50 จาก 55 รายการ/});
  await expect(summary).toContainText("หน้า 1 จาก 2");
  const rows=page.getByRole("region",{name:"รายการงาน Lab"}).getByRole("row");

@@ -68,7 +68,7 @@ async function receiveRedrawRound(db:import('../../packages/db/connection').Quer
 it('LAB-UAT-003: migration 126 preserves generic stored samples as legacy and keeps their old evidence immutable',async()=>{
  const db=new PGlite(),migrationSource=path.resolve('db/migrations'),before126=await mkdtemp(path.join(os.tmpdir(),'nipt-storage-pre-126-'));
  try{
-  for(const name of (await readdir(migrationSource)).filter(name=>/^\d+.*\.sql$/.test(name)&&!name.startsWith('126_')))await copyFile(path.join(migrationSource,name),path.join(before126,name));
+  for(const name of (await readdir(migrationSource)).filter(name=>/^\d+.*\.sql$/.test(name)&&Number.parseInt(name,10)<126))await copyFile(path.join(migrationSource,name),path.join(before126,name));
   await migrate(db,before126);const u=await labUsers(db),sample=await syntheticCase(db,u);await receiveS1(db,sample,new Date('2026-10-20T01:00:00Z'));
   const box=(await db.query<{id:string}>('INSERT INTO lab_storage_box(box_id,created_by) VALUES($1,$2) RETURNING id',['BoxLegacy001',u.staff.id])).rows[0];
   const position=(await db.query<{id:string}>('INSERT INTO lab_storage_position(box_id,slot,round_id,stored_by) VALUES($1,1,$2,$3) RETURNING id',[box.id,sample.roundId,u.staff.id])).rows[0];

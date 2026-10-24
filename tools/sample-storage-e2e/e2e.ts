@@ -125,7 +125,7 @@ async function prepareMigrationAndBackup(client:Client){
  }
  const pre126=await mkdtemp(path.join(os.tmpdir(),'nipt-storage-e2e-pre-126-'));
  try{
-  for(const name of (await readdir(migrationDir)).filter(n=>/^\d+.*\.sql$/.test(n)&&n!==migration126))
+  for(const name of (await readdir(migrationDir)).filter(n=>/^\d+.*\.sql$/.test(n)&&Number.parseInt(n,10)<126))
    await copyFile(path.join(migrationDir,name),path.join(pre126,name));
   await migrate(client,pre126);
   let marker=(await client.query<{id:string}>('SELECT id FROM lab_storage_box WHERE box_id=$1',['BoxTask2Legacy01'])).rows[0]?.id;
