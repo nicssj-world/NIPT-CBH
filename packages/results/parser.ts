@@ -3,7 +3,7 @@
 // unapproved until OD-07 verifies them against the hospital's synthetic PDFs. The twin layout has no NIPTY evidence (SPEC: no twin
 // case seen); its anchors are a proposed synthetic contract. Every value keeps its raw text and method; unreadable is UNREADABLE —
 // never Normal, Low Risk, Not Detected or 0.
-export const PARSER_VERSION='P5-PARSER-1.0.2';
+export const PARSER_VERSION='P5-PARSER-1.0.3';
 export const TEMPLATE_VERSIONS={SINGLETON:'SYNTHETIC-BGI-SINGLETON-v1-UNAPPROVED-OD07',TWIN:'SYNTHETIC-TWIN-PROPOSED-v1-UNAPPROVED-OD07',REDRAW_NOTICE:'SYNTHETIC-REDRAW-NOTICE-v1-UNAPPROVED-OD07',UNKNOWN:'UNKNOWN'} as const;
 export type TemplateKind=keyof typeof TEMPLATE_VERSIONS;
 export type Method='ANCHORED'|'FALLBACK'|'UNREADABLE'|'NOT_APPLICABLE';
@@ -18,6 +18,8 @@ const RE={
  labLn:/Lab No\.\s*\(LN\):\s*([A-Za-z0-9-]+)/,labLnNotice:/\(LN:\s*([A-Za-z0-9-]+)/,
  hnAnchored:/Lab No\.\s*\(LN\):\s*\S+[\s\S]{0,60}?HN:\s*(\d+(?:\/\d+)?)(?=\s|$)/,hn:/HN:\s*(\d+(?:\/\d+)?)(?=\s|$)/,
  name:/Patient Name:\s*(.+?)\s*(?:Gestational Age:|\n|$)/,ga:/Gestational Age:\s*(\d{1,2})\s*Weeks?\s*(\d)\s*Day\(s\)/i,
+ // Task 3: the Owner DOCX masters (and ReadyGen enrich_format "{0}W {1}D") print GA as "15W 3D"; both layouts give the same two numbers.
+ gaShort:/Gestational Age:\s*(\d{1,2})\s*W\s+(\d)\s*D(?=\s|$)/,
  dob:/DOB:\s*(\d{1,2}-[A-Za-z]{3}-\d{4})/,collection:/Sample Collection Date:\s*([\w-]+)/,received:/Sample Received Date:\s*([\w-]+)/,reported:/Reported Date:\s*([\w-]+)/,
  trisomy:new RegExp(`TRISOMY\\s*21\\s*TRISOMY\\s*18\\s*TRISOMY\\s*13\\s*Fetal\\s*Gender[\\s\\S]{0,80}?${RISK}\\s+${RISK}\\s+${RISK}(?:\\s+(Male|Female))?`),
  twin:new RegExp(`TRISOMY\\s*21\\s*TRISOMY\\s*18\\s*TRISOMY\\s*13\\s*Y\\s*CHROMOSOME[\\s\\S]{0,80}?${RISK}\\s+${RISK}\\s+${RISK}\\s+${DETECT}`,'i'),
@@ -52,7 +54,7 @@ export function classifyNotice(text:string,filename:string){
 export function parseReport(text:string,filename=''):Parsed{
  const ln=field(RE.labLn.exec(text)??RE.labLnNotice.exec(text));
  const hnA=RE.hnAnchored.exec(text),hn=hnA?field(hnA):field(RE.hn.exec(text),1,'FALLBACK');
- const gaM=RE.ga.exec(text);const ga:Field<number>=gaM?{value:Number(gaM[1])*7+Number(gaM[2]),raw:gaM[0],method:'ANCHORED'}:none();
+ const gaM=RE.ga.exec(text)??RE.gaShort.exec(text);const ga:Field<number>=gaM?{value:Number(gaM[1])*7+Number(gaM[2]),raw:gaM[0],method:'ANCHORED'}:none();
  const identifiers={labNumber:ln,hn,patientName:field(RE.name.exec(text)),dob:dateField(RE.dob.exec(text)),collectionDate:dateField(RE.collection.exec(text)),
   receivedDate:dateField(RE.received.exec(text)),reportedDate:dateField(RE.reported.exec(text)),gestationalAgeDays:ga};
  // Owner Task1: the same normal external PDF may explicitly report Result = No Call.

@@ -4,17 +4,17 @@
 // `dependency: 'P4b'` marks predicates that can only pass once P4b delivers QC4/QC5, Analysis completion and FinalQcAccepted.
 export type Tri='PASS'|'FAIL'|'PENDING';
 export type Cmp='MATCH'|'MISMATCH'|'NOT_AVAILABLE';
-export type RgCode='RG-01'|'RG-02'|'RG-03'|'RG-04'|'RG-05'|'RG-06'|'RG-07'|'RG-08'|'RG-09'|'RG-10'|'RG-11'|'RG-12'|'RG-13';
+export type RgCode='RG-01'|'RG-02'|'RG-03'|'RG-04'|'RG-05'|'RG-06'|'RG-07'|'RG-08'|'RG-09'|'RG-10'|'RG-11'|'RG-12'|'RG-13'|'RG-14';
 export type RnCode='RN-01'|'RN-02'|'RN-03'|'RN-04'|'RN-05'|'RN-06'|'RN-07';
 export type Governance='OD-04'|'OD-05'|'OD-07'|'OD-08'|'OD-09'|'OD-16';
 export type GatePredicate={code:RgCode|RnCode;status:Tri;reason:string;governance?:Governance;dependency?:'P4b'};
-export const RG_RULE_VERSION='TASK1-OWNER-NO-CALL-20261024',RN_RULE_VERSION='P5-RN-SYNTHETIC-v1';
+export const RG_RULE_VERSION='TASK3-TWO-PATHWAYS-20261025',RN_RULE_VERSION='P5-RN-SYNTHETIC-v1';
 export type Purpose='VALIDATION'|'CERTIFY_ATTEMPT';
 
 export type CrossCheck={hn:Cmp;dob:Cmp;pregnancy:Cmp;collectionDate:Cmp;gestationalAge:Cmp;labNumber:Cmp};
 export type ResultFacts={
  templateKind:'SINGLETON'|'TWIN';templateApproved:boolean;missing:string[];pdfQc:string|null;
- linked:boolean;linkMode:'MANUAL_REVIEWED'|'AUTO_UNIQUE'|null;openProposal:boolean;cross:CrossCheck;
+ linked:boolean;linkMode:'MANUAL_REVIEWED'|'AUTO_UNIQUE'|'FROZEN_EXPORT'|null;openProposal:boolean;cross:CrossCheck;
  attemptState:string|null;attemptIsLatest:boolean;hold:boolean;qc1Accepted:boolean;nonMeasuredQc1:boolean;batchCancelled:boolean;activeSlot:boolean;
  upstreamCurrent:boolean;upstreamReason:string|null;analysisAccepted:boolean;finalQcAccepted:boolean;
  isCurrentRound:boolean;roundState:string;roundNumber:number;openRepeat:boolean;
@@ -24,6 +24,9 @@ export type ResultFacts={
  certifierRoleActive:boolean;
  operationalReviewed?:boolean;
  noCall?:boolean;noCallReviewed?:boolean;
+ // Task 3: present only for INTERNAL_GENERATED versions — the Final internal record (approved interpretation, approved
+ // product/master pair, verified signers) must still be the one behind these exact bytes.
+ internal?:{current:boolean};
 };
 export type NoticeFacts={
  templateApproved:boolean;linked:boolean;openProposal:boolean;cross:CrossCheck;redrawForRound:boolean;redrawRequestedAt:Date|null;importedAt:Date;
@@ -66,6 +69,7 @@ export function resultPredicates(f:ResultFacts,purpose:Purpose):GatePredicate[]{
   :f.sexPreference==='DoNotWant'?p('RG-11','FAIL','SEX_SHOWN_BUT_NOT_WANTED'):p('RG-11','FAIL','SEX_PREFERENCE_NOT_RECORDED'));
  out.push(!f.latestInSeries?p('RG-12','FAIL','NOT_LATEST_VERSION'):f.activeReleaseInSeries?p('RG-12','FAIL','ACTIVE_RELEASE_EXISTS'):!f.reviewedCurrent?p('RG-12','FAIL','REVIEW_NOT_RECORDED')
   :!OPEN_STATES.includes(f.versionState)?p('RG-12','FAIL',`VERSION_${f.versionState.toUpperCase()}`):p('RG-12','PASS','LATEST_REVIEWED_VERSION'));
+ if(f.internal)out.push(f.internal.current?p('RG-14','PASS','INTERNAL_REPORT_AUTHORITY_CURRENT'):p('RG-14','FAIL','INTERNAL_REPORT_AUTHORITY_NOT_CURRENT'));
  if(purpose==='CERTIFY_ATTEMPT')out.push(!f.certifierRoleActive?p('RG-13','FAIL','CERTIFIER_ROLE_NOT_ACTIVE'):f.operationalReviewed?p('RG-13','PASS','AUTHORIZED_SESSION_CONFIRMATION'):p('RG-13','PENDING','CONFIRMATION_METHOD_AND_GOVERNANCE_SIGNOFF',{governance:'OD-05'}));
  return out;
 }

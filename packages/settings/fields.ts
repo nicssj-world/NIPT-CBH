@@ -1,4 +1,4 @@
-import {SETTINGS,type SettingKey} from "./catalog";
+import {SETTINGS,REPORT_PRODUCT_CHOICES,type SettingKey} from "./catalog";
 
 // Field-level form metadata for every catalog key, so staff edit labelled inputs instead of JSON (Plan §13.1–§13.2).
 // The catalog schema remains the only validator; this file only describes how each value is shown. A unit test asserts that
@@ -75,6 +75,17 @@ export const SETTING_FORMS:Record<SettingKey,SettingForm>={
   {name:"anchorPolicy",label:"หลักฐานอ้างอิง",help:"ยังไม่มีเกณฑ์ที่อนุมัติ การนำเข้าจึงยังหยุดไว้จนกว่าจะมีข้อกำหนดที่ยืนยันแล้ว",kind:"select",options:[{value:"PENDING_OD18",label:"ยังไม่กำหนด"},{value:"A_FINAL_REPORT",label:"รายงานผลสุดท้ายที่มีวันที่"},{value:"B_FINAL_REPORT_OR_CONTROL_RECORD",label:"รายงานผลสุดท้ายหรือบันทึกควบคุมของห้องปฏิบัติการ"}]},
   {name:"minimumProfile",label:"ข้อมูลขั้นต่ำที่ต้องมี",help:"ใช้ตรวจความครบถ้วนของหลักฐาน ไม่กำหนดผลทางคลินิก",kind:"select",options:[{value:"PENDING_OD18",label:"ยังไม่กำหนด"},{value:"OD18_A_IDENTITY_AND_ORIGINAL",label:"LN, HN, ชื่อ, วันเกิด และที่เก็บเอกสารต้นฉบับ"},{value:"OD18_B_BALANCED",label:"ชุดข้อมูลสมดุล"}]},
   {name:"maxBatchRows",label:"จำนวนแถวสูงสุดต่อชุดนำเข้า",help:"1–200 แถว (ชุดปกติประมาณ 47 เคส)",kind:"number",unit:"แถว",min:1,max:200}]},
+ report_interpretation:{key:"report_interpretation",title:"การแปลผลรายงานที่ออกในระบบ",summary:"อนุมัติชุดกฎการแปลผล (อ้างอิง ReadyGen) และคู่ผลิตภัณฑ์ NIFTY กับแบบฟอร์มรายงาน — ค่าเริ่มต้นไม่อนุมัติ รายงานทุกฉบับจึง HOLD",phase:"Task 3",fields:[
+  {name:"rulesetId",label:"ชุดกฎการแปลผล",help:"ถอดจาก ReadyGen Config/enrichment เป็นข้อมูลอ้างอิงเท่านั้น",kind:"locked",lockedBy:"รุ่นที่ติดตั้ง"},
+  {name:"rulesetVersion",label:"รุ่นชุดกฎ",help:"เปลี่ยนรุ่นได้ด้วยการติดตั้งรุ่นใหม่และอนุมัติใหม่เท่านั้น",kind:"locked",lockedBy:"รุ่นที่ติดตั้ง"},
+  {name:"rulesetSha256",label:"SHA-256 ของชุดกฎ",help:"ระบบตรวจว่าตรงกับชุดกฎที่ใช้จริงก่อนออกรายงานทุกฉบับ",kind:"locked",lockedBy:"รุ่นที่ติดตั้ง"},
+  {name:"interpretationApproved",label:"อนุมัติชุดกฎนี้ใช้ออกรายงาน",help:"ต้องผ่านการอนุมัติทางคลินิกจากผู้อนุมัติคนละคนกับผู้เสนอ ถ้าไม่อนุมัติ รายงานทุกฉบับจะ HOLD",kind:"boolean"},
+  {name:"singletonApprovedProduct",label:"ผลิตภัณฑ์ที่อนุมัติให้ใช้กับแบบฟอร์มครรภ์เดี่ยว (FM-WI-T-BM-17-07)",help:"แบบฟอร์มระบุ HNZ0051 แต่ไฟล์ NIFTY อาจเป็นรหัสอื่น เช่น HNZ0011 — ต้องอนุมัติความเข้ากันได้ก่อน มิฉะนั้น HOLD",kind:"select",options:REPORT_PRODUCT_CHOICES.map(v=>({value:v,label:v==="NONE"?"ยังไม่อนุมัติ (HOLD)":v}))},
+  {name:"twinApprovedProduct",label:"ผลิตภัณฑ์ที่อนุมัติให้ใช้กับแบบฟอร์มครรภ์แฝด (FM-WI-T-BM-17-08)",help:"ต้องอนุมัติแยกจากครรภ์เดี่ยว",kind:"select",options:REPORT_PRODUCT_CHOICES.map(v=>({value:v,label:v==="NONE"?"ยังไม่อนุมัติ (HOLD)":v}))},
+  {name:"noCallRenderingApproved",label:"อนุมัติรูปแบบรายงาน No Call",help:"แสดง No Call ในช่องผลทุกช่องของแบบฟอร์มเดิม โดยไม่ตัดส่วนใดออก",kind:"boolean"},
+  {name:"approvalReference",label:"เลขที่เอกสารอนุมัติ",help:"อ้างอิงเอกสารการอนุมัติทางคลินิกของโรงพยาบาล",kind:"text",max:300}]},
+ report_output:{key:"report_output",title:"ชื่อไฟล์รายงานเมื่อดาวน์โหลด",summary:"รูปแบบชื่อไฟล์ PDF ที่ผู้ใช้ดาวน์โหลด — ไม่เปลี่ยนชื่อไฟล์ที่ส่ง HIS และไม่เปลี่ยนไฟล์ที่เก็บ",phase:"Task 3",fields:[
+  {name:"downloadNameTemplate",label:"รูปแบบชื่อไฟล์",help:"ใช้ได้: {hisLn} {lnHalos} {sampleId} {hn} {patientName} {reportDate} {template} {version} — ต้องมี {hisLn} หรือ {sampleId} ระบบแทนอักขระที่ Windows ไม่รองรับด้วย _ และเติม (2), (3) เมื่อชื่อซ้ำ",kind:"text",max:160}]},
  go_live_cutoff:{key:"go_live_cutoff",title:"วันเริ่มใช้ระบบ",summary:"กำหนดขอบเขตวันที่สำหรับพิจารณาข้อมูลย้อนหลัง พร้อมบันทึกผู้จัดทำและผู้ตรวจสอบ",phase:"ข้อมูลย้อนหลัง",fields:[
   {name:"cutoff",label:"วันที่เริ่มใช้ระบบ",help:"แก้ไขไม่ได้หลังมีข้อมูลย้อนหลังที่ผูกกับวันที่นี้แล้ว",kind:"date"},
   {name:"impactReportHash",label:"SHA-256 ของรายงานผลกระทบ",help:"ต้องแนบรายงานผลกระทบทุกเวอร์ชัน (D-50)",kind:"hash"}]}

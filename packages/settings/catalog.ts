@@ -1,6 +1,9 @@
 import { z } from "zod";
 import {operationalProfileSchema} from '../p6/res';
 const pathValue = z.string().min(1).max(500).refine(x => !/[\r\n\0]/.test(x), "INVALID_PATH");
+// Must equal packages/readygen/interpretation RULESET_SHA256 (asserted by unit test); kept literal so this module stays dependency-free.
+export const REPORT_RULESET_SHA256 = "05c7c43c4e0078004155a14f0d87181153b10684861f80b621a5e5e283e9f3a0";
+export const REPORT_PRODUCT_CHOICES = ["NONE", "HNZ0010", "HNZ0011", "HNZ0020", "HNZ0021", "HNZ0040", "HNZ0041", "HNZ0050", "HNZ0051"] as const;
 export const SETTINGS = {
   general: { category: "General", risk: "GENERAL", schema: z.object({ systemName: z.string().min(1).max(80), timezone: z.literal("Asia/Bangkok") }).strict(), default: { systemName: "NIPT CBH", timezone: "Asia/Bangkok" } },
   // OD-06 consumer (2026-10-18): templateVersion selects the installed, hash-verified DCC template set used by the ANC form preview.
@@ -26,6 +29,13 @@ export const SETTINGS = {
   notifications: { category: "Notifications/System/Audit", risk: "GENERAL", schema: z.object({ staleSeconds: z.number().int().min(60).max(3600), backlogWarning: z.number().int().min(1).max(10000) }).strict(), default: { staleSeconds: 90, backlogWarning: 10 } },
   // P5H: Owner decisions OD-18/OD-19 are open, so both choices default to PENDING and historical evaluation then fails closed.
   historical_backfill: { category: "Result Management", risk: "CLINICAL", schema: z.object({ anchorPolicy: z.enum(["PENDING_OD18", "A_FINAL_REPORT", "B_FINAL_REPORT_OR_CONTROL_RECORD"]), minimumProfile: z.enum(["PENDING_OD18", "OD18_A_IDENTITY_AND_ORIGINAL", "OD18_B_BALANCED"]), maxBatchRows: z.number().int().min(1).max(200) }).strict(), default: { anchorPolicy: "PENDING_OD18", minimumProfile: "PENDING_OD18", maxBatchRows: 100 } },
+  // Task 3 (Owner 2026-10-25): approval of the versioned interpretation and of each product/master combination for internally
+  // generated reports. Defaults approve nothing, so every internal report stays on HOLD until a CLINICAL maker-checker activation.
+  report_interpretation: { category: "Result Management", risk: "CLINICAL", schema: z.object({ rulesetId: z.literal("CBH-READYGEN-REF"), rulesetVersion: z.literal("1.0.0"),
+    rulesetSha256: z.literal(REPORT_RULESET_SHA256), interpretationApproved: z.boolean(), singletonApprovedProduct: z.enum(REPORT_PRODUCT_CHOICES), twinApprovedProduct: z.enum(REPORT_PRODUCT_CHOICES),
+    noCallRenderingApproved: z.boolean(), approvalReference: z.string().max(300).refine(v => !/[\r\n\0]/.test(v), "REFERENCE_INVALID") }).strict(),
+    default: { rulesetId: "CBH-READYGEN-REF", rulesetVersion: "1.0.0", rulesetSha256: REPORT_RULESET_SHA256, interpretationApproved: false, singletonApprovedProduct: "NONE", twinApprovedProduct: "NONE", noCallRenderingApproved: false, approvalReference: "" } },
+  report_output: { category: "Result Management", risk: "GENERAL", schema: z.object({ downloadNameTemplate: z.string().min(5).max(160) }).strict(), default: { downloadNameTemplate: "{hisLn}_{patientName}_Chonburi hospital" } },
   go_live_cutoff: { category: "Result Management", risk: "CLINICAL", schema: z.object({ cutoff: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), impactReportHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict(), default: null }
 } as const;
 export type SettingKey = keyof typeof SETTINGS;

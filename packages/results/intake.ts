@@ -8,7 +8,7 @@ import {parseReport} from './parser';
 // the browser picker. Bytes are content-addressed first (immutable original), then screened and parsed. Nothing here creates a
 // report version, a link or a release — that only happens when a person confirms the import after Preview.
 export type IntakeLimits={maxBytes:number;acceptZip:boolean};
-export type IntakeSource={source:'FOLDER'|'UPLOAD';relativePath:string|null;originalName:string;actorId:string;jobId:string|null;parentId?:string|null;memberName?:string|null};
+export type IntakeSource={source:'FOLDER'|'UPLOAD'|'INTERNAL_GENERATED';relativePath:string|null;originalName:string;actorId:string;jobId:string|null;parentId?:string|null;memberName?:string|null};
 export const safeName=(name:string)=>{const base=name.split(/[\\/]/).pop()!.replace(/[\r\n\0]/g,'').trim().slice(0,255);if(!base)throw new QuarantineError('FILE_NAME_INVALID');return base;};
 
 export async function registerIntake(db:Queryable,store:FileStore,s:IntakeSource,bytes:Buffer){
@@ -20,7 +20,7 @@ export async function registerIntake(db:Queryable,store:FileStore,s:IntakeSource
 
 /** Screen and parse one Quarantined intake. Batch ZIP members become child intakes with their own hash, screened the same way. */
 export async function parseIntake(db:Queryable,store:FileStore,id:string,limits:IntakeLimits):Promise<string>{
- const row=(await db.query<{id:string;state:string;sha256:string;original_name:string;member_name:string|null;parent_id:string|null;source:'FOLDER'|'UPLOAD';actor_id:string;job_id:string|null}>('SELECT id,state,sha256,original_name,member_name,parent_id,source,actor_id,job_id FROM result_intake_file WHERE id=$1 FOR UPDATE',[id])).rows[0];
+ const row=(await db.query<{id:string;state:string;sha256:string;original_name:string;member_name:string|null;parent_id:string|null;source:'FOLDER'|'UPLOAD'|'INTERNAL_GENERATED';actor_id:string;job_id:string|null}>('SELECT id,state,sha256,original_name,member_name,parent_id,source,actor_id,job_id FROM result_intake_file WHERE id=$1 FOR UPDATE',[id])).rows[0];
  if(!row)throw new QuarantineError('INTAKE_NOT_FOUND');if(row.state!=='Quarantined')return row.state;
  const reject=async(code:string)=>{await db.query("UPDATE result_intake_file SET state='Rejected',reject_code=$2,decided_at=now() WHERE id=$1",[id,code]);return 'Rejected';};
  const dup=(await db.query<{id:string}>("SELECT id FROM result_report_version WHERE sha256=$1",[row.sha256])).rows[0];

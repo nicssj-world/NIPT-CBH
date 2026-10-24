@@ -50,5 +50,8 @@ export async function intakeContext(db:Queryable,user:Staff){
  return {folder:s.pdfSourcePath,scanSubfolders:s.scanSubfolders,acceptZip:s.acceptZip,maxUploadMb:s.maxUploadMb,maxFilesPerScan:s.maxFilesPerScan,picVersion:s.picVersion,scanMode:'ON_DEMAND' as const,
   lastTest:jobs.find(j=>j.kind==='synthetic_result_test_path')??null,lastScan:jobs.find(j=>j.kind==='synthetic_result_scan')??null};
 }
+/** Final report download/view with its configured (possibly Thai) name: ASCII fallback plus RFC 5987 UTF-8 filename*. */
+export const namedPdfResponse=(bytes:Buffer,sha:string,inline:boolean,name:string)=>new NextResponse(new Uint8Array(bytes),{headers:{"Content-Type":"application/pdf",
+ "Content-Disposition":`${inline?"inline":"attachment"}; filename="${name.normalize("NFC").replace(/[^A-Za-z0-9._ -]/g,"_").slice(0,150)}"; filename*=UTF-8''${encodeURIComponent(name.normalize("NFC"))}`,"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff","X-Document-SHA256":sha}});
 export const pdfResponse=(bytes:Buffer,sha:string,inline:boolean,name:string)=>new NextResponse(new Uint8Array(bytes),{headers:{"Content-Type":inline?"application/pdf":"application/octet-stream",
  "Content-Disposition":`${inline?"inline":"attachment"}; filename="${name.replace(/[^A-Za-z0-9._-]/g,"_")}"`,"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff","X-Document-SHA256":sha}});
