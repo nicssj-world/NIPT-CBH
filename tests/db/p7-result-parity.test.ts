@@ -4,9 +4,11 @@ import {resultFixture,importReport,type ResultFixture} from '../helpers/results'
 import {exportResultPage,queryResults} from '../../packages/results/query';
 import {reparseResult,reparseHistory} from '../../packages/results/reparse';
 import type {Principal} from '../../packages/security/policy';
+import {addUser} from '../helpers/database';
 import {registerIntake,parseIntake} from '../../packages/results/intake';
 import {syntheticReportPdf,zipAsPdf} from '../../tools/his-simulator/result-pdf';
 import {FileStore} from '../../packages/storage';
+import {PARSER_VERSION} from '../../packages/results/parser';
 let f:ResultFixture;
 beforeEach(async()=>{f=await resultFixture();});afterEach(async()=>{await f.close();});
 async function session(u:Principal){const id=(await f.db.query<{id:string}>("INSERT INTO app_session(user_id,token_hash,csrf_hash,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,now()+interval '1 hour',now()+interval '2 hours') RETURNING id",[u.id,createHash('sha256').update(randomUUID()).digest('hex'),'c'.repeat(64)])).rows[0].id;return {...u,sessionId:id};}
@@ -19,7 +21,7 @@ describe('P7 approved result parity',()=>{
   const u=await session(f.u.staff),filters={dateField:'REPORTED',from:'2026-10-20',to:'2026-10-20',q:'_%',gender:'Female',qc:'PASS',pageSize:1};
   const page=await f.run(t=>queryResults(t,u,filters));expect(page.rows.map(x=>x.id)).toEqual([target.versionId]);expect(page.page.hasNext).toBe(false);
   const out=await f.run(t=>exportResultPage(t,u,filters));expect(out.rows).toEqual(page.rows);
-  for(const value of ['ชื่อ _% จำลอง','2026-10-20','Low Risk','Not Detected','12.4','PASS','P5-PARSER-1.0.1','ANCHORED','SYNTHETIC_PARSED_NOT_CERTIFIED'])expect(out.csv).toContain(value);
+  for(const value of ['ชื่อ _% จำลอง','2026-10-20','Low Risk','Not Detected','12.4','PASS',PARSER_VERSION,'ANCHORED','SYNTHETIC_PARSED_NOT_CERTIFIED'])expect(out.csv).toContain(value);
   expect((await f.run(t=>queryResults(t,u,{q:'00022',gender:'Female'}))).rows).toEqual([]);
   const unknown=await f.run(t=>queryResults(t,u,{q:'00023',gender:'UNKNOWN',qc:'UNKNOWN'}));expect(unknown.rows.map(x=>x.id)).toEqual([missing.versionId]);expect(unknown.rows[0].risk).toBe('UNKNOWN');
   expect((await f.run(t=>queryResults(t,u,{dateField:'REPORTED',from:'2026-01-01',q:'00023'}))).rows).toEqual([]);
@@ -49,6 +51,13 @@ describe('P7 approved result parity',()=>{
   for(const principal of [f.u.auditor,f.u.anc])await expect(f.run(async t=>exportResultPage(t,await session(principal),{}))).rejects.toThrow('FORBIDDEN');
   const u=await session(f.u.staff);await f.db.query('UPDATE app_session SET revoked_at=now() WHERE id=$1',[u.sessionId]);await expect(f.run(t=>exportResultPage(t,u,{}))).rejects.toThrow('UNAUTHENTICATED');
  });
+ it('system-wide Admin may export the bounded results view and remains the audited actor',async()=>{
+  await importReport(f,spec('00024'));
+  const admin=await addUser(f.db,'APP_ADMIN','synthetic.results.system-admin'),u=await session(admin);
+  const out=await f.run(t=>exportResultPage(t,u,{q:'00024'}));
+  expect(out.rows).toHaveLength(1);expect(out.csv).toContain('00024');
+  expect((await f.db.query("SELECT actor_id FROM audit_chain WHERE action='RESULT_QUEUE_CSV_EXPORTED'")).rows).toEqual([{actor_id:admin.id}]);
+ });
  it('controlled reparse is append-only, reasoned, idempotent and cannot change clinical evidence',async()=>{
   const {versionId}=await importReport(f,spec('00003')),u=await session(f.u.certifier),request={versionId,reason:'จำลอง ตรวจ parser จากต้นฉบับ',idempotencyKey:randomUUID()};
   const before=(await f.db.query('SELECT * FROM result_report_version WHERE id=$1',[versionId])).rows[0];
@@ -59,6 +68,15 @@ describe('P7 approved result parity',()=>{
   await expect(f.run(t=>reparseResult(t,u,f.store,{...request,reason:'จำลอง เปลี่ยนเหตุผลของคำขอเดิม'}))).rejects.toThrow('IDEMPOTENCY_KEY_REUSED');
   await expect(f.db.query('DELETE FROM result_reparse_evidence')).rejects.toThrow();
   await expect(f.db.query("UPDATE result_reparse_evidence SET reason='changed' WHERE id=$1",[a.id])).rejects.toThrow();
+ });
+ it('system-wide Admin may run non-promoting synthetic diagnostics and is recorded as the maintenance actor',async()=>{
+  const {versionId}=await importReport(f,spec('00025')),admin=await addUser(f.db,'APP_ADMIN','synthetic.results.reparse-admin'),u=await session(admin);
+  const request={versionId,reason:'จำลอง ผู้ดูแลตรวจ parser จากต้นฉบับ',idempotencyKey:randomUUID()};
+  const result=await f.run(t=>reparseResult(t,u,f.store,request));
+  expect(result).toMatchObject({promoted:false,outcome:'PARSED_DIAGNOSTIC'});
+  expect((await f.db.query<{actor_id:string}>('SELECT actor_id FROM result_reparse_evidence WHERE id=$1',[result.id])).rows).toEqual([{actor_id:admin.id}]);
+  expect((await f.db.query<{actor_id:string}>("SELECT actor_id FROM audit_chain WHERE action='RESULT_DIAGNOSTIC_REPARSED'")).rows).toEqual([{actor_id:admin.id}]);
+  expect((await f.db.query<{n:number}>('SELECT count(*)::int n FROM result_release')).rows[0].n).toBe(0);
  });
  it('reparse refuses staff, missing/revoked sessions and invalid reasons',async()=>{
   const {versionId}=await importReport(f,spec('00004')),req={versionId,reason:'จำลอง ตรวจซ้ำ parser',idempotencyKey:randomUUID()};

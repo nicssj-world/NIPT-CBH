@@ -13,11 +13,12 @@ const response=(e:Evidence)=>({id:e.id,versionId:e.version_id,sourceSha256:e.sou
 /** Maintenance can spend time extracting a PDF: check wall-clock expiry and live role, not transaction-start now(). */
 async function activeMaintenance(db:Queryable,user:Staff){
  if(!user.sessionId)throw new LabError('UNAUTHENTICATED',401);
- await assertSession(db,user);need(user,'result.review','read');need(user,'result.revise','approve');if(!user.roles.includes('LAB_CERTIFIER'))throw new LabError('FORBIDDEN',403);
- const s=(await db.query<{active:boolean;enabled:boolean;certifier:boolean}>(`SELECT s.revoked_at IS NULL AND NOT s.signing_suspended AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp() active,
- u.enabled,EXISTS(SELECT 1 FROM role_assignment r WHERE r.user_id=u.id AND r.role='LAB_CERTIFIER' AND r.effective_from<=clock_timestamp() AND (r.expires_at IS NULL OR r.expires_at>clock_timestamp())) certifier
+ await assertSession(db,user);need(user,'result.review','read');const admin=user.roles.includes('APP_ADMIN');
+ if(!admin){need(user,'result.revise','approve');if(!user.roles.includes('LAB_CERTIFIER'))throw new LabError('FORBIDDEN',403);}
+ const s=(await db.query<{active:boolean;enabled:boolean;maintainer:boolean}>(`SELECT s.revoked_at IS NULL AND NOT s.signing_suspended AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp() active,
+ u.enabled,EXISTS(SELECT 1 FROM role_assignment r WHERE r.user_id=u.id AND r.role IN ('LAB_CERTIFIER','APP_ADMIN') AND r.effective_from<=clock_timestamp() AND (r.expires_at IS NULL OR r.expires_at>clock_timestamp())) maintainer
  FROM app_session s JOIN app_user u ON u.id=s.user_id WHERE s.id=$1 AND s.user_id=$2`,[user.sessionId,user.id])).rows[0];
- if(!s?.active||!s.enabled)throw new LabError('UNAUTHENTICATED',401);if(!s.certifier)throw new LabError('FORBIDDEN',403);
+ if(!s?.active||!s.enabled)throw new LabError('UNAUTHENTICATED',401);if(!s.maintainer)throw new LabError('FORBIDDEN',403);
 }
 export async function reparseHistory(db:Queryable,user:Staff,id:string){
  await activeMaintenance(db,user);

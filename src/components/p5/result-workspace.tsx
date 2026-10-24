@@ -75,19 +75,19 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
   <p className="notice warning-notice" role="note"><strong>ยังไม่ปล่อยผลจริง</strong> — ระบบทำได้ถึงการตรวจทานและประเมิน Gate (RG/RN) เท่านั้น การรับรองและปล่อยผลถูกระงับจนกว่า AL-5, OD-05 และ OD-07 ผ่าน และยังรอ FinalQcAccepted จากงาน P4b</p>
   <div aria-live="polite">{notice&&<p className="notice success" role="status">{notice}</p>}{error&&<p className="notice" role="alert">{error}</p>}</div>
 
-  {canImport&&<section className="panel" aria-labelledby="intake-h">
-   <h2 id="intake-h">นำเข้าไฟล์ผล</h2>
+  {canImport&&<section className="panel result-intake" aria-labelledby="intake-h">
+   <h2 id="intake-h">นำเข้าไฟล์ผล</h2><p className="import-next" role="status"><strong>ขั้นตอนถัดไป: {tab==="folder"?STEPS[step]:preview?"ตรวจ Preview และยืนยันนำเข้า":"เลือกไฟล์จากเครื่องเพื่อ Preview"}</strong><span>{tab==="folder"?"ทดสอบและสแกนเพื่อเลือกไฟล์ ตรวจ Preview แล้วจึงยืนยันนำเข้า":"เลือกไฟล์ .pdf หรือ .zip ตรวจ Preview แล้วจึงยืนยันนำเข้า"}</span></p>
    <ol className="stepper" aria-label="ขั้นตอนนำเข้า">{STEPS.map((s,i)=><li key={s} className={i<step?"done":i===step?"current":""} aria-current={i===step?"step":undefined}>{s}</li>)}</ol>
    <div className="tabs p5-tabs" role="tablist" aria-label="ช่องทางนำเข้า">
     <button type="button" role="tab" className="tab" aria-selected={tab==="folder"} onClick={()=>setTab("folder")}>จากโฟลเดอร์ผล (แนะนำ)</button>
     <button type="button" role="tab" className="tab" aria-selected={tab==="upload"} onClick={()=>setTab("upload")}>เลือกไฟล์จากเครื่อง</button>
    </div>
    {tab==="folder"?<div role="tabpanel" aria-label="จากโฟลเดอร์ผล" className="stack">
-    <dl className="plan-dl p5-facts">
-     <dt>โฟลเดอร์ผล PDF</dt><dd><span className="mono">{data?.intake.folder??"…"}</span>{canSettings&&<> · <Link href="/settings?key=result_management">เปลี่ยนในตั้งค่าระบบ</Link></>}</dd>
-     <dt>การสแกน</dt><dd>{data?(data.intake.scanSubfolders?"รวมโฟลเดอร์ย่อย":"เฉพาะโฟลเดอร์หลัก"):"…"} · {data?.intake.acceptZip?".pdf และ .zip":".pdf เท่านั้น"} · ไม่เกิน {data?.intake.maxFilesPerScan??"…"} ไฟล์ · ไฟล์ละไม่เกิน {data?.intake.maxUploadMb??"…"} MB</dd>
-     <dt>การสแกนโฟลเดอร์</dt><dd>เมื่อกดปุ่ม “สแกนไฟล์ PDF” เท่านั้น — สแกนครั้งเดียวแล้วหยุด ระบบไม่สแกนเองตามเวลา</dd>
-     <dt>นำเข้าล่าสุดถึงโฟลเดอร์</dt><dd>{data?.latestFolder?<><span className="mono">{data.latestFolder.folder||"(โฟลเดอร์หลัก)"}</span> · {bkk(data.latestFolder.at)}</>:"ยังไม่เคยนำเข้าจากโฟลเดอร์"}</dd>
+    <dl className="compact-facts plan-dl p5-facts">
+     <div><dt>โฟลเดอร์ผล PDF</dt><dd><span className="mono">{data?.intake.folder??"…"}</span>{canSettings&&<> · <Link href="/settings?key=result_management">เปลี่ยนในตั้งค่าระบบ</Link></>}</dd></div>
+     <div><dt>การสแกน</dt><dd>{data?(data.intake.scanSubfolders?"รวมโฟลเดอร์ย่อย":"เฉพาะโฟลเดอร์หลัก"):"…"} · {data?.intake.acceptZip?".pdf และ .zip":".pdf เท่านั้น"} · ไม่เกิน {data?.intake.maxFilesPerScan??"…"} ไฟล์ · ไฟล์ละไม่เกิน {data?.intake.maxUploadMb??"…"} MB</dd></div>
+     <div><dt>การสแกนโฟลเดอร์</dt><dd>เมื่อกดปุ่ม “สแกนไฟล์ PDF” เท่านั้น — สแกนครั้งเดียวแล้วหยุด ระบบไม่สแกนเองตามเวลา</dd></div>
+     <div><dt>นำเข้าล่าสุดถึงโฟลเดอร์</dt><dd>{data?.latestFolder?<><span className="mono">{data.latestFolder.folder||"(โฟลเดอร์หลัก)"}</span> · {bkk(data.latestFolder.at)}</>:"ยังไม่เคยนำเข้าจากโฟลเดอร์"}</dd></div>
     </dl>
     <div className="action-bar">
      <button type="button" className="button secondary" onClick={doTest} disabled={!!busy}>{busy==="test"?"Worker กำลังทดสอบ…":"ทดสอบโฟลเดอร์"}</button>
@@ -102,9 +102,9 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
      <div className="stack">
       <div className="table-wrap" role="region" aria-label="ไฟล์ที่พบในโฟลเดอร์" tabIndex={0}>
        <table className="data-table p5-scan"><caption>พบ {scan.files.length} ไฟล์ · ใหม่ {newFiles.length} · ซ้ำ {scan.files.filter(f=>f.status==="IMPORTED"||f.status==="DUPLICATE_IN_SCAN").length} · Error {scan.files.filter(f=>["TOO_LARGE","ZIP_NOT_ACCEPTED","EMPTY"].includes(f.status)).length}{scan.truncated?` · แสดงไม่เกิน ${data?.intake.maxFilesPerScan} ไฟล์ — ย้ายไฟล์เก่าออกหรือปรับการตั้งค่า`:""}</caption>
-        <thead><tr><th scope="col"><input type="checkbox" aria-label="เลือกไฟล์ใหม่ทั้งหมด" checked={newFiles.length>0&&newFiles.every(f=>picked.has(f.path))} onChange={e=>setPicked(e.target.checked?new Set(newFiles.map(f=>f.path)):new Set())} disabled={!newFiles.length}/></th><th scope="col">ไฟล์</th><th scope="col">โฟลเดอร์ย่อย</th><th scope="col" className="num">ขนาด</th><th scope="col">แก้ไขล่าสุด</th><th scope="col">สถานะ</th></tr></thead>
+        <thead><tr><th scope="col"><label className="table-check-target"><input type="checkbox" aria-label="เลือกไฟล์ใหม่ทั้งหมด" checked={newFiles.length>0&&newFiles.every(f=>picked.has(f.path))} onChange={e=>setPicked(e.target.checked?new Set(newFiles.map(f=>f.path)):new Set())} disabled={!newFiles.length}/></label></th><th scope="col">ไฟล์</th><th scope="col">โฟลเดอร์ย่อย</th><th scope="col" className="num">ขนาด</th><th scope="col">แก้ไขล่าสุด</th><th scope="col">สถานะ</th></tr></thead>
         <tbody>{scan.files.length?scan.files.map(f=><tr key={f.path} className={picked.has(f.path)?"selected":""}>
-         <td><input type="checkbox" aria-label={`เลือก ${f.name}`} checked={picked.has(f.path)} disabled={f.status!=="NEW"&&f.status!=="DUPLICATE_IN_SCAN"} onChange={e=>setPicked(p=>toggle(p,f.path,e.target.checked))}/></td>
+         <td><label className="table-check-target"><input type="checkbox" aria-label={`เลือก ${f.name}`} checked={picked.has(f.path)} disabled={f.status!=="NEW"&&f.status!=="DUPLICATE_IN_SCAN"} onChange={e=>setPicked(p=>toggle(p,f.path,e.target.checked))}/></label></td>
          <td className="p5-file">{f.name}</td><td>{f.folder||<span className="muted">(โฟลเดอร์หลัก)</span>}</td><td className="num">{bytes(f.size)}</td><td>{bkk(f.modifiedAt)}</td>
          <td><Status tone={f.status==="NEW"?"good":f.status==="IMPORTED"?"":"warning"}>{SCAN_TEXT[f.status]??f.status}</Status></td></tr>)
          :<tr><td colSpan={6} className="empty-row">ไม่พบไฟล์ .pdf หรือ .zip ในโฟลเดอร์นี้</td></tr>}</tbody>
@@ -126,7 +126,7 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
      <table className="data-table p5-scan"><caption>{preview.length} รายการ · พร้อมนำเข้า {preview.filter(i=>i.state==="Parsed"&&i.container!=="ZIP_BATCH").length}</caption>
       <thead><tr><th scope="col"><span className="sr-only">เลือก</span></th><th scope="col">ไฟล์</th><th scope="col">รูปแบบ</th><th scope="col">HN · เลข Lab</th><th scope="col">วันที่เก็บ</th><th scope="col">ผลหลัก</th><th scope="col">ผู้สมัครจับคู่</th><th scope="col">สถานะ</th></tr></thead>
       <tbody>{preview.length?preview.map(i=>{const ready=i.state==="Parsed"&&i.container!=="ZIP_BATCH";return <tr key={i.id} className={toImport.has(i.id)?"selected":""}>
-       <td><input type="checkbox" aria-label={`นำเข้า ${i.member??i.file}`} disabled={!ready} checked={toImport.has(i.id)} onChange={e=>setToImport(p=>toggle(p,i.id,e.target.checked))}/></td>
+       <td><label className="table-check-target"><input type="checkbox" aria-label={`นำเข้า ${i.member??i.file}`} disabled={!ready} checked={toImport.has(i.id)} onChange={e=>setToImport(p=>toggle(p,i.id,e.target.checked))}/></label></td>
        <td className="p5-file">{i.member?<>{i.member}<span className="muted"> ใน {i.file}</span></>:i.file}{i.container==="PDF"&&<> · <a href={`/api/p5/intake/${i.id}/file`} target="_blank" rel="noopener">เปิด PDF</a></>}</td>
        <td>{i.container==="ZIP_BATCH"?CONTAINER_TEXT.ZIP_BATCH:i.templateKind?KIND_TEXT[i.templateKind]:"—"}{i.container&&i.container!=="PDF"&&i.container!=="ZIP_BATCH"&&<span className="badge">{CONTAINER_TEXT[i.container]}</span>}</td>
        <td className="mono">{i.summary?.hn??"—"}<br/>{i.summary?.labNumber??"—"}</td><td>{i.summary?.collectionDate??"—"}</td>

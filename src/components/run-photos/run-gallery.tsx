@@ -119,13 +119,13 @@ function ViewerContent({p,photos,index,setIndex,run,placement,onChanged,titleId,
     <div className="dialog-header"><h2 id={titleId}>ภาพที่ {index!+1} จาก {photos.length}</h2><button type="button" className="button secondary small" onClick={()=>setIndex(null)}>ปิด</button></div>
     {p.state==="Retracted"&&<p className="notice" role="note">ถอนออกแล้วเมื่อ {bkk(p.retractedAt)} โดย {p.retractedBy} — {p.retractReason}</p>}
     {p.caption&&<p className="photo-text">{p.caption}</p>}
-    <dl>
-     <dt>Run</dt><dd>{run.runLabel}</dd>
-     <dt>วันที่ถ่าย</dt><dd>{displayBe(p.takenOn)}</dd>
-     <dt>ลำดับตัวอย่าง</dt><dd>{rangeText(p.sampleFrom,p.sampleTo)??"ไม่ได้ระบุ"}</dd>
-     <dt>ผู้อัปโหลด</dt><dd>{p.uploadedBy} · {bkk(p.uploadedAt)}</dd>
-     <dt>ไฟล์</dt><dd>{p.name} · {formatBytes(p.bytes)}{p.width&&p.height?` · ${p.width}×${p.height} px`:""}</dd>
-     <dt>SHA-256</dt><dd className="photo-hash">{p.sha256}</dd>
+    <dl className="compact-facts">
+     <div><dt>Run</dt><dd>{run.runLabel}</dd></div>
+     <div><dt>วันที่ถ่าย</dt><dd>{displayBe(p.takenOn)}</dd></div>
+     <div><dt>ลำดับตัวอย่าง</dt><dd>{rangeText(p.sampleFrom,p.sampleTo)??"ไม่ได้ระบุ"}</dd></div>
+     <div><dt>ผู้อัปโหลด</dt><dd>{p.uploadedBy} · {bkk(p.uploadedAt)}</dd></div>
+     <div><dt>ไฟล์</dt><dd>{p.name} · {formatBytes(p.bytes)}{p.width&&p.height?` · ${p.width}×${p.height} px`:""}</dd></div>
+     <div><dt>SHA-256</dt><dd className="photo-hash">{p.sha256}</dd></div>
     </dl>
     {cover&&<div><h3>ตัวอย่างในช่วงที่ระบุ</h3><p className="help">ช่วงนี้ผู้อัปโหลดเป็นผู้ระบุ — ไม่ใช่การยืนยันว่าภาพแสดงหลอดของผู้ป่วยแต่ละราย ตรวจฉลากในภาพต้นฉบับ</p>
      {cover.rows.length?<ul className="photo-samples" tabIndex={0} aria-label="ตัวอย่างในช่วงที่ระบุ">{cover.rows.map(r=><li key={r.slot}><span>คนที่ {r.ordinal}</span><span>ตน. {r.slot}</span><span><span className="sample-code">{r.sampleCode??"ไม่มีสิทธิ์ดู"}</span>{r.lnHis&&<span className="sample-ln">LN HIS {r.lnHis}</span>}</span></li>)}</ul>:<p className="muted small">{cover.text}</p>}</div>}

@@ -69,10 +69,10 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
     <h2 id="orig-h">ไฟล์ต้นฉบับ</h2>
     {d.intake.container==="PDF"?<PdfPreviewButton src={`/api/p5/results/${v.id}/file`} title="PDF ต้นฉบับ (อ่านอย่างเดียว)"/>
      :<p className="notice">ต้นฉบับเป็น {CONTAINER_TEXT[d.intake.container]} — <a href={`/api/p5/results/${v.id}/file`}>ดาวน์โหลดไฟล์ต้นฉบับ</a> เพื่อเทียบค่า</p>}
-    <dl className="plan-dl p5-facts">
-     <dt>ที่มา</dt><dd>{d.intake.source==="FOLDER"?"โฟลเดอร์ผล":"เลือกไฟล์จากเครื่อง"}{d.intake.relative_path&&<> · <span className="mono">{d.intake.relative_path}</span></>}</dd>
-     <dt>SHA-256</dt><dd className="mono p5-hash">{v.sha256}</dd><dt>ขนาด</dt><dd>{bytes(d.intake.size)}</dd><dt>นำเข้าเมื่อ</dt><dd>{bkk(v.importedAt)}</dd>
-     <dt>Template</dt><dd className="mono">{v.templateVersion}</dd><dt>Parser</dt><dd className="mono">{v.parserVersion}</dd>
+    <dl className="compact-facts plan-dl p5-facts">
+     <div><dt>ที่มา</dt><dd>{d.intake.source==="FOLDER"?"โฟลเดอร์ผล":"เลือกไฟล์จากเครื่อง"}{d.intake.relative_path&&<> · <span className="mono">{d.intake.relative_path}</span></>}</dd></div>
+     <div><dt>SHA-256</dt><dd className="mono p5-hash">{v.sha256}</dd></div><div><dt>ขนาด</dt><dd>{bytes(d.intake.size)}</dd></div><div><dt>นำเข้าเมื่อ</dt><dd>{bkk(v.importedAt)}</dd></div>
+     <div><dt>Template</dt><dd className="mono">{v.templateVersion}</dd></div><div><dt>Parser</dt><dd className="mono">{v.parserVersion}</dd></div>
     </dl>
    </section>
 
@@ -102,8 +102,8 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
      {d.nameConflicts.length>0&&<div className="notice warning-notice" role="note"><p><strong>ชื่อไฟล์ซ้ำกับรายงานอื่น {d.nameConflicts.length} รายการ แต่เนื้อหา (SHA-256) ต่างกัน</strong> — ระบบไม่ข้ามไฟล์และไม่สร้างฉบับแก้ไขอัตโนมัติ ผู้เสนอต้องระบุว่าเป็นรายงานใหม่หรือฉบับแก้ไข และผู้ยืนยันคนที่สองยืนยันการจัดประเภทเดียวกัน</p>
       <ul>{d.nameConflicts.map(c=><li key={c.id}><Link href={`/results/${c.id}`}>รายงานชื่อเดียวกัน</Link> · {STATE_TEXT[c.state]??c.state} · นำเข้า {bkk(c.importedAt)}</li>)}</ul></div>}
      <p className="help">ทุกรอบใช้ HIS LN เดิม — ต้องเลือกรอบและ Attempt ที่ถูกต้อง โดยเทียบหลายคุณสมบัติ ระบบไม่จับคู่อัตโนมัติด้วย HN หรือ LN อย่างเดียว และต้องมีผู้รับรองอีกคนยืนยัน</p>
-     {d.target&&<><dl className="plan-dl p5-facts"><dt>เชื่อมกับ</dt><dd><span className="mono">{d.target.ln}</span> · รอบที่ {d.target.round_number}{d.target.current?" (รอบปัจจุบัน)":" (ไม่ใช่รอบปัจจุบัน)"}{d.target.attempt_number&&<> · Attempt {d.target.attempt_number} ({d.target.attempt_state})</>}</dd>
-       <dt>LN Halos · Printed ID</dt><dd className="mono">{d.target.ln_halos??"—"} · {d.target.printed_sample_id??"—"}</dd></dl>
+     {d.target&&<><dl className="compact-facts plan-dl p5-facts"><div><dt>เชื่อมกับ</dt><dd><span className="mono">{d.target.ln}</span> · รอบที่ {d.target.round_number}{d.target.current?" (รอบปัจจุบัน)":" (ไม่ใช่รอบปัจจุบัน)"}{d.target.attempt_number&&<> · Attempt {d.target.attempt_number} ({d.target.attempt_state})</>}</dd></div>
+       <div><dt>LN Halos · Printed ID</dt><dd className="mono">{d.target.ln_halos??"—"} · {d.target.printed_sample_id??"—"}</dd></div></dl>
       {d.links.filter(l=>l.event==="APPROVED").slice(-1).map(l=><CrossTable key="x" cross={l.cross_check} caption="ผลเทียบตอนยืนยันการเชื่อมโยง"/>)}
       {d.can.unlink&&<form className="stack p5-inline-form" onSubmit={e=>{e.preventDefault();void act("unlink",{reason},"ถอดการเชื่อมโยงแล้ว — รายการกลับไปรอเชื่อมโยง").then(()=>setReason(""));}}>
        <div className="field"><label htmlFor="unlink-reason">เหตุผลที่ถอดการเชื่อมโยง</label><input id="unlink-reason" value={reason} onChange={e=>setReason(e.target.value)} minLength={8} maxLength={500} required/></div>

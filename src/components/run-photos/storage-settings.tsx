@@ -28,11 +28,11 @@ export function StorageSettings({initial}:{initial:StorageOverview}){
  return <>
   <section className="panel" aria-labelledby={id+"-a"}>
    <h2 id={id+"-a"}>ที่เก็บภาพที่ใช้งานอยู่</h2>
-   {active?<dl>
-    <dt>Storage Path</dt><dd>{active.path?<span className="storage-path">{active.path}</span>:"แสดงเฉพาะผู้ดูแลระบบ"}{active.source==="INSTALLATION_DEFAULT"&&<span className="badge warning">ค่าเริ่มต้นของการติดตั้ง</span>}</dd>
-    <dt>ผลทดสอบล่าสุด</dt><dd><span className={`status ${active.lastTest.ok?"good":"bad"}`}>{active.lastTest.ok?"ผ่าน":"ไม่ผ่าน"}</span> · {bkk(active.lastTest.testedAt)}{active.lastTest.account?` · บัญชี ${active.lastTest.account}`:""}{active.lastTest.freeBytes!==null?` · ว่าง ${formatBytes(active.lastTest.freeBytes)}`:""}</dd>
-    <dt>ภาพในที่เก็บนี้</dt><dd>{active.photos} ภาพ · {formatBytes(active.bytes)}</dd>
-    <dt>ใช้ตั้งแต่</dt><dd>{bkk(active.createdAt)}{active.createdBy?` · ${active.createdBy}`:""}</dd>
+   {active?<dl className="compact-facts">
+    <div><dt>Storage Path</dt><dd>{active.path?<span className="storage-path">{active.path}</span>:"แสดงเฉพาะผู้ดูแลระบบ"}{active.source==="INSTALLATION_DEFAULT"&&<span className="badge warning">ค่าเริ่มต้นของการติดตั้ง</span>}</dd></div>
+    <div><dt>ผลทดสอบล่าสุด</dt><dd><span className={`status ${active.lastTest.ok?"good":"bad"}`}>{active.lastTest.ok?"ผ่าน":"ไม่ผ่าน"}</span> · {bkk(active.lastTest.testedAt)}{active.lastTest.account?` · บัญชี ${active.lastTest.account}`:""}{active.lastTest.freeBytes!==null?` · ว่าง ${formatBytes(active.lastTest.freeBytes)}`:""}</dd></div>
+    <div><dt>ภาพในที่เก็บนี้</dt><dd>{active.photos} ภาพ · {formatBytes(active.bytes)}</dd></div>
+    <div><dt>ใช้ตั้งแต่</dt><dd>{bkk(active.createdAt)}{active.createdBy?` · ${active.createdBy}`:""}</dd></div>
    </dl>:<p>ยังไม่ได้เลือกที่เก็บ — ภาพแรกจะเก็บในโฟลเดอร์เริ่มต้นของการติดตั้ง (ภายใน File Store) จนกว่าผู้ดูแลระบบจะตั้ง Path</p>}
    <p className="help">ผลทดสอบเป็นของเวลาที่บันทึก Path — หากที่เก็บไม่พร้อมภายหลัง ระบบแจ้งเฉพาะตอนอัปโหลดหรือเปิดภาพ งาน Run, Task List, QC, Pooling, ผลตรวจ และ HIS ทำต่อได้ตามปกติ</p>
   </section>

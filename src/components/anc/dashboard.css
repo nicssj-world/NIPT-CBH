@@ -107,7 +107,7 @@
 .anc-stages button:hover:not(:disabled){background:var(--info-bg)}
 .anc-stages button[aria-pressed=true]{background:var(--info-bg);color:var(--brand)}
 .anc-dashboard :is(.anc-metric,.anc-stages button,.anc-tabs button):focus-visible{outline:3px solid var(--focus);outline-offset:3px}
-.anc-dashboard :is(.anc-metric,.anc-stages button,.anc-tabs button):disabled{opacity:.6;cursor:not-allowed}
+.anc-dashboard :is(.anc-metric,.anc-stages button,.anc-tabs button):disabled{cursor:not-allowed}
 .anc-tabs{gap:4px;border-bottom:1px solid var(--line)}
 .anc-tabs button{font-size:14px;padding:12px;min-height:48px;line-height:1.5}
 .anc-tabs button:hover:not(:disabled){background:var(--raised)}

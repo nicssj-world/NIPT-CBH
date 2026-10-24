@@ -130,8 +130,8 @@ async function lockedPhoto(db:Queryable,id:string){
  const p=(await db.query<PhotoRow>(`SELECT ${PHOTO_COLS} FROM run_photo p WHERE p.id=$1 FOR UPDATE`,[uuid.parse(id)])).rows[0];
  if(!p)throw new LabError('NOT_FOUND',404);return p;
 }
-/** LAB_STAFF correct their own uploads; a LAB_CERTIFIER may correct any upload. */
-export const mayManage=(user:Staff,p:{uploaded_by:string})=>authorize(user,'photo.manage',{},'write')&&(p.uploaded_by===user.id||user.roles.includes('LAB_CERTIFIER'));
+/** LAB_STAFF correct their own uploads; LAB_CERTIFIER and APP_ADMIN may correct any upload. */
+export const mayManage=(user:Staff,p:{uploaded_by:string})=>authorize(user,'photo.manage',{},'write')&&(p.uploaded_by===user.id||user.roles.some(r=>r==='LAB_CERTIFIER'||r==='APP_ADMIN'));
 function manageable(user:Staff,p:PhotoRow,expected:number){
  if(!mayManage(user,p))throw new LabError('FORBIDDEN',403);
  if(p.state!=='Active')throw new LabError('RUN_PHOTO_RETRACTED',409);

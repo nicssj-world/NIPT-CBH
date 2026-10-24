@@ -15,12 +15,12 @@ export async function manualReview(db:Queryable,user:Staff,draftId:string){
  await assertSession(db,user);need(user,'history.read','read');const d=await source(db,draftId);
  const review=(await db.query<{id:string;draft_version:number;pdf_file_id:string;pdf_sha256:string;paper_snapshot:unknown;recorded_at:Date}>('SELECT id,draft_version,pdf_file_id,pdf_sha256,paper_snapshot,recorded_at FROM lab_manual_result_review WHERE draft_id=$1 ORDER BY recorded_at DESC,id DESC LIMIT 1',[draftId])).rows[0]??null;
  const current=!!review&&!['Abandoned','Promoted'].includes(d.state)&&review.draft_version===d.version&&review.pdf_file_id===d.pdf_file_id&&review.pdf_sha256===d.data.pdf?.sha256&&hashOf(review.paper_snapshot)===hashOf(await paperSnapshot(db,draftId));
- return {review,current,version:d.version,canReview:user.roles.some(r=>r==='LAB_STAFF'||r==='LAB_CERTIFIER'),workflow:'LAB_MANUAL_COMPLETE' as const,promotionSeparate:true};
+ return {review,current,version:d.version,canReview:user.roles.some(r=>r==='LAB_STAFF'||r==='LAB_CERTIFIER'||r==='APP_ADMIN'),workflow:'LAB_MANUAL_COMPLETE' as const,promotionSeparate:true};
 }
 const input=z.strictObject({draftId:uuid,version:z.number().int().positive(),lnMatchesOriginal:z.literal(true),pdfBindingMatchesOriginal:z.literal(true),identityMatchesOriginal:z.literal(true),identityIdentifiersChecked:z.array(z.enum(['HN','NAME','DOB','NATIONAL_ID'])).min(2).max(4).refine(a=>new Set(a).size>=2),finalPdfReviewed:z.literal(true)});
 /** LAB-UAT-008: operator completion, separate from clinical review and P5H promotion. */
 export async function reviewManual(db:Queryable,user:Staff,store:FileStore,raw:unknown){
- await assertSession(db,user);need(user,'history.draft');if(!user.roles.some(r=>r==='LAB_STAFF'||r==='LAB_CERTIFIER'))throw new LabError('FORBIDDEN',403);
+ await assertSession(db,user);need(user,'history.draft');if(!user.roles.some(r=>r==='LAB_STAFF'||r==='LAB_CERTIFIER'||r==='APP_ADMIN'))throw new LabError('FORBIDDEN',403);
  const v=input.parse(raw),d=await source(db,v.draftId);
  if(d.version!==v.version)throw new LabError('STALE_VERSION',409);
  if(['Abandoned','Promoted'].includes(d.state)||d.issues.some(i=>i.severity==='ERROR')||!d.pdf_file_id||!d.data.pdf)throw new LabError('MANUAL_PDF_IDENTITY_REQUIRED',409);

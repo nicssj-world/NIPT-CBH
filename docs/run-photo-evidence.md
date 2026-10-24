@@ -23,7 +23,7 @@ Branch `feat/run-photo-evidence`, based on `6d6e41c` (Go-Live readiness HEAD of 
    - **เปิดภาพเต็มในแท็บใหม่** and **ดาวน์โหลดต้นฉบับ**;
    - the uploader, the upload time, the file size, the pixel size and the SHA-256;
    - the samples (slot, sample code, LN HIS) inside the declared range.
-6. Corrections are available to the uploader or a LAB_CERTIFIER:
+6. Corrections are available to the uploader, a LAB_CERTIFIER, or APP_ADMIN:
    - **แก้ไขคำอธิบาย ช่วงตัวอย่าง หรือวันที่**.
    - **อัปโหลดผิด Run** → move the photo to the correct Run (a reason is required).
    - **ถอนภาพนี้ออก** (a reason is required). A retracted photo is kept on file and in the history, and it is never deleted. Tick **แสดงภาพที่ถอนออก** to see retracted photos.
@@ -65,7 +65,7 @@ npm run photos -- relocate <rootId> <path> "<reason>"      # record that the roo
 | Serving | `GET /api/run-photos/[id]/file?variant=thumb\|original[&download=1]`: session + `photo.read`, verifies the SHA-256 on every read, `private, no-store`, `nosniff`, sandboxed CSP. HEIC is served as a download. Viewing an original is audited (`RUN_PHOTO_VIEWED`). There is no public URL |
 | Upload | `POST /api/run-photos/upload`: one photo per request, CSRF + `photo.upload`, idempotency key per file. This path is excluded from `src/proxy.ts` because the proxy would buffer and truncate bodies above 10 MB; the route caps the body itself |
 | Search | `POST /api/run-photos/search` (POST keeps LN values out of URLs and logs). LN hits are written to `phi_access_log` (`REGISTRY_VIEW`). Sample order = `row_number()` over live (or cancel-time) slot assignments by slot |
-| Permissions | `photo.read` LAB_STAFF/LAB_CERTIFIER (AUDITOR read). `photo.upload`/`photo.manage` LAB_STAFF/LAB_CERTIFIER (staff: own uploads only; certifier: any). `photo.storage.configure` APP_ADMIN/IT_OPERATOR. ANC, CLINICAL_APPROVER and APP_ADMIN cannot open photos |
+| Permissions | `photo.read`, `photo.upload`, and `photo.manage` include APP_ADMIN through the system-wide Admin policy. LAB_STAFF can manage their own uploads; LAB_CERTIFIER and APP_ADMIN can manage any upload. AUDITOR retains read-only access. ANC and CLINICAL_APPROVER remain denied. `photo.storage.configure` remains APP_ADMIN/IT_OPERATOR only. |
 | Code | `packages/run-photos/{image,store,service,maintenance}.ts`, `src/server/run-photos.ts`, `src/app/api/run-photos/**`, `src/app/api/settings/run-photo-storage`, `src/components/run-photos/*`, pages `/lab/photos`, `/lab/photos/[batchId]`, `/settings/run-photos`, CLI `tools/run-photos.ts` |
 
 ## Evidence (synthetic, local)
@@ -74,7 +74,7 @@ npm run photos -- relocate <rootId> <path> "<reason>"      # record that the roo
 | --- | --- |
 | `tests/db/run-photos.test.ts` | 15/15 (owner lock, upload 1/many, duplicates, idempotency, permissions, history, DB guards, search incl. LN Halos/HIS/order/text, cancelled Run, path change, failed targets, verify/backup/restore/relocate) |
 | `tests/unit/run-photos.test.ts` | 9/9 (Windows/UNC/posix path validation, allow-list, sniffing, safe names, content-addressed write/verify/tamper, vanished root, junction refusal) |
-| `tests/e2e/run-photos.spec.ts` (isolated runner `tools/run-photos-e2e/e2e.ts`, ports 19728–19730) | 8/8. Includes a 13.7 MB upload, desktop 1440 px and phone 390 px, original byte-identity, axe WCAG 2.2 AA on gallery/viewer/search/settings, 401/403 for anonymous/ANC/admin/approver, path change, an offline root during Run work, move and retract |
+| `tests/e2e/run-photos.spec.ts` (isolated runner `tools/run-photos-e2e/e2e.ts`, ports 19728–19730) | The previously recorded 8/8 run predates the APP_ADMIN system-wide change. The updated case now expects Admin file/gallery access and keeps 401 anonymous plus 403 ANC/approver checks; rerun evidence is recorded in the UI remediation checklist. |
 
 | Full Vitest | 2147 passed, 57 skipped (env-gated native/legacy-sample suites), 0 failed |
 | Regression Playwright (same isolated runner) | foundation, be-date-input, p2 (incl. Paper Consent), p4-lab, p4-task-list, p5-results, p5-case-upload, settings-operational, run-photos: 64 passed + 3 Settings specs skipped (need `NIPT_LEGACY_HANDOVER_FIXTURES_DIR`). The first pass had 3 failures: 2 foundation baselines shifted by the new Lab menu item (`registry-1280/1440-win32.png`, re-baselined), and the P2 preview, which needed the ANC form registry that the runner now provides. Re-run of foundation + p2: 38/38 |

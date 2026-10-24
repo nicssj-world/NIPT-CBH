@@ -1,5 +1,5 @@
 import { describe,it,expect } from "vitest";
-import { ROLES, PERMISSION_MATRIX, authorize, type Principal } from "../../packages/security/policy";
+import { ROLES, PERMISSION_MATRIX, APP_ADMIN_RESTRICTED_ACTIONS, APP_ADMIN_SYSTEMWIDE_ACTIONS, authorize, type Action, type Principal } from "../../packages/security/policy";
 const blocked = new Set(["consent.sign.patient", "his.production.enable", "history.send", "result.certify", "notice.release", "redraw.after.release"]);
 describe("every role × action × scope × operation cell",()=>{
   for(const [action,rule] of Object.entries(PERMISSION_MATRIX)) for(const [index,role] of ROLES.entries()) {
@@ -8,7 +8,8 @@ describe("every role × action × scope × operation cell",()=>{
       const user:Principal={id:"maker",roles:[role],unitIds:["own"],permissions:[]};
       for(const operation of ["read","write","propose","approve"] as const) for(const unitId of ["own","other",undefined]) {
         const cell=rule[index];
-        const expected=!blocked.has(action)&&(cell==="Y"||(cell==="U"&&unitId==="own")||(cell==="R"&&operation==="read")||(cell==="P"&&operation==="propose")||(cell==="A"&&operation==="approve"));
+        const adminGrant=role==="APP_ADMIN"&&APP_ADMIN_SYSTEMWIDE_ACTIONS.has(action as Action);
+        const expected=!blocked.has(action)&&(adminGrant||cell==="Y"||(cell==="U"&&unitId==="own")||(cell==="R"&&operation==="read")||(cell==="P"&&operation==="propose")||(cell==="A"&&operation==="approve"));
         expect(authorize(user,action,{unitId,origin:"ANC",actorId:"someone-else"},operation)).toBe(expected);
       }
     });
@@ -22,9 +23,15 @@ describe("every role × action × scope × operation cell",()=>{
     expect(authorize(p(["LAB_STAFF"]),"history.draft",{},"write")).toBe(true);
     expect(authorize({...p(["LAB_STAFF"]),permissions:[]},"history.draft",{},"write")).toBe(true);
   });
-  it("Admin never inherits PHI, certifier, breakglass or unknown permissions",()=>{
+  it("Admin has classified workspace permissions and does not inherit sign-off, breakglass or unknown permissions",()=>{
     const admin:Principal={id:"admin",roles:["APP_ADMIN"],unitIds:[],permissions:[]};
-    for(const action of ["case.read","result.certify","result.read.released","made-up"]) expect(authorize(admin,action,{unitId:"x"})).toBe(false);
+    for(const action of ["case.read","result.read.released","worksheet.read","settings.read"]) expect(authorize(admin,action,{unitId:"x"},"read")).toBe(true);
+    for(const action of ["consent.sign.patient","result.certify","notice.release","observation.verify","history.promote","his.production.enable","made-up"]) expect(authorize(admin,action,{unitId:"x",actorId:"other"},"approve")).toBe(false);
+  });
+  it("classifies every permission exactly once for the system-wide Admin role",()=>{
+    const all=new Set<Action>([...APP_ADMIN_SYSTEMWIDE_ACTIONS,...APP_ADMIN_RESTRICTED_ACTIONS]);
+    expect(APP_ADMIN_SYSTEMWIDE_ACTIONS.size+APP_ADMIN_RESTRICTED_ACTIONS.size).toBe(all.size);
+    expect(all).toEqual(new Set(Object.keys(PERMISSION_MATRIX) as Action[]));
   });
   it("OD13 requires explicit all-unit grant, read only",()=>{
     const anc:Principal={id:"anc",roles:["ANC_NURSE"],unitIds:["own"],permissions:["ANC_VIEW_ALL_UNITS"]};

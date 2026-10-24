@@ -81,7 +81,7 @@ export function resultCsv(rows:ResultRow[]){
 }
 export async function exportResultPage(db:Queryable,user:Staff,input:unknown){
  if(!user.sessionId)throw new LabError('UNAUTHENTICATED',401);await assertSession(db,user);
- need(user,'result.review','read');need(user,'report.export');if(!user.roles.some(r=>r==='LAB_STAFF'||r==='LAB_CERTIFIER'))throw new LabError('FORBIDDEN',403);
+ need(user,'result.review','read');need(user,'report.export');if(!user.roles.some(r=>r==='LAB_STAFF'||r==='LAB_CERTIFIER'||r==='APP_ADMIN'))throw new LabError('FORBIDDEN',403);
  const result=await queryResults(db,user,input);
  const evidence=(await db.query<{id:string}>('INSERT INTO result_query_export_evidence(actor_id,session_id,filters,page,page_size,has_next,version_ids) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',[user.id,user.sessionId,JSON.stringify(result.filters),result.page.number,result.page.size,result.page.hasNext,result.rows.map(r=>r.id)])).rows[0];
  await audit(db,user,'RESULT_QUEUE_CSV_EXPORTED','RESULT_QUERY_EXPORT',evidence.id,{count:result.rows.length,outcome:'BOUNDED_PAGE'});

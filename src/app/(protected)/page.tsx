@@ -5,7 +5,7 @@ import {authorize} from "../../../packages/security/policy";
 import {Registry} from "../../components/p2/registry";
 import {AncDashboard} from "../../components/anc/dashboard";
 import {QuickActions,type QuickAction} from "../../components/quick-actions";
-export default async function Overview(){const user=await currentUser();if(!user)redirect("/login");const anc=user.roles.some(r=>["ANC_NURSE","ANC_SUPERVISOR"].includes(r));
+export default async function Overview(){const user=await currentUser();if(!user)redirect("/login");const anc=user.roles.some(r=>["ANC_NURSE","ANC_SUPERVISOR","APP_ADMIN"].includes(r));
  if(anc)return <AncDashboard operational={operationalDataEnabled()}/>;
  // Same permission checks as the sidebar (layout.tsx); a shortcut appears only where the user can already go.
  const can=(p:Parameters<typeof authorize>[1])=>authorize(user,p,{},"read");

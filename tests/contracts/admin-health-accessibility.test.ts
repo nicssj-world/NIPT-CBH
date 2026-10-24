@@ -8,7 +8,7 @@ vi.mock('../../src/server/health',()=>({systemHealth:async()=>({
  web:'ALIVE',postgresql:'ALIVE',renderer:'ALIVE',workerId:'operational-worker',Alive:true,
  LastSuccess:null,LastError:null,inboundEnabled:true,heartbeatAge:0,thresholds:{staleSeconds:90,backlogWarning:10},
  backlog:1,age:100,p6Retry:0,unresolvedReconciliation:0,migrationsMatch:true,quarantined:false,
- alerts:['QUEUE_STALE','SCAN_FAILURE'],backup:{warning:false,status:'NOT CONFIGURED',integrity:'NOT VERIFIED'},
+ alerts:['QUEUE_STALE','HIS_SCAN_FAILURE'],backup:{warning:false,status:'NOT CONFIGURED',integrity:'NOT VERIFIED'},
  storage:{availableBytes:null,status:'NOT VERIFIED'}
 })}));
 import HealthPage from '../../src/app/(protected)/health/page';
@@ -16,7 +16,8 @@ it('real Health alert markup retains list semantics for assistive technology whe
  const html=renderToStaticMarkup(await HealthPage()),browser=await chromium.launch({headless:true});
  try{const context=await browser.newContext(),page=await context.newPage();await page.setContent('<html lang="th"><head><title>Local Health regression</title></head><body><main>'+html+'</main></body></html>');
   expect(await page.locator('ul li').count()).toBe(2);
-  expect(await page.locator('ul li [role=alert]').allTextContents()).toEqual(['QUEUE_STALE','SCAN_FAILURE']);
+  expect(await page.locator('ul li [role=alert]').allTextContents()).toEqual(['มีงานรอนานเกินเกณฑ์ — ตรวจงานที่ค้างและ Worker','การสแกน HIS ล่าสุดมีปัญหา — ตรวจสถานะการเชื่อมต่อ']);
+  expect(await page.locator('ul li details code').allTextContents()).toEqual(['QUEUE_STALE','HIS_SCAN_FAILURE']);
   const result=await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa']).analyze();expect(result.violations).toEqual([]);
  }finally{await browser.close();}
 });

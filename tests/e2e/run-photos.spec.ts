@@ -179,10 +179,15 @@ test("search by Run, date, LN Halos, LN HIS, sample order and caption; LN stays 
 });
 
 async function anonymous(browser:Browser,url:string){const ctx=await browser.newContext();try{return (await ctx.request.get(url)).status();}finally{await ctx.close();}}
-test("photos never leave through an unauthenticated or unauthorized request",async({page,browser})=>{
+test("photo reads require authentication and an authorized workspace role",async({page,browser})=>{
  expect(await anonymous(browser,`${process.env.E2E_BASE_URL}/api/run-photos/${firstPhotoId}/file`)).toBe(401);
  expect(await anonymous(browser,`${process.env.E2E_BASE_URL}/api/run-photos/${firstPhotoId}/file?variant=thumb`)).toBe(401);
- for(const user of ["synthetic.anc","synthetic.admin","synthetic.approver"]){
+ await login(page,"synthetic.admin");
+ expect((await page.request.get(`/api/run-photos/${firstPhotoId}/file`)).status()).toBe(200);
+ expect((await page.request.get(`/api/run-photos/runs/${run.batchId}`)).status()).toBe(200);
+ await page.goto(`/lab/photos/${run.batchId}`);await expect(page.getByRole("heading",{name:`ภาพประจำ ${run.runLabel}`})).toBeVisible();
+ await page.context().clearCookies();
+ for(const user of ["synthetic.anc","synthetic.approver"]){
   await login(page,user);
   expect((await page.request.get(`/api/run-photos/${firstPhotoId}/file`)).status(),user).toBe(403);
   expect((await page.request.get(`/api/run-photos/runs/${run.batchId}`)).status(),user).toBe(403);

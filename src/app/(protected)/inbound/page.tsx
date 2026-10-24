@@ -25,17 +25,17 @@ export default async function InboundPage({searchParams}:{searchParams:Promise<R
  const canPropose=authorize(user,"his.conflict.resolve",{},"propose"),canApprove=authorize(user,"his.conflict.resolve",{actorId:"another-person"},"approve");
  return <>
   <header className="page-header"><div><h1>รับใบสั่งจาก HIS</h1><p className="muted">ตัวจำลองเท่านั้น · อ่านอย่างเดียว · เปลี่ยนสถานะได้เฉพาะรอบที่ 1 — รอบเจาะซ้ำรับในระบบ NIPT</p></div></header>
-  <section className="panel" aria-labelledby="inbound-health">
-   <h2 id="inbound-health">สถานะการเชื่อมต่อ</h2>
-   <p className={`status ${health.healthy?"good":""}`}>{health.healthy?"ทำงานปกติ":settings.enabled?"ต้องตรวจสอบ":"ยังไม่เปิดใช้งานตัวจำลอง"}</p>
+  <section className="panel connection-summary" aria-labelledby="inbound-health">
+   <div className="status-summary"><h2 id="inbound-health">สถานะการเชื่อมต่อ</h2>
+   <p className={`status ${health.healthy?"good":""}`}>{health.healthy?"ทำงานปกติ":settings.enabled?"ต้องตรวจสอบ":"ยังไม่เปิดใช้งานตัวจำลอง"}</p></div>
    {health.alerts.length>0&&<ul className="notice" aria-label="การแจ้งเตือน">{health.alerts.map(a=><li key={a}>{ALERT[a]??a}</li>)}</ul>}
-   <dl>
-    <dt>Enabled · เปิดใช้งาน</dt><dd>{health.Enabled?`เปิด (ทุก ${settings.intervalSeconds} วินาที, ย้อนหลัง ${settings.lookbackDays} วัน)`:"ปิด"}</dd>
-    <dt>Alive · การสแกนล่าสุด</dt><dd>{health.Alive?"มีการสแกนตามรอบ":"ไม่มีการสแกนในช่วงที่คาดไว้"}</dd>
-    <dt>Last Success · สำเร็จล่าสุด</dt><dd>{when(health.LastSuccess)}</dd>
-    <dt>Last Error · ข้อผิดพลาดล่าสุด</dt><dd>{health.LastError??"ไม่มี"}</dd>
-    <dt>โฟลเดอร์ต้นทาง</dt><dd>{SHARE[health.shareStatus]}{health.nextRetryAt?` · ลองใหม่หลัง ${when(health.nextRetryAt)}`:""}</dd>
-    <dt>รอจับคู่ / .ok ค้าง</dt><dd>{health.readyBacklog} ไฟล์ · {health.waitingOkOverdue} ไฟล์ค้างเกิน 15 นาที</dd>
+   <dl className="compact-facts ">
+    <div><dt>รอบการสแกน · Enabled</dt><dd>{health.Enabled?`เปิด (ทุก ${settings.intervalSeconds} วินาที, ย้อนหลัง ${settings.lookbackDays} วัน)`:"ปิด"}</dd></div>
+    <div><dt>การสแกนตามรอบ · Alive</dt><dd>{health.Alive?"มีการสแกนตามรอบ":"ไม่มีการสแกนในช่วงที่คาดไว้"}</dd></div>
+    <div><dt>ผลสำเร็จล่าสุด</dt><dd>{when(health.LastSuccess)}</dd></div>
+    <div><dt>ข้อผิดพลาดล่าสุด</dt><dd>{health.LastError??"ไม่มี"}</dd></div>
+    <div><dt>โฟลเดอร์ต้นทาง</dt><dd>{SHARE[health.shareStatus]}{health.nextRetryAt?` · ลองใหม่หลัง ${when(health.nextRetryAt)}`:""}</dd></div>
+    <div><dt>รอจับคู่ / .ok ค้าง</dt><dd>{health.readyBacklog} ไฟล์ · {health.waitingOkOverdue} ไฟล์ค้างเกิน 15 นาที</dd></div>
    </dl>
   </section>
   {(canScan||canConfigure)&&<section className="panel stack" aria-labelledby="inbound-actions"><h2 id="inbound-actions">คำสั่ง</h2>

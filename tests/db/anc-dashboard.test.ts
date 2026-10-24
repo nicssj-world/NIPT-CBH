@@ -3,7 +3,7 @@ import type {PGlite} from '@electric-sql/pglite';
 import {testDatabase,addUser,TEST_PASSWORD} from '../helpers/database';
 import {syntheticCase,receiveS1,tx} from '../helpers/lab';
 import {dashboard} from '../../packages/anc/service';
-import type {Principal} from '../../packages/security/policy';
+import {authorize,type Principal} from '../../packages/security/policy';
 import {authenticate,readSession} from '../../packages/security/session';
 import {registerP2,saveRequest,lockRequest,doctorAction,prepareConsent,startSigning,patientAction} from '../../packages/p2/service';
 import {emptyRequest} from '../../packages/p2/schema';
@@ -39,6 +39,12 @@ describe('ANC read-only migrated database aggregation',()=>{
   const d=await dashboard(db,{...anc,permissions:['ANC_VIEW_ALL_UNITS']},{fy:2569});
   expect(d.queue.total).toBe(2);expect(d.metrics.sent).toBe(1);expect(d.metrics.pending).toBe(1);
   expect(d.queue.items.filter(c=>c.id===caseId)).toHaveLength(1);
+ });
+ it('system-wide Admin reads every ANC unit without granting sign-off rights',async()=>{
+  const admin=await addUser(db,'APP_ADMIN','synthetic.anc.dashboard.system-admin');
+  const d=await dashboard(db,admin,{fy:2569});
+  expect(d.scope).toMatchObject({allUnits:true});expect(d.units.map(x=>x.id).sort()).toEqual([unit,other].sort());expect(d.queue.total).toBe(2);
+  expect(authorize(admin,'consent.sign.patient',{},'write')).toBe(false);
  });
  it('rejects unauthorized unit, non-reader, invalid filters and suspended session',async()=>{
   await expect(dashboard(db,anc,{unitId:other})).rejects.toThrow('FORBIDDEN');

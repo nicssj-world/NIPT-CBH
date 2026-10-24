@@ -134,18 +134,26 @@ describe('corrections with permissions and an append-only audit trail',()=>{
   await expect(db.query('DELETE FROM run_photo_event')).rejects.toThrow(/append-only/);
   await expect(db.query('UPDATE run_photo_root_location SET root_path=$1',['/elsewhere'])).rejects.toThrow(/append-only/);
  });
- it('roles: auditors read but cannot upload; ANC and admins cannot see photos',async()=>{
+ it('roles: auditors read but cannot upload; ANC remains excluded and Admin access keeps its audit identity',async()=>{
   const r=await runWith(1);const p=await uploadPhoto(q(),u.staff,r.batchId);
   expect((await run(t=>svc.runGallery(t,u.auditor,r.batchId))).photos).toHaveLength(1);
   expect(await code(uploadPhoto(q(),u.auditor,r.batchId))).toBe('FORBIDDEN');
-  for(const who of [u.anc,admin,u.approver]){
+  for(const who of [u.anc,u.approver]){
    expect(await code(run(t=>svc.runGallery(t,who as Staff,r.batchId)))).toBe('FORBIDDEN');
    expect(await code(run(t=>svc.photoForServing(t,who as Staff,p.photoId,'thumb')))).toBe('FORBIDDEN');
    expect(await code(run(t=>svc.searchRunPhotos(t,who as Staff,{run:'1'})))).toBe('FORBIDDEN');
   }
+  const adminGallery=await run(t=>svc.runGallery(t,admin,r.batchId));
+  expect(adminGallery.photos[0]).toMatchObject({id:p.photoId,canManage:true});
+  expect((await run(t=>svc.searchRunPhotos(t,admin,{run:'1'}))).photos.map(x=>x.id)).toContain(p.photoId);
+  await run(t=>svc.photoForServing(t,admin,p.photoId,'original'));
+  const edit={expectedRowVersion:1,caption:'Admin ตรวจและแก้รายการ',sampleFrom:1,sampleTo:1,takenOn:'2026-10-12'};
+  await run(t=>svc.editPhoto(t,admin,p.photoId,edit));
+  expect((await db.query("SELECT actor_id FROM run_photo_event WHERE photo_id=$1 AND event_type='EDITED'",[p.photoId])).rows).toEqual([{actor_id:admin.id}]);
+  expect((await db.query("SELECT actor_id FROM audit_chain WHERE action='RUN_PHOTO_EDITED' ORDER BY sequence DESC LIMIT 1")).rows).toEqual([{actor_id:admin.id}]);
   // Viewing an original is audited; thumbnails are not.
   await run(t=>svc.photoForServing(t,u.staff,p.photoId,'thumb'));await run(t=>svc.photoForServing(t,u.staff,p.photoId,'original'));
-  expect((await db.query("SELECT count(*)::int n FROM audit_chain WHERE action='RUN_PHOTO_VIEWED'")).rows[0]).toEqual({n:1});
+  expect((await db.query("SELECT actor_id FROM audit_chain WHERE action='RUN_PHOTO_VIEWED' ORDER BY sequence")).rows).toEqual([{actor_id:admin.id},{actor_id:u.staff.id}]);
  });
 });
 

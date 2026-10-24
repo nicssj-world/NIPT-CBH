@@ -109,6 +109,29 @@ export type Action = keyof typeof rows;
 export type ResourceScope = { unitId?: string; origin?: "ANC" | "LAB_DIRECT" | "HISTORICAL"; actorId?: string; assignedUserId?: string; state?: string };
 export type Operation = "read" | "write" | "propose" | "approve";
 
+// APP_ADMIN is the single system-wide administrator role. These workspace
+// actions run under that account's own identity and audit actor. Actions that
+// require separate clinical, historical, identity-linking, or maker-checker
+// authority are classified separately and do not inherit this grant.
+export const APP_ADMIN_SYSTEMWIDE_ACTIONS:ReadonlySet<Action>=new Set<Action>([
+  "case.register.anc","case.registration.void","case.register.lab","history.draft","history.read","history.withdraw","attempt.resume",
+  "request.edit","request.correct","consent.prepare","round.collect","consent.withdraw.receive","doctor.manage","case.read",
+  "document.request.read","his.scan","specimen.hold","specimen.accept","label.print","batch.assign","batch.unlock","batch.draft",
+  "batch.finalize","execution.record","batch.amend","observation.transcribe","observation.discrepancy","document.recall","handoff.create",
+  "handoff.exception","document.obsolete.print","downtime.incident","downtime.recover","downtime.form.register","slot.disposition",
+  "qc.record","pool.crosscheck","worksheet.read","worksheet.revise","material.manage","repeat.order","redraw.order","redraw.cancel",
+  "round.receive","attempt.noCall","result.import","result.review","result.release.check","result.read.released","result.read.obsolete","his.retry",
+  "his.reconcile","integration.configure","res.profile.change","user.manage","settings.read","audit.read","report.export","backup.manage",
+  "health.read","settings.general.change","settings.integration.propose","secret.write","photo.read","photo.upload","photo.manage",
+  "photo.storage.configure"
+]);
+export const APP_ADMIN_RESTRICTED_ACTIONS:ReadonlySet<Action>=new Set<Action>([
+  "intake.link","history.promote","history.send","clinical.correct","clinical.sop","consent.sign.patient","paper.verify","round.attest",
+  "consent.withdraw.decide","his.conflict.resolve","observation.verify","handoff.verify","downtime.approve","qc.accept","pool.approve",
+  "formula.change","redraw.after.release","result.link.manual","result.certify","notice.release","result.revise","his.production.enable",
+  "clinical.rules.change","history.cutoff.change","settings.clinical.propose","settings.approve"
+]);
+
 export function authorize(user: Principal, action: string, resource: ResourceScope = {}, operation: Operation = "write"): boolean {
   if (!(action in rows) || !user.roles.length) return false;
   // LAB-UAT-002: settings entry, direct URLs and APIs share this boundary.
@@ -120,6 +143,7 @@ export function authorize(user: Principal, action: string, resource: ResourceSco
   // requires an active, approved historical_backfill + go_live_cutoff setting, so it stays inert (fail closed) until the Owner decides OD-18/OD-27.
   if (resource.origin === "HISTORICAL" && !["history.read", "audit.read"].includes(action)) return false;
   if (["observation.verify", "handoff.verify", "settings.approve", "downtime.approve", "result.link.manual", "his.conflict.resolve"].includes(action) && resource.actorId === user.id) return false;
+  if (user.roles.includes("APP_ADMIN") && APP_ADMIN_SYSTEMWIDE_ACTIONS.has(action as Action)) return true;
   if(action==='history.draft'&&operationalDataEnabled()&&user.roles.some(role=>role==='LAB_STAFF'||role==='LAB_CERTIFIER'))return true;
   const rule = rows[action as Action];
   return user.roles.some(role => {

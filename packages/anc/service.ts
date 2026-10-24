@@ -107,7 +107,7 @@ export async function runProjection(db:Queryable,sql:string,i:ProjectionInput):P
 }
 export async function dashboard(db:Queryable,user:Staff,input:unknown={}):Promise<Dashboard> {
  await assertSession(db,user);
- if(!user.roles.some(role=>role==='ANC_NURSE'||role==='ANC_SUPERVISOR'))throw new LabError('FORBIDDEN',403);
+ if(!user.roles.some(role=>role==='ANC_NURSE'||role==='ANC_SUPERVISOR'||role==='APP_ADMIN'))throw new LabError('FORBIDDEN',403);
  const f=filterSchema.parse(input);
  // A scope probe is safe: policy needs a unit for U cells; it does not invent a new permission.
  if(!authorize(user,'case.read',{unitId:user.unitIds[0]??'scope-probe',origin:'ANC'},'read')&&!user.unitIds.some(id=>authorize(user,'case.read',{unitId:id,origin:'ANC'},'read')))throw new LabError('FORBIDDEN',403);
@@ -128,5 +128,5 @@ export async function dashboard(db:Queryable,user:Staff,input:unknown={}):Promis
  const last=out.rows.at(-1);
  // Following a cursor the position in the list is not known from `page`, so "is there more" is: this page is full and the cursor query found it so.
  const more=cursor?items.length===f.pageSize:(page-1)*f.pageSize+items.length<out.total;
- return {fiscalYear:fy,generatedAt:date.toISOString(),asOf:asOf.toISOString(),scope:{unitIds,allUnits:user.permissions.includes('ANC_VIEW_ALL_UNITS')},metrics:out.metrics,stages:stages.map(([id,label])=>({id,label,count:out.stage_counts[id]??0})),queue:{items,total:out.total,page,pageSize:f.pageSize,totalPages,nextCursor:more&&last?encodeCursor({u:last.ord_u as 0|1,d:last.ord_d,id:last.id}):null},units,limitations:['เอกสารครบหมายถึงมีหลักฐาน Request และ Consent ยินยอม ไม่ใช่การรับรองเกณฑ์คลินิก','รายการรอผลรวมเคสที่รับ S1 ทุกปี ไม่รวมข้อมูลย้อนหลังและรอบปัจจุบันที่ยกเลิก']};
+ return {fiscalYear:fy,generatedAt:date.toISOString(),asOf:asOf.toISOString(),scope:{unitIds,allUnits:user.roles.includes('APP_ADMIN')||user.permissions.includes('ANC_VIEW_ALL_UNITS')},metrics:out.metrics,stages:stages.map(([id,label])=>({id,label,count:out.stage_counts[id]??0})),queue:{items,total:out.total,page,pageSize:f.pageSize,totalPages,nextCursor:more&&last?encodeCursor({u:last.ord_u as 0|1,d:last.ord_d,id:last.id}):null},units,limitations:['เอกสารครบหมายถึงมีหลักฐาน Request และ Consent ยินยอม ไม่ใช่การรับรองเกณฑ์คลินิก','รายการรอผลรวมเคสที่รับ S1 ทุกปี ไม่รวมข้อมูลย้อนหลังและรอบปัจจุบันที่ยกเลิก']};
 }
