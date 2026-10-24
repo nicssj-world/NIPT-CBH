@@ -127,3 +127,11 @@ GRANT SELECT ON lab_actual_pooling,lab_seq_export_pair TO report_ro;
 GRANT SELECT,INSERT ON lab_manual_result_review,lab_storage_box,lab_storage_position TO app_rw;
 GRANT EXECUTE ON FUNCTION task1_no_call_source(uuid),task1_no_call_qc5_valid(result_qc5_review) TO app_rw;
 GRANT USAGE,SELECT ON SEQUENCE lab_storage_box_box_number_seq TO app_rw;
+-- Task 3 (migration 128): HALOS import evidence, signer profiles/delegations, internal reports, outage provenance and HIS-presence attestation.
+GRANT SELECT,INSERT ON halos_import_row,report_signer_profile,report_signer_profile_event,internal_report_batch,result_external_fallback TO app_rw;
+GRANT SELECT,INSERT,UPDATE ON halos_import,report_signature_delegation,internal_report,result_his_attestation TO app_rw;
+GRANT USAGE ON SEQUENCE report_signer_profile_event_sequence_seq TO app_rw;
+GRANT EXECUTE ON FUNCTION task3_his_presence_attested(uuid),task3_signer_profile_current(uuid),task3_internal_version_current(uuid) TO app_rw;
+GRANT SELECT ON result_his_attestation TO worker_rw;
+GRANT EXECUTE ON FUNCTION task3_his_presence_attested(uuid) TO worker_rw;
+GRANT SELECT ON halos_import,halos_import_row,internal_report,internal_report_batch,result_external_fallback,result_his_attestation TO report_ro;

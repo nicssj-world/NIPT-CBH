@@ -47,7 +47,7 @@ export function resultQuerySql(q:ResultQuery){
  // Same FROM/WHERE for the exact total (filter parameters only: LIMIT/OFFSET are appended below).
  const countValues=[...values];
  const countText=`SELECT count(*)::text n FROM result_report_version v JOIN result_intake_file i ON i.id=v.intake_file_id LEFT JOIN specimen_round r ON r.id=v.round_id LEFT JOIN case_ln l ON l.id=r.case_ln_id WHERE ${where.join(' AND ')}`;
- const text=`SELECT v.id,v.sha256,v.parser_version,v.template_version,v.parsed,v.kind,v.template_kind,v.state,v.imported_at,v.state_changed_at,i.original_name,i.relative_path,i.member_name,
+ const text=`SELECT v.id,v.origin,v.sha256,v.parser_version,v.template_version,v.parsed,v.kind,v.template_kind,v.state,v.imported_at,v.state_changed_at,i.original_name,i.relative_path,i.member_name,
  v.parsed->'identifiers'->'hn'->>'value' hn,v.parsed->'identifiers'->'labNumber'->>'value' lab,v.parsed->'identifiers'->'collectionDate'->>'value' collection,
  r.round_number,l.ln,(v.parsed->>'abnormal')::boolean abnormal,v.row_version,(${riskSql}) risk,
  EXISTS(SELECT 1 FROM result_report_version o JOIN result_intake_file oi ON oi.id=o.intake_file_id WHERE o.id<>v.id AND o.sha256<>v.sha256 AND lower(coalesce(oi.member_name,oi.original_name))=lower(coalesce(i.member_name,i.original_name))) name_conflict,

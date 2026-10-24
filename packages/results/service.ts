@@ -635,7 +635,15 @@ export async function versionDetail(db:Queryable,user:Staff,id:string){
  const candidates=v.state==='Unlinked'&&v.kind!=='UNKNOWN'?await linkCandidates(db,user,v.parsed,s):[];
  const auto=v.state==='Unlinked'&&!proposal&&candidates[0]?autoMatchCandidate(candidates,{kind:v.kind,nameConflicts:conflicts.length,openRevision:!!await openInSeries(db,v,candidates[0].round.id)}):null;
  const operational=await operationalWorkflow(db);
- return {operational,nameConflicts:conflicts,version:{id:v.id,kind:v.kind,templateKind:v.template_kind,templateVersion:v.template_version,parserVersion:v.parser_version,state:v.state,rowVersion:v.row_version,sha256:v.sha256,importedAt:v.imported_at,caseId:v.case_id,roundId:v.round_id,attemptId:v.attempt_id,linkMode:v.link_mode,supersedesId:v.supersedes_id,revision:v.revision},
+ // Task 3: origin and its evidence are shown to LAB only (ANC sees one consistent result view for both origins).
+ const internal=v.origin==='INTERNAL_GENERATED'?(await db.query(`SELECT r.id,r.state,r.template_kind "templateKind",r.template_code "templateCode",r.template_sha256 "templateSha256",r.pregnancy_source "pregnancySource",r.pregnancy_override_reason "overrideReason",
+   r.ruleset,r.interpretation->'holds' holds,r.interpretation->'values' "values",r.download_name "downloadName",r.reported_at "reportedAt",r.approved_at "approvedAt",r.created_at "createdAt",r.batch_id "batchId",r.halos_row_id "halosRowId",h.import_id "halosImportId",
+   r.reported_authority->>'legalName' "reportedName",r.reported_authority->>'license' "reportedLicense",r.reported_authority->>'basis' "reportedBasis",r.approved_authority->>'legalName' "approvedName",r.approved_authority->>'license' "approvedLicense",r.approved_authority->>'basis' "approvedBasis",
+   o.display_name operator,task3_internal_version_current($1) current FROM internal_report r JOIN halos_import_row h ON h.id=r.halos_row_id JOIN app_user o ON o.id=r.operator_id WHERE r.version_id=$1`,[v.id])).rows[0]??null:null;
+ const fallback=(await db.query(`SELECT f.outage_reference "outageReference",f.outage_started_at "outageStartedAt",f.outage_ended_at "outageEndedAt",f.note,f.recorded_at "recordedAt",u.display_name "recordedBy" FROM result_external_fallback f JOIN app_user u ON u.id=f.recorded_by WHERE f.version_id=$1`,[v.id])).rows[0]??null;
+ const attestations=(await db.query(`SELECT a.id,a.statement,a.effect,a.note,a.attested_at "attestedAt",u.display_name actor,a.withdrawn_at "withdrawnAt",w.display_name "withdrawnBy",a.withdraw_reason "withdrawReason" FROM result_his_attestation a JOIN app_user u ON u.id=a.actor_id LEFT JOIN app_user w ON w.id=a.withdrawn_by WHERE a.version_id=$1 ORDER BY a.attested_at DESC`,[v.id])).rows;
+ const transfer=(await db.query<{state:string|null}>(`SELECT t.model->>'state' state FROM p6_transfer t JOIN result_release r ON r.id=t.clinical_release_id WHERE r.version_id=$1`,[v.id])).rows[0]??null;
+ return {operational,nameConflicts:conflicts,origin:v.origin,internal,fallback,attestations,hisTransferState:transfer?.state??null,version:{id:v.id,origin:v.origin,kind:v.kind,templateKind:v.template_kind,templateVersion:v.template_version,parserVersion:v.parser_version,state:v.state,rowVersion:v.row_version,sha256:v.sha256,importedAt:v.imported_at,caseId:v.case_id,roundId:v.round_id,attemptId:v.attempt_id,linkMode:v.link_mode,supersedesId:v.supersedes_id,revision:v.revision},
   parsed:v.parsed,summary:summary(v.parsed),intake:{...intake,size:Number(intake.byte_size)},target,proposal,
   benchEvidence:v.attempt_id&&authorize(user,'worksheet.read',{},'read')?await benchAttemptEvidence(db,v.attempt_id):null,
   candidates,autoMatch:auto?{caseId:auto.caseId,roundId:auto.round.id,attemptId:auto.attempt.id,reason:AUTO_MATCH_REASON,linksDirectly:s.linkageMode==='UNIQUE_AUTO_LINK'}:null,
@@ -644,7 +652,10 @@ export async function versionDetail(db:Queryable,user:Staff,id:string){
    unlink:authorize(user,'result.link.manual',{},'approve')&&['LinkConflict','Linked','ValidationBlocked','PendingCertification'].includes(v.state)&&!v.supersedes_id,
    review:authorize(user,'result.review')&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state),certify:authorize(user,'result.release.check')&&!!v.round_id,
    void:authorize(user,'result.revise')&&v.state==='Unlinked',releaseAuthorized:false,
-   acceptRelease:operational&&authorize(user,'result.review')&&authorize(user,'qc.accept')&&authorize(user,'result.certify')&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state)}};
+   acceptRelease:v.origin==='EXTERNAL_READYGEN'&&operational&&authorize(user,'result.review')&&authorize(user,'qc.accept')&&authorize(user,'result.certify')&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state),
+   acceptInternal:v.origin==='INTERNAL_GENERATED'&&operational&&authorize(user,'result.review')&&authorize(user,'qc.accept')&&authorize(user,'result.certify')&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state),
+   attestHis:authorize(user,'his.reconcile')&&v.kind==='RESULT'&&['Linked','ValidationBlocked','PendingCertification','CertifiedReleased'].includes(v.state)&&!transfer&&!attestations.some(a=>!(a as {withdrawnAt:unknown}).withdrawnAt),
+   recordFallback:v.origin==='EXTERNAL_READYGEN'&&authorize(user,'result.import')&&!fallback}};
 }
 export async function readVersionFile(db:Queryable,user:Staff,store:FileStore,id:string){
  need(user,'result.review','read');const v=await versionOf(db,id);

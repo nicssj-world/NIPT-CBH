@@ -13,7 +13,7 @@ import {readActiveSettings} from '../settings/service';
 import {pdfText} from '../results/extract';
 import {parseReport} from '../results/parser';
 import {roundRequest,registerInternalVersion,acceptInternalAndRelease} from '../results/service';
-import {readArchive,writeArchive,sha256} from '../workbook/archive';
+import {writeArchive,sha256} from '../workbook/archive';
 import {interpretRow,productCodeOf,halosGaDays,TEMPLATES,RULESET,RULESET_SHA256,type Interpretation,type Hold} from './interpretation';
 import {resolveSample} from './halos-import';
 import {fillReport,DocxError,type ReportValues,type SignerSlot} from './docx';
@@ -275,4 +275,73 @@ export async function finalizeReports(db:Queryable,user:Staff,deps:ReportDeps,in
 }
 async function benchRevisionFor(db:Queryable,attemptId:string){
  return (await db.query<{revision:number}>('SELECT w.revision FROM lab_slot_assignment s JOIN LATERAL (SELECT revision FROM task_workbook_revision r WHERE r.batch_id=s.batch_id ORDER BY revision DESC LIMIT 1) w ON true WHERE s.attempt_id=$1 AND s.removed_at IS NULL LIMIT 1',[attemptId])).rows[0]?.revision;
+}
+
+// ---------- LAB worklist, batch ZIP and final file reads ----------
+export type WorklistStatus='READY'|'HOLD'|'FINAL'|'RELEASED'|'NOT_REPORTABLE';
+const worklistSchema=z.strictObject({q:z.string().trim().max(40).default(''),status:z.enum(['ALL','READY','HOLD','FINAL','RELEASED','NOT_REPORTABLE']).default('ALL'),page:z.number().int().min(1).max(1000).default(1),pageSize:z.number().int().min(10).max(100).default(50)});
+/** Rows of confirmed HALOS imports with what to do next. Search by LN, HN, LN Halos or the HALOS sample ID. */
+export async function reportWorklist(db:Queryable,user:Staff,deps:ReportDeps,input:unknown){
+ await assertSession(db,user);need(user,'result.review','read');
+ const d=worklistSchema.parse(input),q=d.q.replace(/[%_\\]/g,'');
+ const rows=(await db.query<{row_id:string;sample_key:string;classification:string;reason:string;case_id:string|null;round_id:string|null;attempt_id:string|null;import_id:string;import_name:string;uploaded_at:Date;chip_id:string|null;
+  ln:string|null;ln_halos:string|null;hn:string|null;unit_id:string|null;registration_origin:string|null;internal_id:string|null;internal_state:string|null;template_kind:string|null;download_name:string|null;version_id:string|null;version_state:string|null;row_version:number|null;release_id:string|null;attested:boolean}>(
+  `SELECT h.id row_id,h.sample_key,h.classification,h.reason,h.case_id,h.round_id,h.attempt_id,i.id import_id,i.original_name import_name,i.uploaded_at,h.chip_id,l.ln,n.ln_halos,ci.hn,
+    (SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=h.case_id ORDER BY s.unit_id LIMIT 1) unit_id,c.registration_origin,
+    ir.id internal_id,ir.state internal_state,ir.template_kind,ir.download_name,v.id version_id,v.state version_state,v.row_version,rel.id release_id,COALESCE(task3_his_presence_attested(v.id),false) attested
+   FROM halos_import_row h JOIN halos_import i ON i.id=h.import_id AND i.state='Confirmed'
+   LEFT JOIN specimen_round_current sr ON sr.id=h.round_id LEFT JOIN case_ln l ON l.id=sr.case_ln_id LEFT JOIN specimen_lab_number n ON n.round_id=h.round_id
+   LEFT JOIN p2_case_identity ci ON ci.case_id=h.case_id LEFT JOIN nipt_case c ON c.id=h.case_id
+   LEFT JOIN LATERAL (SELECT * FROM internal_report r WHERE r.halos_row_id=h.id ORDER BY r.created_at DESC LIMIT 1) ir ON true
+   LEFT JOIN result_report_version v ON v.id=ir.version_id LEFT JOIN result_release rel ON rel.version_id=v.id AND rel.state='Active'
+   WHERE h.sheet='result' AND ($1='' OR l.ln LIKE $1||'%' OR ltrim(ci.hn,'0') LIKE ltrim($1,'0')||'%' OR h.sample_key ILIKE '%'||$1||'%' OR n.ln_halos ILIKE '%'||$1||'%')
+   ORDER BY i.uploaded_at DESC,h.row_number LIMIT 500`,[q])).rows.filter(r=>!r.case_id||caseVisible(user,{unit_id:r.unit_id,registration_origin:r.registration_origin??'ANC'}));
+ const out:{status:WorklistStatus;[key:string]:unknown}[]=[];
+ for(const r of rows){
+  let status:WorklistStatus,holds:Hold[]=[],template=r.template_kind;
+  if(r.classification!=='PATIENT')status='NOT_REPORTABLE';
+  else if(r.release_id)status='RELEASED';
+  else if(r.internal_state==='Final')status='FINAL';
+  else{const p=await prepareReport(db,user,deps,{rowId:r.row_id}).catch(e=>{if(e instanceof LabError)return null;throw e;});holds=p?.holds??[{code:'ROW_NOT_AVAILABLE'}];template=p?.template??null;status=holds.length?'HOLD':'READY';}
+  if(d.status!=='ALL'&&d.status!==status)continue;
+  out.push({rowId:r.row_id,sampleId:r.sample_key,classification:r.classification,reason:r.reason,status,holds,template,caseId:r.case_id,roundId:r.round_id,attemptId:r.attempt_id,
+   ln:r.ln,lnHalos:r.ln_halos,hn:r.hn,importId:r.import_id,importName:r.import_name,importedAt:r.uploaded_at,chip:r.chip_id,
+   internalReportId:r.internal_id,internalState:r.internal_state,downloadName:r.download_name,versionId:r.version_id,versionState:r.version_state,rowVersion:r.row_version,releaseId:r.release_id,hisAttested:r.attested});
+ }
+ const total=out.length,start=(d.page-1)*d.pageSize;
+ return {rows:out.slice(start,start+d.pageSize),page:{number:d.page,size:d.pageSize,total,totalPages:Math.max(1,Math.ceil(total/d.pageSize)),hasNext:start+d.pageSize<total},
+  counts:Object.fromEntries((['READY','HOLD','FINAL','RELEASED','NOT_REPORTABLE'] as const).map(s=>[s,out.filter(x=>x.status===s).length])),canFinalize:authorize(user,'result.certify')};
+}
+/** One immutable PDF per patient, never merged. The ZIP holds only reports still Final; the manifest lists held/failed rows too. */
+export async function batchZip(db:Queryable,user:Staff,store:FileStore,batchId:string){
+ await assertSession(db,user);need(user,'result.review','read');
+ const b=(await db.query<{id:string;outcome:FinalizeOutcome[];created_at:Date;operator_id:string}>('SELECT id,outcome,created_at,operator_id FROM internal_report_batch WHERE id=$1',[uuid.parse(batchId)])).rows[0];if(!b)throw new LabError('NOT_FOUND',404);
+ const reports=(await db.query<{id:string;case_id:string;version_id:string|null;state:string;pdf_sha256:string;download_name:string;unit_id:string|null;registration_origin:string}>(
+  'SELECT r.id,r.case_id,r.version_id,r.state,r.pdf_sha256,r.download_name,(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=r.case_id ORDER BY s.unit_id LIMIT 1) unit_id,c.registration_origin FROM internal_report r JOIN nipt_case c ON c.id=r.case_id WHERE r.batch_id=$1 ORDER BY r.created_at',[b.id])).rows
+  .filter(r=>caseVisible(user,{unit_id:r.unit_id,registration_origin:r.registration_origin}));
+ const final=reports.filter(r=>r.state==='Final'),names=uniqueNames(final.map(r=>r.download_name));
+ const parts=new Map<string,Buffer>(),files:{name:string;zipMember:string;internalReportId:string;versionId:string|null;sha256:string}[]=[];
+ for(const [i,r] of final.entries()){
+  // ZIP member names stay ASCII for the archive writer; the configured (possibly Thai) name is in the manifest and each download.
+  const member=`pdf/${String(i+1).padStart(3,'0')}-${r.id.slice(0,8)}.pdf`;parts.set(member,await store.get(r.pdf_sha256));
+  files.push({name:names[i],zipMember:member,internalReportId:r.id,versionId:r.version_id,sha256:r.pdf_sha256});
+  await db.query("INSERT INTO result_access_log(actor_id,case_id,version_id,purpose) VALUES($1,$2,$3,'LAB_REVIEW_FILE')",[user.id,r.case_id,r.version_id]);
+ }
+ const manifest={batchId:b.id,createdAt:b.created_at,operatorId:b.operator_id,files,
+  notIncluded:[...b.outcome.filter(o=>o.outcome!=='FINAL').map(o=>({rowId:o.rowId,outcome:o.outcome,code:o.code??null,holds:(o.holds??[]).map(h=>h.code)})),...reports.filter(r=>r.state!=='Final').map(r=>({internalReportId:r.id,outcome:r.state}))]};
+ parts.set('manifest.json',Buffer.from(JSON.stringify(manifest,null,2),'utf8'));
+ await audit(db,user,'INTERNAL_REPORT_BATCH_DOWNLOADED','INTERNAL_REPORT_BATCH',b.id,{outcome:'ZIP',count:final.length});
+ return {bytes:writeArchive(parts),filename:`NIPT-REPORTS-${b.created_at.toISOString().slice(0,10)}-${b.id.slice(0,8)}.zip`,manifest};
+}
+export async function internalReportFile(db:Queryable,user:Staff,store:FileStore,internalId:string){
+ await assertSession(db,user);need(user,'result.review','read');
+ const r=(await db.query<{case_id:string;version_id:string|null;pdf_sha256:string;download_name:string;unit_id:string|null;registration_origin:string}>('SELECT r.case_id,r.version_id,r.pdf_sha256,r.download_name,(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=r.case_id ORDER BY s.unit_id LIMIT 1) unit_id,c.registration_origin FROM internal_report r JOIN nipt_case c ON c.id=r.case_id WHERE r.id=$1',[uuid.parse(internalId)])).rows[0];
+ if(!r||!caseVisible(user,{unit_id:r.unit_id,registration_origin:r.registration_origin}))throw new LabError('NOT_FOUND',404);
+ await db.query("INSERT INTO result_access_log(actor_id,case_id,version_id,purpose) VALUES($1,$2,$3,'LAB_REVIEW_FILE')",[user.id,r.case_id,r.version_id]);
+ return {bytes:await store.get(r.pdf_sha256),sha256:r.pdf_sha256,name:r.download_name};
+}
+/** Settings validation: an approval may name a product for a master only if that master is installed with its pinned SHA-256. */
+export async function reportMastersInstalled(value:{singletonApprovedProduct:string;twinApprovedProduct:string}){
+ for(const [kind,product] of [['SINGLETON',value.singletonApprovedProduct],['TWIN',value.twinApprovedProduct]] as const)if(product!=='NONE'&&!await masterBytes({store:null as unknown as FileStore},kind))return false;
+ return true;
 }

@@ -5,6 +5,7 @@ import {useCallback,useEffect,useMemo,useRef,useState} from "react";
 import {labApi,failureText,bkk} from "../p4/lab-api";
 import {csrf} from "../p2/shared";
 import {Pager} from "../shared/pager";
+import {NativeReports} from "./native-reports";
 import {STATE_TEXT,STATE_TONE,KIND_TEXT,CONTAINER_TEXT,INTAKE_TEXT,SCAN_TEXT,REJECT_TEXT,FOLDER_ERROR_TEXT,CHECK_TEXT,bytes} from "./labels";
 
 type Job<T=Record<string,unknown>>={id:string;kind:string;state:string;result:T|null;intakes:Intake[]};
@@ -14,7 +15,7 @@ type ScanFile={path:string;folder:string;name:string;size:number;modifiedAt:stri
 type ScanResult={folder:string;files:ScanFile[];folders:number;truncated:boolean;errorCode:string|null};
 type Summary={result?:string|null;labNumber:string|null;hn:string|null;collectionDate:string|null;t21:string|null;t18:string|null;t13:string|null;sca:string[]|null;yChromosome:string|null;fetalFraction:number|null;qc:string|null;needsManualReview:boolean;abnormal:boolean;unreadable:string[]};
 type Intake={id:string;file:string;member:string|null;parentId:string|null;container:string|null;state:string;rejectCode:string|null;templateKind:string|null;summary:Summary|null;candidates:number;size:number;nameConflicts?:{versions:{id:string;state:string}[];sameBatch:number}};
-type Row={id:string;kind:string;template_kind:string;state:string;state_changed_at:string;original_name:string;relative_path:string|null;member_name:string|null;hn:string|null;lab:string|null;collection:string|null;round_number:number|null;ln:string|null;proposal:boolean;abnormal:boolean;name_conflict:boolean};
+type Row={id:string;origin?:string;kind:string;template_kind:string;state:string;state_changed_at:string;original_name:string;relative_path:string|null;member_name:string|null;hn:string|null;lab:string|null;collection:string|null;round_number:number|null;ln:string|null;proposal:boolean;abnormal:boolean;name_conflict:boolean};
 type Data={page:{number:number;size:number;hasNext:boolean;total:number;totalPages:number;scope:"BOUNDED_PAGE"};rows:Row[];latestFolder:{folder:string;at:string}|null;intake:{folder:string;scanSubfolders:boolean;acceptZip:boolean;maxUploadMb:number;maxFilesPerScan:number;picVersion:string;scanMode:"ON_DEMAND";lastTest:{result:TestResult|null;completed_at:string|null}|null;lastScan:{result:ScanResult|null;completed_at:string|null}|null}};
 const BUCKETS=[["unlinked","รอเชื่อมโยง",["Unlinked"]],["conflict","ข้อมูลไม่ตรง",["LinkConflict"]],["blocked","ถูกบล็อกโดย Gate",["ValidationBlocked"]],["pending","รอรับรอง",["PendingCertification"]],["closed","ปิดแล้ว/ใช้ไม่ได้",["RejectedImport","Superseded","Voided","CertifiedReleased"]]] as const;
 const DEFAULT_FILTERS={dateField:"REPORTED",from:"",to:"",q:"",gender:"ALL",qc:"ALL",risk:"ALL"};
@@ -74,9 +75,10 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
   <header className="page-header"><div><h1>ผลตรวจ NIPT</h1><p className="muted">นำเข้าไฟล์ผลจากโฟลเดอร์หรือจากเครื่อง ตรวจทาน เชื่อมโยงกับรอบ/Attempt และประเมิน Gate ก่อนรับรอง</p></div></header>
   <p className="notice warning-notice" role="note"><strong>ยังไม่ปล่อยผลจริง</strong> — ระบบทำได้ถึงการตรวจทานและประเมิน Gate (RG/RN) เท่านั้น การรับรองและปล่อยผลถูกระงับจนกว่า AL-5, OD-05 และ OD-07 ผ่าน และยังรอ FinalQcAccepted จากงาน P4b</p>
   <div aria-live="polite">{notice&&<p className="notice success" role="status">{notice}</p>}{error&&<p className="notice" role="alert">{error}</p>}</div>
+  <NativeReports canImport={canImport}/>
 
   {canImport&&<section className="panel result-intake" aria-labelledby="intake-h">
-   <h2 id="intake-h">นำเข้าไฟล์ผล</h2><p className="import-next" role="status"><strong>ขั้นตอนถัดไป: {tab==="folder"?STEPS[step]:preview?"ตรวจ Preview และยืนยันนำเข้า":"เลือกไฟล์จากเครื่องเพื่อ Preview"}</strong><span>{tab==="folder"?"ทดสอบและสแกนเพื่อเลือกไฟล์ ตรวจ Preview แล้วจึงยืนยันนำเข้า":"เลือกไฟล์ .pdf หรือ .zip ตรวจ Preview แล้วจึงยืนยันนำเข้า"}</span></p>
+   <h2 id="intake-h">นำเข้า PDF ผลจาก ReadyGen / ภายนอก</h2><p className="import-next" role="status"><strong>ขั้นตอนถัดไป: {tab==="folder"?STEPS[step]:preview?"ตรวจ Preview และยืนยันนำเข้า":"เลือกไฟล์จากเครื่องเพื่อ Preview"}</strong><span>{tab==="folder"?"ทดสอบและสแกนเพื่อเลือกไฟล์ ตรวจ Preview แล้วจึงยืนยันนำเข้า":"เลือกไฟล์ .pdf หรือ .zip ตรวจ Preview แล้วจึงยืนยันนำเข้า"}</span></p>
    <ol className="stepper" aria-label="ขั้นตอนนำเข้า">{STEPS.map((s,i)=><li key={s} className={i<step?"done":i===step?"current":""} aria-current={i===step?"step":undefined}>{s}</li>)}</ol>
    <div className="tabs p5-tabs" role="tablist" aria-label="ช่องทางนำเข้า">
     <button type="button" role="tab" className="tab" aria-selected={tab==="folder"} onClick={()=>setTab("folder")}>จากโฟลเดอร์ผล (แนะนำ)</button>
@@ -162,7 +164,7 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
    <div className="table-wrap" role="region" aria-label="รายการรายงาน" tabIndex={0}>
     <table className="data-table p5-queue"><thead><tr><th scope="col">ไฟล์</th><th scope="col">ชนิด</th><th scope="col">HN · เลข Lab</th><th scope="col">วันที่เก็บ</th><th scope="col">LN · รอบ</th><th scope="col">สถานะ</th><th scope="col">อัปเดต</th><th scope="col"><span className="sr-only">เปิด</span></th></tr></thead>
      <tbody>{!data?<tr><td colSpan={8} className="empty-row">{queueLoading?"กำลังโหลด…":"โหลดคิวไม่สำเร็จ"}</td></tr>:rows.length?rows.map(r=><tr key={r.id}>
-      <td className="p5-file">{r.member_name??r.relative_path??r.original_name}</td><td>{KIND_TEXT[r.template_kind]??r.kind}{r.abnormal&&<span className="badge danger">ผิดปกติ</span>}</td>
+      <td className="p5-file">{r.origin==="INTERNAL_GENERATED"?"รายงานที่ออกในระบบ":r.member_name??r.relative_path??r.original_name}</td><td>{KIND_TEXT[r.template_kind]??r.kind}{r.origin==="INTERNAL_GENERATED"&&<span className="badge info">ออกในระบบ</span>}{r.abnormal&&<span className="badge danger">ผิดปกติ</span>}</td>
       <td className="mono">{r.hn??"—"}<br/>{r.lab??"—"}</td><td>{r.collection??"—"}</td><td>{r.ln?<><span className="mono">{r.ln}</span> · รอบที่ {r.round_number}</>:"—"}</td>
       <td><Status tone={STATE_TONE[r.state]}>{STATE_TEXT[r.state]??r.state}</Status>{r.proposal&&<span className="badge warning">รอผู้ยืนยันคนที่สอง</span>}{r.name_conflict&&<span className="badge warning">ชื่อไฟล์ซ้ำ — ตรวจว่าใหม่/ฉบับแก้ไข</span>}</td><td>{bkk(r.state_changed_at)}</td>
       <td><Link className="button small secondary" href={`/results/${r.id}`}>เปิด</Link></td></tr>)

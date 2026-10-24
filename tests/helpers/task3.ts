@@ -52,8 +52,9 @@ void ANALYSIS_HEADERS;
 
 type CaseSpec={ln:string;hn:string;pregnancy:'Singleton'|'Twins';sheet:1|2|3};
 /** Operational LAB_DIRECT cases through PET receipt, one Owner batch, real Master worksheet, actual pooling and the dual HALOS/NIFTY export. */
-export async function task3Fixture(cases:CaseSpec[]=[{ln:'9900099511',hn:'9900099951',pregnancy:'Singleton',sheet:1},{ln:'9900099512',hn:'9900099952',pregnancy:'Singleton',sheet:2},{ln:'9900099513',hn:'9900099953',pregnancy:'Twins',sheet:3}]){
- const f=await inboundFixture();
+type Provided={db:Queryable;root:string;store:import('../../packages/storage').FileStore;lookupKey:Buffer;close():Promise<void>};
+export async function task3Fixture(cases:CaseSpec[]=[{ln:'9900099511',hn:'9900099951',pregnancy:'Singleton',sheet:1},{ln:'9900099512',hn:'9900099952',pregnancy:'Singleton',sheet:2},{ln:'9900099513',hn:'9900099953',pregnancy:'Twins',sheet:3}],provided?:Provided){
+ const f=(provided??await inboundFixture()) as Awaited<ReturnType<typeof inboundFixture>>;
  vi.stubEnv('NIPT_MODE','operational');vi.stubEnv('APP_ORIGIN','https://nipt.test');vi.stubEnv('NIPT_TASK_MASTER_PATH',path.resolve('.local/lab-owner-evidence/lab-combined-master.xlsx'));
  vi.stubEnv('NIPT_POOL_CSV_TEMPLATE',path.resolve('.local/approved/pooling.csv'));vi.stubEnv('NIPT_NIFTY_XLSX_TEMPLATE',path.resolve('.local/approved/nifty.xlsx'));vi.stubEnv('NIPT_HALOS_TASK_TEMPLATE',path.resolve('.local/approved/halos-task.xlsx'));
  await configureOperational(f.db);const u=await labUsers(f.db),admin=await addUser(f.db,'APP_ADMIN','synthetic.task3.admin');

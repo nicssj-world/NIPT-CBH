@@ -39,7 +39,9 @@ export async function submitSignerProfile(db:Queryable,user:Staff,store:FileStor
 export async function decideSignerProfile(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);
  const d=z.strictObject({profileId:uuid,decision:z.enum(['VERIFY','REVOKE']),reason:reasonText}).parse(input);
- const p=(await db.query<{id:string;user_id:string}>('SELECT id,user_id FROM report_signer_profile WHERE id=$1 FOR UPDATE',[d.profileId])).rows[0];if(!p)throw new LabError('NOT_FOUND',404);
+ // Profiles are immutable (no UPDATE grant): decisions on one profile are serialised with an advisory lock instead of a row lock.
+ await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,75432863))',[d.profileId]);
+ const p=(await db.query<{id:string;user_id:string}>('SELECT id,user_id FROM report_signer_profile WHERE id=$1',[d.profileId])).rows[0];if(!p)throw new LabError('NOT_FOUND',404);
  // Verification is an administrator's check of identity, licence and signature against hospital records; never self-verification.
  if(d.decision==='VERIFY'){need(user,'user.manage');if(p.user_id===user.id)throw new LabError('SECOND_PERSON_REQUIRED',403);}
  else if(p.user_id!==user.id)need(user,'user.manage');

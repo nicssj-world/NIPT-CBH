@@ -731,3 +731,19 @@ input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-o
 @media(max-width:900px){.workspace .service-strip{grid-template-columns:repeat(2,minmax(0,1fr));}}
 @media(max-width:600px){.workspace .compact-facts,.health-groups{grid-template-columns:1fr;gap:16px;}.workspace .service-strip{grid-template-columns:repeat(2,minmax(0,1fr));}.status-summary{align-items:flex-start;}.health-alerts>li{grid-template-columns:1fr;}.health-alerts details{grid-column:1;}.connection-summary .compact-facts>div:nth-last-child(-n+2){padding-top:12px;}}
 .status-summary>.status{font-size:16px;font-weight:650;line-height:1.5;}
+/* Task 3: HALOS reports, report signers, origin evidence and the ANC Final PDF actions. Existing tokens only. */
+.t3-import>summary,.t3-block>summary{font-weight:600;min-height:44px;}
+.t3-import{border-top:1px solid var(--color-line);padding-top:12px;margin-bottom:16px;}
+.t3-preview{border-top:1px solid var(--color-line);padding-top:16px;}
+.t3-counts,.t3-facts{padding:12px 0;}
+.t3-warnings{border:1px solid var(--color-line);border-radius:9px;padding:12px 16px;background:var(--warn-bg);}
+.t3-block{border-top:1px solid var(--color-line);padding-top:16px;margin-top:16px;}
+.t3-block h3{margin-top:0;}
+.t3-holds{margin:4px 0 0;padding-left:18px;}
+.t3-worklist td,.t3-rows td{vertical-align:top;}
+.t3-signer-search{margin-bottom:8px;}
+.t3-dialog{max-width:960px;}
+.t3-confirm{padding-left:4px;}
+.t3-signature{display:block;max-width:240px;max-height:96px;object-fit:contain;background:#fff;border:1px solid var(--color-line);border-radius:6px;padding:6px;margin:8px 0;}
+.anc-summary{padding:12px 0;}
+.print-frame{position:absolute;width:0;height:0;border:0;left:-9999px;top:0;}
