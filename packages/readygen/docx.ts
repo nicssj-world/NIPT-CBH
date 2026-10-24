@@ -44,8 +44,10 @@ const textOf=(p:Paragraph)=>p.nodes.map(n=>n.text).join('');
 // The master's text boxes and cells have fixed geometry. A value longer than the master's own text shrinks that paragraph's
 // font proportionally (as ReadyGen's font.txt does for patientName); below 60% it is refused rather than clipped.
 export const MIN_FONT_RATIO=0.6;
-// ReadyGen Config/font.txt "patientName$40,…": names beyond 40 characters are fitted.
-export const PATIENT_NAME_CAPACITY=40;
+// Patient-name cell of both masters, measured in spacing characters at the master's 11 pt (calibrated by rendering; ReadyGen's
+// Config/font.txt also starts fitting patientName at about 40). Thai vowel and tone marks take no width and are not counted.
+export const PATIENT_NAME_CAPACITY=44;
+export const visualLength=(v:string)=>[...v.normalize('NFC')].filter(c=>!/\p{M}/u.test(c)).length;
 function shrinkEdits(p:Paragraph,xml:string,ratio:number):Edit[]{
  const out:Edit[]=[],seen=new Set<number>();
  for(const n of p.nodes){if(n.runOpenEnd===null||seen.has(n.runOpenEnd))continue;seen.add(n.runOpenEnd);
@@ -106,8 +108,8 @@ export function fillReport(template:Buffer,kind:TemplateKind,values:ReportValues
   if(spans.length){
    edits.push(...spanEdits(p,spans,xml));
    // Fitting applies to the signer lines and the patient name only (never to clinical result cells).
-   const capacity=label?text.length:/^\$\{patientName\}$/.test(text.trim())?PATIENT_NAME_CAPACITY:0;
-   const length=spans.reduce((n,s)=>n-(s.end-s.start)+s.text.length,text.length);
+   const capacity=label?visualLength(text):/^\$\{patientName\}$/.test(text.trim())?PATIENT_NAME_CAPACITY:0;
+   const length=spans.reduce((n,s)=>n-visualLength(text.slice(s.start,s.end))+visualLength(s.text),visualLength(text));
    if(capacity&&length>capacity){const ratio=capacity/length;if(ratio<MIN_FONT_RATIO)throw new DocxError(label?'SIGNER_NAME_TOO_LONG_FOR_TEMPLATE':'PATIENT_NAME_TOO_LONG_FOR_TEMPLATE',{length,capacity});
     edits.push(...shrinkEdits(p,xml,ratio));bindings.push({token:label?'signer.fontRatio':'patientName.fontRatio',value:ratio.toFixed(3),...(label?{role:role!}:{})});}
   }
