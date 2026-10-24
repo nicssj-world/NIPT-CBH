@@ -1,5 +1,6 @@
 import {readArchive, sha256, writeArchive, xmlDecode, xmlEscape} from './archive';
 import {textFitStyles} from './text-fit';
+import {highlightExceptionalIds} from './exceptional-highlights';
 import {highlightControls} from './control-highlights';
 import {poolingAlerts} from './pooling-alerts';
 
@@ -81,7 +82,7 @@ export function validateTaskValues(master: Buffer, values: Record<string,unknown
   }
 }
 /** Always starts from the immutable master. Missing/null values reset to the master, never a previous batch's derivative. */
-export function generateTaskWorkbook(master: Buffer, values: Record<string,unknown>,options:{urgent40?:boolean}={}) {
+export function generateTaskWorkbook(master: Buffer, values: Record<string,unknown>,options:{urgent40?:boolean;exceptionalSlots?:number[]}={}) {
   validateTaskValues(master,values);
   const parts=lockedParts(master), defs=bindings(parts), strings=sharedStrings(parts), changedParts:string[]=[];
   const fitting=textFitStyles(parts);
@@ -92,7 +93,7 @@ export function generateTaskWorkbook(master: Buffer, values: Record<string,unkno
       const value=values[d.key]; if(value===undefined||value===null)continue;
       const c=cells(xml).find(c=>c.ref===d.cell); if(!c||/<f\b/.test(c.body))throw new Error(`TASK_FIELD_PROTECTED:${d.key}`);
       let attrs=c.attrs.replace(/\s+t="[^"]*"/g,'');
-      if(d.dataType==='text'&&!d.rendering&&String(value).length){const fitted=fitting.style(Number(/\bs="(\d+)"/.exec(attrs)?.[1]??0));attrs=/\bs="\d+"/.test(attrs)?attrs.replace(/\bs="\d+"/,`s="${fitted}"`):attrs+` s="${fitted}"`;}
+      if(d.dataType==='text'&&!d.rendering&&String(value).length){const fitted=fitting.style(Number(/\bs="(\d+)"/.exec(attrs)?.[1]??0),/^task\.\d+\.(?:extractionLotExp|libraryLotExp)$/.test(d.key));attrs=/\bs="\d+"/.test(attrs)?attrs.replace(/\bs="\d+"/,`s="${fitted}"`):attrs+` s="${fitted}"`;}
       let body:string;
       if(d.dataType==='checkbox') {
         const index=Number(/<v>(\d+)<\/v>/.exec(c.body)?.[1]);
@@ -123,6 +124,8 @@ export function generateTaskWorkbook(master: Buffer, values: Record<string,unkno
   }
   if(fitting.finish())changedParts.push('xl/styles.xml');
   for(const name of highlightControls(parts,options.urgent40))if(!changedParts.includes(name))changedParts.push(name);
+  const exceptionalTargets=defs.filter(d=>options.exceptionalSlots?.some(slot=>d.key===`slot.${slot}.printedSampleId`)).map(d=>({sheet:SHEETS.indexOf(d.sheet as typeof SHEETS[number])+1,cell:d.cell}));
+  for(const name of highlightExceptionalIds(parts,exceptionalTargets))if(!changedParts.includes(name))changedParts.push(name);
   for(const name of poolingAlerts(parts,values))if(!changedParts.includes(name))changedParts.push(name);
   if(Object.keys(values).length) {
     const path='xl/workbook.xml', original=parts.get(path)!.toString();

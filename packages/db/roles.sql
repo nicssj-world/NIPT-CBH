@@ -125,4 +125,5 @@ GRANT SELECT,INSERT ON lab_actual_pooling,lab_seq_export_pair TO app_rw;
 GRANT SELECT ON lab_actual_pooling,lab_seq_export_pair TO report_ro;
 -- LAB-UAT-003/008: also provision grants when roles are created AFTER migrations.
 GRANT SELECT,INSERT ON lab_manual_result_review,lab_storage_box,lab_storage_position TO app_rw;
+GRANT EXECUTE ON FUNCTION task1_no_call_source(uuid),task1_no_call_qc5_valid(result_qc5_review) TO app_rw;
 GRANT USAGE,SELECT ON SEQUENCE lab_storage_box_box_number_seq TO app_rw;

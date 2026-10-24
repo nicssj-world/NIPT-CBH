@@ -61,6 +61,6 @@ it('rewritten same filename, size and mtime is compared by content hash, then tw
  const changed=await writePet(f.root,'20261013',{ln,hn,receivedAt:'20261014090000'});await utimes(changed.path,fixed,fixed);
  expect((await cycle(f,{now})).counts.outcome_APPLIED_REDRAW).toBe(1);
  const numbers=await rows<{ln_halos:string}>(f.db,'SELECT ln_halos FROM specimen_lab_number WHERE case_id=$1',[caseId]);
- expect(printedSampleId({base:numbers[0].ln_halos,pregnancy:'Twins',attemptNumber:1,repeatLevel:null,earlierReLibraryCount:0,roundNumber:2,receivedSource:'HIS_PET_RECEIPT'})).toBe(numbers[0].ln_halos+'DR');
- expect(printedSampleId({base:numbers[0].ln_halos,pregnancy:'Twins',attemptNumber:1,repeatLevel:null,earlierReLibraryCount:0,roundNumber:3,receivedSource:'HIS_PET_RECEIPT'})).toBeNull();
+ expect(printedSampleId({base:numbers[0].ln_halos,pregnancy:'Twins',attemptNumber:1,repeatLevel:null,earlierReLibraryCount:0,roundNumber:2,receivedSource:'HIS_PET_RECEIPT'})).toBe(numbers[0].ln_halos+'DR-1');
+ expect(printedSampleId({base:numbers[0].ln_halos,pregnancy:'Twins',attemptNumber:1,repeatLevel:null,earlierReLibraryCount:0,roundNumber:3,receivedSource:'HIS_PET_RECEIPT'})).toBe(numbers[0].ln_halos+'DR-1');
 });

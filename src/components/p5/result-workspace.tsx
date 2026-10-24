@@ -12,7 +12,7 @@ type Check={code:string;passed:boolean};
 type TestResult={passed:boolean;checks:Check[];files:number;folders:number;errorCode:string|null;folder:string};
 type ScanFile={path:string;folder:string;name:string;size:number;modifiedAt:string;sha256:string|null;status:string};
 type ScanResult={folder:string;files:ScanFile[];folders:number;truncated:boolean;errorCode:string|null};
-type Summary={labNumber:string|null;hn:string|null;collectionDate:string|null;t21:string|null;t18:string|null;t13:string|null;sca:string[]|null;yChromosome:string|null;fetalFraction:number|null;qc:string|null;needsManualReview:boolean;abnormal:boolean;unreadable:string[]};
+type Summary={result?:string|null;labNumber:string|null;hn:string|null;collectionDate:string|null;t21:string|null;t18:string|null;t13:string|null;sca:string[]|null;yChromosome:string|null;fetalFraction:number|null;qc:string|null;needsManualReview:boolean;abnormal:boolean;unreadable:string[]};
 type Intake={id:string;file:string;member:string|null;parentId:string|null;container:string|null;state:string;rejectCode:string|null;templateKind:string|null;summary:Summary|null;candidates:number;size:number;nameConflicts?:{versions:{id:string;state:string}[];sameBatch:number}};
 type Row={id:string;kind:string;template_kind:string;state:string;state_changed_at:string;original_name:string;relative_path:string|null;member_name:string|null;hn:string|null;lab:string|null;collection:string|null;round_number:number|null;ln:string|null;proposal:boolean;abnormal:boolean;name_conflict:boolean};
 type Data={page:{number:number;size:number;hasNext:boolean;total:number;totalPages:number;scope:"BOUNDED_PAGE"};rows:Row[];latestFolder:{folder:string;at:string}|null;intake:{folder:string;scanSubfolders:boolean;acceptZip:boolean;maxUploadMb:number;maxFilesPerScan:number;picVersion:string;scanMode:"ON_DEMAND";lastTest:{result:TestResult|null;completed_at:string|null}|null;lastScan:{result:ScanResult|null;completed_at:string|null}|null}};
@@ -29,6 +29,7 @@ const jobError=(e:unknown)=>e instanceof Error&&e.message==="WORKER_TIMEOUT"?"Wo
 const Status=({tone,children}:{tone?:string;children:React.ReactNode})=><span className={`status ${tone??""}`}>{children}</span>;
 function resultLine(s:Summary|null,kind:string|null){
  if(!s||!kind)return "—";if(kind==="REDRAW_NOTICE")return "หนังสือแจ้ง";if(kind==="UNKNOWN")return "—";
+ if(s.result==="No Call")return "No Call";
  const t=[s.t21,s.t18,s.t13].map(v=>v??"อ่านไม่ได้").join(" / ");return kind==="TWIN"?`${t} · Y: ${s.yChromosome??"อ่านไม่ได้"}`:`${t} · FF ${s.fetalFraction??"อ่านไม่ได้"}`;
 }
 

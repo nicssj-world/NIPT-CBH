@@ -29,3 +29,13 @@ describe('LAB-13 Owner NIFTY immutable schema and row contract',()=>{
   expect(()=>exportOwnerNifty(Buffer.from('changed'),rows())).toThrow('NIFTY_TEMPLATE_SHA256_MISMATCH');
  });
 });
+
+it.each(['26B261023001-1','26B261023001-2','26B261023001R-1','26B261023001R-2','26B261023001DR-1','26B261023001DR-2'])('NIFTY drops only terminal analytical 1/2: %s',sampleId=>{
+ const p={...patient(2),sampleId,attemptId:'internal-attempt',roundId:'internal-round',caseId:'internal-case',overallOrdinal:5};
+ const out=exportOwnerNifty(template,[p,{slot:1,kind:'PC',sampleId:'PC-1'},{slot:25,kind:'NC',sampleId:'NC-1'}]);
+ const expected=sampleId.replace(/-[12]$/,'');expect(patientVendorValues(p,1).A).toBe(expected);expect(out.mapping[0]).toMatchObject({sampleId,vendorSampleId:expected,attemptId:p.attemptId,roundId:p.roundId,caseId:p.caseId,overallOrdinal:5});
+ const xml=readArchive(out.bytes).get('xl/worksheets/sheet1.xml')!.toString();expect(xml).toContain(expected);expect(xml).not.toContain(p.attemptId);
+});
+it('NIFTY rejects ambiguity introduced by its approved suffix removal',()=>{
+ expect(()=>exportOwnerNifty(template,[{...patient(2),sampleId:'26B261023001R-1'},{...patient(3),sampleId:'26B261023001R-2'},{slot:1,kind:'PC',sampleId:'PC-1'},{slot:25,kind:'NC',sampleId:'NC-1'}])).toThrow('VENDOR_DUPLICATE_SAMPLE_ID');
+});

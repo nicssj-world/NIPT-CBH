@@ -10,7 +10,7 @@ import {sha256} from '../../packages/workbook/archive';
 import {PDFDocument} from 'pdf-lib';
 const masterPath=process.env.NIPT_TASK_MASTER_PATH??'.local/lab-owner-evidence/lab-combined-master.xlsx';
 afterEach(()=>vi.unstubAllEnvs());
-it.skipIf(!existsSync(masterPath))('native artifacts obey existing issue, frozen-copy, stop-use, recall, supersession and DB integrity controls',async()=>{
+it.skipIf(!existsSync(masterPath))('native artifacts preserve issued bytes and placement during Task1 metadata edits and enforce DB integrity',async()=>{
  const db=await testDatabase(),u=await labUsers(db),docs=await docDeps();
  try{
   await setPendingPolicy(db,u,'PROCEED_SYNTHETIC_LABELLED');
@@ -34,12 +34,12 @@ it.skipIf(!existsSync(masterPath))('native artifacts obey existing issue, frozen
   const copy=await tx(db,t=>records.printDocument(t,u.staff,{documentId:pre.id,kind:'WORKING_COPY'},deps));expect(copy.bytes).not.toEqual(original.bytes);expect(copy.copyNumber).toBe(1);expect((await PDFDocument.load(copy.bytes)).getPageCount()).toBe(2);
   // Export authority must match the stored original, kind, sheet and batch; cannot inject a forged native snapshot.
   await expect(tx(db,t=>t.query("INSERT INTO lab_document(batch_id,sheet_id,form,kind,revision,doc_code,template_version,snapshot,file_sha256,issued_by) SELECT batch_id,sheet_id,form,kind,99,doc_code||'-FORGED',template_version,snapshot,repeat('0',64),issued_by FROM lab_document WHERE id=$1",[pre.id]))).rejects.toThrow(/NATIVE_CONTROLLED_DOCUMENT/);
-  await tx(db,async t=>batch.amendSheet(t,u.certifier,{batchId:id,expectedVersion:await V(),sheetNumber:1,reason:'LOCAL TEST revise plan'}));
-  await expect(tx(db,t=>records.printDocument(t,u.staff,{documentId:pre.id,kind:'WORKING_COPY'},deps))).rejects.toThrow('WORKING_COPY_ONLY_FROM_ISSUED_PRE_WORK');
-  const stopped=await tx(db,t=>records.printDocument(t,u.staff,{documentId:pre.id,kind:'STATUS_MARKED'},deps));expect(stopped.bytes).not.toEqual(original.bytes);expect((await PDFDocument.load(stopped.bytes)).getPageCount()).toBe(2);
-  await finalize();const next=await tx(db,async t=>records.issuePreWork(t,u.staff,{batchId:id,expectedVersion:await V(),sheetNumber:1},deps));expect(next.revision).toBe(2);
-  await expect(tx(db,async t=>batch.startExecution(t,u.staff,{batchId:id,expectedVersion:await V(),sheetNumber:1}))).rejects.toThrow('RECALL_PENDING');
-  await tx(db,t=>records.recallCopy(t,u.certifier,{copyId:copy.copyId,note:'LOCAL TEST copy returned'}));
+  await expect(tx(db,async t=>batch.amendSheet(t,u.certifier,{batchId:id,expectedVersion:await V(),sheetNumber:1,reason:'LOCAL TEST cannot reopen placement'}))).rejects.toThrow('PLACEMENT_LOCKED');
+  const placement=(await db.query('SELECT * FROM lab_placement_snapshot WHERE batch_id=$1',[id])).rows;
+  await tx(db,async t=>batch.updateSheetPlan(t,u.staff,{batchId:id,expectedVersion:await V(),sheetNumber:1,plannedWorkDate:'2026-10-24',plannedOperator:'LOCAL TEST UPDATED OPERATOR',plannedExtractionLot:'SYN-EX',plannedExtractionExpiry:'2027-01-01',plannedLibraryLot:'SYN-LIB',plannedLibraryExpiry:'2027-02-01'}));
+  expect((await db.query('SELECT * FROM lab_placement_snapshot WHERE batch_id=$1',[id])).rows).toEqual(placement);
+  expect((await db.query('SELECT status FROM lab_document WHERE id=$1',[pre.id])).rows[0]).toEqual({status:'Issued'});
+  expect((await tx(db,t=>records.printDocument(t,u.staff,{documentId:pre.id,kind:'WORKING_COPY'},deps))).copyNumber).toBe(2);
   await tx(db,async t=>batch.startExecution(t,u.staff,{batchId:id,expectedVersion:await V(),sheetNumber:1}));
   expect((await tx(db,t=>records.readOriginal(t,u.staff,pre.id,deps))).bytes).toEqual(original.bytes);
   expect(docs.rendered).toHaveLength(0);

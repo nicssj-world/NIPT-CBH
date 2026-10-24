@@ -21,9 +21,9 @@ describe('OD-R1 / OD-R1a specimen display code',()=>{
    return /^\d{2}B\d{9}D?R?$/.test(code)&&!/RR|DD|RD/.test(code)&&code.startsWith(b);
   }),{numRuns:300});
  });
- it('printed Sample ID of a PET S2 is the same R code (no second suffix layer); snapshot LN Halos stays the base',()=>{
-  expect(printedSampleId({base,pregnancy:'Singleton',attemptNumber:1,repeatLevel:null,earlierReLibraryCount:0,roundNumber:2,receivedSource:'HIS_PET_RECEIPT'})).toBe('26B261017001R');
-  expect(printedSampleId({base,pregnancy:'Twins',attemptNumber:1,repeatLevel:null,earlierReLibraryCount:0,roundNumber:2,receivedSource:'HIS_PET_RECEIPT'})).toBe('26B261017001DR');
+ it('Task1 PET S2 analytical ID adds -1 while tube code keeps permanent R and canonical base',()=>{
+  expect(printedSampleId({base,pregnancy:'Singleton',attemptNumber:1,repeatLevel:null,earlierReLibraryCount:0,roundNumber:2,receivedSource:'HIS_PET_RECEIPT'})).toBe('26B261017001R-1');
+  expect(printedSampleId({base,pregnancy:'Twins',attemptNumber:1,repeatLevel:null,earlierReLibraryCount:0,roundNumber:2,receivedSource:'HIS_PET_RECEIPT'})).toBe('26B261017001DR-1');
   expect(printedSampleId({base,pregnancy:'Singleton',attemptNumber:1,repeatLevel:null,earlierReLibraryCount:0,roundNumber:1,receivedSource:'HIS_PET_RECEIPT'})).toBe('26B261017001-1');
   expect(effectiveLnHalos(base,'Twins')).toBe('26B261017001D'); // HALOS compares this snapshot value; unchanged
  });

@@ -45,18 +45,18 @@ export async function pendingPolicy(db:Queryable):Promise<{policy:PendingPolicy;
 }
 export const BATCH_TEMPLATE='SYNTHETIC-BATCH48-PC1-NC25-BLANK40-v1';
 
-export type AttemptRow={ln_halos_resampling:boolean;attempt_id:string;case_id:string;round_id:string;attempt_number:number;attempt_state:string;repeat_order_id:string|null;printed_sample_id:string|null;resume_decision_required:boolean;qc_failed_stage:string|null;attempt_created_at:Date;
+export type AttemptRow={overall_ordinal:number;no_call_selected:boolean;ln_halos_resampling:boolean;attempt_id:string;case_id:string;round_id:string;attempt_number:number;attempt_state:string;repeat_order_id:string|null;printed_sample_id:string|null;resume_decision_required:boolean;qc_failed_stage:string|null;attempt_created_at:Date;
  lab_operational_route?:boolean;round_number:number;round_state:string;received_source:string|null;received_at:Date|null;analysis_started:boolean;round_collection_date:string|null;receipt_check:Record<string,unknown>|null;specimen_accepted?:boolean;
- current_round_id:string;registration_origin:'ANC'|'LAB_DIRECT'|'HISTORICAL';unit_id:string|null;ln:string;ln_verification:string;ln_halos:string|null;
+ current_round_id:string;registration_origin:'ANC'|'LAB_DIRECT'|'HISTORICAL';unit_id:string|null;hn:string|null;ln:string;ln_verification:string;ln_halos:string|null;
  repeat_state:string|null;repeat_level:RepeatLevel|null;parent_attempt_id:string|null;open_issues:number;revoked:boolean;consent_ev:string|null;request_ev:string|null;clinical_state:string|null;collection_dates:string[];
  pregnancy:'Singleton'|'Twins'|null;ga_edd:string|null;ga_request_collection:string|null;other_relibrary:number;previously_finalized:boolean;hold:boolean;hold_stage:string|null;urgent:boolean;urgent_reason:string|null;
  slot_batch_id:string|null;slot_number:number|null;run_label:string|null;sheet_state:string|null;label_prints:number;last_label_print:Date|null};
 
 /** Every fact needed for BG-01..09A, queue position and labels of the given attempts, in one set-based read. */
 export async function attemptFacts(db:Queryable,where:string,params:unknown[]):Promise<AttemptRow[]>{
- return (await db.query<AttemptRow>(`SELECT a.id attempt_id,a.case_id,a.round_id,a.attempt_number,a.state attempt_state,a.repeat_order_id,a.printed_sample_id,a.resume_decision_required,a.qc_failed_stage,a.created_at attempt_created_at,
+ return (await db.query<AttemptRow>(`SELECT a.id attempt_id,a.case_id,a.round_id,a.attempt_number,a.overall_ordinal,EXISTS(SELECT 1 FROM attempt_event e WHERE e.attempt_id=a.id AND e.event_type='NO_CALL_SELECTED') no_call_selected,a.state attempt_state,a.repeat_order_id,a.printed_sample_id,a.resume_decision_required,a.qc_failed_stage,a.created_at attempt_created_at,
   r.round_number,r.state round_state,r.received_source,r.received_at,r.analysis_started,r.collection_date::text round_collection_date,r.receipt_check,
-  c.current_round_id,c.registration_origin,(labreg.round_id IS NOT NULL AND labreg.paper_request AND labreg.paper_consent) lab_operational_route,(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=c.id ORDER BY s.unit_id LIMIT 1) unit_id,l.ln,l.verification ln_verification,n.ln_halos,(n.original_round_id IS NOT NULL) ln_halos_resampling,
+  c.current_round_id,c.registration_origin,(SELECT i.hn FROM p2_case_identity i WHERE i.case_id=c.id) hn,(labreg.round_id IS NOT NULL AND labreg.paper_request AND labreg.paper_consent) lab_operational_route,(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=c.id ORDER BY s.unit_id LIMIT 1) unit_id,l.ln,l.verification ln_verification,n.ln_halos,(n.original_round_id IS NOT NULL) ln_halos_resampling,
   o.state repeat_state,o.level repeat_level,o.parent_attempt_id,
   (SELECT count(*) FROM his_intake_issue i WHERE i.case_id=a.case_id AND i.state IN ('Open','Proposed'))::int open_issues,
   EXISTS(SELECT 1 FROM p2_revocation v WHERE v.case_id=a.case_id) revoked,
@@ -99,7 +99,7 @@ export function candidatePrintedId(r:AttemptRow){
  if(r.printed_sample_id)return {status:'YES' as const,id:r.printed_sample_id};
  if(!r.ln_halos)return {status:'OD03_FORMAT_PENDING' as const,id:null};
  if(!r.pregnancy)return {status:'PREGNANCY_UNCONFIRMED' as const,id:null};
- const id=printedSampleId({base:r.ln_halos,pregnancy:r.pregnancy,attemptNumber:r.attempt_number,repeatLevel:r.repeat_level,earlierReLibraryCount:r.other_relibrary,roundNumber:r.round_number,receivedSource:r.received_source});
+ const id=printedSampleId({base:r.ln_halos,pregnancy:r.pregnancy,attemptNumber:r.attempt_number,repeatLevel:r.repeat_level,earlierReLibraryCount:r.other_relibrary,roundNumber:r.round_number,receivedSource:r.received_source,overallOrdinal:r.overall_ordinal});
  return id?{status:'YES' as const,id}:{status:'OD03_FORMAT_PENDING' as const,id:null};
 }
 export function assignmentDecision(r:AttemptRow,policy:PendingPolicy){

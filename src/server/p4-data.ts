@@ -18,7 +18,7 @@ export async function batchWorkspace(db:Queryable,user:Staff,id:string){
   qc:{ready:qc.ready,rows:qc.rows.map(r=>({slot:r.slot,status:r.status,decision:r.decision,observationId:r.obs?.id??null,attemptId:r.x?.attemptId??null})),standards:qc.standards.map(s=>s?{id:s.id,status:s.status}:null),operator:qc.operator?{id:qc.operator.id,status:qc.operator.status}:null},
   fields:FIELDS.map(f=>({id:f.id,item:f.item,form:f.form,scope:f.scope,kind:f.kind,cls:f.cls,label:f.label,source:f.source,sheets:[1,2,3].filter(n=>f.required(n))})),
   criteria:operationalDataEnabled()?[OWNER_QC1_CRITERIA]:QC1_CRITERIA,dispositionReasons:DISPOSITION_REASONS,
-  allowed:{draft:can("batch.draft"),assign:can("batch.assign"),finalize:can("batch.finalize"),amend:can("batch.amend"),unlock:can("batch.unlock"),execute:can("execution.record"),transcribe:can("observation.transcribe"),
+  allowed:{metadata:can("batch.draft"),draft:can("batch.draft"),assign:can("batch.assign"),finalize:can("batch.finalize"),amend:can("batch.amend"),unlock:can("batch.unlock"),execute:can("execution.record"),transcribe:can("observation.transcribe"),
    verify:can("observation.verify","approve")||can("observation.verify"),qcRecord:can("qc.record"),qcAccept:can("qc.accept"),dispositionPropose:can("slot.disposition","propose"),dispositionConfirm:can("slot.disposition","approve"),
    recall:can("document.recall"),obsoletePrint:can("document.obsolete.print"),labels:can("label.print")}};
 }

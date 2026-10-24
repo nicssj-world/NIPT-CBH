@@ -3,20 +3,22 @@ import {crc32,deflateRawSync} from 'node:zlib';
 // Deterministic synthetic result files for tests and the simulator folder (no PDF/ZIP is ever committed — source guard).
 // Text follows the NIPTY BGI anchors so the parser is exercised on the same strings; every file says SYNTHETIC.
 export type ReportSpec={kind:'SINGLETON'|'TWIN'|'NOTICE'|'UNKNOWN';labNumber:string;hn:string;name?:string;dob?:string;collection:string;received?:string;reported?:string;
- gaWeeks?:number;gaDays?:number;risks?:[string,string,string];sex?:'Male'|'Female'|null;sca?:[string,string,string,string]|null;ff?:string;qc?:string;y?:string;notice?:string;omit?:('trisomy'|'sca'|'qc')[]};
+ result?:'No Call';gaWeeks?:number;gaDays?:number;risks?:[string,string,string];sex?:'Male'|'Female'|null;sca?:[string,string,string,string]|null;ff?:string;qc?:string;y?:string;notice?:string;omit?:('trisomy'|'sca'|'qc')[]};
 export function reportText(s:ReportSpec):string[]{
  const head=[`SYNTHETIC NIPT REPORT - NOT FOR CLINICAL USE`];
  if(s.kind==='NOTICE')return [...head,`BKGI-NIPT (LN: ${s.labNumber}) HN: ${s.hn}`,`Sample Collection Date: ${s.collection}`,s.notice??'Re-sampling is recommended: grey area result',`Reported Date: ${s.reported??'20-Oct-2026'}`];
  if(s.kind==='UNKNOWN')return [...head,`Unrecognised synthetic document`,`HN: ${s.hn}`];
- const r=s.risks??['Low Risk','Low Risk','Low Risk'];
+ const noCall=s.result==='No Call',r=s.risks??(noCall?['','','']:['Low Risk','Low Risk','Low Risk']);
  const lines=[...head,`Lab No. (LN): ${s.labNumber} HN: ${s.hn} Sample Collection Date: ${s.collection}`,`Patient Name: ${s.name??'SYNTHETIC PATIENT'} Gestational Age: ${s.gaWeeks??12} Weeks ${s.gaDays??2} Day(s)`,
   `DOB: ${s.dob??'31-Mar-1996'} Sample Received Date: ${s.received??'11-Oct-2026'}`];
- if(s.kind==='TWIN'){lines.push('TWIN PREGNANCY');if(!s.omit?.includes('trisomy'))lines.push('TRISOMY 21 TRISOMY 18 TRISOMY 13 Y CHROMOSOME',`${r.join(' ')} ${s.y??'Detected'}`);lines.push(`Fetal Fraction: ${s.ff??'9.10'}%`);}
+ if(s.kind==='TWIN'){lines.push('TWIN PREGNANCY');if(!s.omit?.includes('trisomy'))lines.push('TRISOMY 21 TRISOMY 18 TRISOMY 13 Y CHROMOSOME',`${r.join(' ')} ${s.y??(noCall?'':'Detected')}`);lines.push(`Fetal Fraction: ${s.ff??(noCall?'':'9.10')}%`);}
  else{
-  if(!s.omit?.includes('trisomy'))lines.push('TRISOMY 21 TRISOMY 18 TRISOMY 13 Fetal Gender',`${r.join(' ')}${s.sex===null?'':' '+(s.sex??'Female')}`);
-  if(!s.omit?.includes('sca'))lines.push('SEX CHROMOSOME ANEUPLOIDIES','XO XXX XXY XYY Fetal Fraction (>=3.5%)',`${(s.sca??['Not Detected','Not Detected','Not Detected','Not Detected']).join(' ')} ${s.ff??'12.40'}`);
+  if(!s.omit?.includes('trisomy'))lines.push('TRISOMY 21 TRISOMY 18 TRISOMY 13 Fetal Gender',`${r.join(' ')}${s.sex===null||noCall&&s.sex===undefined?'':' '+(s.sex??'Female')}`);
+  if(!s.omit?.includes('sca'))lines.push('SEX CHROMOSOME ANEUPLOIDIES','XO XXX XXY XYY Fetal Fraction (>=3.5%)',`${(s.sca??(noCall?['','','','']:['Not Detected','Not Detected','Not Detected','Not Detected'])).join(' ')} ${s.ff??(noCall?'':'12.40')}`);
  }
- if(!s.omit?.includes('qc'))lines.push(`RESULTS QC: ${s.qc??'PASS'}`);
+ // No Call fixtures never default clinical QC to PASS; tests must supply actual PDF QC evidence explicitly.
+ if(s.result)lines.push(`Result = ${s.result}`);
+ if(!s.omit?.includes('qc')&&(!noCall||s.qc!==undefined))lines.push(`RESULTS QC: ${s.qc??'PASS'}`);
  lines.push(`Reported Date: ${s.reported??'20-Oct-2026'}`);
  return lines;
 }

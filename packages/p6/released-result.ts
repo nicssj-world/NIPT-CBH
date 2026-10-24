@@ -8,7 +8,7 @@ import {assertOutboundOrigin} from '../historical/barrier';
 import {operationalDataEnabled} from '../security/runtime';
 import {activeHis,outboundDraftSettings} from '../settings/his';
 import {SETTINGS} from '../settings/catalog';
-import type {Parsed} from '../results/parser';
+import {isNoCallReport,type Parsed} from '../results/parser';
 import {freezeSyntheticTransfer,initialTransfer,type SyntheticDraft} from './transfer';
 import {transaction,loadTransfer,type StoredDraft} from './journal';
 
@@ -22,6 +22,7 @@ export function releaseOrderFromPet(pet:ReturnType<typeof parsePet>){
 }
 /** RES result values from the parsed external report (no clinical value is invented; absent values stay absent). */
 export function releaseResultFromParsed(parsed:Parsed){
+ if(isNoCallReport(parsed))return {result_type:'no_call'};
  const fields=parsed.results;
  return Object.fromEntries([['t21',fields.t21.value],['t18',fields.t18.value],['t13',fields.t13.value],['sex_xo',fields.xo.value],['sex_xxx',fields.xxx.value],['sex_xxy',fields.xxy.value],['sex_xyy',fields.xyy.value]].filter(([,v])=>v!==null)) as Record<string,string>;
 }

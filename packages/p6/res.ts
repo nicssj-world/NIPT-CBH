@@ -48,13 +48,14 @@ function resultText(result:SyntheticResInput['result'], profile:ResProfile) {
       if(triKeys.includes(key)&&v&&!['High','High Risk','Low','Low Risk'].includes(v))throw Error('INVALID_RESULT');
       if(scaKeys.includes(key)&&v&&!['Detected','Not Detected'].includes(v))throw Error('INVALID_RESULT');
       if(![...triKeys,...scaKeys,'result_type'].includes(key))throw Error('INVALID_RESULT');
-      if(key==='result_type'&&!['','final','redraw_notice'].includes(value))throw Error('INVALID_RESULT');
+      if(key==='result_type'&&!['','final','redraw_notice','no_call'].includes(value))throw Error('INVALID_RESULT');
     }
   }
   const cfs=(profile.cfsText||'ดูรายงานผลในโปรแกรม CFS').trim();
   if(profile.style==='fixed'||!result||Object.keys(result).length===0)return cfs;
   const suffix=`(${cfs})`;
   if(result.result_type==='redraw_notice')return `redraw requested ${suffix}`;
+  if(result.result_type==='no_call')return `No Call ${suffix}`;
   const val=(key:string)=>(result[key]||'').trim();
   const tk=triKeys.every(k=>val(k)), sk=scaKeys.every(k=>val(k));
   if(!tk&&!sk)return `Result not available in system, see report ${suffix}`;

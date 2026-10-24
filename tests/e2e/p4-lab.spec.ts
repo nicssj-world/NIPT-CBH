@@ -1,6 +1,6 @@
 import {test,expect,type Page,type Browser} from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import {readFileSync} from "node:fs";
+import {signInSyntheticBrowser} from "../helpers/browser-auth";
 import {randomUUID} from "node:crypto";
 import {Client} from "pg";
 import {browserFixtureDatabaseUrl} from "../helpers/browser-database";
@@ -9,9 +9,8 @@ import type {Queryable} from "../../packages/db/connection";
 import type {Principal} from "../../packages/security/policy";
 
 test.beforeEach(async({context})=>{await context.setExtraHTTPHeaders({"x-real-ip":"synthetic-e2e-"+randomUUID()});});
-const password=()=>process.env.SYNTHETIC_SEED_PASSWORD??readFileSync(process.env.SYNTHETIC_SEED_PASSWORD_FILE??"data/secrets/seed-password","utf8").trim();
 async function login(page:Page,username:string){
- await page.goto("/login");await page.getByLabel("ชื่อผู้ใช้",{exact:true}).fill(username);await page.getByLabel("รหัสผ่าน",{exact:true}).fill(password());await page.getByRole("button",{name:"เข้าสู่ระบบ",exact:true}).click();await expect(page).toHaveURL(/\/$/);
+ await signInSyntheticBrowser(page,username);
 }
 async function as(browser:Browser,username:string){const c=await browser.newContext({baseURL:process.env.E2E_BASE_URL??"http://127.0.0.1:3000",ignoreHTTPSErrors:process.env.E2E_IGNORE_LOCAL_TLS==="1",extraHTTPHeaders:{"x-real-ip":"synthetic-e2e-"+randomUUID()}});const p=await c.newPage();await login(p,username);return {page:p,close:()=>c.close()};}
 const AA_TAGS=["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"];
@@ -63,7 +62,7 @@ test("P4 journey: labels (4 stickers/8 halves) → batch → plan check → fina
  await expect(sheet.locator("svg,img,canvas")).toHaveCount(0);
  await axe(page);
  await dialog.getByRole("button",{name:"บันทึกและพิมพ์"}).click();
- await expect(dialog.getByRole("status")).toContainText("บันทึกการพิมพ์แล้ว");
+ await expect(dialog.locator('[role="status"]:not([popover])')).toContainText("บันทึกการพิมพ์แล้ว");
  await dialog.getByRole("button",{name:"ปิด"}).last().click();
  const jobs=await fixtureQuery<{kind:string;n:number}>("SELECT j.kind,j.sample_count n FROM label_print_job j JOIN label_print_item i ON i.job_id=j.id WHERE i.round_id=$1",[cases[0].roundId]);
  expect(jobs).toEqual([{kind:"PRINT",n:1}]);
@@ -74,7 +73,7 @@ test("P4 journey: labels (4 stickers/8 halves) → batch → plan check → fina
  const multi=page.getByRole("dialog",{name:/พิมพ์ฉลากหลอด 2 ตัวอย่าง/});await expect(multi.frameLocator("iframe").locator(".sticker")).toHaveCount(8);
  await expect(multi.getByRole("button",{name:"บันทึกและพิมพ์ซ้ำ"})).toBeDisabled();
  await multi.getByLabel("เหตุผลการพิมพ์ซ้ำ (จำเป็น)").fill("จำลอง สติ๊กเกอร์เสียหาย");
- await multi.getByRole("button",{name:"บันทึกและพิมพ์ซ้ำ"}).click();await expect(multi.getByRole("status")).toContainText("เลข LN Halos เดิม");
+ await multi.getByRole("button",{name:"บันทึกและพิมพ์ซ้ำ"}).click();await expect(multi.locator('[role="status"]:not([popover])')).toContainText("เลข LN Halos เดิม");
  await multi.getByRole("button",{name:"ปิด"}).last().click();
  expect(await fixtureQuery("SELECT 1 FROM specimen_lab_number WHERE round_id=ANY($1::uuid[])",[cases.map(c=>c.roundId)])).toHaveLength(2);
  // Add both to a batch (FIFO order, control slots skipped).
@@ -85,37 +84,37 @@ test("P4 journey: labels (4 stickers/8 halves) → batch → plan check → fina
  await assign.getByRole("button",{name:"ยืนยันเพิ่มเข้า Batch"}).click();
  // Older Ready samples from earlier runs may precede these two: overtaking FIFO then requires a recorded reason (AT-TASK-09).
  const override=assign.getByLabel("เหตุผลที่แซงลำดับ FIFO (จำเป็น)");
- await expect(assign.getByRole("status").or(override)).toBeVisible();
+ await expect(assign.locator('[role="status"]:not([popover])').or(override)).toBeVisible();
  if(await override.isVisible()){await override.fill("จำลอง เลือกตัวอย่างของการทดสอบนี้");await assign.getByRole("button",{name:"ยืนยันเพิ่มเข้า Batch"}).click();}
- await expect(assign.getByRole("status")).toContainText(/จัดเข้า Batch แล้ว 2 รายการ: ตน\.2 .*, ตน\.3 /);
+ await expect(assign.locator('[role="status"]:not([popover])')).toContainText(/จัดเข้า Batch แล้ว 2 รายการ: ตน\.2 .*, ตน\.3 /);
  await assign.getByRole("link",{name:"เปิด Batch"}).click();
  await expect(page.getByRole("heading",{level:1,name:/^Run\d{3}\/\d{4}$/})).toBeVisible();
  await expect(page.getByRole("row",{name:/^1 A1/}).getByText("PC")).toBeVisible();
  await axe(page);
  // Plan → plan check (not pipetting evidence) → Finalize Gate → immutable snapshot.
  {const today=new Date(Date.now()+7*3600000).toISOString().slice(0,10).split("-");const planDate=page.getByLabel("วันที่ทำ Library Preparation ที่วางแผน (ใช้สร้างรหัส Control)");await planDate.fill(`${today[2]}/${today[1]}/${Number(today[0])+543}`);await planDate.blur();} // BE input (Owner decision, Plan Rev 3.4 §7)
- await page.getByRole("button",{name:"บันทึกข้อมูลแผน"}).click();await expect(page.getByRole("status")).toContainText("บันทึกข้อมูลแผนแล้ว");
+ await page.getByRole("button",{name:"บันทึกข้อมูลแผน"}).click();await expect(page.locator('[role="status"]:not([popover])')).toContainText("บันทึกข้อมูลแผนแล้ว");
  await page.getByRole("button",{name:"ยืนยันแผนตำแหน่ง"}).click();
  const check=page.getByRole("dialog",{name:/ยืนยันแผนตำแหน่ง/});await expect(check.getByText("ไม่ใช่การยืนยันว่าดูดตัวอย่างแล้ว")).toBeVisible();
  for(const box of await check.getByRole("checkbox").all())await box.check();
  await check.getByRole("button",{name:"ยืนยันแผน"}).click();
- await page.getByRole("button",{name:"Finalize Placement"}).click();await expect(page.getByRole("status")).toContainText("Finalize Placement แล้ว");
+ await page.getByRole("button",{name:"ล็อกตำแหน่ง Task List"}).click();await expect(page.locator('[role="status"]:not([popover])')).toContainText("ล็อกตำแหน่งแล้ว");
  await expect(page.getByRole("button",{name:"บันทึก ✓"})).toHaveCount(0); // no ✓ before execution
- await page.getByRole("button",{name:"ออกใบงาน Pre-work (F2)"}).click();await expect(page.getByRole("status")).toContainText("ออกใบงาน Pre-work");
+ await page.getByRole("button",{name:"ออกใบงาน Pre-work (F2)"}).click();await expect(page.locator('[role="status"]:not([popover])')).toContainText("ออกใบงาน Pre-work");
  await expect(page.getByRole("row",{name:/F2 Task List 1 · Pre-work/})).toContainText("มีผล");
  const pdf=await page.request.get(`/api/p4/documents/${(await fixtureQuery<{id:string}>("SELECT d.id FROM lab_document d JOIN lab_slot_assignment a ON a.batch_id=d.batch_id WHERE a.attempt_id=(SELECT id FROM analytical_attempt WHERE round_id=$1) AND d.form='F2' ORDER BY d.issued_at DESC LIMIT 1",[cases[0].roundId]))[0].id}`);
  expect(pdf.headers()["content-type"]).toBe("application/pdf");expect((await pdf.body()).subarray(0,5).toString()).toBe("%PDF-");
  // Physical execution: server-time anchor, ✓ recorded only now, then a different person verifies.
- await page.getByRole("button",{name:"เริ่มปฏิบัติงานจริง"}).click();await expect(page.getByRole("status")).toContainText("บันทึกเริ่มปฏิบัติแล้ว");
+ await page.getByRole("button",{name:"เริ่มปฏิบัติงานจริง"}).click();await expect(page.locator('[role="status"]:not([popover])')).toContainText("บันทึกเริ่มปฏิบัติแล้ว");
  await page.getByRole("button",{name:"บันทึก ✓"}).first().click();
  const tr=page.getByRole("dialog",{name:/ตรวจ Lab number ตำแหน่ง 1/});await tr.getByRole("button",{name:"บันทึก ✓ ก่อน/หลังดูด"}).click();
- await expect(page.getByRole("status")).toContainText("รอทวนสอบ");
+ await expect(page.locator('[role="status"]:not([popover])')).toContainText("รอทวนสอบ");
  await expect(page.getByRole("heading",{name:/รอทวนสอบโดยคนที่สอง \(1\)/})).toBeVisible();
  await expect(page.getByText("(ของคุณ — ทวนสอบเองไม่ได้)")).toBeVisible();
  const cert=await as(browser,"synthetic.certifier");
  try{
   await cert.page.goto(page.url());await cert.page.getByRole("checkbox",{name:/✓ ตรวจ Lab number/}).check();
-  await cert.page.getByRole("button",{name:/ยืนยันตรงกับต้นทาง \(1\)/}).click();await expect(cert.page.getByRole("status")).toContainText("ทวนสอบแล้ว");
+  await cert.page.getByRole("button",{name:/ยืนยันตรงกับต้นทาง \(1\)/}).click();await expect(cert.page.locator('[role="status"]:not([popover])')).toContainText("ทวนสอบแล้ว");
   await expect(cert.page.getByText("ทำแล้ว (ทวนสอบ)").first()).toBeVisible();
  }finally{await cert.close();}
 });

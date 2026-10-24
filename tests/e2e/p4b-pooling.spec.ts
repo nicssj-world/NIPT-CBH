@@ -41,14 +41,14 @@ test('P4b browser journey: blind check → preview → F4 simulation → verifie
  const form=page.getByRole('form',{name:'บันทึกหลักฐาน Pool'});
  const record=async(field:string,value?:string,slot?:number)=>{
   await form.getByRole('combobox',{name:'ฟิลด์',exact:true}).selectOption(field);if(value)await form.getByLabel('ค่าที่วัด / ปริมาตรจริง').fill(value);if(slot)await form.getByRole('combobox',{name:'ตำแหน่ง (เฉพาะ Transfer)',exact:true}).selectOption(String(slot));
-  const response=page.waitForResponse(r=>r.url().endsWith('/api/p4b/batches/'+f.batchId)&&r.request().method()==='POST');await form.getByRole('button',{name:'บันทึกหลักฐาน',exact:true}).click();expect((await response).status()).toBe(200);await expect(form.getByRole('button',{name:'บันทึกหลักฐาน',exact:true})).toBeEnabled();await expect(page.getByRole('status')).toContainText('บันทึกข้อมูลสังเคราะห์แล้ว');
+  const response=page.waitForResponse(r=>r.url().endsWith('/api/p4b/batches/'+f.batchId)&&r.request().method()==='POST');await form.getByRole('button',{name:'บันทึกหลักฐาน',exact:true}).click();expect((await response).status()).toBe(200);await expect(form.getByRole('button',{name:'บันทึกหลักฐาน',exact:true})).toBeEnabled();await expect(page.locator('[role="status"]:not([popover])')).toContainText('บันทึกข้อมูลสังเคราะห์แล้ว');
  };
  await record('TRANSFER',undefined,2);await record('TRANSFER',undefined,3);await record('BUFFER','512');await page.getByRole('button',{name:'จบปฏิบัติจำลอง'}).click();await expect(page.getByRole('heading',{name:/· QC2/})).toBeVisible();
  for(const field of ['QC2','STD1','STD2'])await record(field,'3.3');
  const context=await browser.newContext({baseURL:process.env.E2E_BASE_URL??'http://127.0.0.1:3000',extraHTTPHeaders:{'x-real-ip':'synthetic-p4b-review-'+randomUUID()}});
  try{const reviewer=await context.newPage();await login(reviewer,'synthetic.certifier');await reviewer.goto(url);
   for(const label of ['TRANSFER 2','TRANSFER 3','BUFFER','QC2','STD1','STD2']){await reviewer.getByRole('button',{name:'ยืนยัน '+label,exact:true}).click();await expect(reviewer.getByRole('button',{name:'ยืนยัน '+label,exact:true})).toHaveCount(0);}
-  await reviewer.getByRole('button',{name:'SyntheticReviewed',exact:true}).click();await expect(reviewer.getByRole('status')).toContainText('บันทึกข้อมูลสังเคราะห์แล้ว');
+  await reviewer.getByRole('button',{name:'SyntheticReviewed',exact:true}).click();await expect(reviewer.locator('[role="status"]:not([popover])')).toContainText('บันทึกข้อมูลสังเคราะห์แล้ว');
   const me=await (await reviewer.request.get('/api/me')).json(),w=await (await reviewer.request.get(`/api/p4b/batches/${f.batchId}`)).json();
   for(const action of ['accept','export','issueOperational']){const r=await reviewer.request.post(`/api/p4b/batches/${f.batchId}`,{headers:{origin:process.env.APP_ORIGIN??'http://127.0.0.1:3000','x-csrf-token':me.csrf},data:{action,poolId:w.current.id,expectedVersion:w.version}});expect(r.status()).toBe(423);expect((await r.json()).code).toBe('OWNER_DECISIONS_HOLD');}
  }finally{await context.close();}

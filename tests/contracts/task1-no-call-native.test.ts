@@ -1,0 +1,66 @@
+import {it,expect,vi} from 'vitest';
+import {Client} from 'pg';
+import {randomBytes} from 'node:crypto';
+import {readFile,mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {migrate} from '../../tools/migrate';
+import {assertSyntheticDatabase,type Queryable} from '../../packages/db/connection';
+import {FileStore} from '../../packages/storage';
+import {noCallFixture} from '../helpers/task1-no-call';
+import {tx} from '../helpers/lab';
+import {addUser} from '../helpers/database';
+import {noCall,setHold} from '../../packages/lab/intake';
+import {registerIntake,parseIntake} from '../../packages/results/intake';
+import * as results from '../../packages/results/service';
+import {syntheticReportPdf} from '../../tools/his-simulator/result-pdf';
+import {reserveReleasedResult} from '../../packages/p6/released-result';
+import {runTransfer} from '../../packages/p6/worker';
+import {workerServiceAccount} from '../../packages/integrations/authorized-share';
+import {syntheticProfile} from '../../packages/p6/res';
+import {SETTINGS} from '../../packages/settings/catalog';
+import {proposeSetting,validateSetting,approveSetting,activateSetting} from '../../packages/settings/service';
+
+it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('native Task1 app_rw certifies external No Call, worker_rw delivers exact PDF/No Call RES only to a disposable local share',async()=>{
+ const shared=process.env.NIPT_TEST_DATABASE_URL!;assertSyntheticDatabase(shared);
+ const name='nipt_synthetic_test_nocall_'+randomBytes(4).toString('hex'),server=new URL(shared);server.pathname='/postgres';
+ const admin=new Client({connectionString:server.toString()});await admin.connect();await admin.query('CREATE DATABASE '+name);
+ const url=new URL(shared);url.pathname='/'+name;assertSyntheticDatabase(url.toString());
+ const owner=new Client({connectionString:url.toString()});await owner.connect();const clients:Client[]=[];
+ const base=await mkdtemp(path.join(os.tmpdir(),'nipt-nocall-native-')),store=new FileStore(path.join(base,'files'));
+ const session=async(role:'app_rw'|'worker_rw')=>{const c=new Client({connectionString:url.toString()});await c.connect();await c.query(`SET ROLE ${role}`);clients.push(c);return c as unknown as Queryable;};
+ try{
+  await migrate(owner);await owner.query(await readFile('packages/db/roles.sql','utf8'));await owner.query(await readFile('packages/p6/grants.sql','utf8'));
+  const o=owner as unknown as Queryable,f=await noCallFixture(false,{db:o,root:base,store,lookupKey:randomBytes(32),close:async()=>{}}),app=await session('app_rw'),worker=await session('worker_rw');
+  await tx(app,t=>noCall(t,f.u.staff,{attemptId:f.a.id}));
+  expect((await owner.query('SELECT * FROM result_release')).rows).toHaveLength(0);
+  const bytes=syntheticReportPdf(f.spec),intake=await tx(worker,async t=>{const id=await registerIntake(t,store,{source:'UPLOAD',relativePath:null,originalName:'SYNTHETIC-native-NoCall.pdf',actorId:f.u.staff.id,jobId:null},bytes);await parseIntake(t,store,id,{maxBytes:1e7,acceptZip:true});return id;});
+  const imported=await tx(app,t=>results.confirmImport(t,f.u.staff,{intakeIds:[intake]})),versionId=imported[0].versionId!;
+  const rv=async()=>(await owner.query<{row_version:number}>('SELECT row_version FROM result_report_version WHERE id=$1',[versionId])).rows[0].row_version;
+  await tx(app,async t=>results.proposeLink(t,f.u.staff,{versionId,roundId:f.a.round_id,attemptId:f.a.id,reason:'SYNTHETIC native exact PET identity',expectedRowVersion:await rv()}));
+  await tx(app,async t=>results.decideLink(t,f.u.certifier,{versionId,decision:'APPROVE',reason:'SYNTHETIC native peer identity review',expectedRowVersion:await rv()}));
+  const accept=async(user=f.u.certifier)=>tx(app,async t=>results.acceptAndRelease(t,user,{versionId,expectedRowVersion:await rv(),idempotencyKey:crypto.randomUUID(),externalFinalCertified:true,identityAndValuesMatchPdf:true,disclosureReviewed:true,abnormalAcknowledged:false}));
+  await expect(accept(f.u.staff)).rejects.toThrow('FORBIDDEN');const released=await accept();expect(released.outcome).toBe('CertifiedReleased');
+  const release=(await owner.query<{id:string;epoch:number}>('SELECT id,epoch FROM result_release WHERE version_id=$1',[versionId])).rows[0];
+  expect((await worker.query<{eligible:boolean}>('SELECT p6_release_eligible($1,$2) eligible',[release.id,release.epoch])).rows[0].eligible).toBe(true);
+  expect((await worker.query<{allowed:boolean}>("SELECT has_table_privilege(current_user,'result_release','UPDATE') allowed")).rows[0].allowed).toBe(false);
+  const share=path.join(base,'local-only-outbound');await mkdir(share);for(const name of ['res','pdf','backup'])await mkdir(path.join(share,name));
+  const policy=path.join(base,'policy.json');await writeFile(policy,JSON.stringify({version:1,grants:[{root:share,purposes:['OUTBOUND'],serviceAccount:workerServiceAccount(),secretRef:null,mode:'operational'}]}));vi.stubEnv('NIPT_HIS_SHARE_POLICY_FILE',policy);
+  const settingsAdmin=await addUser(owner as unknown as Parameters<typeof addUser>[0],'APP_ADMIN','synthetic.nocall.outbound.admin');
+  const setting=await tx(o,t=>proposeSetting(t,settingsAdmin,'his_outbound',{...SETTINGS.his_outbound.default,enabled:true,target:'AUTHORIZED_SHARE',productionAuthorized:true,resultStyle:'short',resDestinationPath:path.join(share,'res'),pdfDestinationPath:path.join(share,'pdf'),backupPath:path.join(share,'backup'),resProfile:{...syntheticProfile,syntheticOnly:false,version:'SYNTHETIC-NOCALL-LOCAL'},certifierHisMappings:{[f.u.certifier.id]:'SYNTHETIC^CERTIFIER'}},'SYNTHETIC disposable loopback local fixture destinations only'));
+  await tx(o,t=>validateSetting(t,settingsAdmin,setting,async()=>true));await tx(o,t=>approveSetting(t,f.u.approver,setting));await tx(o,t=>activateSetting(t,f.u.approver,setting));
+  const transfer=await reserveReleasedResult(worker,release.id,store);expect((await reserveReleasedResult(worker,release.id,store)).id).toBe(transfer.id);
+  expect(await runTransfer(worker,transfer.id)).toBe('AWAITING_CONFIRMATION');
+  const res=await readFile(path.join(share,'res',transfer.plan.resName)),pdf=await readFile(path.join(share,'pdf',transfer.plan.pdfName));
+  expect(res.subarray(2).toString('utf16le')).toContain('No Call');expect(res.subarray(2).toString('utf16le')).not.toContain('Low risk');expect(pdf).toEqual(bytes);
+  expect(await readFile(path.join(share,'res',transfer.plan.okName))).toEqual(Buffer.from([255,254]));
+  expect((await owner.query<{model:{hisConfirmed:boolean}}>('SELECT model FROM p6_transfer WHERE id=$1',[transfer.id])).rows[0].model.hisConfirmed).toBe(false);
+  expect((await owner.query<{state:string}>('SELECT state FROM analytical_attempt WHERE id=$1',[f.a.id])).rows[0].state).toBe('QcFailed');
+  await tx(app,t=>setHold(t,f.u.staff,{attemptId:f.a.id,hold:true,reason:'SYNTHETIC post-release native safety hold'}));
+  expect((await worker.query<{eligible:boolean}>('SELECT p6_release_eligible($1,$2) eligible',[release.id,release.epoch])).rows[0].eligible).toBe(false);
+  const evidence='.local/task1-owner-resolution-20261024';await mkdir(evidence,{recursive:true});await writeFile(evidence+'/native-no-call.pdf',pdf);await writeFile(evidence+'/native-no-call.res',res);await writeFile(evidence+'/native-no-call-evidence.json',JSON.stringify({database:name,loopbackOnly:true,appRole:'app_rw',workerRole:'worker_rw',releaseId:release.id,transferId:transfer.id,exactPdfPreserved:true,wireResult:'No Call',model:'AWAITING_CONFIRMATION',hisConfirmed:false,postReleaseHoldBlocks:true,noHospitalShareUsed:true},null,2));
+ }finally{
+  vi.unstubAllEnvs();for(const c of clients)await c.end();await owner.end();await admin.query('DROP DATABASE IF EXISTS '+name);await admin.end();
+  if(!path.resolve(base).startsWith(path.resolve(os.tmpdir())+path.sep))throw Error('TEMP_CLEANUP_PATH_INVALID');await rm(base,{recursive:true,force:true});
+ }
+},180000);

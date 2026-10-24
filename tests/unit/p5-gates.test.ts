@@ -9,6 +9,12 @@ const ideal:ResultFacts={templateKind:'SINGLETON',templateApproved:true,missing:
  openIdentityIssues:0,clinicalState:'Pass',consentRevoked:false,consent:'GRANTED',pregnancy:'Singleton',sexPreference:'DoNotWant',sexShown:false,versionState:'PendingCertification',latestInSeries:true,activeReleaseInSeries:false,reviewedCurrent:true,certifierRoleActive:true};
 const status=(f:Partial<ResultFacts>,code:string,purpose:'VALIDATION'|'CERTIFY_ATTEMPT'='VALIDATION')=>resultPredicates({...ideal,...f},purpose).find(p=>p.code===code)!;
 describe('RG-01..RG-13 (Plan §5.9.2)',()=>{
+ it('Owner No Call requires exact reviewed failure evidence, without inventing final QC or weakening identity and release gates',()=>{
+  const f:ResultFacts={...ideal,noCall:true,noCallReviewed:true,operationalReviewed:true,attemptState:'QcFailed',pdfQc:'FAIL',qc1Accepted:false,upstreamCurrent:false,upstreamReason:'UPSTREAM_POOL_STOP_USE',analysisAccepted:false,finalQcAccepted:false};
+  expect(decideGate(resultPredicates(f,'CERTIFY_ATTEMPT'),'RG').eligible).toBe(true);
+  expect(decideGate(resultPredicates({...ideal,noCall:true,noCallReviewed:false,operationalReviewed:true},'CERTIFY_ATTEMPT'),'RG').eligible).toBe(false);
+  for(const change of [{noCallReviewed:false},{noCall:false},{hold:true},{batchCancelled:true},{attemptState:'InProgress'},{attemptIsLatest:false},{isCurrentRound:false},{openIdentityIssues:1},{consentRevoked:true},{certifierRoleActive:false},{reviewedCurrent:false},{activeReleaseInSeries:true},{cross:{...match,hn:'MISMATCH' as const}}])expect(decideGate(resultPredicates({...f,...change},'CERTIFY_ATTEMPT'),'RG').eligible,JSON.stringify(change)).toBe(false);
+ });
  it('state strings never substitute for clinical evidence; upstream invalidation remains visible before adapter HOLD',()=>{
   expect(status({analysisAccepted:false},'RG-06').reason).toBe('CLINICAL_ANALYSIS_ADAPTER_PENDING');
   expect(status({finalQcAccepted:false},'RG-07').reason).toBe('CLINICAL_FINAL_QC_ADAPTER_PENDING');

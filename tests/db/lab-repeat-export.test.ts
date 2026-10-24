@@ -10,7 +10,7 @@ import {benchAttemptEvidence} from '../../packages/lab/bench-evidence';
 import {recordActualPooling,exportSeqPair} from '../../packages/lab/seq-export';
 import {orderRepeat} from '../../packages/lab/intake';
 import {readArchive} from '../../packages/workbook/archive';
-it('Disposable persisted RE_LIBRARY excluded from NIFTY while actual pooled repeat remains in HALOS',async()=>{
+it('Task1 authorized RE_LIBRARY remains in both NIFTY and HALOS with internal lineage',async()=>{
  const f=await inboundFixture();try{
   vi.stubEnv('NIPT_POOL_CSV_TEMPLATE','C:/Users/User/Downloads/Pooling Sheet Template_R001.csv');
   const u=await registrar(f.db),deps={master:readFileSync('.local/lab-owner-evidence/lab-combined-master.xlsx'),store:f.store,render:async()=>{throw Error('NATIVE_RENDER_NOT_REQUESTED_BY_THIS_DB_TEST');}};
@@ -47,9 +47,18 @@ it('Disposable persisted RE_LIBRARY excluded from NIFTY while actual pooled repe
   const key=crypto.randomUUID(),pair=await tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:2,idempotencyKey:key},deps));
   expect(pair.files).toHaveLength(2);expect(pair.halosPositions).toEqual([1,2,17,25,33]);
   const xml=readArchive(await f.store.get(pair.files[0].sha256)).get('xl/worksheets/sheet1.xml')!.toString();
-  expect(xml).not.toContain('9900012341');expect(xml).toContain('9900012342');expect(xml).toContain('9900012343');
+  expect(xml).toContain('9900012341');expect(xml).toContain('9900012342');expect(xml).toContain('9900012343');
   const populatedA=[...xml.matchAll(/<c\b[^>]*\br="A(\d+)"[^>]*>([\s\S]*?)<\/c>/g)].filter(c=>Number(c[1])>1&&/<t[^>]*>[^<]+<\/t>/.test(c[2]));
-  expect(populatedA).toHaveLength(4);expect(pair.halosPositions).toEqual([1,2,17,25,33]);
+  expect(populatedA).toHaveLength(5);expect(pair.halosPositions).toEqual([1,2,17,25,33]);
+  const mapping=(await f.db.query<{mapping:{attemptId:string|null;roundId:string|null;physicalSlot:number}[]}>('SELECT mapping FROM lab_bench_export WHERE id=$1',[pair.files[0].id])).rows[0].mapping;
+  expect(mapping.filter(m=>m.attemptId)).toHaveLength(3);expect(mapping.find(m=>m.physicalSlot===2)).toMatchObject({attemptId:patient.id,roundId:patient.round_id});
+  const halosMapping=(await f.db.query<{mapping:{attemptId:string|null;roundId:string|null;physicalSlot:number}[]}>('SELECT mapping FROM lab_bench_export WHERE id=$1',[pair.files[1].id])).rows[0].mapping;
+  expect(halosMapping.find(m=>m.physicalSlot===2)).toMatchObject({attemptId:patient.id,roundId:patient.round_id});
+  // Metadata-only changes preserve the recorded actual transfer and revision; a fresh pair uses the same true internal members.
+  await tx(f.db,async db=>updateSheetPlan(db,u.lab,{batchId:id,expectedVersion:await version(),sheetNumber:1,plannedWorkDate:'2026-10-24',plannedOperator:'SYNTHETIC CHANGED',plannedExtractionLot:'EX-B',plannedExtractionExpiry:'2027-01-01',plannedLibraryLot:'LIB-B',plannedLibraryExpiry:'2027-02-01'}));
+  const afterMetadata=await tx(f.db,db=>benchWorkspace(db,u.lab,id,deps));expect(afterMetadata.sourceStale).toBe(false);expect(afterMetadata.actualPooling?.current).toBe(true);expect(afterMetadata.revision).toBe(2);
+  const nextPair=await tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:2,idempotencyKey:crypto.randomUUID()},deps));expect(nextPair.halosPositions).toEqual(pair.halosPositions);
+
   const repeat=(await f.db.query<{id:string;repeat_order_id:string}>('SELECT id,repeat_order_id FROM analytical_attempt WHERE attempt_number=2')).rows[0];
   // The assignment legitimately advances this order, but neither table may change lineage.
   expect((await f.db.query<{state:string}>('SELECT state FROM repeat_work_order WHERE id=$1',[repeat.repeat_order_id])).rows[0].state).toBe('RepeatInProgress');

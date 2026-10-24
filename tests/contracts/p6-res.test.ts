@@ -45,6 +45,15 @@ describe('P6 pinned legacy byte parity (synthetic source oracle only)', () => {
     expect([r[0][4],r[0][9],r[2][4],r[2][15],r[2][18],r[3][6],r[3][10],r[3][11]]).toEqual(['SYNTHETIC','SIMULATOR','^^^99999^B^0','3','8','N','SYNTHETIC^SYNTHETIC',base.order.ln+'119']);
     expect(readFileSync(new URL('../../packages/integrations/res.ts', import.meta.url),'utf8')).not.toContain('packages/p6');
   });
+  it('No Call uses the existing RES structure and fixed/full/short profile policy without fabricated risk findings',()=>{
+    for(const style of ['full','short','fixed'] as const){
+      const input={...inputFor(),result:{result_type:'no_call'}},profile={...profileFor(),style};
+      const actual=serializeSyntheticRes(input,profile),wire=actual.bytes.subarray(2).toString('utf16le');
+      expect(wire).toContain(style==='fixed'?profile.cfsText:'No Call');
+      expect(wire).not.toContain('Low risk');expect(wire).not.toContain('High risk');expect(wire).not.toContain('Not Detected');
+      expect(()=>verifySyntheticRes(actual.bytes,input,profile)).not.toThrow();
+    }
+  });
   it('uses CR only and rejects malformed encoding, record structure and profile/content mismatch', () => {
     const {bytes} = serializeSyntheticRes(inputFor(), profileFor());
     const mutate = (f:(s:string)=>string) => Buffer.concat([Buffer.from([255,254]), Buffer.from(f(bytes.subarray(2).toString('utf16le')),'utf16le')]);

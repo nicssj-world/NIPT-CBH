@@ -9,7 +9,6 @@ import {workbookWorkspace,saveWorkbookDraft,exportWorkbook} from '../../packages
 import {issueNativeWorkbook} from '../../packages/workbook/controlled';
 import {SHEETS,MASTER_SHA256} from '../../packages/workbook/master';
 import {readArchive,sha256} from '../../packages/workbook/archive';
-import {staleMetadataInventory} from '../../tools/p0/stale-metadata-core';
 
 // Plan Rev 3.4 §5.1: Task metadata (B4/B5/K5/B16/B17) has one owner, the Lab source. Enforced server-side,
 // including direct API calls and stale drafts saved before this rule existed; history is never rewritten.
@@ -17,7 +16,7 @@ const masterPath=process.env.NIPT_TASK_MASTER_PATH??'.local/lab-owner-evidence/l
 afterEach(()=>vi.unstubAllEnvs());
 const xlsxText=(bytes:Buffer)=>{const parts=readArchive(bytes);return (parts.get('xl/worksheets/sheet1.xml')!.toString())+(parts.get('xl/sharedStrings.xml')?.toString()??'');};
 
-it.skipIf(!existsSync(masterPath))('workbook Task metadata is source-owned: direct API, stale drafts, controlled issue, amendment',async()=>{
+it.skipIf(!existsSync(masterPath))('workbook Task metadata is source-owned: direct API, stale drafts, controlled issue, locked live metadata',async()=>{
  const db=await testDatabase(),u=await labUsers(db),docs=await docDeps();
  const render=async()=>{const d=await PDFDocument.create();d.addPage([595.28,841.89]);d.addPage([595.28,841.89]);const bytes=Buffer.from(await d.save());
   return SHEETS.map(sheet=>({sheet,bytes,sha256:sha256(bytes),pageCount:2,pages:[],formulaCount:0,formulaErrors:[],poolingCalculation:null,renderer:'Microsoft Excel' as const,goldenFidelityVerified:false}));};
@@ -45,8 +44,8 @@ it.skipIf(!existsSync(masterPath))('workbook Task metadata is source-owned: dire
   await db.query('INSERT INTO task_workbook_revision(batch_id,revision,master_sha256,source_sha256,source_snapshot,values,created_by) VALUES($1,1,$2,$3,$4,$5,$6)',
    [id,MASTER_SHA256,ws.sourceSha256,'{}',JSON.stringify({...ws.values,'task.1.operator':'OLD OPERATOR','task.1.extractionLotExp':'OLD LOT / x','task.2.operator':'OLD TL2'}),u.staff.id]);
   const stale=await tx(db,t=>workbookWorkspace(t,u.staff,id,wb));
-  expect(stale.sourceStale).toBe(true);expect(stale.values['task.1.operator']).toBe('');expect(stale.values['task.1.extractionLotExp']).toBe('— / 31/12/2569');expect('task.2.operator' in stale.values).toBe(false);
-  await expect(tx(db,t=>exportWorkbook(t,u.staff,{batchId:id,revision:1,format:'XLSX'},wb))).rejects.toThrow('TASK_METADATA_SOURCE_MISMATCH');
+  expect(stale.sourceStale).toBe(false);expect(stale.values['task.1.operator']).toBe('');expect(stale.values['task.1.extractionLotExp']).toBe('— / 31/12/2569');expect('task.2.operator' in stale.values).toBe(false);
+  const automatic=await tx(db,t=>exportWorkbook(t,u.staff,{batchId:id,revision:1,format:'XLSX'},wb));expect(xlsxText(automatic.bytes)).not.toContain('OLD');
   // Rebind = save a new revision from the sanitized workspace; the export then carries only source values.
   const rebound=await tx(db,t=>saveWorkbookDraft(t,u.staff,{batchId:id,expectedVersion:stale.version,expectedRevision:1,values:stale.values},wb));
   const out=await tx(db,t=>exportWorkbook(t,u.staff,{batchId:id,revision:rebound.revision,format:'XLSX'},wb));
@@ -62,16 +61,17 @@ it.skipIf(!existsSync(masterPath))('workbook Task metadata is source-owned: dire
   const snap=(await db.query<{snapshot:{workbookRevision:number}}>('SELECT snapshot FROM lab_document WHERE id=$1',[pre.id])).rows[0].snapshot;
   const issued=(await db.query<{v:Record<string,unknown>}>('SELECT values v FROM task_workbook_revision WHERE batch_id=$1 AND revision=$2',[id,snap.workbookRevision])).rows[0].v;
   expect(issued['task.1.operator']).toBe('');expect(JSON.stringify(issued)).not.toContain('OLD');
-  // Amendment changes the planned operator: a pre-amendment draft can no longer be exported.
-  await tx(db,async t=>batch.amendSheet(t,u.certifier,{batchId:id,expectedVersion:await V(),sheetNumber:1,reason:'LOCAL TEST revise plan'}));
-  await finalize('NEW OPERATOR');
-  await expect(tx(db,t=>exportWorkbook(t,u.staff,{batchId:id,revision:snap.workbookRevision,format:'XLSX'},wb))).rejects.toThrow(/TASK_SOURCE_CHANGED_REBIND_REQUIRED|TASK_METADATA_SOURCE_MISMATCH/);
-  expect((await tx(db,t=>workbookWorkspace(t,u.staff,id,wb))).values['task.1.operator']).toBe('NEW OPERATOR');
-  // The read-only inventory (tools/p0) flags exactly the seeded stale values and no issued document built from them.
-  const inv=await staleMetadataInventory(db);
-  // (The stale lot text "OLD LOT / x" sits beside a planned expiry, so only operator/TL2 are provably not source-supplied.)
-  expect(inv.findings.map(f=>`${f.revision}:${f.key}:${f.reason}`).sort()).toEqual([
-   '1:task.1.operator:VALUE_NOT_FROM_LAB_SOURCE','1:task.2.operator:TASK_NOT_FINALIZED_AT_REVISION','3:task.1.operator:VALUE_NOT_FROM_LAB_SOURCE']);
-  expect(inv.affectedIssuedDocuments).toEqual([]);
+  // Live metadata can change after placement lock; the original workbook revision still exports safely.
+  const frozen=(await db.query('SELECT content_hash,payload FROM lab_placement_snapshot WHERE batch_id=$1',[id])).rows;
+  const oldHash=(await tx(db,t=>workbookWorkspace(t,u.staff,id,wb))).sourceSha256;
+  await tx(db,async t=>batch.updateSheetPlan(t,u.staff,{batchId:id,expectedVersion:await V(),sheetNumber:1,plannedWorkDate:'2026-10-24',plannedOperator:'NEW OPERATOR',plannedExtractionLot:'NEW EXT',plannedExtractionExpiry:'2027-01-01',plannedLibraryLot:'NEW LIB',plannedLibraryExpiry:'2027-02-01'}));
+  const current=await tx(db,t=>workbookWorkspace(t,u.staff,id,wb));
+  expect(current.sourceStale).toBe(false);expect(current.sourceSha256).toBe(oldHash);expect(current.values['task.1.operator']).toBe('NEW OPERATOR');
+  expect((await db.query('SELECT content_hash,payload FROM lab_placement_snapshot WHERE batch_id=$1',[id])).rows).toEqual(frozen);
+  const latestPrint=await tx(db,t=>exportWorkbook(t,u.staff,{batchId:id,revision:snap.workbookRevision,format:'XLSX'},wb));
+  const latestText=xlsxText(latestPrint.bytes);expect(latestText).toContain('24/10/2569');expect(latestText).toContain('NEW OPERATOR');expect(latestText).toContain('NEW EXT / 01/01/2570');expect(latestText).toContain('NEW LIB / 01/02/2570');
+  expect(latestPrint.manifest.metadataSha256).not.toBe(out.manifest.metadataSha256);
+  // Older generated bytes and persisted draft values remain unchanged.
+  expect(xlsxText(out.bytes)).not.toContain('NEW OPERATOR');
  }finally{await db.close();await docs.close();}
 },180000);
