@@ -95,3 +95,5 @@ Candidate runtime: Compose project nipt-cbh-task1-rc-20261024, loopback HTTPS195
 | `tools/task1-native-persistence.ts` | Task1 implementation or focused verification; copied from reviewed shared snapshot |
 
 Candidate build-only dependency: operations-target npm prune uses offline/no-audit/no-fund to prune the exact already-installed lockfile tree without contacting registry. Package manifests/versions are unchanged; renderer/browser installation behavior is preserved.
+
+Offline prune also stalled in the build environment; the candidate operations target therefore uses lockfile-based production npm ci (offline, audit/fund disabled,120s timeout). This retains exact package versions and fails explicitly rather than hanging. No package.json/package-lock.json changes.

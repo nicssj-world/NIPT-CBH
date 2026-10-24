@@ -34,7 +34,7 @@ FROM dependencies AS operations
 ARG SOURCE_REVISION
 ARG MIGRATIONS_SHA256
 LABEL org.opencontainers.image.revision=$SOURCE_REVISION org.nipt.migrations.sha256=$MIGRATIONS_SHA256
-RUN npm prune --omit=dev --offline --no-audit --no-fund
+RUN timeout 120 npm ci --omit=dev --offline --no-audit --no-fund
 COPY --from=postgres-tools /pg-runtime /opt/postgresql
 RUN mkdir -p /opt/postgresql/wrappers && for binary in pg_dump pg_restore psql; do printf '#!/bin/sh\nLD_LIBRARY_PATH=/opt/postgresql/lib exec /opt/postgresql/bin/%s "$@"\n' "$binary" > /opt/postgresql/wrappers/"$binary"; chmod 755 /opt/postgresql/wrappers/"$binary"; done
 ENV PG_BIN=/opt/postgresql/wrappers
