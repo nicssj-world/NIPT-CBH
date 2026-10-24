@@ -732,6 +732,8 @@ input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-o
 @media(max-width:600px){.workspace .compact-facts,.health-groups{grid-template-columns:1fr;gap:16px;}.workspace .service-strip{grid-template-columns:repeat(2,minmax(0,1fr));}.status-summary{align-items:flex-start;}.health-alerts>li{grid-template-columns:1fr;}.health-alerts details{grid-column:1;}.connection-summary .compact-facts>div:nth-last-child(-n+2){padding-top:12px;}}
 .status-summary>.status{font-size:16px;font-weight:650;line-height:1.5;}
 /* Task 3: HALOS reports, report signers, origin evidence and the ANC Final PDF actions. Existing tokens only. */
+/* Task 3: in-text links follow the table/registry link style (underlined), not colour alone (WCAG 1.4.1). */
+.t3-links a:not(.button){text-decoration:underline;text-underline-offset:3px}
 .t3-import>summary,.t3-block>summary{font-weight:600;min-height:44px;}
 .t3-import{border-top:1px solid var(--color-line);padding-top:12px;margin-bottom:16px;}
 .t3-preview{border-top:1px solid var(--color-line);padding-top:16px;}

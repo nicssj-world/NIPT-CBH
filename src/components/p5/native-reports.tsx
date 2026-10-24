@@ -41,7 +41,7 @@ export const HOLD_TEXT:Record<string,string>={
  GENDER_TOKEN_UNRECOGNIZED:"ค่าเพศไม่รู้จัก",GENDER_MISSING:"ไม่มีค่าเพศ",FETAL_FRACTION_INVALID:"Fetal fraction ไม่ถูกต้อง",FETAL_FRACTION_BELOW_TEMPLATE_REFERENCE:"Fetal fraction ต่ำกว่าเกณฑ์ที่แบบฟอร์มระบุ (3.5%)",
  TESTOTHER_FINDING_REQUIRES_REVIEW:"มีผลโครโมโซมอื่น (เช่น T22/T10) ที่แบบฟอร์มไม่มีส่วนรองรับ — ต้องตรวจทางคลินิก",DISEASE_FINDING_REQUIRES_REVIEW:"มีผล Disease ที่ต้องตรวจทางคลินิก",TESTCNV_FINDING_REQUIRES_REVIEW:"มีผล CNV ที่ต้องตรวจทางคลินิก",
  HALOS_IMPORT_NOT_CONFIRMED:"ยังไม่ยืนยันการนำเข้าไฟล์ HALOS",ROW_NOT_REPORTABLE:"แถวนี้ไม่ใช่ผู้ป่วยที่ออกรายงานได้",MATCH_CHANGED_SINCE_IMPORT:"การจับคู่เปลี่ยนหลังนำเข้า (เช่น Pooling ใหม่) — นำเข้าผลชุดใหม่",NEWER_HALOS_RESULT_EXISTS:"มีผล HALOS ที่ใหม่กว่าสำหรับ Attempt นี้",
- SAMPLE_ID_DIFFERS_FROM_ATTEMPT_PRINTED_ID:"รหัสใน HALOS ไม่ตรงกับรหัสที่พิมพ์ของ Attempt",NO_CALL_ATTEMPT_REQUIRES_NO_CALL_REPORT:"Attempt นี้เป็น No Call — ใช้รายงาน No Call",ATTEMPT_ON_QC_HOLD:"Attempt ถูกระงับ (QC Hold)",
+ SAMPLE_ID_DIFFERS_FROM_ATTEMPT_PRINTED_ID:"รหัสใน HALOS ไม่ตรงกับรหัสที่พิมพ์ของ Attempt",NO_CALL_RENDERING_NOT_APPROVED:"Attempt นี้เป็น No Call — รอผู้อนุมัติทางคลินิกอนุมัติรูปแบบรายงาน No Call ในหน้าตั้งค่า",NO_CALL_ATTEMPT_NOT_CONFIRMED_FAILED:"Attempt ที่เลือก No Call ยังไม่อยู่ในสถานะล้มเหลวที่ยืนยันแล้ว",NO_CALL_QC_STATUS_UNREADABLE:"อ่านค่า Sample QC ของ No Call จาก HALOS ไม่ได้",REQUEST_DOB_NOT_RECORDED:"ใบส่งตรวจของรอบนี้ยังไม่มีวันเกิด",REQUEST_EDD_NOT_RECORDED:"ใบส่งตรวจของรอบนี้ยังไม่มี EDD",ATTEMPT_ON_QC_HOLD:"Attempt ถูกระงับ (QC Hold)",
  CONSENT_REVOKED:"ถอนความยินยอมแล้ว",CLINICAL_DATA_NOT_READY:"ข้อมูลทางคลินิก/ความยินยอมยังไม่พร้อม",ROUND_NOT_CURRENT:"ไม่ใช่รอบปัจจุบัน",INTERNAL_REPORT_ALREADY_FINAL:"มีรายงานฉบับจริงแล้ว",POST_RELEASE_REVISION_PENDING_OD17:"ส่งผลแล้ว — การออกฉบับแก้ไขหลังส่งผลรอนโยบาย OD-17",
  OPEN_REPORT_EXISTS_FOR_ROUND:"รอบนี้มีรายงาน (เช่น PDF ภายนอก) ที่เปิดอยู่แล้ว",ACTIVE_RELEASE_EXISTS_FOR_ROUND:"รอบนี้ส่งผลแล้ว (เช่น จาก ReadyGen)",PET_EVIDENCE_REQUIRED:"ไม่มี PET จาก HIS ของรอบนี้",PET_EVIDENCE_UNVERIFIED:"ตรวจ PET ไม่ผ่าน",
  HN_SOURCES_DISAGREE:"HN ใน PET ไม่ตรงกับเคส",PET_CLOCKS_REQUIRED:"ไม่มีเวลาเจาะ/รับจาก PET",COLLECTION_DATE_SOURCES_DISAGREE:"วันที่เจาะไม่ตรงกันระหว่างแหล่งข้อมูล",DOB_SOURCES_DISAGREE:"วันเกิดไม่ตรงกันระหว่างแหล่งข้อมูล",
@@ -94,7 +94,7 @@ function HalosImport({onConfirmed}:{onConfirmed:()=>void}){
   </div>}
   {list.length>0&&<details><summary>ไฟล์ HALOS ที่นำเข้าแล้ว ({list.length})</summary>
    <ul className="timeline">{list.map(i=><li key={i.id}><div className="row"><strong className="p5-file">{i.name}</strong><span>{i.state==="Confirmed"?"ยืนยันแล้ว":i.state==="Cancelled"?"ยกเลิก":"รอยืนยัน"}</span></div>
-    <div className="help">{bkk(i.uploadedAt)} · {i.uploadedBy} · ผู้ป่วย {i.counts.PATIENT??0} · <a href={`/api/task3/halos/${i.id}/file`}>ดาวน์โหลดไฟล์ต้นฉบับ</a></div></li>)}</ul></details>}
+    <div className="help t3-links">{bkk(i.uploadedAt)} · {i.uploadedBy} · ผู้ป่วย {i.counts.PATIENT??0} · <a href={`/api/task3/halos/${i.id}/file`}>ดาวน์โหลดไฟล์ต้นฉบับ</a></div></li>)}</ul></details>}
  </div>;
 }
 
@@ -199,7 +199,7 @@ export function NativeReports({canImport}:{canImport:boolean}){
  const toggle=(id:string,on:boolean)=>setSelected(s=>{const n=new Set(s);if(on)n.add(id);else n.delete(id);return n;});
  return <section className="panel" aria-labelledby="native-h">
   <h2 id="native-h">รายงานจากผล HALOS</h2>
-  <p className="help">นำเข้าไฟล์ผลจาก HALOS แล้วออกรายงานตามแบบฟอร์มของโรงพยาบาล (FM-WI-T-BM-17-07 ครรภ์เดี่ยว / FM-WI-T-BM-17-08 ครรภ์แฝด) — หนึ่ง PDF ต่อผู้ป่วย ผ่านการตรวจรับและส่งผลชุดเดียวกับ PDF ภายนอก
+  <p className="help t3-links">นำเข้าไฟล์ผลจาก HALOS แล้วออกรายงานตามแบบฟอร์มของโรงพยาบาล (FM-WI-T-BM-17-07 ครรภ์เดี่ยว / FM-WI-T-BM-17-08 ครรภ์แฝด) — หนึ่ง PDF ต่อผู้ป่วย ผ่านการตรวจรับและส่งผลชุดเดียวกับ PDF ภายนอก
    {" "}· <Link href="/results/signers">ผู้ลงนามรายงาน</Link></p>
   {canImport&&<details className="t3-import" open={!data||(data.page.total===0)}><summary>นำเข้าไฟล์ผล HALOS</summary><HalosImport onConfirmed={()=>{setStatus("ALL");setPage(1);void load();}}/></details>}
   <form className="search-form t3-search" role="search" aria-label="ค้นหารายการออกรายงาน" onSubmit={e=>e.preventDefault()}>

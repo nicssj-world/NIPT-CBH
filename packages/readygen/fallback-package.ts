@@ -40,11 +40,12 @@ const VERIFY_PS1=`param([string]$Folder=$PSScriptRoot)
 # Needs only Windows PowerShell; no NIPT-CBH server, database, network or login.
 $ErrorActionPreference='Stop'
 $manifest=Get-Content -LiteralPath (Join-Path $Folder 'manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json
-$bad=0
+$bad=0;$sha=[System.Security.Cryptography.SHA256]::Create()
 foreach($f in $manifest.files){
   $p=Join-Path $Folder $f.name
   if(-not (Test-Path -LiteralPath $p)){Write-Output "MISSING  $($f.name)";$bad++;continue}
-  $h=(Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLowerInvariant()
+  # .NET directly: Get-FileHash is a module function that is not found when the module path belongs to another PowerShell.
+  $s=[System.IO.File]::OpenRead($p);try{$h=([System.BitConverter]::ToString($sha.ComputeHash($s)) -replace '-','').ToLowerInvariant()}finally{$s.Dispose()}
   if($h -ne $f.sha256){Write-Output "MISMATCH $($f.name)";$bad++}else{Write-Output "OK       $($f.name)"}
 }
 if($bad){Write-Output "PACKAGE INVALID ($bad)";exit 1}else{Write-Output "PACKAGE VERIFIED: $($manifest.schema) export $($manifest.exportPairId)";exit 0}

@@ -11,7 +11,7 @@ import {petDisplayName} from '../sequencing/owner-export';
 import {SETTINGS} from '../settings/catalog';
 import {readActiveSettings} from '../settings/service';
 import {pdfText} from '../results/extract';
-import {parseReport} from '../results/parser';
+import {parseReport,isNoCallReport} from '../results/parser';
 import {roundRequest,registerInternalVersion,acceptInternalAndRelease} from '../results/service';
 import {writeArchive,sha256} from '../workbook/archive';
 import {interpretRow,productCodeOf,halosGaDays,TEMPLATES,RULESET,RULESET_SHA256,type Interpretation,type Hold} from './interpretation';
@@ -67,7 +67,8 @@ const SOURCE_SQL=`SELECT h.id row_id,h.import_id,i.state import_state,h.classifi
  LEFT JOIN p2_workspace w ON w.round_id=r.id LEFT JOIN p2_doctor_version d ON d.id=(w.draft#>>'{ordering,doctorVersionId}')::uuid
  LEFT JOIN LATERAL (SELECT * FROM lab_operational_registration x WHERE x.case_id=r.case_id ORDER BY (x.round_id=r.id) DESC,x.created_at DESC LIMIT 1) lr ON true LEFT JOIN p2_doctor_version ld ON ld.id=lr.doctor_version_id`;
 
-export type Prepared={rowId:string;caseId:string;roundId:string;attemptId:string;template:'SINGLETON'|'TWIN';pregnancySource:'ANC_REQUEST'|'AUTHORIZED_OVERRIDE';overrideReason:string|null;
+export const NO_CALL_RESULT='No Call';
+export type Prepared={rowId:string;caseId:string;roundId:string;attemptId:string;template:'SINGLETON'|'TWIN';noCall:boolean;pregnancySource:'ANC_REQUEST'|'AUTHORIZED_OVERRIDE';overrideReason:string|null;
  holds:Hold[];interpretation:Interpretation;values:ReportValues|null;productCode:string|null;sources:Record<string,unknown>;hisLn:string;lnHalos:string|null;hn:string|null;sampleId:string;
  approval:Awaited<ReturnType<typeof interpretationApproval>>;reissue:{internalId:string;versionState:string|null}|null};
 const rowValues=(raw:Record<string,string>,headers:Record<string,string>)=>{const norm=Object.fromEntries(Object.entries(raw).map(([k,v])=>[k.replace(/\s+/g,' ').trim().toLowerCase(),v]));
@@ -86,7 +87,10 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  if(now.classification!=='PATIENT'||now.attemptId!==s.attempt_id)h('MATCH_CHANGED_SINCE_IMPORT',{raw:`${now.classification}/${now.reason}`});
  if(s.newer_row)h('NEWER_HALOS_RESULT_EXISTS');
  if(s.printed_sample_id!==s.sample_key)h('SAMPLE_ID_DIFFERS_FROM_ATTEMPT_PRINTED_ID',{raw:s.printed_sample_id??'(none)'});
- if(s.no_call)h('NO_CALL_ATTEMPT_REQUIRES_NO_CALL_REPORT');if(s.on_hold)h('ATTEMPT_ON_QC_HOLD');if(s.revoked)h('CONSENT_REVOKED');if(!s.clinical_ready)h('CLINICAL_DATA_NOT_READY');
+ // Owner Task 1 decision 2: a No Call is reported in the SAME normal master with an explicit "Result = No Call"; it is never interpreted.
+ const noCall=s.no_call;
+ if(noCall&&s.attempt_state!=='QcFailed')h('NO_CALL_ATTEMPT_NOT_CONFIRMED_FAILED',{raw:s.attempt_state});
+ if(s.on_hold)h('ATTEMPT_ON_QC_HOLD');if(s.revoked)h('CONSENT_REVOKED');if(!s.clinical_ready)h('CLINICAL_DATA_NOT_READY');
  if(s.current_round_id!==s.round_id)h('ROUND_NOT_CURRENT');
  const reissue=s.internal_final?{internalId:s.internal_final,versionState:s.internal_version_state}:null;
  if(reissue&&!input.reissue)h('INTERNAL_REPORT_ALREADY_FINAL');
@@ -103,6 +107,8 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  const req=await roundRequest(db,s.round_id),collectionDay=specimenAt?bangkokDay(specimenAt):null;
  if(collectionDay&&(req.dates.length!==1||req.dates[0]!==collectionDay))h('COLLECTION_DATE_SOURCES_DISAGREE',{raw:req.dates.join(',')});
  if(pet&&req.dob&&req.dob!==pet.dob.slice(0,10))h('DOB_SOURCES_DISAGREE');
+ // The existing identity cross-check of the registered PDF needs the round's Request DOB and EDD; hold here instead of failing after rendering.
+ if(!req.dob)h('REQUEST_DOB_NOT_RECORDED');if(!req.edd)h('REQUEST_EDD_NOT_RECORDED');
  const info=s.info_raw?rowValues(s.info_raw,SAMPLEINFO_HEADERS):null;
  if(!info)h('SAMPLEINFO_ROW_MISSING');
  // Template: from the request (ANC / Sample Detail). An override needs an authorised person and a reason, and is recorded.
@@ -117,10 +123,15 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  const halosFetus=info?.fetusType?.trim();
  if(pregnancy&&halosFetus&&halosFetus!==(pregnancy==='Twins'?'Twins':'Singleton')&&pregnancySource!=='AUTHORIZED_OVERRIDE')h('PREGNANCY_TYPE_SOURCES_DISAGREE',{raw:halosFetus});
  const template:'SINGLETON'|'TWIN'=pregnancy==='Twins'?'TWIN':'SINGLETON';
- const interpretation=interpretRow({values:rowValues(s.raw,ANALYSIS_HEADERS)},template);holds.push(...interpretation.holds);
+ const analysis=rowValues(s.raw,ANALYSIS_HEADERS),interpretation=interpretRow({values:analysis},template);
+ // A No Call prints no finding, so the interpretation's holds and the disclosure wish do not apply.
+ // The Task 1 No Call contract accepts QC PASS or FAIL only: PASS exactly as the ruleset prints it, FAIL for HALOS "Fail"; anything else holds.
+ const noCallQc=interpretation.values.qc==='PASS'?'PASS':(analysis.sampleQc??'').trim()==='Fail'?'FAIL':null;
+ if(noCall&&!noCallQc)h('NO_CALL_QC_STATUS_UNREADABLE',{raw:`${analysis.sampleQc??''}/${analysis.operationAdvice??''}/${analysis.physicianAdvice??''}`});
+ if(!noCall)holds.push(...interpretation.holds);
  // Disclosure follows the recorded wish (RG-11 / OD-09 proposal): the Singleton master always prints Fetal Gender.
- if(template==='SINGLETON'&&req.fetalSex!=='Want')h('FETAL_SEX_DISCLOSURE_NOT_PERMITTED',{raw:req.fetalSex??'NOT_RECORDED'});
- if(template==='TWIN'&&req.fetalSex==='DoNotWant')h('Y_CHROMOSOME_DISCLOSURE_NOT_PERMITTED');
+ if(!noCall&&template==='SINGLETON'&&req.fetalSex!=='Want')h('FETAL_SEX_DISCLOSURE_NOT_PERMITTED',{raw:req.fetalSex??'NOT_RECORDED'});
+ if(!noCall&&template==='TWIN'&&req.fetalSex==='DoNotWant')h('Y_CHROMOSOME_DISCLOSURE_NOT_PERMITTED');
  let ga:number|null=null;
  if(!req.edd&&!s.edd)h('EDD_REQUIRED_FOR_GA');
  else if(collectionDay){const edd=(req.edd??s.edd)!;ga=280-Math.round((Date.parse(edd+'T00:00:00Z')-Date.parse(collectionDay+'T00:00:00Z'))/86400000);
@@ -129,14 +140,19 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  const approval=await interpretationApproval(db),approvedProduct=template==='SINGLETON'?approval.value.singletonApprovedProduct:approval.value.twinApprovedProduct;
  if(!approval.approvedRevision||!approval.value.interpretationApproved)h('INTERPRETATION_RULESET_NOT_APPROVED');
  else if(!approval.rulesetMatches)h('RULESET_VERSION_MISMATCH');
+ if(noCall&&(!approval.approvedRevision||!approval.value.noCallRenderingApproved))h('NO_CALL_RENDERING_NOT_APPROVED');
  if(productCode&&(!approval.approvedRevision||approvedProduct!==productCode))h('PRODUCT_TEMPLATE_COMBINATION_NOT_APPROVED',{raw:`${productCode}/${TEMPLATES[template].code}`});
  if(!await masterBytes(deps,template))h('REPORT_MASTER_NOT_INSTALLED');
- const v=interpretation.values,canBind=pet&&specimenAt&&receivedAt&&ga!==null&&v.qc&&v.t21&&v.t18&&v.t13&&v.probability.t21&&v.probability.t18&&v.probability.t13;
+ const v=interpretation.values,identityBound=pet&&specimenAt&&receivedAt&&ga!==null;
+ const canBind=identityBound&&(noCall?!!noCallQc:v.qc&&v.t21&&v.t18&&v.t13&&v.probability.t21&&v.probability.t18&&v.probability.t13);
+ // No Call (proposal shown in Settings for approval): every result cell reads "No Call", probabilities "-" (the master's own not-applicable mark).
+ const NC=NO_CALL_RESULT;
+ const results=noCall?{qc:noCallQc!,trisomy21_ra:NC,trisomy18_ra:NC,trisomy13_ra:NC,risk21:'-',risk18:'-',risk13:'-',gender:NC,gender_cbh:NC,XO_NEW:NC,XXX_NEW:NC,XXY_NEW:NC,XYY_NEW:NC,fetalFaction_2:NC,remarks:`Result = ${NC}`}
+  :{qc:v.qc!,trisomy21_ra:v.t21!,trisomy18_ra:v.t18!,trisomy13_ra:v.t13!,risk21:v.probability.t21!,risk18:v.probability.t18!,risk13:v.probability.t13!,
+   gender:v.fetalGender??'',gender_cbh:v.yChromosome??'',XO_NEW:v.xo??'',XXX_NEW:v.xxx??'',XXY_NEW:v.xxy??'',XYY_NEW:v.xyy??'',fetalFaction_2:v.fetalFraction??'',remarks:''};
  const values:ReportValues|null=canBind?{patientName:petDisplayName(pet!.name),ga:`${Math.floor(ga!/7)}W ${ga!%7}D`,sampleID:s.sample_key,hn:pet!.hn,collectDate_cbh:reportDate(collectionDay!),
-  patientIDCard:pet!.identity||'-',dob_cbh:reportDate(pet!.dob),receivedDate_cbh:reportDate(bangkokDay(receivedAt!)),referringPhysician:s.doctor?.trim()||'-',hospitalName:'Chonburi hospital',remarks:'',sampleType:'Peripheral Blood',
-  qc:v.qc!,trisomy21_ra:v.t21!,trisomy18_ra:v.t18!,trisomy13_ra:v.t13!,risk21:v.probability.t21!,risk18:v.probability.t18!,risk13:v.probability.t13!,
-  gender:v.fetalGender??'',gender_cbh:v.yChromosome??'',XO_NEW:v.xo??'',XXX_NEW:v.xxx??'',XXY_NEW:v.xxy??'',XYY_NEW:v.xyy??'',fetalFaction_2:v.fetalFraction??''}:null;
- return {rowId:s.row_id,caseId:s.case_id,roundId:s.round_id,attemptId:s.attempt_id,template,pregnancySource,overrideReason,holds,interpretation,values,productCode,hisLn:s.ln,lnHalos:s.ln_halos,hn:s.hn,sampleId:s.sample_key,approval,reissue,
+  patientIDCard:pet!.identity||'-',dob_cbh:reportDate(pet!.dob),receivedDate_cbh:reportDate(bangkokDay(receivedAt!)),referringPhysician:s.doctor?.trim()||'-',hospitalName:'Chonburi hospital',sampleType:'Peripheral Blood',...results}:null;
+ return {rowId:s.row_id,caseId:s.case_id,roundId:s.round_id,attemptId:s.attempt_id,template,noCall,pregnancySource,overrideReason,holds,interpretation,values,productCode,hisLn:s.ln,lnHalos:s.ln_halos,hn:s.hn,sampleId:s.sample_key,approval,reissue,
   sources:{halosRowId:s.row_id,halosImportId:s.import_id,exportId:s.export_id,exportKind:s.export_kind,petSha256:s.pet_sha,pregnancy:{recorded,used:pregnancy,source:pregnancySource,halos:halosFetus??null},
    fetalSexPreference:req.fetalSex,edd:req.edd??s.edd,collectionDay,gaDays:ga,halosGa:info?.gestationalWeeks??null,productCode,productName:info?.productName??null,doctor:s.doctor??null}};
 }
@@ -164,11 +180,16 @@ export async function verifyRendered(pdf:Buffer,p:Prepared,signers:{reported:Sig
  const want=(cond:boolean,code:string)=>{if(!cond)problems.push(code);};
  want(x.pages===1,'PAGE_COUNT');want(parsed.templateKind===p.template,'TEMPLATE_KIND');want(!/\$\{/.test(x.text),'PLACEHOLDER_REMAINS');
  want(parsed.identifiers.labNumber.value===v.sampleID,'LAB_NUMBER');want(parsed.identifiers.hn.value===v.hn,'HN');
- want(parsed.results.t21.value===v.trisomy21_ra&&parsed.results.t18.value===v.trisomy18_ra&&parsed.results.t13.value===v.trisomy13_ra,'TRISOMY');
  want(parsed.results.qc.value===v.qc,'QC');want(parsed.identifiers.gestationalAgeDays.value===Number(p.sources.gaDays),'GA');
+ // A No Call must read back as the Task 1 No Call contract and carry no risk, detection, sex or fetal-fraction finding at all.
+ // (The Twin master's static guidance text mentions "Detected", so findings are checked per field, never by a page-wide word scan.)
+ if(p.noCall){want(isNoCallReport(parsed),'NO_CALL_RESULT');want(!/\b(?:Low Risk|High Risk|Male|Female)\b/.test(text),'NO_CALL_FINDING_PRINTED');
+  const r=parsed.results;want([r.t21,r.t18,r.t13,r.yChromosome,r.fetalSex,r.xo,r.xxx,r.xxy,r.xyy,r.fetalFraction].every(x=>x.value===null),'NO_CALL_FINDING_READ');}
+ else{want(!parsed.results.result?.value,'UNEXPECTED_RESULT_LINE');
+ want(parsed.results.t21.value===v.trisomy21_ra&&parsed.results.t18.value===v.trisomy18_ra&&parsed.results.t13.value===v.trisomy13_ra,'TRISOMY');
  if(p.template==='SINGLETON'){want([parsed.results.xo.value,parsed.results.xxx.value,parsed.results.xxy.value,parsed.results.xyy.value].join('/')===[v.XO_NEW,v.XXX_NEW,v.XXY_NEW,v.XYY_NEW].join('/'),'SCA');
   want(parsed.results.fetalFraction.value===Number(v.fetalFaction_2),'FETAL_FRACTION');want(parsed.results.fetalSex.value===v.gender,'FETAL_SEX');}
- else want(parsed.results.yChromosome.value===v.gender_cbh,'Y_CHROMOSOME');
+ else want(parsed.results.yChromosome.value===v.gender_cbh,'Y_CHROMOSOME');}
  for(const [label,s] of [['Reported',signers.reported],['Approved',signers.approved]] as const){
   // PDF text extraction splits "25-Oct-2026" into "25 - Oct - 2026" (as in the real ReadyGen PDFs); compare without those spaces.
   want(text.replace(/\s*-\s*/g,'-').includes(`${label} Date: ${s.date}`),`${label.toUpperCase()}_DATE`);want(text.replace(/\s+/g,'').includes(`(${s.name})`.replace(/\s+/g,'')),`${label.toUpperCase()}_NAME`);
@@ -244,18 +265,21 @@ export async function finalizeReports(db:Queryable,user:Staff,deps:ReportDeps,in
    const name=renderDownloadName(template,{hisLn:w.p.hisLn,lnHalos:w.p.lnHalos??'',sampleId:w.p.sampleId,hn:w.p.hn??'',patientName:w.p.values!.patientName,reportDate:bangkokDay(w.signers.approved.authority!.checkedAt),template:TEMPLATES[w.p.template].code,version:String(seq)});
    const snap=(a:SignerAuthority)=>({basis:a.basis,delegationId:a.delegationId,authorityReference:a.authorityReference,operatorId:a.operatorId,profileId:a.profile.id,profileVersion:a.profile.version,legalName:a.profile.legal_name,license:a.profile.mt_license_no,signatureSha256:a.profile.signature_sha256,checkedAt:a.checkedAt});
    const ruleset={id:RULESET.id,version:RULESET.version,sha256:RULESET_SHA256,settingRevisionId:w.p.approval.revisionId,settingRevisionVersion:w.p.approval.revisionVersion,approved:w.p.approval.approvedRevision&&w.p.approval.value.interpretationApproved,
-    combinationApproved:(w.p.template==='SINGLETON'?w.p.approval.value.singletonApprovedProduct:w.p.approval.value.twinApprovedProduct)===w.p.productCode,productCode:w.p.productCode,approvalReference:w.p.approval.value.approvalReference};
+    combinationApproved:(w.p.template==='SINGLETON'?w.p.approval.value.singletonApprovedProduct:w.p.approval.value.twinApprovedProduct)===w.p.productCode,productCode:w.p.productCode,approvalReference:w.p.approval.value.approvalReference,
+    noCallRenderingApproved:w.p.approval.approvedRevision&&w.p.approval.value.noCallRenderingApproved};
+   // A No Call is a recorded disposition of the attempt, not an interpretation of findings; the HALOS trace is kept for the record only.
+   const interpretation=w.p.noCall?{status:'NO_CALL',template:w.p.template,source:'ATTEMPT_NO_CALL_SELECTED',qc:w.p.values!.qc,ruleset:w.p.interpretation.ruleset,halosTrace:w.p.interpretation.trace}:w.p.interpretation;
    // A re-issue before release retires the earlier internal report: its version can no longer pass RG-14, and the new version waits
    // Unlinked for the existing two-person revision link. After release the existing OD-17 policy holds it (see prepareReport).
    if(w.p.reissue)await db.query("UPDATE internal_report SET state='Superseded',state_reason=$2 WHERE id=$1 AND state='Final'",[w.p.reissue.internalId,'REISSUED: '+item.reissueReason]);
    const report=(await db.query<{id:string}>(`INSERT INTO internal_report(halos_row_id,attempt_id,round_id,case_id,template_kind,template_code,template_sha256,pregnancy_source,pregnancy_override_reason,interpretation,ruleset,bindings,operator_id,
      reported_by,reported_profile_id,reported_authority,reported_at,approved_by,approved_profile_id,approved_authority,approved_at,pdf_sha256,download_name,supersedes_id,batch_id)
      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25) RETURNING id`,
-    [w.p.rowId,w.p.attemptId,w.p.roundId,w.p.caseId,w.p.template,TEMPLATES[w.p.template].code,TEMPLATES[w.p.template].sha256,w.p.pregnancySource,w.p.overrideReason,JSON.stringify(w.p.interpretation),JSON.stringify(ruleset),
+    [w.p.rowId,w.p.attemptId,w.p.roundId,w.p.caseId,w.p.template,TEMPLATES[w.p.template].code,TEMPLATES[w.p.template].sha256,w.p.pregnancySource,w.p.overrideReason,JSON.stringify(interpretation),JSON.stringify(ruleset),
      JSON.stringify({values:w.p.values,docx:w.docx.bindings,sources:w.p.sources,docxSha256:w.docx.sha256,renderer:pdf.renderer,pages:pdf.pages,readback:{templateKind:check.parsed.templateKind,parserVersion:check.parsed.parserVersion}}),user.id,
      w.signers.reported.authority!.profile.user_id,w.signers.reported.authority!.profile.id,JSON.stringify(snap(w.signers.reported.authority!)),w.signers.reported.authority!.checkedAt,
      w.signers.approved.authority!.profile.user_id,w.signers.approved.authority!.profile.id,JSON.stringify(snap(w.signers.approved.authority!)),w.signers.approved.authority!.checkedAt,hash,name,w.p.reissue?.internalId??null,batchId])).rows[0];
-   await audit(db,user,'INTERNAL_REPORT_FINALIZED','INTERNAL_REPORT',report.id,{outcome:'FINAL',origin:'INTERNAL_GENERATED',ruleVersion:`${RULESET.id}-${RULESET.version}`});
+   await audit(db,user,'INTERNAL_REPORT_FINALIZED','INTERNAL_REPORT',report.id,{outcome:w.p.noCall?'NO_CALL':'FINAL',origin:'INTERNAL_GENERATED',ruleVersion:`${RULESET.id}-${RULESET.version}`});
    let v=await registerInternalVersion(db,user,deps.store,report.id);
    let release:string|undefined;
    if(d.release&&d.releaseConfirmations&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state)){

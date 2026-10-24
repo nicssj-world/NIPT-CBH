@@ -143,13 +143,13 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
 
     {d.benchEvidence&&<section className="panel" aria-labelledby="bench-evidence-h"><h2 id="bench-evidence-h">ใบงาน QC / Sequencing ของตัวอย่างนี้</h2><p><Link href={`/lab/batches/${d.benchEvidence.batchId}/bench`}>{d.benchEvidence.runLabel} · ตำแหน่ง {d.benchEvidence.slot} · ฉบับ {d.benchEvidence.revision}</Link></p><p>Concentration {d.benchEvidence.concentration??'ยังไม่บันทึก'} ng/µL · Standard {d.benchEvidence.qcStandardCount}/9 · Pool {d.benchEvidence.poolConcentration??'ยังไม่บันทึก'} ng/µL</p><p>Pooling จริง: {d.benchEvidence.actualPooling?.current?(d.benchEvidence.actualPooling.pooled?'มีบันทึก Transfer ตรงกับตัวอย่างนี้':'ไม่ได้ Transfer เข้า Pooling'):'ยังไม่มีบันทึกปัจจุบัน'}</p><p className="help">{d.benchEvidence.current?'ผูกกับตำแหน่งปัจจุบัน':'ต้นทางตำแหน่งเปลี่ยนแล้ว กรุณาตรวจใบงาน'} · ค่าจากใบงานยังไม่ใช่ผลการยอมรับ QC ระบบตรวจหลักฐาน QC และสิทธิ์รับรองก่อนออกผล</p></section>}
     {d.gate&&<section className="panel" aria-labelledby="gate-h">
-     <h2 id="gate-h">{d.gate.gate==="RG"?"Final Result Release Gate (RG-01 – RG-13)":"Redraw Notice Release Gate (RN-01 – RN-07)"}</h2>
+     <h2 id="gate-h">{d.gate.gate==="RG"?"Final Result Release Gate (RG-01 – RG-14)":"Redraw Notice Release Gate (RN-01 – RN-07)"}</h2>
      <p><Status tone={d.gate.eligible?"good":"bad"}>{d.gate.eligible?"ผ่านทุกข้อที่ประเมินก่อนรับรอง":`ไม่ผ่าน ${d.gate.failed.length} ข้อ · รอการตัดสินใจ ${d.gate.pending.length} ข้อ`}</Status>{d.gate.waitsForP4b&&<span className="badge warning">รอข้อมูล QC/วิเคราะห์จาก P4b</span>}</p>
      <ul className="p5-gates">{d.gate.predicates.map(g=><li key={g.code}><span className="mono p5-code">{g.code}</span><span className="p5-gate-name">{GATE_NAME[g.code]}</span><Status tone={TRI_TONE[g.status]}>{TRI_TEXT[g.status]}</Status><span className="help">{reasonText(g.reason)}{g.governance?` · ${g.governance}`:""}</span></li>)}</ul>
      {d.can.review&&<div className="action-bar"><button type="button" className="button secondary" disabled={!!busy} onClick={()=>void act("revalidate",{},"ประเมิน Gate ใหม่แล้ว")}>{busy==="revalidate"?"กำลังประเมิน…":"ประเมินใหม่"}</button></div>}
     </section>}
 
-    <Task3Panel d={d} versionId={v.id} rowVersion={v.rowVersion} reload={load} abnormal={p.abnormal} ownerPaperRoute={!!d.benchEvidence?.ownerPaperRoute}/>
+    <Task3Panel d={d} versionId={v.id} rowVersion={v.rowVersion} reload={load} abnormal={p.abnormal} ownerPaperRoute={!!d.benchEvidence?.ownerPaperRoute} benchRevision={d.benchEvidence?.revision}/>
     {d.operational&&d.can.acceptRelease&&<section className="panel" aria-labelledby="accept-h">
      <h2 id="accept-h">ตรวจรับ PDF และยืนยันส่งผล</h2>
      <p className="help">รายงาน Final มาจากโปรแกรมวิเคราะห์ภายนอกที่รับรองผลแล้ว NIPT-CBH ไม่วิเคราะห์หรือรับรองผลทางคลินิกซ้ำ — ยืนยันครั้งเดียวเพื่อบันทึกการตรวจรับ PDF และส่งผล ระบบยังตรวจตัวตนผู้ป่วย ฉบับรายงาน ความยินยอม และ Gate ทุกข้อขณะกด</p>

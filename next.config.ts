@@ -11,7 +11,9 @@ const config: NextConfig = {
       "./node_modules/@fontsource/noto-sans-thai/files/noto-sans-thai-thai-400-normal.woff2",
       "./node_modules/@fontsource/noto-sans-thai/files/noto-sans-thai-thai-700-normal.woff2",
       "./node_modules/@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff2",
-      "./node_modules/@fontsource/noto-sans/files/noto-sans-latin-700-normal.woff2"
+      "./node_modules/@fontsource/noto-sans/files/noto-sans-latin-700-normal.woff2",
+      // Task 3: Microsoft Word renders the Owner DOCX masters (server cwd is the standalone root).
+      "./packages/readygen/word-export.ps1"
     ],
     "/api/p5/results/*/reparse": ["./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"],
     "/api/workbook/batches/*": ["./packages/workbook/native-export.ps1"],

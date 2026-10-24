@@ -3,7 +3,7 @@ import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {vi} from 'vitest';
 import type {z} from 'zod';
-import {inboundFixture} from './inbound';
+import {inboundFixture,writePet,cycle} from './inbound';
 import {addUser} from './database';
 import {labUsers,tx} from './lab';
 import {syntheticSignaturePng} from './signature-png';
@@ -17,8 +17,7 @@ import * as batch from '../../packages/lab/batch';
 import {benchWorkspace,benchExport} from '../../packages/lab/bench';
 import {saveWorkbookDraft} from '../../packages/workbook/service';
 import {recordActualPooling,exportSeqPair} from '../../packages/lab/seq-export';
-import {writeArchive,xmlEscape} from '../../packages/workbook/archive';
-import {ANALYSIS_HEADERS} from '../../packages/readygen/halos-adapter';
+import {orderRepeat,orderRedraw} from '../../packages/lab/intake';
 import {submitSignerProfile,decideSignerProfile,grantDelegation} from '../../packages/readygen/signers';
 import {proposeSetting,validateSetting,approveSetting,activateSetting} from '../../packages/settings/service';
 import {SETTINGS} from '../../packages/settings/catalog';
@@ -26,31 +25,10 @@ import type {Principal} from '../../packages/security/policy';
 
 export const T3_SOURCES=path.resolve('.local/task3-sources');
 export const masters=()=>({SINGLETON:readFileSync(path.join(T3_SOURCES,'singleton.docx')),TWIN:readFileSync(path.join(T3_SOURCES,'twin.docx'))});
-const HEADER=['Sample No.','Patient Name','Sample QC','Operation advice','Physician advice','Report generation','Reason for quality control failure','Z(chr13)','Z(chr18)','Z(chr21)',
- 'Test(chr13)','Test(chr18)','Test(chr21)','Test(Sex chr)','Fetal Fract. (%)','13 fraction (%)','18 fraction (%)','21 fraction (%)','13 risk index','18 risk index','21 risk index','Repeated sample',
- 'Test(Other autosomes)','Disease','Test(CNV)','Locus Information','Effective reads (M)','GC(%)','No. of abnormal chr','Sex chromosome concentration difference','MapRate(%)','Duplication rate (%) ',
- 'Remarks','SCA prompt','Supplement','Q20 (%)','Q30 (%)','Experimental Parameters(ng/μl)','Chip ID','Lane ID','Barcode ID','X fraction (%)','Y fraction (%)','Gender'];
-export type HalosSpec={sample:string;qc?:string;advice?:string;t13?:string;t18?:string;t21?:string;sex?:string;ff?:string;gender?:string;chip?:string;barcode?:string;other?:string;disease?:string;cnv?:string};
-const col=(n:number)=>{let s='';n++;while(n>0){const m=(n-1)%26;s=String.fromCharCode(65+m)+s;n=Math.floor((n-1)/26);}return s;};
-const sheetXml=(rows:string[][])=>`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rows.map((r,i)=>`<row r="${i+1}">${r.map((v,j)=>v===''?'':`<c r="${col(j)}${i+1}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(v)}</t></is></c>`).join('')}</row>`).join('')}</sheetData></worksheet>`;
-const analysisRow=(s:HalosSpec)=>{const v:Record<string,string>={'Sample No.':s.sample,'Patient Name':'SYNTHETIC','Sample QC':s.qc??'Pass','Operation advice':s.advice??'Qualified','Physician advice':s.advice??'Qualified','Report generation':'Not Generated',
- 'Test(chr13)':s.t13??'Negative','Test(chr18)':s.t18??'Negative','Test(chr21)':s.t21??'Negative','Test(Sex chr)':s.sex??'Negative','Fetal Fract. (%)':s.ff??'14.7','13 risk index':'1/39594481','18 risk index':'1/2143998259','21 risk index':s.t21&&s.t21!=='Negative'?'1/1.01':'1/2143998259',
- 'Repeated sample':'No','Test(Other autosomes)':s.other??'','Disease':s.disease??'','Test(CNV)':s.cnv??'','Chip ID':s.chip??'S990000001','Lane ID':'L01','Barcode ID':s.barcode??'1.0','Gender':s.gender??'Female'};return HEADER.map(h=>v[h]??'');};
-/** Synthetic HALOS "Sample analysis data" workbook with the real sheet/header contract. */
-export function halosWorkbook(spec:{result:HalosSpec[];repeat?:HalosSpec[];sampleinfo:{id:string;fetus:string;product?:string;ga:string}[];omitRepeatSheet?:boolean}){
- const sheets:[string,string[][]][]=[['result',[HEADER,...spec.result.map(analysisRow)]],...(spec.omitRepeatSheet?[]:[['repeat',[HEADER,...(spec.repeat??[]).map(analysisRow)]] as [string,string[][]]]),
-  ['sampleinfo',[['Sample ID','Type of fetus','Patient Name','Tube type','Reason for Referral','Gestational Weeks','Product Name'],...spec.sampleinfo.map(i=>[i.id,i.fetus,'SYNTHETIC','K Tube','',i.ga,i.product??'NIFTY(Y%)'])]]];
- const parts=new Map<string,Buffer>([
-  ['[Content_Types].xml',Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${sheets.map((_,i)=>`<Override PartName="/xl/worksheets/sheet${i+1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`)],
-  ['_rels/.rels',Buffer.from('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>')],
-  ['xl/workbook.xml',Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map(([n],i)=>`<sheet name="${n}" sheetId="${i+1}" r:id="rId${i+1}"/>`).join('')}</sheets></workbook>`)],
-  ['xl/_rels/workbook.xml.rels',Buffer.from(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_,i)=>`<Relationship Id="rId${i+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i+1}.xml"/>`).join('')}</Relationships>`)],
-  ...sheets.map(([,rows],i)=>[`xl/worksheets/sheet${i+1}.xml`,Buffer.from(sheetXml(rows))] as [string,Buffer])]);
- return writeArchive(parts);
-}
-void ANALYSIS_HEADERS;
+export {halosWorkbook,type HalosSpec} from '../../tools/task3-uat/halos-fixture';
 
-type CaseSpec={ln:string;hn:string;pregnancy:'Singleton'|'Twins';sheet:1|2|3};
+
+type CaseSpec={ln:string;hn:string;pregnancy:'Singleton'|'Twins';sheet:1|2|3;priorFailures?:boolean;pet?:{specimenAt?:string;receivedAt?:string;ward?:string;identity?:string}};
 /** Operational LAB_DIRECT cases through PET receipt, one Owner batch, real Master worksheet, actual pooling and the dual HALOS/NIFTY export. */
 type Provided={db:Queryable;root:string;store:import('../../packages/storage').FileStore;lookupKey:Buffer;close():Promise<void>};
 export async function task3Fixture(cases:CaseSpec[]=[{ln:'9900099511',hn:'9900099951',pregnancy:'Singleton',sheet:1},{ln:'9900099512',hn:'9900099952',pregnancy:'Singleton',sheet:2},{ln:'9900099513',hn:'9900099953',pregnancy:'Twins',sheet:3}],provided?:Provided){
@@ -64,10 +42,23 @@ export async function task3Fixture(cases:CaseSpec[]=[{ln:'9900099511',hn:'990009
  const made:{ln:string;hn:string;caseId:string;roundId:string;attemptId:string;printed:string;pregnancy:'Singleton'|'Twins'}[]=[];
  for(const c of cases){
   const r=await run(t=>registerP2(t,u.staff,{ln:c.ln,hn:c.hn,unitId:u.unit,origin:'LAB_DIRECT',idempotencyKey:'task3_fixture_'+randomUUID().replaceAll('-',''),labOperational:{gaWeeks:17,gaDays:6,edd:'2027-03-24',pregnancy:c.pregnancy,paperRequest:true,paperConsent:true,doctorVersionId:doctor.id}},f.lookupKey,{store:f.store}));
-  const wire=buildSyntheticPet({ln:c.ln,hn:c.hn,dob:'19900101',orderAt:'20261020070000',specimenAt:'20261020080000',receivedAt:'20261020090000'}),pet=parsePet(wire.bytes,wire.filename);await f.store.put(wire.bytes);
+  const wire=buildSyntheticPet({ln:c.ln,hn:c.hn,dob:'19900101',orderAt:'20261020070000',specimenAt:'20261020080000',receivedAt:'20261020090000',...c.pet}),pet=parsePet(wire.bytes,wire.filename);await f.store.put(wire.bytes);
   await run(async t=>{const file=(await t.query<{id:string}>("INSERT INTO his_inbound_file(sha256,state,filename,ln,parsed) VALUES($1,'Ready',$2,$3,$4) RETURNING id",[pet.hash,pet.filename,c.ln,JSON.stringify(pet)])).rows[0],target=(await t.query<{case_ln_id:string;case_id:string;origin:'LAB_DIRECT'}>('SELECT l.id case_ln_id,l.case_id,c.registration_origin origin FROM case_ln l JOIN nipt_case c ON c.id=l.case_id WHERE l.case_id=$1',[r.caseId])).rows[0];await applyS1(t,file,pet,target,'AUTOMATIC');});
-  const a=(await f.db.query<{id:string;round_id:string}>('SELECT id,round_id FROM analytical_attempt WHERE case_id=$1',[r.caseId])).rows[0];
-  await run(async t=>batch.assignToBatch(t,u.staff,{batchId,expectedVersion:await version(),attemptIds:[a.id],sheetNumber:c.sheet}));
+  let a=(await f.db.query<{id:string;round_id:string}>('SELECT id,round_id FROM analytical_attempt WHERE case_id=$1',[r.caseId])).rows[0];
+  // Owner-locked lineage before the batched attempt: -1 and -2 fail (S1), Re-Sampling S2 receipt via a newer HIS PET, R-1 fails; R-2 is
+  // the 4th attempt and goes through the real batch below. Failures of the earlier attempts are disposable state fixtures (as task1-lineage).
+  if(c.priorFailures){
+   const fail=async()=>{const x=(await f.db.query<{id:string;repeat_order_id:string|null}>('SELECT id,repeat_order_id FROM analytical_attempt WHERE case_id=$1 ORDER BY overall_ordinal DESC LIMIT 1',[r.caseId])).rows[0];
+    await f.db.query("UPDATE analytical_attempt SET state='Assigned' WHERE id=$1",[x.id]);if(x.repeat_order_id)await f.db.query("UPDATE repeat_work_order SET state='RepeatInProgress' WHERE id=$1",[x.repeat_order_id]);
+    await f.db.query("UPDATE analytical_attempt SET state='InProgress' WHERE id=$1",[x.id]);await f.db.query("UPDATE analytical_attempt SET state='QcFailed',qc_failed_stage='QC1' WHERE id=$1",[x.id]);return x.id;};
+   const first=await fail();await run(t=>orderRepeat(t,u.staff,{attemptId:first,level:'RE_LIBRARY',reasonCode:'LIBRARY_FAILURE',note:'SYNTHETIC repeat fixture'}));const second=await fail();
+   const redraw=await run(t=>orderRedraw(t,u.staff,{caseId:r.caseId,reasonCode:'QC_SAMPLE_FAILED',note:'SYNTHETIC re-sampling fixture'}));void second;
+   await writePet(f.root,'20261021',{ln:c.ln,hn:c.hn,dob:'19900101',orderAt:'20261021070000',specimenAt:'20261021080000',receivedAt:'20261021090000'});await cycle(f,{now:new Date('2026-10-21T05:00:00Z')});
+   const third=await fail();
+   const fourth=await run(t=>orderRepeat(t,u.staff,{attemptId:third,level:'RE_EXTRACTION',reasonCode:'LIBRARY_FAILURE',note:'SYNTHETIC fourth attempt'}));
+   a={id:fourth.attemptId,round_id:redraw.newRoundId};
+  }
+  const placed=await run(async t=>batch.assignToBatch(t,u.staff,{batchId,expectedVersion:await version(),attemptIds:[a.id],sheetNumber:c.sheet}));if(placed.rejected.length)throw Error('FIXTURE_ASSIGNMENT_REJECTED '+JSON.stringify(placed.rejected));
   made.push({ln:c.ln,hn:c.hn,caseId:r.caseId!,roundId:a.round_id,attemptId:a.id,printed:'',pregnancy:c.pregnancy});
  }
  for(let sheet=1;sheet<=3;sheet++){await run(async t=>batch.updateSheetPlan(t,u.staff,{batchId,expectedVersion:await version(),sheetNumber:sheet,plannedWorkDate:'2026-10-20',plannedOperator:'SYNTHETIC LOCAL TEST',plannedExtractionLot:null,plannedExtractionExpiry:null,plannedLibraryLot:null,plannedLibraryExpiry:null}));

@@ -86,6 +86,8 @@ export async function confirmFailure(db:Queryable,user:Staff,input:unknown){
  if(!revision||!(d.stage==='QC4'?keys.some(present):keys.every(present)))throw new LabError('FAILED_STAGE_EVIDENCE_REQUIRED',409);
  if(a.attempt_state==='Assigned')await setAttemptState(db,user,{id:a.attempt_id,case_id:a.case_id,state:'Assigned'},'InProgress',{batchId:a.slot_batch_id,revisionId:revision.id});
  await setAttemptState(db,user,{id:a.attempt_id,case_id:a.case_id,state:'InProgress'},'QcFailed',{stage:d.stage,reason:d.note,revisionId:revision.id},{qcFailedStage:d.stage});
+ // The failed child closes its repeat order, as the QC1 record path does; an open order would otherwise block No Call and a next repeat.
+ if(a.repeat_order_id)await db.query("UPDATE repeat_work_order SET state='RepeatFailed',closed_by=$2,closed_at=now(),close_reason=$3 WHERE id=$1 AND state='RepeatInProgress'",[a.repeat_order_id,user.id,`CHILD_${d.stage}_FAILED`]);
  await attemptEvent(db,user,{attemptId:a.attempt_id,caseId:a.case_id,type:'FAILURE_CONFIRMED',stage:d.stage,reason:d.note,details:{batchId:a.slot_batch_id,slot:a.slot_number,roundId:a.round_id,revisionId:revision.id,sourceSha256:revision.source_sha256}});
  await audit(db,user,'LAB_FAILURE_CONFIRMED','analytical_attempt',a.attempt_id,{outcome:d.stage});
  return {attemptId:a.attempt_id,status:a.overall_ordinal>=4?'รอพิจารณาหลังครบ 4 ครั้ง':'QcFailed'};

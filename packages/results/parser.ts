@@ -3,7 +3,7 @@
 // unapproved until OD-07 verifies them against the hospital's synthetic PDFs. The twin layout has no NIPTY evidence (SPEC: no twin
 // case seen); its anchors are a proposed synthetic contract. Every value keeps its raw text and method; unreadable is UNREADABLE —
 // never Normal, Low Risk, Not Detected or 0.
-export const PARSER_VERSION='P5-PARSER-1.0.3';
+export const PARSER_VERSION='P5-PARSER-1.0.4';
 export const TEMPLATE_VERSIONS={SINGLETON:'SYNTHETIC-BGI-SINGLETON-v1-UNAPPROVED-OD07',TWIN:'SYNTHETIC-TWIN-PROPOSED-v1-UNAPPROVED-OD07',REDRAW_NOTICE:'SYNTHETIC-REDRAW-NOTICE-v1-UNAPPROVED-OD07',UNKNOWN:'UNKNOWN'} as const;
 export type TemplateKind=keyof typeof TEMPLATE_VERSIONS;
 export type Method='ANCHORED'|'FALLBACK'|'UNREADABLE'|'NOT_APPLICABLE';
@@ -59,7 +59,8 @@ export function parseReport(text:string,filename=''):Parsed{
   receivedDate:dateField(RE.received.exec(text)),reportedDate:dateField(RE.reported.exec(text)),gestationalAgeDays:ga};
  // Owner Task1: the same normal external PDF may explicitly report Result = No Call.
  // Retain the complete anchored result text; duplicate lines are unresolved, never picked silently.
- const resultLines=[...text.matchAll(/^[ \t]*Result[ \t]*[:=][ \t]*([^\r\n]+?)[ \t]*$/gmi)];
+ // Task 3: the Owner DOCX masters' only free-text slot is "Remark:", which extracts on the same line ("Remark: Result = No Call").
+ const resultLines=[...text.matchAll(/^[ \t]*(?:Remark:[ \t]*)?Result[ \t]*[:=][ \t]*([^\r\n]+?)[ \t]*$/gmi)];
  const reportResult:Field=resultLines.length===1?field(resultLines[0]):resultLines.length>1?{value:null,raw:resultLines.map(m=>m[0]).join('\n'),method:'UNREADABLE'}:none();
  const noCall=reportResult.method==='ANCHORED'&&reportResult.value==='No Call';
  const results:Parsed['results']={result:reportResult,t21:none(),t18:none(),t13:none(),fetalSex:none(),xo:none(),xxx:none(),xxy:none(),xyy:none(),yChromosome:none('NOT_APPLICABLE'),fetalFraction:none(),qc:field(RE.qc.exec(text))};

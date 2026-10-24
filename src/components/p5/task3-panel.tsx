@@ -15,7 +15,7 @@ const BASIS:Record<string,string>={SELF:"ลงนามด้วยตนเอ
 const EFFECT:Record<string,string>={SUPPRESSED_BEFORE_RELEASE:"บันทึกก่อนยืนยันส่งผล — จะไม่ส่งผลเข้า HIS ซ้ำ",SUPPRESSED_PENDING_DELIVERY:"บันทึกหลังยืนยันส่งผล ก่อนระบบเริ่มส่ง — ยกเลิกการส่งเข้า HIS"};
 const newKey=()=>crypto.randomUUID().replaceAll("-","");
 
-export function Task3Panel({d,versionId,rowVersion,reload,abnormal,ownerPaperRoute}:{d:Task3Detail;versionId:string;rowVersion:number;reload:()=>Promise<void>;abnormal:boolean;ownerPaperRoute:boolean}){
+export function Task3Panel({d,versionId,rowVersion,reload,abnormal,ownerPaperRoute,benchRevision}:{d:Task3Detail;versionId:string;rowVersion:number;reload:()=>Promise<void>;abnormal:boolean;ownerPaperRoute:boolean;benchRevision?:number}){
  const [busy,setBusy]=useState(""),[error,setError]=useState(""),[notice,setNotice]=useState("");
  const [confirm,setConfirm]=useState({content:false,identity:false,disclosure:false,abnormal:false,bench:false}),[releaseKey]=useState(newKey);
  const [attest,setAttest]=useState(false),[attestNote,setAttestNote]=useState(""),[withdrawReason,setWithdrawReason]=useState("");
@@ -50,7 +50,7 @@ export function Task3Panel({d,versionId,rowVersion,reload,abnormal,ownerPaperRou
     {abnormal&&<label className="check-label"><input type="checkbox" checked={confirm.abnormal} onChange={e=>setConfirm(c=>({...c,abnormal:e.target.checked}))}/> รับทราบผลผิดปกติ (High Risk / Detected)</label>}
     {ownerPaperRoute&&<label className="check-label"><input type="checkbox" checked={confirm.bench} onChange={e=>setConfirm(c=>({...c,bench:e.target.checked}))}/> ทบทวนค่าในใบงาน QC / Sequencing ฉบับล่าสุดแล้ว</label>}
    </fieldset>
-   <div className="action-bar"><button type="button" className="button" disabled={!!busy||!readyToRelease} onClick={()=>run("acceptInternal",{expectedRowVersion:rowVersion,idempotencyKey:releaseKey,reportContentVerified:true,identityAndValuesMatchReport:true,disclosureReviewed:true,abnormalAcknowledged:confirm.abnormal,...(ownerPaperRoute?{benchMeasurementsReviewed:true}:{})},"ยืนยันส่งผลแล้ว — ผ่าน Gate และบันทึกการปล่อยผล")}>{busy==="acceptInternal"?"กำลังยืนยัน…":"ตรวจรับและยืนยันส่งผล"}</button></div>
+   <div className="action-bar"><button type="button" className="button" disabled={!!busy||!readyToRelease} onClick={()=>run("acceptInternal",{expectedRowVersion:rowVersion,idempotencyKey:releaseKey,reportContentVerified:true,identityAndValuesMatchReport:true,disclosureReviewed:true,abnormalAcknowledged:confirm.abnormal,...(ownerPaperRoute&&benchRevision?{benchRevision,benchMeasurementsReviewed:true}:{})},"ยืนยันส่งผลแล้ว — ผ่าน Gate และบันทึกการปล่อยผล")}>{busy==="acceptInternal"?"กำลังยืนยัน…":"ตรวจรับและยืนยันส่งผล"}</button></div>
   </div>}
 
   <div className="stack t3-block">
