@@ -204,10 +204,11 @@ test('LAB_STAFF sidebar, signer page and grouped label-value layouts; auditor re
  // LAB_STAFF imports/prepares but cannot finalize (no certification authority): no selection checkboxes or Final button.
  await expect(page.getByRole('region',{name:'รายการออกรายงานจากผล HALOS'}).getByRole('button',{name:'ออกรายงาน',exact:true})).toHaveCount(0);
  await shot(page,'lab-results-workspace');
- // Dark theme: same contrast rules (UI/UX Pro Max color-dark-mode, WCAG AA).
- await page.emulateMedia({colorScheme:'dark'});await page.reload();await expect(page.getByRole('heading',{name:'รายงานจากผล HALOS'})).toBeVisible();
- evidence.darkTheme=await page.evaluate(()=>document.documentElement.dataset.theme??getComputedStyle(document.body).backgroundColor);
- await shot(page,'lab-results-workspace-dark',[1440,375]);await axe(page,'results-dark');await page.emulateMedia({colorScheme:'light'});
+ // Dark theme through the product's own toggle (data-theme): same contrast rules (UI/UX Pro Max color-dark-mode, WCAG AA).
+ await page.getByRole('button',{name:'เปลี่ยนเป็นธีมมืด'}).click();await expect.poll(()=>page.evaluate(()=>document.documentElement.dataset.theme)).toBe('dark');
+ evidence.darkTheme={dataTheme:'dark',background:await page.evaluate(()=>getComputedStyle(document.body).backgroundColor)};
+ await shot(page,'lab-results-workspace-dark',[1440,375]);await axe(page,'results-dark');
+ await page.getByRole('button',{name:'เปลี่ยนเป็นธีมสว่าง'}).click();await expect.poll(()=>page.evaluate(()=>document.documentElement.dataset.theme)).not.toBe('dark');
  await page.goto('/health');await shot(page,'lab-runtime-services',[1440,375]);
  await logout(page);
 });
