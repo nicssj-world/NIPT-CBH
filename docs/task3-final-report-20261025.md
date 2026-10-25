@@ -5,10 +5,10 @@
 | Item | Value |
 |---|---|
 | Worktree / branch | `.local/task3-readygen` / `feat/task3-readygen-20261025` (from Task 1.5 `40a9c7e`; `1a4055a` is an ancestor) |
-| Commits | `0ad0f22`, `1e4d004`, `09c6d7a`, `3e0b6f7`, plus the evidence/doc commit (see `git log`) — local only, not pushed or merged |
+| Commits | `0ad0f22`, `1e4d004`, `09c6d7a`, `3e0b6f7`, `17dfa07`, `e26a07a` (+ this report's doc-only commit) — local only, not pushed or merged |
 | Migrations | 128 `task3_readygen_two_pathways`, 129 `task3_native_no_call` (forward-only). UAT ledger: 72 rows, last 128/129, applied on PostgreSQL 17. |
 | Integrated UAT | https://127.0.0.1:20128 (TLS proxy) → web 20127, renderer 20130, PostgreSQL 20129, all bound to 127.0.0.1. DB `nipt_task3_integrated_owner_uat`. |
-| Parity record | `.local/task3-uat/runtime.json`: git HEAD, dirty flag, source-inventory SHA-256, Next build ID, `server.js` SHA-256, PIDs. |
+| Parity record | Final UAT built and seeded fresh from **`e26a07a`, clean tree** (`gitDirty:false`); source-inventory SHA-256 `3e534ca8…` at `17dfa07` then rebuilt for `e26a07a`; Next build `XcOt28T1_8bMpGEyIj26k`; `server.js` SHA-256 `6b735ff7d534bdfe…`. Full record: `.local/task3-uat/runtime.json`. |
 | Renderer | Microsoft Word 16 (COM, `ExportAsFixedFormat`) — the same engine ReadyGen uses. |
 
 ## 2. Source provenance (Owner-confirmed folder, read-only copies)
@@ -53,7 +53,7 @@ Changes to accepted, pre-Task 3 source, each necessary:
 | Unit / permissions / db / contracts | see §4a |
 | Native PostgreSQL (app_rw/worker_rw) | see §4a |
 | Microsoft Word contracts | NP, NC (Singleton + Twin No Call), NEG, ID, GOLD, SRC, REC — PASS |
-| Integrated browser E2E (UAT) | `tests/e2e/task3-integrated-uat.spec.ts` 6/6 PASS on a freshly seeded UAT |
+| Integrated browser E2E (UAT) | `tests/e2e/task3-integrated-uat.spec.ts` **6/6 PASS** on the fresh UAT of `e26a07a` (49.7 s): axe 0 violations on 7 pages incl. dark theme; 0/30 page-width captures overflow; view/download/print SHA identical; pathway B 0 outbound jobs; P6 exactly 1 transfer per internal release; ANC LAB APIs 403; APP_ADMIN Final 403 |
 | Restart / persistence | stop → start without reseed: business counts identical; admin/admin login 200 |
 | Backup / restore | `pg_dump -Fc` → restore into a scratch DB: same report/release/transfer/attestation/ledger counts |
 
@@ -85,7 +85,13 @@ One more pre-existing failure was fixed: `tests/db/p5-results.test.ts` pinned pa
 
 ## 6. Verdict
 
-See §6a. Pending gates that the implementer cannot execute or must not decide:
+### 6a. Verdict
+
+**TECHNICALLY READY FOR INTEGRATED OWNER UAT** — every implementer-executable item of the 108-item checklist is PASS with executed evidence (`docs/task3-completion-checklist-20261025.md`). This is **not** clinical, Owner or Production acceptance.
+
+Disclosed and not counted as PASS: 2 pre-existing native stack smoke failures (P3; identical on baseline `40a9c7e`).
+
+Pending gates that the implementer cannot execute or must not decide:
 
 1. **EXT — actual ReadyGen offline E2E** (T3-01-04, T3-09-01, T3-12-13). This needs a trusted, licensed ReadyGen installation authorized by the hospital. The bundled unsigned exe was not run. The fixture PDF is not ReadyGen output.
 2. **Clinical / Owner**: approval of ruleset CBH-READYGEN-REF 1.0.0, the HNZ0011 vs HNZ0051 product/template clearance, the No Call rendering, the twin Y disclosure rule (OD-09), and an approved Twin reference PDF.
