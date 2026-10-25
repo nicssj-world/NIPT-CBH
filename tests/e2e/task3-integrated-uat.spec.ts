@@ -204,6 +204,10 @@ test('LAB_STAFF sidebar, signer page and grouped label-value layouts; auditor re
  // LAB_STAFF imports/prepares but cannot finalize (no certification authority): no selection checkboxes or Final button.
  await expect(page.getByRole('region',{name:'รายการออกรายงานจากผล HALOS'}).getByRole('button',{name:'ออกรายงาน',exact:true})).toHaveCount(0);
  await shot(page,'lab-results-workspace');
+ // Dark theme: same contrast rules (UI/UX Pro Max color-dark-mode, WCAG AA).
+ await page.emulateMedia({colorScheme:'dark'});await page.reload();await expect(page.getByRole('heading',{name:'รายงานจากผล HALOS'})).toBeVisible();
+ evidence.darkTheme=await page.evaluate(()=>document.documentElement.dataset.theme??getComputedStyle(document.body).backgroundColor);
+ await shot(page,'lab-results-workspace-dark',[1440,375]);await axe(page,'results-dark');await page.emulateMedia({colorScheme:'light'});
  await page.goto('/health');await shot(page,'lab-runtime-services',[1440,375]);
  await logout(page);
 });
