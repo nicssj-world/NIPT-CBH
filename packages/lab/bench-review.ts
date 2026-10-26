@@ -7,11 +7,13 @@ import {calculateOwnerPooling,type PhysicalQc} from '../pooling/owner-master';
 import type {PlacementPayload} from './batch';
 
 /** Existing authorised result review also reviews the current paper worksheets.
+ * Applies to every origin that was analysed on the Owner bench workbook: LAB_DIRECT paper intake and ANC-origin cases alike
+ * (the registration channel only decides how Request/Consent evidence was captured, not how the specimen is analysed).
  * No fabricated legacy executions, observations, HALOS imports or event times.
  */
 export async function reviewBenchForResult(db:Queryable,user:Staff,attemptId:string,input:{revision?:number;measurementsReviewed?:boolean;reason:string}){
  need(user,'qc.accept');need(user,'result.certify');
- const assignment=(await db.query<{batch_id:string}>(`SELECT a.batch_id FROM lab_slot_assignment a JOIN analytical_attempt x ON x.id=a.attempt_id WHERE a.attempt_id=$1 AND a.removed_at IS NULL AND EXISTS(SELECT 1 FROM lab_operational_registration l WHERE l.case_id=x.case_id AND l.paper_request AND l.paper_consent)`,[attemptId])).rows;
+ const assignment=(await db.query<{batch_id:string}>(`SELECT a.batch_id FROM lab_slot_assignment a JOIN analytical_attempt x ON x.id=a.attempt_id WHERE a.attempt_id=$1 AND a.removed_at IS NULL AND (EXISTS(SELECT 1 FROM lab_operational_registration l WHERE l.case_id=x.case_id AND l.paper_request AND l.paper_consent) OR EXISTS(SELECT 1 FROM task_workbook_revision w WHERE w.batch_id=a.batch_id))`,[attemptId])).rows;
  if(assignment.length!==1)return null;
  if(input.measurementsReviewed!==true)throw new LabError('OWNER_WORKSHEET_REVIEW_CONFIRMATION_REQUIRED',409);
  const batchId=assignment[0].batch_id;

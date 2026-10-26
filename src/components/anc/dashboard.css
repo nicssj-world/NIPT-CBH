@@ -119,3 +119,12 @@
 @media(max-width:1200px){.anc-dashboard .anc-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.anc-filters form{grid-column:1/-1}.anc-filters>.button{grid-column:2;justify-self:end}}
 @media(max-width:600px){.anc-dashboard .anc-filters{grid-template-columns:minmax(0,1fr);gap:16px}.anc-filters form,.anc-filters>.button{grid-column:auto}.anc-filters>.button{justify-self:stretch}.anc-filters :is(input,select){font-size:16px}.anc-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}.anc-tabs button{padding:10px 4px}.anc-mobile-cases article{padding:20px 4px}.anc-heading{gap:12px}.anc-workflow .anc-heading .button{width:auto;min-width:100px}}
 @media(prefers-reduced-motion:reduce){.anc-metric,.anc-stages button,.anc-table-region td,.anc-mobile-cases article{transition:none}}
+
+.anc-dashboard .anc-updated{font-size:14px;font-weight:600;display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}
+.anc-dashboard .anc-case-action{display:inline-flex;align-items:center;gap:.4rem;white-space:normal;min-height:2.5rem}
+
+.anc-dashboard .anc-updated time{white-space:nowrap}
+.anc-dashboard .anc-flags>.badge{cursor:default;line-height:1.65}
+.anc-dashboard .anc-table-region table{min-width:1160px}
+.anc-dashboard .anc-case-action svg,.anc-dashboard .anc-mobile-cases a.button svg{flex-shrink:0}
+.anc-dashboard .anc-mobile-cases a.button{display:inline-flex;gap:8px;align-items:center}

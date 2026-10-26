@@ -5,7 +5,10 @@ import {buildTubeLabelsHtml,tubeLabelStickers} from "../../packages/lab/labels";
 import {RUN_SUFFIX} from "../../packages/lab/rules";
 
 const sample={ln:"0012345678",lnHalos:"26B261012001",patientName:null};
-const halves=(html:string)=>[...html.matchAll(/<div class="(left|right) half">\s*<div class="ln-halos">([^<]*)<\/div>\s*<div class="patient-ln"(?: style="[^"]*")?>LN: ([^<]*)<\/div>/g)].map(m=>({side:m[1],code:m[2],ln:m[3]}));
+// OWNER-LAB-004/026: a Code 128 barcode of the half's code sits between the LN Halos and HIS LN lines.
+const halves=(html:string)=>[...html.matchAll(/<div class="(left|right) half">\s*<div class="ln-halos">([^<]*)<\/div>\s*(?:<svg class="bc" data-code="([^"]*)"[^>]*>[\s\S]*?<\/svg>)?\s*<div class="patient-ln"(?: style="[^"]*")?>LN: ([^<]*)<\/div>/g)].map(m=>({side:m[1],code:m[2],barcode:m[3]??null,ln:m[4]}));
+/** The Genomic-CBH text/corner layout with the Owner-added barcode removed (OWNER-LAB-004/026 supersede only "no barcode"). */
+const withoutBarcode=(html:string)=>html.replace(/\s*<svg class="bc"[\s\S]*?<\/svg>/g,"").replace(/\n    \.bc \{[^\n]*\}/,"").replace(/\n    \.corner-set \{[^\n]*\}/,"").replace("gap: 0.4mm;","gap: 1mm;");
 
 describe("P4 tube labels — Owner Lock 2026-10-12 / Genomic-CBH label-print.ts",()=>{
  it("AT-LABEL-01: one sample = 4 stickers / 8 halves in exact order (BASE,BASE)(BASE,BASE)(BASE,BASE-1)(BASE-2,BASE-3)",()=>{
@@ -33,7 +36,8 @@ describe("P4 tube labels — Owner Lock 2026-10-12 / Genomic-CBH label-print.ts"
   expect(html).not.toMatch(/class="name"/);
   const named=buildTubeLabelsHtml([{...sample,patientName:"นางสาวจำลอง ทดสอบ"}]);
   expect(named.match(/<div class="patient-ln"(?: style="[^"]*")?>LN: 0012345678<\/div>\s*<div class="name">นางสาวจำลอง ทดสอบ<\/div>/g)).toHaveLength(8);
-  for(const html2 of [html,named])expect(html2).not.toMatch(/barcode|qr|<svg|<img|<canvas|JsBarcode|data:image/i);
+  // OWNER-LAB-004/026 replace the earlier "no barcode" rule: exactly one barcode per half, encoding that half's printed code; still no QR or images.
+  for(const html2 of [html,named]){expect(html2).not.toMatch(/qr|<img|<canvas|JsBarcode|data:image/i);expect(html2.match(/<svg class="bc"/g)).toHaveLength(8);expect(halves(html2).every(h=>h.barcode===h.code)).toBe(true);}
  });
  it("AT-LABEL-07: 4 vertical last-three-digit marks per half remain inside the original 50×20 mm sticker",()=>{
   const html=buildTubeLabelsHtml([sample]);
@@ -71,9 +75,9 @@ describe("P4 tube labels — Owner Lock 2026-10-12 / Genomic-CBH label-print.ts"
   expect(tubeLabelStickers("26B261012001").flat()).not.toContain("26B261012001R");
   expect(tubeLabelStickers("26B261012001").flat()).toContain("26B261012001-3");
  });
- it("matches the approved Genomic-CBH corner-label builder byte-for-byte for any synthetic batch",()=>{
+ it("apart from the Owner-added barcode, matches the approved Genomic-CBH corner-label builder byte-for-byte for any synthetic batch",()=>{
   const text=fc.string({maxLength:24});
-  fc.assert(fc.property(fc.array(fc.record({ln:text,lnHalos:text,patientName:fc.option(text,{nil:null})}),{maxLength:6}),samples=>buildTubeLabelsHtml(samples)===currentGenomicHtml(samples)),{numRuns:300});
-  expect(buildTubeLabelsHtml([sample])).toBe(currentGenomicHtml([sample]));
+  fc.assert(fc.property(fc.array(fc.record({ln:text,lnHalos:text,patientName:fc.option(text,{nil:null})}),{maxLength:6}),samples=>withoutBarcode(buildTubeLabelsHtml(samples))===currentGenomicHtml(samples)),{numRuns:300});
+  expect(withoutBarcode(buildTubeLabelsHtml([sample]))).toBe(currentGenomicHtml([sample]));
  });
 });

@@ -650,6 +650,11 @@ async function setLan(){
   if(!Number.isInteger(port)||port<1||port>65535||[c.ports.postgres,c.ports.web,c.ports.renderer].includes(port))fail('PORT_INVALID');
   const next={...c,host,lanEnabled,ports:{...c.ports,https:port},origin:originFor(host,port),...(lanEnabled?{httpsHost:'0.0.0.0',lanAllow:allow,lanProfiles:profiles}:{httpsHost:'127.0.0.1'})};
   validateConfig(next);
+  // OWNER-LAB-058: a DNS name must resolve on this server before anything is stopped (IT owns the DNS record and certificate).
+  if(!isIPv4(host)&&host!=='localhost'){try{await (await import('node:dns/promises')).lookup(host);}catch(e){fail('HOST_DNS_UNRESOLVED',{host,error:e.code??String(e)});}}
+  const before={origin:c.origin,host:c.host??null,lanEnabled:!!c.lanEnabled,port:c.ports.https};
+  const tlsBackup=existsSync(path.join(L.tls,'server.pfx'))?readFileSync(path.join(L.tls,'server.pfx')):null,passBackup=existsSync(secretFile(L,'tls-passphrase'))?readFileSync(secretFile(L,'tls-passphrase')):null;
+  const record=(outcome,extra={})=>appendFileSync(path.join(L.logs,'origin-changes.jsonl'),JSON.stringify({at:new Date().toISOString(),actor:os.userInfo().username,computer:os.hostname(),before,after:{origin:next.origin,host,lanEnabled,port},outcome,...extra})+'\n');
   await stopServices(L);
   untrustCertificate(next);
   if(args['cert-pfx']){
@@ -667,8 +672,18 @@ async function setLan(){
   const fw=ensureFirewall(L,next);if(!lanEnabled)removeFirewall(next);
   const trust=args['trust-certificate']==='yes'?trustCertificate(L,next):{trusted:false,reason:'NOT_REQUESTED'};
   await writeJson(L.configFile,next);
-  await startServices(L,next);await waitHealthy(L,next,{timeout:120000});
-  return {lan:await lanSummary(L,next),firewallAction:fw,trust,note:'Sessions of signed-in users end because the origin changed; they sign in again at the new URL.'};
+  // OWNER-LAB-058: if the new origin does not come up healthy, restore the previous configuration and certificate (no lockout).
+  try{await startServices(L,next);await waitHealthy(L,next,{timeout:120000});}
+  catch(e){
+   await stopServices(L).catch(()=>undefined);
+   if(tlsBackup)writeFileSync(path.join(L.tls,'server.pfx'),tlsBackup);if(passBackup)writeFileSync(secretFile(L,'tls-passphrase'),passBackup,{mode:0o600});
+   await writeJson(L.configFile,c);if(!c.lanEnabled)removeFirewall(c);else ensureFirewall(L,c);
+   await startServices(L,c);await waitHealthy(L,c,{timeout:120000}).catch(()=>undefined);
+   record('ROLLED_BACK',{error:e?.code??String(e?.message??e)});
+   fail('ORIGIN_CHANGE_ROLLED_BACK',{restored:c.origin,error:e?.code??String(e?.message??e)});
+  }
+  record('APPLIED');
+  return {lan:await lanSummary(L,next),firewallAction:fw,trust,before,note:'Sessions of signed-in users end because the origin changed; they sign in again at the new URL.'};
  }finally{rl?.close();}
 }
 async function lanStatus(){const L=layout(args.root),c=cfgOf(L);return lanSummary(L,c);}

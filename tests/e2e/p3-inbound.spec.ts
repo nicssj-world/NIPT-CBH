@@ -19,20 +19,23 @@ const AA_TAGS=["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"];
 for(const width of [375,768,1280])test(`P3 inbound queue is accessible and responsive at ${width}px (Lab)`,async({page})=>{
  await page.setViewportSize({width,height:900});await login(page);
  await page.goto("/inbound");
- await expect(page.getByRole("heading",{level:1,name:"รับใบสั่งจาก HIS"})).toBeVisible();
- for(const name of ["สถานะการเชื่อมต่อ","ไฟล์ล่าสุด","ประวัติการสแกน"])await expect(page.getByRole("heading",{name})).toBeVisible();
+ await expect(page.getByRole("heading",{level:1,name:"รับตัวอย่างจาก HIS"})).toBeVisible();
+ // OWNER-LAB-020: connection status is a row of status cards (not a heading); sections carry live counts.
+ for(const name of [/^ไฟล์ล่าสุด/,/^ประวัติการสแกน/])await expect(page.getByRole("heading",{name})).toBeVisible();
+ await expect(page.getByText("โฟลเดอร์ต้นทาง",{exact:true}).first()).toBeVisible();
  await expect(page.getByRole("heading",{name:/รายการที่ต้องตรวจ/})).toBeVisible();
- await expect(page.getByRole("button",{name:"สแกนไฟล์จำลอง"})).toBeVisible();await expect(page.getByLabel("สแกนย้อนหลัง (Deep scan) จำนวนวัน")).toBeVisible();
- await expect(page.getByRole("button",{name:"ทดสอบการเชื่อมต่อตัวจำลอง"})).toHaveCount(0); // integration.configure is Admin/IT only
+ // The simulator-only "สแกนไฟล์จำลอง" button no longer exists (scans run on the worker interval; Deep scan stays).
+ await expect(page.getByLabel("สแกนย้อนหลัง (Deep scan) จำนวนวัน")).toBeVisible();
+ await expect(page.getByRole("button",{name:"ทดสอบการเชื่อมต่อ",exact:true})).toHaveCount(0); // integration.configure is Admin/IT only
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  expect((await new AxeBuilder({page}).withTags(AA_TAGS).analyze()).violations).toEqual([]);
 });
 test("P3 inbound: Admin gets Test Connection but no LN-level PHI; ANC is denied",async({page,browser})=>{
  await login(page,"synthetic.admin");await page.goto("/inbound");
- await expect(page.getByRole("button",{name:"ทดสอบการเชื่อมต่อตัวจำลอง"})).toBeVisible();
+ await expect(page.getByRole("button",{name:"ทดสอบการเชื่อมต่อ",exact:true})).toBeVisible();
  expect((await new AxeBuilder({page}).withTags(AA_TAGS).analyze()).violations).toEqual([]);
  const other=await browser.newContext({baseURL:process.env.E2E_BASE_URL??"http://127.0.0.1:3000",ignoreHTTPSErrors:process.env.E2E_IGNORE_LOCAL_TLS==="1",extraHTTPHeaders:{"x-real-ip":"synthetic-e2e-"+randomUUID()}});
- const anc=await other.newPage();await login(anc,"synthetic.anc");await expect(anc.getByRole("navigation",{name:"เมนูหลัก"}).getByRole("link",{name:"รับใบสั่งจาก HIS"})).toHaveCount(0);await anc.goto("/inbound");await expect(anc.getByRole("heading",{level:1,name:"รับใบสั่งจาก HIS"})).toHaveCount(0);
+ const anc=await other.newPage();await login(anc,"synthetic.anc");await expect(anc.getByRole("navigation",{name:"เมนูหลัก"}).getByRole("link",{name:"รับตัวอย่างจาก HIS"})).toHaveCount(0);await anc.goto("/inbound");await expect(anc.getByRole("heading",{level:1,name:"รับตัวอย่างจาก HIS"})).toHaveCount(0);
  const me=await anc.request.get("/api/me").then(r=>r.json());
  expect((await anc.request.post("/api/p3/inbound/deep-scan",{headers:{"x-csrf-token":me.csrf,"content-type":"application/json"},data:{lookbackDays:5}})).status()).toBe(403);
  await other.close();
@@ -55,7 +58,7 @@ test("P2-P3 Lab blind entry: presence only before entry, match links S1 at P[21]
  const n=String(Date.now()).slice(-4),match={ln:"99000"+n+"1",hn:"00990"+n+"1"},miss={ln:"99000"+n+"2",hn:"00990"+n+"2"},fresh="99000"+n+"3";
  await hisIntakes([match,miss]);
  await page.setViewportSize({width:375,height:900});await login(page,"synthetic.lab");
- await page.getByRole("button",{name:"เปิดเมนูหลัก",exact:true}).click();await expect(page.getByRole("navigation",{name:"เมนูหลัก"}).getByRole("link",{name:"รับใบสั่งจาก HIS"})).toBeVisible();await page.keyboard.press("Escape");
+ await page.getByRole("button",{name:"เปิดเมนูหลัก",exact:true}).click();await expect(page.getByRole("navigation",{name:"เมนูหลัก"}).getByRole("link",{name:"รับตัวอย่างจาก HIS"})).toBeVisible();await page.keyboard.press("Escape");
  const open=async(ln:string)=>{await page.goto("/cases");await page.getByRole("button",{name:"ลงทะเบียนโดย Lab",exact:true}).click();const dialog=page.getByRole("dialog");await dialog.getByLabel("LN HIS จำลอง",{exact:false}).fill(ln);await dialog.getByLabel("LN HIS จำลอง",{exact:false}).blur();return dialog;};
  const fill=async(dialog:ReturnType<Page["getByRole"]>,hn:string,source:string)=>{await dialog.getByLabel("HN จำลอง",{exact:false}).fill(hn);const unit=dialog.getByLabel("หน่วยงานลงทะเบียน",{exact:false});await expect(unit.locator("option")).not.toHaveCount(1);await unit.selectOption({index:1});const s=dialog.getByLabel("แหล่งของตัวระบุ",{exact:false});await s.selectOption(source);await expect(s).toHaveValue(source);await dialog.getByRole("button",{name:"ตรวจข้อมูลก่อนลงทะเบียน",exact:true}).click();await dialog.getByRole("button",{name:"ยืนยันลงทะเบียน",exact:true}).click();};
  let dialog=await open(match.ln);

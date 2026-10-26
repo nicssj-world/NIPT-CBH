@@ -25,9 +25,9 @@ describe('Receive Date/Time sorting — Owner Lock 2026-10-12 (AT-SORT-01..07)',
   const w=await run(t=>intake.labWorklist(t,u.staff));
   expect(w.attempts.map(a=>a.hisLn)).toEqual(his); // Ready Queue default ASC (FIFO)
   for(const a of w.attempts)expect(a.receivedAt).toBe((await f.db.query<{t:Date}>("SELECT o.his_received_at t FROM his_order o JOIN case_ln l ON l.id=o.case_ln_id WHERE l.ln=$1",[a.hisLn])).rows[0].t.toISOString());
-  // AT-SORT-01: the registry shows the same receipt time, newest first by default; ASC on request.
+  // Owner ANC001: registration is the default; explicit receipt sorting retains the HIS timestamp contract.
   const {lab}=await registrar(f.db);
-  const desc=await run(t=>listP2Cases(t,lab));expect(desc.cases.map(c=>c.ln)).toEqual([...his].reverse());
+  const desc=await run(t=>listP2Cases(t,lab,{sort:"desc"}));expect(desc.cases.map(c=>c.ln)).toEqual([...his].reverse());
   const asc=await run(t=>listP2Cases(t,lab,{sort:'asc'}));expect(asc.cases.map(c=>c.ln)).toEqual(his);
   expect(desc.cases[0]).toMatchObject({received_source:'HIS_PET_RECEIPT'});
   expect(ids).toHaveLength(3);

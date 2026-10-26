@@ -21,12 +21,13 @@ export const requestSchema=z.strictObject({
 });
 export type RequestDraft=z.infer<typeof requestSchema>;
 export const emptyRequest:RequestDraft={documentContractVersion:DCC_REQUEST_CONTRACT,patient:{syntheticName:'',dob:null,phone:null,address:null},pregnancy:{type:null,edd:null,collectionDate:null,collectionTime:null,collectionSource:null,weightKg:null,heightCm:null,gravida:null,para:null,vanishingTwin:null,vanishingDate:null,vanishingGaDays:null,fetalSex:null,sca:null},history:{transfusion4months:{answer:null},heparin24h:{answer:null},immune1month:{answer:null},albumin4weeks:{answer:null},exogenousDna4weeks:{answer:null},cancerTreatment:null,gaUnder8:null,tumor:null,tumorDetails:null,priorChromosomeTest:null,priorTestMethod:null,priorTestResult:null,otherHistory:null,otherDetails:null},acknowledgments:{conditionA:null,conditionB:null},ordering:{doctorVersionId:null,facility:null,reason:null}};
+export function ageOnDate(birth:string|null,at:string|null){return birth&&at&&birth<=at?Number(at.slice(0,4))-Number(birth.slice(0,4))-(at.slice(5)<birth.slice(5)?1:0):null;}
 export function calculations(d:RequestDraft){
  const p=d.pregnancy;
  const gaDays=p.edd&&p.collectionDate?280+Math.round((Date.parse(p.collectionDate)-Date.parse(p.edd))/86400000):null;
  const bmi=p.weightKg!==null&&p.heightCm!==null&&p.heightCm>0?p.weightKg/(p.heightCm/100)**2:null;
  const birth=d.patient.dob,at=p.collectionDate;
- const ageYears=birth&&at&&birth<=at?Number(at.slice(0,4))-Number(birth.slice(0,4))-(at.slice(5)<birth.slice(5)?1:0):null;
+ const ageYears=ageOnDate(birth,at);
  return {gaDays,gaWeeks:gaDays!==null?Math.floor(gaDays/7):null,gaRemainder:gaDays!==null?gaDays%7:null,bmi,ageYears};
 }
 export function requestIssues(d:RequestDraft){

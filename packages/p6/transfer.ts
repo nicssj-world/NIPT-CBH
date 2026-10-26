@@ -168,7 +168,9 @@ export function advanceTransfer(model:TransferModel,event:TransferEvent,gate:Syn
     if(index<0||index>3||event.stage!==['PDF','RES','BACKUP','OK'][index])throw Error('INVALID_TRANSITION');
     if(event.stage==='OK')return finish({state:'RECONCILIATION_REQUIRED',reconciliationRequired:true,artifactsMayExist:true},'AMBIGUOUS_OK_FAILURE');
     if(event.code==='COLLISION'||model.attempts>p.retryDelaysMs.length)return finish({state:'FAILED_NEEDS_ADMIN',reconciliationRequired:true,artifactsMayExist:true},event.code);
-    return finish({state:'RETRY_PENDING',resumeState:model.state,nextRetryAt:now+p.retryDelaysMs[model.attempts-1],artifactsMayExist:true},event.code);
+    // OWNER-LAB-055: a failure before WRITE_STARTED (e.g. the destination folder is unreachable) cannot have created files; keep that
+    // fact so a later folder correction cancels cleanly instead of leaving a permanent "verify files" alarm.
+    return finish({state:'RETRY_PENDING',resumeState:model.state,nextRetryAt:now+p.retryDelaysMs[model.attempts-1],artifactsMayExist:model.artifactsMayExist||!(event.type==='FAILURE'&&event.accessCode&&['SHARE_PATH_NOT_FOUND','SHARE_PERMISSION_DENIED'].includes(event.accessCode))},event.code);
   }
   if(event.type==='RETRY'){
     if(model.state!=='RETRY_PENDING'||!model.resumeState||model.nextRetryAt===undefined)throw Error('INVALID_TRANSITION');

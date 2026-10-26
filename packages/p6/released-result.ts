@@ -40,7 +40,10 @@ export async function reserveReleasedResult(db:Queryable,releaseId:string,store:
    FROM result_release r JOIN result_report_version v ON v.id=r.version_id JOIN nipt_case c ON c.id=r.case_id JOIN specimen_round s ON s.id=r.round_id JOIN case_ln l ON l.id=s.case_ln_id WHERE r.id=$1`,[releaseId])).rows[0];
   if(!r||!await operationalReleaseEligible(db,releaseId,r.epoch))throw Error('CERTIFIED_CURRENT_RELEASE_REQUIRED');
   assertOutboundOrigin(r.registration_origin);
-  const previous=(await db.query<{id:string}>('SELECT id FROM p6_transfer WHERE clinical_release_id=$1',[releaseId])).rows[0];if(previous)return loadTransfer(db,previous.id);
+  // OWNER-LAB-055/059: a transfer cancelled because the administrator changed the HIS folders (never after an OK) is
+  // re-reserved once under the new settings; any other existing transfer is the delivery (database-enforced, migration 139).
+  const previous=(await db.query<{id:string;rerouted:boolean}>(`SELECT t.id,(t.model->>'state'='CANCELLED' AND EXISTS(SELECT 1 FROM p6_transfer_event e WHERE e.transfer_id=t.id AND e.code='GATE_CHANGED' AND e.event->>'reason'='CONFIG_CHANGED')) rerouted
+   FROM p6_transfer t WHERE t.clinical_release_id=$1 ORDER BY t.created_at DESC LIMIT 1`,[releaseId])).rows[0];if(previous&&!previous.rerouted)return loadTransfer(db,previous.id);
   await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['settings:his_outbound']);
   const active=await activeHis(db,'his_outbound'),s=SETTINGS.his_outbound.schema.parse(active.value);
   if(!s.enabled||s.target!=='AUTHORIZED_SHARE'||!s.productionAuthorized||!s.resProfile)throw Error('OPERATIONAL_OUTBOUND_CONFIGURATION_REQUIRED');
@@ -62,7 +65,7 @@ export async function reserveReleasedResult(db:Queryable,releaseId:string,store:
   const id=(await db.query<{id:string}>(`INSERT INTO p6_transfer(fixture_id,sandbox_id,authority,clinical_release_id,release_draft,ln,ln_generation,report_version_id,sequence,res_destination,pdf_destination,res_name,pdf_name,plan,model,gate)
    VALUES(NULL,'OPERATIONAL','CERTIFIED_RESULT',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,[releaseId,stored,plan.ln,plan.lnGeneration,r.version_id,n,plan.resDestinationId,plan.pdfDestinationId,plan.resName,plan.pdfName,plan,model,gate])).rows[0].id;
   await db.query("INSERT INTO p6_transfer_event(transfer_id,revision,code,event) VALUES($1,0,'RESERVED',$2)",[id,{releaseId}]);
-  await appendAudit(db,{action:'P6_RELEASE_RESERVED',resourceType:'p6_transfer',resourceId:id,details:{synthetic:false,outcome:'PREPARED'}});
+  await appendAudit(db,{action:previous?'P6_RELEASE_REROUTED':'P6_RELEASE_RESERVED',resourceType:'p6_transfer',resourceId:id,details:{synthetic:false,outcome:'PREPARED'}});
   return loadTransfer(db,id);
  });
 }

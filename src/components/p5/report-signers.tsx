@@ -1,9 +1,7 @@
 "use client";
 import Link from "next/link";
-import {useCallback,useEffect,useRef,useState} from "react";
+import {useCallback,useEffect,useState} from "react";
 import {labApi,failureText,bkk} from "../p4/lab-api";
-import {csrf} from "../p2/shared";
-import {FileDropInput} from "../shared/file-drop-input";
 
 // Report signers: each staff member submits their own legal name, MT licence and signature (administrator verifies, never themselves);
 // a signer may authorise a colleague to apply their stored signature, citing the hospital's documented authority.
@@ -16,38 +14,21 @@ const Status=({tone,children}:{tone?:string;children:React.ReactNode})=><span cl
 
 export function ReportSigners({userId}:{userId:string}){
  const [d,setD]=useState<Overview|null>(null),[error,setError]=useState(""),[notice,setNotice]=useState(""),[busy,setBusy]=useState("");
- const [form,setForm]=useState({legalName:"",license:""}),file=useRef<HTMLInputElement>(null);
  const [grant,setGrant]=useState({granteeId:"",reported:true,approved:false,reference:"",expires:""}),[reasons,setReasons]=useState<Record<string,string>>({});
  const load=useCallback(async()=>{try{setD(await labApi<Overview>("/api/task3/signers"));setError("");}catch(e){setError(failureText(e));}},[]);
  useEffect(()=>{void Promise.resolve().then(load);},[load]);
  const act=async(name:string,body:Record<string,unknown>,done:string)=>{setBusy(name);setError("");setNotice("");try{await labApi("/api/task3/signers",body);setNotice(done);await load();}catch(e){setError(failureText(e));}finally{setBusy("");}};
- const submit=async()=>{const f=file.current?.files?.[0];if(!f){setError("กรุณาเลือกภาพลายเซ็น (PNG หรือ JPEG)");file.current?.focus();return;}
-  setBusy("submit");setError("");setNotice("");try{const body=new FormData();body.append("legalName",form.legalName);body.append("mtLicenseNo",form.license);body.append("signature",f);
-   const r=await fetch("/api/task3/signers",{method:"POST",headers:{"x-csrf-token":csrf()},body});const j=await r.json().catch(()=>({}));if(!r.ok){setError(j.error??"บันทึกไม่สำเร็จ");return;}
-   setNotice("ส่งโปรไฟล์แล้ว — รอผู้ดูแลระบบตรวจตัวตน ใบอนุญาต และลายเซ็นก่อนใช้งาน");setForm({legalName:"",license:""});if(file.current)file.current.value="";await load();}finally{setBusy("");}};
  if(!d)return error?<p className="notice" role="alert">{error}</p>:<div className="skeleton" aria-busy="true" aria-label="กำลังโหลด"/>;
- const mine=d.profiles.filter(p=>p.userId===userId),pending=d.profiles.filter(p=>p.userId!==userId&&p.state===null);
+ const mine=d.profiles.filter(p=>p.userId===userId);
  return <>
-  <header className="page-header"><div><h1>ผู้ลงนามรายงาน</h1><p className="muted">ชื่อตามใบอนุญาต เลขใบอนุญาตนักเทคนิคการแพทย์ และลายเซ็นที่ใช้ในช่อง Reported by / Approved by ของรายงานที่ออกในระบบ</p></div>
+  <header className="page-header"><div><h1>ผู้ลงนามรายงาน</h1></div>
    <div className="action-bar"><Link className="button secondary" href="/results">← ผลตรวจ NIPT</Link></div></header>
   <div aria-live="polite">{notice&&<p className="notice success" role="status">{notice}</p>}{error&&<p className="notice" role="alert">{error}</p>}</div>
 
-  <section className="panel" aria-labelledby="sig-own-h">
-   <h2 id="sig-own-h">โปรไฟล์ของฉัน</h2>
-   {mine.length?<ul className="timeline">{mine.map(p=><li key={p.id}><div className="row"><strong>{p.legalName}</strong><Status tone={p.current?"good":p.state==="REVOKED"?"bad":"warning"}>{STATE_TEXT(p)}</Status></div>
-     <div className="help">ใบอนุญาต {p.license} · ฉบับที่ {p.version} · ส่งเมื่อ {bkk(p.submittedAt)}</div>
-     <div className="action-bar"><a className="button small secondary" href={`/api/task3/signers/${p.id}/image`} target="_blank" rel="noopener">ดูภาพลายเซ็น</a>
-      {p.state!=="REVOKED"&&<><input aria-label="เหตุผลการเพิกถอน" placeholder="เหตุผลการเพิกถอน (อย่างน้อย 8 ตัวอักษร)" value={reasons[p.id]??""} onChange={e=>setReasons(r=>({...r,[p.id]:e.target.value}))}/>
-       <button type="button" className="button small secondary" disabled={!!busy||(reasons[p.id]??"").trim().length<8} onClick={()=>act("revoke-"+p.id,{action:"decideProfile",profileId:p.id,decision:"REVOKE",reason:reasons[p.id]},"เพิกถอนแล้ว")}>เพิกถอน</button></>}</div></li>)}</ul>
-    :<p className="empty-state">ยังไม่มีโปรไฟล์ — ส่งข้อมูลด้านล่างเพื่อใช้เป็นผู้ลงนาม</p>}
-   <h3>ส่งโปรไฟล์ใหม่</h3>
-   <div className="form-grid">
-    <div className="field"><label htmlFor="sig-name">ชื่อ-สกุลตามใบอนุญาต (ตามที่พิมพ์ในรายงาน)</label><input id="sig-name" maxLength={120} value={form.legalName} onChange={e=>setForm(f=>({...f,legalName:e.target.value}))} aria-describedby="sig-name-help"/><p id="sig-name-help" className="help">ไม่ต้องใส่วงเล็บ ระบบเติมให้ตามแบบฟอร์ม</p></div>
-    <div className="field"><label htmlFor="sig-license">เลขใบอนุญาตนักเทคนิคการแพทย์</label><input id="sig-license" inputMode="numeric" maxLength={10} value={form.license} onChange={e=>setForm(f=>({...f,license:e.target.value.replace(/\D/g,"")}))}/></div>
-   </div>
-   <div className="field"><label htmlFor="sig-file">ภาพลายเซ็น (PNG หรือ JPEG ไม่เกิน 512 KB)</label><FileDropInput id="sig-file" ref={file} type="file" accept="image/png,image/jpeg" aria-describedby="sig-file-help"/><p id="sig-file-help" className="help">ภาพเก็บแบบป้องกัน แสดงได้เฉพาะเจ้าของและผู้ดูแลระบบที่ตรวจ ใช้ได้หลังผ่านการตรวจเท่านั้น</p></div>
-   <div className="action-bar"><button type="button" className="button" disabled={!!busy||form.legalName.trim().length<3||form.license.length<3} onClick={submit}>{busy==="submit"?"กำลังส่ง…":"ส่งเพื่อตรวจ"}</button></div>
-  </section>
+  {/* OWNER-LAB-054: licence and signature are entered in โปรไฟล์ของฉัน and checked by an administrator in จัดการผู้ใช้; no separate enrollment here. */}
+  <section className="panel" aria-labelledby="sig-own-h"><h2 id="sig-own-h">ใบอนุญาตและลายเซ็น</h2>
+   {mine.length?<p><strong>{mine[0].legalName}</strong> · ใบอนุญาต {mine[0].license} · <Status tone={mine[0].current?"good":mine[0].state==="REVOKED"?"bad":"warning"}>{STATE_TEXT(mine[0])}</Status></p>:<p className="help">ยังไม่มีข้อมูล</p>}
+   <p className="help">แก้ไขได้ที่โปรไฟล์ของฉัน (มุมขวาบน) · ผู้ดูแลระบบตรวจยืนยันที่หน้าจัดการผู้ใช้</p></section>
 
   <section className="panel" aria-labelledby="sig-dlg-h">
    <h2 id="sig-dlg-h">การมอบสิทธิ์ใช้ลายเซ็น</h2>
@@ -65,17 +46,6 @@ export function ReportSigners({userId}:{userId:string}){
     :<p className="help">มอบสิทธิ์ได้หลังโปรไฟล์ของท่านผ่านการตรวจแล้ว</p>}
   </section>
 
-  {d.canManage&&<section className="panel" aria-labelledby="sig-verify-h">
-   <h2 id="sig-verify-h">รอตรวจ ({pending.length})</h2>
-   <p className="help">ตรวจตัวตน เลขใบอนุญาต และลายเซ็นกับเอกสารของโรงพยาบาลก่อนอนุมัติ ผู้ดูแลระบบตรวจโปรไฟล์ของตนเองไม่ได้</p>
-   {pending.length?<ul className="timeline">{pending.map(p=><li key={p.id}><div className="row"><strong>{p.legalName}</strong><span>{p.displayName}</span></div>
-    <div className="help">ใบอนุญาต {p.license} · ส่งเมื่อ {bkk(p.submittedAt)}</div>
-    {/* eslint-disable-next-line @next/next/no-img-element -- authenticated, no-store signature image must never enter the image optimizer cache */}
-    <img className="t3-signature" src={`/api/task3/signers/${p.id}/image`} alt={`ลายเซ็นของ ${p.legalName}`}/>
-    <div className="action-bar"><input aria-label={`บันทึกการตรวจของ ${p.legalName}`} placeholder="บันทึกการตรวจ (อย่างน้อย 8 ตัวอักษร)" value={reasons[p.id]??""} onChange={e=>setReasons(r=>({...r,[p.id]:e.target.value}))}/>
-     <button type="button" className="button small" disabled={!!busy||(reasons[p.id]??"").trim().length<8} onClick={()=>act("v-"+p.id,{action:"decideProfile",profileId:p.id,decision:"VERIFY",reason:reasons[p.id]},"ตรวจผ่านแล้ว — ใช้เป็นผู้ลงนามได้")}>ตรวจผ่าน</button>
-     <button type="button" className="button small secondary" disabled={!!busy||(reasons[p.id]??"").trim().length<8} onClick={()=>act("r-"+p.id,{action:"decideProfile",profileId:p.id,decision:"REVOKE",reason:reasons[p.id]},"ไม่อนุมัติแล้ว")}>ไม่อนุมัติ</button></div></li>)}</ul>
-    :<p className="empty-state">ไม่มีโปรไฟล์รอตรวจ</p>}
-  </section>}
+
  </>;
 }

@@ -62,7 +62,7 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
   const n=r.results.filter(x=>x.outcome==="Unlinked").length;setNotice(`นำเข้าแล้ว ${n} รายการ — รอการเชื่อมโยงกับรอบ/Attempt ในคิวด้านล่าง${r.results.length>n?` · ไม่นำเข้า ${r.results.length-n} รายการ (ซ้ำ/รูปแบบไม่รู้จัก/หมดอายุ)`:""}`);
   setPreview(null);setToImport(new Set());setScan(null);setBucket("unlinked");await load();});
  const doExport=()=>run("csv",async()=>{const r=await fetch("/api/p5/results/csv",{method:"POST",cache:"no-store",headers:{"content-type":"application/json","x-csrf-token":csrf()},body:JSON.stringify(query)});if(!r.ok){const d=await r.json().catch(()=>({}));setError(d.error??"ส่งออกไม่สำเร็จ กรุณาลองอีกครั้ง");return;}
-  const url=URL.createObjectURL(await r.blob()),a=document.createElement("a");a.href=url;a.download=`synthetic-results-page-${page}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);setNotice("ส่งออก CSV เฉพาะหน้าปัจจุบันแล้ว — ไม่ใช่รายการทั้งหมด");});
+  const url=URL.createObjectURL(await r.blob()),a=document.createElement("a");a.href=url;a.download=`nipt-results-page-${page}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);setNotice("ส่งออก CSV เฉพาะหน้าปัจจุบันแล้ว — ไม่ใช่รายการทั้งหมด");});
  const step=preview?3:scan?.files?.length?2:test?.passed?1:0;
  const newFiles=useMemo(()=>(scan?.files??[]).filter(f=>f.status==="NEW"),[scan]);
  const rows=useMemo(()=>(data?.rows??[]).filter(r=>(BUCKETS.find(b=>b[0]===bucket)?.[2] as readonly string[]|undefined)?.includes(r.state)),[data,bucket]);
@@ -72,8 +72,7 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
  const unacked=(preview??[]).filter(i=>toImport.has(i.id)&&conflicted(i)&&!acked.has(i.id)).length;
 
  return <>
-  <header className="page-header"><div><h1>ผลตรวจ NIPT</h1><p className="muted">นำเข้าไฟล์ผลจากโฟลเดอร์หรือจากเครื่อง ตรวจทาน เชื่อมโยงกับรอบ/Attempt และประเมิน Gate ก่อนรับรอง</p></div></header>
-  <p className="notice warning-notice" role="note"><strong>ยังไม่ปล่อยผลจริง</strong> — ระบบทำได้ถึงการตรวจทานและประเมิน Gate (RG/RN) เท่านั้น การรับรองและปล่อยผลถูกระงับจนกว่า AL-5, OD-05 และ OD-07 ผ่าน และยังรอ FinalQcAccepted จากงาน P4b</p>
+  <header className="page-header"><div><h1>ผลตรวจ NIPT</h1></div></header>
   <div aria-live="polite">{notice&&<p className="notice success" role="status">{notice}</p>}{error&&<p className="notice" role="alert">{error}</p>}</div>
   <NativeReports canImport={canImport}/>
 

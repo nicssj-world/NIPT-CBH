@@ -2,16 +2,19 @@
 import "./batch-workspace.css";
 import {useCallback,useEffect,useState,type KeyboardEvent} from "react";
 import Link from "next/link";
-import {useRouter,useSearchParams} from "next/navigation";
+import {useSearchParams} from "next/navigation";
 import {Dialog,csrf} from "../p2/shared";
 import {labApi,labPdf,failureText,bkk,gateText,LabFailure} from "./lab-api";
 import {stripLabels,type SheetNumber} from "../../../packages/lab/rules";
 import {displayBe} from "../../../packages/domain/thai-date";
 import {ThaiDateInput,ThaiDateTimeInput} from "../shared/thai-date-input";
+import {PdfPreview} from "../shared/pdf-preview";
+import {LabelDialog} from "./label-dialog";
+import {LabIcon} from "../shared/lab-icons";
 import {gaBadge,type Ga} from "./ga-badge";
 
 type Sheet={id:string;sheet_number:number;state:string;planned_work_date:string|null;planned_operator:string|null;planned_extraction_lot:string|null;planned_extraction_expiry:string|null;planned_library_lot:string|null;planned_library_expiry:string|null;placement_revision:number;plan_checked_at:string|null;execution_started_at:string|null;execution_ended_at:string|null;verified_at:string|null};
-type Slot={slot:number;sheet:number;plate:string;barcode:number;control:string|null;controlLabel:string|null;controlCode:string|null;assignment:null|{attemptId:string;roundNumber:number;hisLn:string;hn:string|null;lnHalos:string|null;labelCode:string|null;printedSampleId:string|null;attemptState:string;repeat:boolean;urgent:boolean;exceptional?:boolean;ga:Ga;labelPrints:number}};
+type Slot={slot:number;sheet:number;plate:string;barcode:number;control:string|null;controlLabel:string|null;controlCode:string|null;assignment:null|{attemptId:string;roundId:string;caseId:string;roundNumber:number;hisLn:string;hn:string|null;lnHalos:string|null;labelCode:string|null;printedSampleId:string|null;attemptState:string;repeat:boolean;urgent:boolean;exceptional?:boolean;ga:Ga;labelPrints:number}};
 type Doc={id:string;form:string;kind:string;revision:number;doc_code:string;status:string;status_reason:string|null;issued_at:string;issued_by:string;sheet_number:number|null;working_copies:number;unrecalled:number};
 type Obs={id:string;sheetId:string|null;slot:number|null;fieldId:string;item:string;label:string;cls:string;valueText:string;source:string;eventTime:string|null;eventPrecision:string;recordedAt:string;recorder:string;recordedBy:string;reviewer:string|null;status:string;candidates:{code:string;approved:boolean;outcome:string}[]|null};
 type Field={id:string;item:string;form:string;scope:string;kind:string;cls:string;label:string;source:string;sheets:number[]};
@@ -24,6 +27,8 @@ export type Workspace={urgent40?:boolean;operational?:boolean;batch:{id:string;r
 
 const STEPS=["Draft","PlanChecked","PlacementFinalized","PreWorkIssued","InExecution","ExecutionRecorded","ExecutionVerified","CompletedIssued"];
 const STEP_TEXT:Record<string,string>={Draft:"ร่างแผน",PlanChecked:"ยืนยันแผนแล้ว",PlacementFinalized:"ล็อกตำแหน่ง",PreWorkIssued:"ออกใบงานก่อนทำ",InExecution:"กำลังปฏิบัติ",ExecutionRecorded:"บันทึกจบแล้ว",ExecutionVerified:"ทวนสอบแล้ว",CompletedIssued:"ออกบันทึกหลังทำ",Amended:"แก้แผน (Amendment)",Cancelled:"ยกเลิก"};
+/** OWNER-LAB-031 operational wording: a Task is either a draft, printed (placement fixed by printing) or being edited after printing. */
+const OPERATIONAL_STATE:Record<string,string>={Draft:"ร่าง",PlanChecked:"ร่าง",PlacementFinalized:"พิมพ์แล้ว",Amended:"แก้ไขหลังพิมพ์",Cancelled:"ยกเลิก"};
 const EDITABLE=["Draft","PlanChecked","Amended"],STARTED=["InExecution","ExecutionRecorded","ExecutionVerified","CompletedIssued"];
 const DOC_STATUS:Record<string,string>={Issued:"มีผล",StopUse:"ระงับใช้",Superseded:"ถูกแทนที่",Cancelled:"ยกเลิก"};
 const BATCH_STATE:Record<string,string>={Draft:"ร่าง",InPreparation:"เตรียมงาน",ExtractionLibrary:"Extraction/Library เสร็จ",QC1Complete:"QC1 บันทึกครบ",Cancelled:"ยกเลิก"};
@@ -31,14 +36,14 @@ const DISP_TEXT:Record<string,string>={MEASURED:"ทำแล้ว (ทวน�
 const OUTCOME:Record<string,string>={WITHIN:"อยู่ในช่วง",BELOW_MIN:"ต่ำกว่าช่วง",ABOVE_MAX:"สูงกว่าช่วง",NOT_APPLICABLE:"ไม่ใช้กับแถวนี้"};
 /** Non-blocking server warnings (records.ts) that must be shown, never swallowed (RC7). */
 const WARNING_TEXT:Record<string,string>={LOT_EXPIRED_BEFORE_WORK_DATE_OD33:"คำเตือน: วันหมดอายุของ Lot อยู่ก่อนวันปฏิบัติงาน — ตรวจสอบก่อนใช้ (บันทึกแล้ว ไม่ได้บล็อก)"};
-/** Per-Task counts for the tab chips and context header. Controls are never counted as patients. */
+/** Per-Task counts for the tab chips and context header. Control positions are never counted as samples. */
 function sheetStats(slots:Slot[],n:number){
  const own=slots.filter(s=>s.sheet===n),patientSlots=own.filter(s=>!s.control),placed=patientSlots.filter(s=>s.assignment).length;
  return {placed,capacity:patientSlots.length,empty:patientSlots.length-placed,control:own.find(s=>s.control)??null};
 }
 
 export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string}){
- const router=useRouter();const requested=Number(useSearchParams().get("task"));
+ const requested=Number(useSearchParams().get("task"));
  const [w,setW]=useState(initial),[sheetNo,setSheetNoState]=useState(()=>[1,2,3].includes(requested)?requested:initial.sheets.find(s=>s.state!=="Draft"||initial.slots.some(x=>x.sheet===s.sheet_number&&x.assignment))?.sheet_number??1);
  // The selected Task is kept in the URL (?task=N) so reload/share returns to the same Task without a navigation.
  const setSheetNo=(n:number)=>{setSheetNoState(n);const url=new URL(window.location.href);url.searchParams.set("task",String(n));window.history.replaceState(window.history.state,"",url);};
@@ -53,7 +58,9 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
   selectSheet(target);if(!planDirty)requestAnimationFrame(()=>document.getElementById(`sheet-${target}`)?.focus());
  };
  const sheet=w.sheets[sheetNo-1],slots=w.slots.filter(s=>s.sheet===sheetNo),comp=w.completeness[sheetNo-1];
- const editable=EDITABLE.includes(sheet.state)&&sheet.placement_revision===0&&w.batch.state!=="Cancelled",started=STARTED.includes(sheet.state);
+ const editable=EDITABLE.includes(sheet.state)&&(sheet.placement_revision===0||sheet.state==="Amended")&&w.batch.state!=="Cancelled",started=STARTED.includes(sheet.state);
+ const stateText=(state:string)=>(w.operational?OPERATIONAL_STATE[state]:undefined)??STEP_TEXT[state]??state;
+ const [pdfView,setPdfView]=useState<string|null>(null);
  const reload=async()=>setW(await labApi<Workspace>(`/api/p4/batches/${w.batch.id}`));
  async function act(action:string,data:Record<string,unknown>={},ok="บันทึกแล้ว"){setBusy(true);setMsg(null);try{const res=await labApi<{warnings?:unknown}>(`/api/p4/batches/${w.batch.id}`,{action,expectedVersion:w.batch.version,...data});await reload();
    const warnings=Array.isArray(res?.warnings)?res.warnings.filter((x):x is string=>typeof x==="string"):[];setMsg({ok:true,text:ok,warnings});return true;}
@@ -63,6 +70,8 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
  async function taskPdf(n:number,mode:"view"|"download"){
   setBusy(true);setMsg(null);
   try{
+   // OWNER-LAB-031: printing is the moment the placement is validated and fixed; an unchanged printed sheet prints the same revision.
+   if(w.operational&&EDITABLE.includes(w.sheets[n-1].state)){const r=await labApi<{revision:number;finalizedNow:boolean;previousRevision:number|null}>(`/api/p4/batches/${w.batch.id}`,{action:"printTaskList",expectedVersion:w.batch.version,sheetNumber:n});await reload();if(r.previousRevision)setMsg({ok:true,text:`พิมพ์ Task List ${n} ฉบับที่ ${r.revision} แล้ว — ฉบับที่ ${r.previousRevision} ที่พิมพ์ไว้ก่อนใช้ไม่ได้แล้ว`});}
    const api=`/api/workbook/batches/${w.batch.id}`;
    type Ws={version:number;draft:{revision:number}|null;sourceStale:boolean;values:Record<string,unknown>};
    let ws=await labApi<Ws>(api);
@@ -71,10 +80,8 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
    const r=await fetch(api,{method:"POST",cache:"no-store",headers:{"content-type":"application/json","x-csrf-token":csrf()},body:JSON.stringify({action:"export",revision:ws.draft!.revision,format:"PDF",sheet:sheetName})});
    if(!r.ok){const d=await r.json().catch(()=>({}));throw new LabFailure(d.code??"REQUEST_FAILED",d.error??"ออก PDF ไม่สำเร็จ",d.details,r.status);}
    const url=URL.createObjectURL(await r.blob());
-   if(mode==="view")window.open(url,"_blank","noopener");else{const a=document.createElement("a");a.href=url;a.download=`${w.batch.runLabel.replace("/","-")}_Task-List-${n}_uncontrolled.pdf`;a.click();}
-   setTimeout(()=>URL.revokeObjectURL(url),60000);
-   setMsg({ok:true,text:`สร้าง PDF ของ Task List ${n} แล้ว (สำเนาตรวจทาน — ไม่ใช่เอกสารควบคุม)`});
-  }catch(e){setMsg({ok:false,text:failureText(e)});}finally{setBusy(false);}
+   if(mode==="view")setPdfView(url);else{const a=document.createElement("a");a.href=url;a.download=`${w.batch.runLabel.replace("/","-")}_Task-List-${n}.pdf`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);}
+  }catch(e){setMsg({ok:false,text:failureText(e),details:e instanceof LabFailure?e.details:undefined});await reload().catch(()=>undefined);}finally{setBusy(false);}
  }
  async function pdf(id:string,kind:string,reason?:string){setMsg(null);try{await labPdf(`/api/p4/documents/${id}`,{kind,...(reason?{reason}:{})});await reload();}catch(e){setMsg({ok:false,text:failureText(e)});}}
  const sheetDocs=w.documents.filter(d=>d.sheet_number===sheetNo);
@@ -85,7 +92,7 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
  const qcOpen=w.sheets.some(s=>["ExecutionRecorded","ExecutionVerified","CompletedIssued"].includes(s.state));
  return <>
   <header className="page-header"><div><p className="muted"><Link href="/lab/batches">Batch / Task List</Link></p><h1>{w.batch.runLabel}</h1><p className="muted">สถานะ Batch: <strong>{BATCH_STATE[w.batch.state]??w.batch.state}</strong> · ฉบับ {w.batch.version}{!w.operational&&<> · Template {w.batch.templateVersion} · Formula {w.batch.formulaVersion}</>}</p></div>
-   {w.batch.state!=="Cancelled"&&(w.allowed.draft||w.allowed.unlock)&&<button className="button secondary" type="button" onClick={()=>setDialog({type:"cancel"})}>ยกเลิก Batch</button>}</header>
+   {w.batch.state!=="Cancelled"&&(w.allowed.draft||w.allowed.unlock)&&<button className="button danger-outline icon-only" type="button" aria-label={`ลบ / ยกเลิก ${w.batch.runLabel}`} title="ลบ / ยกเลิก Batch" onClick={()=>setDialog({type:"cancel"})}><LabIcon name="trash" size={22}/></button>}</header>
   {w.batch.cancelReason&&<p className="notice" role="note">Batch ถูกยกเลิก: {w.batch.cancelReason}</p>}
   <nav className="action-bar" aria-label="งานประจำ Run">{w.operational&&<><Link className="button" href={`/lab/batches/${w.batch.id}/bench`}>QC Measurements</Link><Link className="button secondary" href={`/lab/batches/${w.batch.id}/pooling`}>Pooling / QC2 / F4</Link><Link className="button secondary" href={`/lab/batches/${w.batch.id}/sequencing`}>DNB / Sequencing / F5</Link></>}<Link className="button secondary" href={`/lab/batches/${w.batch.id}/workbook`}>ใบงาน Excel / PDF</Link></nav>
   {!w.operational&&w.policy==="PROCEED_SYNTHETIC_LABELLED"&&<p className="notice warning-notice" role="note">ข้อมูลจำลอง: Gate ที่ยังรอการตัดสิน (OD-01/08/16) ผ่านด้วยนโยบายจำลองและถูกระบุบนใบงาน — ไม่ใช่การรับรองทางคลินิก</p>}
@@ -94,50 +101,55 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
   {msg?.warnings?.map(code=><p key={code} className="notice warning-notice" role="alert">{WARNING_TEXT[code]??`คำเตือน: ${code}`}</p>)}
   <div className="tabs task-tabs" role="tablist" aria-label="Task List" onKeyDown={tabKeys}>{w.sheets.map(s=>{const st=sheetStats(w.slots,s.sheet_number);
    return <button key={s.id} type="button" role="tab" id={`sheet-${s.sheet_number}`} aria-selected={s.sheet_number===sheetNo} tabIndex={s.sheet_number===sheetNo?0:-1} aria-controls="sheet-panel" className="tab" onClick={()=>selectSheet(s.sheet_number)}>
-    Task List {s.sheet_number} <span className="count">{STEP_TEXT[s.state]??s.state}</span>
-    <span className="tab-meta">ผู้ป่วย {st.placed}/{st.capacity} · ว่าง {st.empty}</span></button>;})}</div>
+    Task List {s.sheet_number} <span className="count">{stateText(s.state)}</span>
+    <span className="tab-meta">ตัวอย่าง {st.placed}/{st.capacity} · ว่าง {st.empty}</span></button>;})}</div>
   {pendingSheet!==null&&<div className="notice warning-notice" role="alert">Task List {sheetNo} มีข้อมูลแผนที่ยังไม่บันทึก — บันทึกก่อน หรือทิ้งการแก้ไขเพื่อไป Task List {pendingSheet}
    <div className="row-actions"><button className="button small secondary" type="button" onClick={()=>setPendingSheet(null)}>กลับไปแก้ไข Task List {sheetNo}</button><button className="button small secondary" type="button" onClick={discardAndSwitch}>ทิ้งการแก้ไขและไป Task List {pendingSheet}</button></div></div>}
   <section id="sheet-panel" role="tabpanel" aria-labelledby={`sheet-${sheetNo}`} className="panel stack lab-task-panel">
-   <div className="action-bar"><Link className="button" href={`/lab/batches/${w.batch.id}/bench`}>QC Measurements → Pooling → Seq Task-G50</Link></div>
-   {w.allowed.draft&&w.batch.state==="Draft"&&!w.slots.some(s=>s.assignment)&&<div className="action-bar"><button className="button secondary" type="button" disabled={busy} onClick={async()=>{if(!window.confirm("ลบ Batch ร่างที่ยังไม่มีตัวอย่างหรือเอกสารเชื่อมโยงนี้?"))return;setBusy(true);try{await labApi(`/api/p4/batches/${w.batch.id}`,{action:"deleteDraft",expectedVersion:w.batch.version});router.push("/lab/batches");router.refresh();}catch(e){setMsg({ok:false,text:failureText(e)});setBusy(false);}}}>ลบ Batch</button></div>}
+    {!w.operational&&<div className="action-bar"><Link className="button" href={`/lab/batches/${w.batch.id}/bench`}>QC Measurements → Pooling → Seq Task-G50</Link></div>}
    {sheetNo===3&&editable&&w.allowed.draft&&<label className="check-label"><input type="checkbox" checked={w.urgent40===true} disabled={busy||!!w.slots.find(s=>s.slot===40)?.assignment||sheet.placement_revision>0} onChange={e=>void act("urgent40",{enabled:e.target.checked},"บันทึกการใช้ช่อง 40 แล้ว")}/>ใช้ช่อง 40 สำหรับผู้ป่วย Urgent แทน BLANK (สูงสุด 46 ผู้ป่วย)</label>}
    {!w.operational&&<ol className="stepper" aria-label="ขั้นตอนของ Task List">{STEPS.map((s,i)=>{const idx=STEPS.indexOf(sheet.state==="Amended"?"Draft":sheet.state);return <li key={s} aria-current={s===sheet.state?"step":undefined} className={i<idx?"done":i===idx?"current":""}>{STEP_TEXT[s]}</li>;})}</ol>}
    {sheet.state==="Amended"&&<p className="notice warning-notice">อยู่ระหว่าง Controlled amendment — ใบงานเดิมถูกระงับใช้ แก้แผนแล้วยืนยัน/Finalize ใหม่ (สร้าง Revision ใหม่ ของเดิมไม่ถูกแก้)</p>}
-   <TaskContext w={w} sheet={sheet} sheetNo={sheetNo}/>
-   <div className="row"><h2>แผนผังตัวอย่าง — ตำแหน่ง {(sheetNo-1)*16+1}–{sheetNo*16}</h2>{editable&&w.allowed.assign&&<button className="button secondary" type="button" disabled={busy||sheetStats(w.slots,sheetNo).empty===0} onClick={()=>setDialog({type:"fill"})}>เติมตัวอย่างจากคิว</button>}</div>
+   <TaskContext w={w} sheet={sheet} sheetNo={sheetNo} stateText={stateText}/>
+   <div className="plate-heading"><h2>แผนผังตัวอย่าง — ตำแหน่ง {(sheetNo-1)*16+1}–{sheetNo*16}</h2><div className="plate-actions">{w.allowed.labels&&w.slots.some(x=>x.assignment?.lnHalos)&&<button className="button secondary" type="button" disabled={busy} onClick={()=>setDialog({type:"labels"})}><LabIcon name="printer"/>พิมพ์ฉลากหลอด</button>}{editable&&w.allowed.assign&&<button className="button" type="button" disabled={busy||sheetStats(w.slots,sheetNo).empty===0} onClick={()=>setDialog({type:"fill"})}>เติมตัวอย่างจากคิว</button>}
+    {w.operational&&sheet.state==="PlacementFinalized"&&w.allowed.draft&&w.batch.state!=="Cancelled"&&<button className="button secondary" type="button" disabled={busy} onClick={()=>setDialog({type:"reopen"})}><LabIcon name="pencil"/>แก้ไขแผนผัง</button>}</div></div>
+   {w.operational&&sheet.state==="Amended"&&sheet.placement_revision>0&&<p className="notice warning-notice" role="note">แก้ไขหลังพิมพ์ — Task List ฉบับที่ {sheet.placement_revision} ที่พิมพ์ไว้ใช้ไม่ได้แล้ว พิมพ์ใหม่เพื่อใช้ฉบับที่ {sheet.placement_revision+1}</p>}
    {editable&&w.allowed.assign&&<ExactFill w={w} sheetNo={sheetNo} busy={busy} act={act}/>}
-   {!editable&&w.allowed.assign&&sheet.state!=="Cancelled"&&<p className="notice" role="note">Task List {sheetNo} ล็อกตำแหน่งแล้ว จึงไม่สามารถเพิ่มหรือแทนที่ตัวอย่างใน Task นี้ได้ หากมี Task List อื่นที่ยังแก้ไขได้ ให้เลือก Task นั้นจากแท็บด้านบนเพื่อจัดตำแหน่ง โดยไม่ปลดล็อก Task ที่ล็อกแล้ว</p>}
+   {!w.operational&&!editable&&w.allowed.assign&&sheet.state!=="Cancelled"&&<p className="notice" role="note">Task List {sheetNo} ล็อกตำแหน่งแล้ว จึงไม่สามารถเพิ่มหรือแทนที่ตัวอย่างใน Task นี้ได้ หากมี Task List อื่นที่ยังแก้ไขได้ ให้เลือก Task นั้นจากแท็บด้านบนเพื่อจัดตำแหน่ง โดยไม่ปลดล็อก Task ที่ล็อกแล้ว</p>}
    <div className="plate" role="region" aria-label={`ตำแหน่งตัวอย่าง Task List ${sheetNo}`} tabIndex={0}>{[0,1].map(strip=><table key={strip} className="data-table plate-table"><caption>Strip {strip===0?"S1":"S2"} (ตำแหน่ง {(sheetNo-1)*16+1+strip*8}–{(sheetNo-1)*16+8+strip*8})</caption>
     <thead><tr><th scope="col">ตน. / Plate</th><th scope="col">Barcode</th><th scope="col">Sample ID / Control</th><th scope="col">{started?"✓ ตรวจก่อน/หลังดูด":"จัดการ"}</th></tr></thead>
-    <tbody>{slots.slice(strip*8,strip*8+8).map(s=><tr key={s.slot} className={s.control?"control-row":s.assignment?"":"empty-row"}>
+    <tbody>{slots.slice(strip*8,strip*8+8).map(s=><tr key={s.slot} className={s.control==="positive"?"control-row row-pc":s.control==="negative"?"control-row row-nc":s.control==="blank"?"control-row row-blank":s.assignment?"":"empty-row"}>
      <th scope="row">{s.slot}<div className="small muted">{s.plate}</div></th><td className="mono">{s.barcode}</td>
      <td>{s.control?<><span className="badge">{s.controlLabel}</span> <span className="mono">{s.controlCode??"(ต้องระบุวันที่ปฏิบัติงาน)"}</span></>:s.assignment?<><span className={`mono strong${s.assignment.exceptional?" task-exceptional":""}`}>{s.assignment.printedSampleId}</span><div className="small">LN {s.assignment.hisLn} · HN {s.assignment.hn??"—"} · รอบที่ {s.assignment.roundNumber}{s.assignment.repeat?" · ตรวจซ้ำ":""}{s.assignment.attemptState==="Stopped"?" · หยุด":""} {gaBadge(s.assignment.ga)}{s.assignment.labelPrints===0&&<span className="badge warning" title="แจ้งเตือนเท่านั้น — จัดตำแหน่งต่อได้ พิมพ์ฉลากจากคิวงาน Lab ก่อนเริ่มปฏิบัติงาน">ยังไม่พิมพ์ฉลาก</span>}</div></>:<span className="muted">ว่าง</span>}</td>
      <td>{editable&&s.assignment&&w.allowed.draft?<div className="row-actions"><button className="button small secondary" type="button" onClick={()=>setDialog({type:"move",slot:s.slot})}>ย้าย/สลับ</button><button className="button small secondary" type="button" onClick={()=>setDialog({type:"remove",slot:s.slot})}>ถอดออก</button></div>
       :started&&!w.operational&&(s.control||s.assignment)?<TransferCell status={transfer(s.slot)} canRecord={sheet.state==="InExecution"||sheet.state==="ExecutionRecorded"} canDispose={w.allowed.dispositionPropose} onRecord={()=>setDialog({type:"transfer",slot:s.slot})} onDispose={()=>setDialog({type:"dispose",slot:s.slot})}/> :"—"}</td></tr>)}</tbody></table>)}</div>
    {(editable||w.allowed.metadata)&&sheet.state!=="Cancelled"&&<PlanForm key={`${sheet.id}:${w.batch.version}`} sheet={sheet} disabled={busy||!(w.allowed.draft||w.allowed.metadata)} onDirty={setPlanDirty} onSave={async d=>{const ok=await act("updatePlan",{sheetNumber:sheetNo,...d},"บันทึกข้อมูลแผนแล้ว");if(ok)setPlanDirty(false);return ok;}}/>}
-   {!editable&&<dl className="compact-facts plan-dl"><div><dt>ข้อมูลที่วางแผน</dt><dd>วันที่ทำ Library Preparation {displayBe(sheet.planned_work_date)} · ผู้ปฏิบัติ {sheet.planned_operator??"—"} · Extraction Lot {sheet.planned_extraction_lot??"—"} / Exp. {displayBe(sheet.planned_extraction_expiry)} · Library Lot {sheet.planned_library_lot??"—"} / Exp. {displayBe(sheet.planned_library_expiry)}</dd></div><div><dt>Placement revision</dt><dd>{sheet.placement_revision} {w.snapshots.filter(x=>x.sheet_number===sheetNo).map(x=><span key={x.id} className="mono small"> r{x.revision}:{x.content_hash.slice(0,12)}</span>)}</dd></div>
+   {!editable&&!w.operational&&<dl className="compact-facts plan-dl"><div><dt>ข้อมูลที่วางแผน</dt><dd>วันที่ทำ Library Preparation {displayBe(sheet.planned_work_date)} · ผู้ปฏิบัติ {sheet.planned_operator??"—"} · Extraction Lot {sheet.planned_extraction_lot??"—"} / Exp. {displayBe(sheet.planned_extraction_expiry)} · Library Lot {sheet.planned_library_lot??"—"} / Exp. {displayBe(sheet.planned_library_expiry)}</dd></div><div><dt>Placement revision</dt><dd>{sheet.placement_revision} {w.snapshots.filter(x=>x.sheet_number===sheetNo).map(x=><span key={x.id} className="mono small"> r{x.revision}:{x.content_hash.slice(0,12)}</span>)}</dd></div>
     {sheet.execution_started_at&&<><div><dt>เริ่มปฏิบัติ (เวลาที่ Server บันทึก)</dt><dd>{bkk(sheet.execution_started_at)}</dd></div></>}</dl>}
    <div className="action-bar">
-    {(sheet.state==="Draft"||sheet.state==="Amended")&&w.allowed.finalize&&<button className="button" type="button" disabled={busy} onClick={()=>setDialog({type:"plancheck"})}>ยืนยันแผนตำแหน่ง</button>}
-    {sheet.state==="PlanChecked"&&w.allowed.finalize&&<button className="button" type="button" disabled={busy} onClick={()=>act("finalize",{sheetNumber:sheetNo},"ล็อกตำแหน่งแล้ว — ใช้รหัสจากฉบับนี้ในใบงาน")}>ล็อกตำแหน่ง Task List</button>}
+    {!w.operational&&(sheet.state==="Draft"||sheet.state==="Amended")&&w.allowed.finalize&&<button className="button" type="button" disabled={busy} onClick={()=>setDialog({type:"plancheck"})}>ยืนยันแผนตำแหน่ง</button>}
+    {!w.operational&&sheet.state==="PlanChecked"&&w.allowed.finalize&&<button className="button" type="button" disabled={busy} onClick={()=>act("finalize",{sheetNumber:sheetNo},"ล็อกตำแหน่งแล้ว — ใช้รหัสจากฉบับนี้ในใบงาน")}>ล็อกตำแหน่ง Task List</button>}
     {!w.operational&&sheet.state==="PlacementFinalized"&&w.allowed.finalize&&<button className="button" type="button" disabled={busy} onClick={()=>act("issuePreWork",{sheetNumber:sheetNo},"ออกใบงาน Pre-work (F2) แล้ว")}>ออกใบงาน Pre-work (F2)</button>}
     {!w.operational&&sheet.state==="PreWorkIssued"&&w.allowed.execute&&<button className="button" type="button" disabled={busy} onClick={()=>act("start",{sheetNumber:sheetNo},"บันทึกเริ่มปฏิบัติแล้ว (เวลา Server)")}>เริ่มปฏิบัติงานจริง</button>}
     {!w.operational&&sheet.state==="InExecution"&&w.allowed.execute&&<button className="button secondary" type="button" disabled={busy} onClick={()=>act("end",{sheetNumber:sheetNo},"บันทึกจบการปฏิบัติแล้ว")}>บันทึกจบการปฏิบัติ</button>}
     {!w.operational&&sheet.state==="ExecutionRecorded"&&w.allowed.verify&&<button className="button" type="button" disabled={busy||!comp.ready} onClick={()=>act("verify",{sheetNumber:sheetNo},"ทวนสอบหลักฐานการปฏิบัติครบแล้ว")}>ยืนยัน Execution Verified</button>}
     {!w.operational&&sheet.state==="ExecutionVerified"&&w.allowed.execute&&<button className="button" type="button" disabled={busy} onClick={()=>act("issueCompleted",{sheetNumber:sheetNo},"ออกบันทึกหลังปฏิบัติ (F2 Completed) แล้ว")}>ออก F2 Completed</button>}
    </div>
-   <div className="action-bar" aria-label={`PDF ของ Task List ${sheetNo}`}>
-    {sheet.placement_revision>0&&sheet.state!=="Cancelled"&&w.allowed.execute?<>
+   <div className="action-bar task-pdf-actions" aria-label={`PDF ของ Task List ${sheetNo}`}>
+    {w.operational?(sheet.state!=="Cancelled"&&(w.allowed.execute||w.allowed.finalize)?<>
+     <button className="button" type="button" disabled={busy||!sheetStats(w.slots,sheetNo).placed} onClick={()=>void taskPdf(sheetNo,"view")}><LabIcon name="printer"/>ดูตัวอย่าง / พิมพ์ PDF Task List {sheetNo}</button>
+     <button className="button secondary" type="button" disabled={busy||!sheetStats(w.slots,sheetNo).placed} onClick={()=>void taskPdf(sheetNo,"download")}><LabIcon name="download"/>ดาวน์โหลด PDF</button>
+     {editable&&w.allowed.draft&&<button className="button secondary" type="button" disabled={busy} onClick={()=>void labPdf(`/api/p4/batches/${w.batch.id}/draft-pdf`,{sheetNumber:sheetNo}).catch(e=>setMsg({ok:false,text:failureText(e)}))}>ดูตัวอย่างฉบับร่าง (DRAFT)</button>}
+     {sheet.placement_revision>0&&!editable&&<span className="help">ฉบับที่พิมพ์: {sheet.placement_revision}</span>}</>:null)
+    :sheet.placement_revision>0&&sheet.state!=="Cancelled"&&w.allowed.execute?<>
      <button className="button secondary" type="button" disabled={busy} onClick={()=>void taskPdf(sheetNo,"view")}>ดูตัวอย่าง PDF Task List {sheetNo}</button>
      <button className="button secondary" type="button" disabled={busy} onClick={()=>void taskPdf(sheetNo,"download")}>ดาวน์โหลด PDF Task List {sheetNo}</button>
-     <span className="help">{w.operational?"PDF ผูกกับตำแหน่งและวันที่ใน Task List ฉบับนี้ พิมพ์เพื่อบันทึกการทำงานบนกระดาษได้":"สำเนาตรวจทานจาก Excel Master — ไม่ใช่เอกสารควบคุม"}</span></>
-    :editable&&w.allowed.draft?<><button className="button secondary" type="button" disabled={busy} onClick={()=>void labPdf(`/api/p4/batches/${w.batch.id}/draft-pdf`,{sheetNumber:sheetNo}).catch(e=>setMsg({ok:false,text:failureText(e)}))}>ดูตัวอย่าง PDF ฉบับร่าง (DRAFT)</button>
-     <span className="help">ฉบับร่างก่อน Finalize มีลายน้ำ DRAFT — ไม่ใช่เอกสารควบคุม ไม่มีเลขเอกสาร และใช้ปฏิบัติงานไม่ได้ · PDF จาก Excel Master พร้อมเมื่อ Finalize แล้ว</span></>
+     <span className="help">สำเนาตรวจทานจาก Excel Master — ไม่ใช่เอกสารควบคุม</span></>
+    :editable&&w.allowed.draft?<><button className="button secondary" type="button" disabled={busy} onClick={()=>void labPdf(`/api/p4/batches/${w.batch.id}/draft-pdf`,{sheetNumber:sheetNo}).catch(e=>setMsg({ok:false,text:failureText(e)}))}>ดูตัวอย่าง PDF ฉบับร่าง (DRAFT)</button></>
     :<span className="help">PDF ของ Task List {sheetNo} พร้อมเมื่อ Finalize Placement แล้ว</span>}
    </div>
-   {sheet.state==="PlanChecked"&&<p className="help">การยืนยันแผนคือการตรวจแผนบนจอ ไม่ใช่หลักฐานว่าดูดตัวอย่างแล้ว · Finalize จะประเมิน Finalize Gate ใหม่ทุกตัวอย่าง — ถ้าตัวใดไม่ผ่านจะไม่ Finalize ทั้ง Sheet</p>}
-   {sheet.state==="PlacementFinalized"&&<p className="help">{w.operational?"ล็อกตำแหน่งแล้ว — พิมพ์ PDF Task List เพื่อบันทึกผลบนกระดาษ แล้วเข้าสู่ QC Measurements ได้โดยตรง":"ล็อกเฉพาะแผนตำแหน่ง — ยังไม่มีการบันทึก ✓ การดูด ใบงาน Pre-work มีเพียงช่องว่างสำหรับเขียนระหว่างปฏิบัติ"}</p>}
+   {!w.operational&&sheet.state==="PlanChecked"&&<p className="help">การยืนยันแผนคือการตรวจแผนบนจอ ไม่ใช่หลักฐานว่าดูดตัวอย่างแล้ว · Finalize จะประเมิน Finalize Gate ใหม่ทุกตัวอย่าง — ถ้าตัวใดไม่ผ่านจะไม่ Finalize ทั้ง Sheet</p>}
+   {!w.operational&&sheet.state==="PlacementFinalized"&&<p className="help">ล็อกเฉพาะแผนตำแหน่ง — ยังไม่มีการบันทึก ✓ การดูด ใบงาน Pre-work มีเพียงช่องว่างสำหรับเขียนระหว่างปฏิบัติ</p>}
    {started&&!w.operational&&<ExecutionPanel w={w} sheet={sheet} comp={comp} copies={copiesForPreWork} busy={busy} act={act} userId={userId}/>}
   </section>
   {qcOpen&&!w.operational&&<QcPanel w={w} busy={busy} act={act} userId={userId}/>}
@@ -155,20 +167,26 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
    {w.copies.filter(c=>c.kind==="WORKING_COPY"&&c.document_status!=="Issued"&&!c.recalled_at).length>0&&<div className="stack"><h3>สำเนาใช้งานที่ต้องเรียกคืน</h3><ul>{w.copies.filter(c=>c.kind==="WORKING_COPY"&&c.document_status!=="Issued"&&!c.recalled_at).map(c=><li key={c.id}>{c.doc_code} Rev {c.revision} สำเนาที่ {c.copy_number} ({c.actor}) {w.allowed.recall&&<button className="button small secondary" type="button" onClick={()=>setDialog({type:`recall:${c.id}`})}>ยืนยันเรียกคืนแล้ว</button>}</li>)}</ul></div>}
   </section>}
   <details className="panel"><summary>ประวัติการทำงานของ Batch ({w.events.length})</summary><ol className="timeline">{w.events.map((e,i)=><li key={i}>{bkk(e.created_at)} · {e.event_type}{e.sheet_number?` · TL${e.sheet_number}`:""} · {e.actor}{e.reason?` — ${e.reason}`:""}</li>)}</ol></details>
-  {dialog&&<WorkspaceDialog dialog={dialog} w={w} sheetNo={sheetNo} busy={busy} act={act} close={()=>setDialog(null)} setMsg={setMsg} reload={reload}/>}
+  {pdfView&&<PdfPreview src={pdfView} title={`Task List ${sheetNo} · ${w.batch.runLabel}`} onClose={()=>{URL.revokeObjectURL(pdfView);setPdfView(null);}}/>}
+  {dialog?.type==="labels"&&<LabelDialog samples={[...new Map(w.slots.filter(x=>x.assignment?.lnHalos).map(x=>[x.assignment!.roundId,{roundId:x.assignment!.roundId,hisLn:x.assignment!.hisLn,lnHalos:x.assignment!.lnHalos,labelCode:x.assignment!.labelCode,roundNumber:x.assignment!.roundNumber,printed:x.assignment!.labelPrints}])).values()]} onClose={()=>setDialog(null)} onPrinted={()=>void reload()}/>}
+  {dialog&&dialog.type!=="labels"&&<WorkspaceDialog dialog={dialog} w={w} sheetNo={sheetNo} busy={busy} act={act} close={()=>setDialog(null)} setMsg={setMsg} reload={reload}/>}
  </>;
 }
 /** V2 "Batch context" card, per Task: run, strip labels, counts, control and plan summary in one place. */
-function TaskContext({w,sheet,sheetNo}:{w:Workspace;sheet:Sheet;sheetNo:number}){
+function TaskContext({w,sheet,sheetNo,stateText}:{w:Workspace;sheet:Sheet;sheetNo:number;stateText:(state:string)=>string}){
  const st=sheetStats(w.slots,sheetNo),strips=stripLabels(w.batch.runLabel,sheetNo as SheetNumber);
+ const lot=(lotNo:string|null,expiry:string|null)=>lotNo||expiry?`${lotNo??"—"} / Exp. ${displayBe(expiry)}`:"—";
+ // OWNER-LAB-033: one summary line, then Control | Library Preparation date | Operator, then the two lots.
  return <section className="task-context" aria-label={`สรุป Task List ${sheetNo}`}>
-  <dl>
-   <div><dt>Task List</dt><dd><strong>{sheetNo}</strong> · ตำแหน่ง {(sheetNo-1)*16+1}–{sheetNo*16} · {STEP_TEXT[sheet.state]??sheet.state}</dd></div>
-   <div><dt>Run</dt><dd className="mono">{w.batch.runLabel}{!w.operational&&<> · {strips.s1} · {strips.s2}</>}</dd></div>
-   <div><dt>ตัวอย่างผู้ป่วย</dt><dd>{st.placed}/{st.capacity} · ว่าง {st.empty}</dd></div>
+  <p className="task-context-line"><strong>Task List {sheetNo}</strong><span>{w.batch.runLabel}</span><span>ตำแหน่ง {(sheetNo-1)*16+1}–{sheetNo*16}</span><span>{stateText(sheet.state)}</span><span>ตัวอย่าง {st.placed}/{st.capacity}</span>{!w.operational&&<span className="mono">{strips.s1} · {strips.s2}</span>}</p>
+  <dl className="task-context-grid three">
    <div><dt>Control</dt><dd>{st.control?<><span className="badge">{st.control.controlLabel}</span> <span className="mono">{st.control.controlCode??"รอวันที่ปฏิบัติงาน"}</span></>:"—"}</dd></div>
-   <div><dt>วันที่ทำ Library Preparation (วางแผน)</dt><dd>{displayBe(sheet.planned_work_date)} · ผู้ปฏิบัติ {sheet.planned_operator??"—"}</dd></div>
-   <div><dt>Extraction / Library Lot</dt><dd>{sheet.planned_extraction_lot??"—"} / Exp. {displayBe(sheet.planned_extraction_expiry)} · {sheet.planned_library_lot??"—"} / Exp. {displayBe(sheet.planned_library_expiry)}</dd></div>
+   <div><dt>วันที่ทำ Library Preparation</dt><dd>{displayBe(sheet.planned_work_date)}</dd></div>
+   <div><dt>ผู้ปฏิบัติงาน</dt><dd>{sheet.planned_operator??"—"}</dd></div>
+  </dl>
+  <dl className="task-context-grid two">
+   <div><dt>Extraction Lot / Expiry</dt><dd>{lot(sheet.planned_extraction_lot,sheet.planned_extraction_expiry)}</dd></div>
+   <div><dt>Library Lot / Expiry</dt><dd>{lot(sheet.planned_library_lot,sheet.planned_library_expiry)}</dd></div>
   </dl>
  </section>;
 }
@@ -185,7 +203,7 @@ function PlanForm({sheet,disabled,onSave,onDirty}:{sheet:Sheet;disabled:boolean;
   ?<ThaiDateInput id={`plan-${k}`} value={d[k]} onChange={v=>{if(v!==d[k])set(k,v);}}/>
   :<input id={`plan-${k}`} type={type} value={d[k]} onChange={e=>set(k,e.target.value)} maxLength={80}/>}</div>;
  const n=(v:string)=>v.trim()?v.trim():null;
- return <fieldset className="plan-form"><legend>ข้อมูลที่วางแผน (พิมพ์แยกจากช่อง “ใช้จริง” — ไม่ใช่หลักฐานการปฏิบัติ)</legend><div className="form-grid">{f("plannedWorkDate","วันที่ทำ Library Preparation ที่วางแผน (ใช้สร้างรหัส Control)","date")}{f("plannedOperator","ผู้ปฏิบัติที่วางแผน")}{f("plannedExtractionLot","Extraction Lot (ถ้าทราบ)")}{f("plannedExtractionExpiry","Extraction Exp.","date")}{f("plannedLibraryLot","Library Lot (ถ้าทราบ)")}{f("plannedLibraryExpiry","Library Exp.","date")}</div>
+ return <fieldset className="plan-form"><legend>ข้อมูลการเตรียมงาน</legend><div className="form-grid">{f("plannedWorkDate","วันที่ทำ Library Preparation","date")}{f("plannedOperator","ผู้ปฏิบัติงาน")}{f("plannedExtractionLot","Extraction Lot (ถ้าทราบ)")}{f("plannedExtractionExpiry","Extraction Exp.","date")}{f("plannedLibraryLot","Library Lot (ถ้าทราบ)")}{f("plannedLibraryExpiry","Library Exp.","date")}</div>
   <button className="button secondary" type="button" disabled={disabled||!d.plannedWorkDate} onClick={()=>onSave({plannedWorkDate:d.plannedWorkDate,plannedOperator:n(d.plannedOperator),plannedExtractionLot:n(d.plannedExtractionLot),plannedExtractionExpiry:n(d.plannedExtractionExpiry),plannedLibraryLot:n(d.plannedLibraryLot),plannedLibraryExpiry:n(d.plannedLibraryExpiry)})}>บันทึกข้อมูลแผน</button></fieldset>;
 }
 type Act=(action:string,data?:Record<string,unknown>,ok?:string)=>Promise<boolean>;
@@ -283,7 +301,7 @@ function WorkspaceDialog({dialog,w,sheetNo,busy,act,close,setMsg,reload}:{dialog
  if(dialog.type==="plancheck")return <Dialog title={`ยืนยันแผนตำแหน่ง Task List ${sheetNo}`} onClose={close}><div className="stack"><p>ตรวจบนจอ — <strong>ไม่ใช่การยืนยันว่าดูดตัวอย่างแล้ว</strong></p>
   {[["controls","Control อยู่ตาม Template (PC 1 / NC 25 / Blank 40) และรหัส Control ถูกต้อง"],["ids","Sample ID / LN Halos / ป้ายรอบ / Barcode index ตรงกับตัวอย่างที่เลือก"],["dup","ไม่มี ID ซ้ำ"]].map(([k,l])=><label key={k} className="check-label"><input type="checkbox" checked={checks[k as keyof typeof checks]} onChange={e=>setChecks({...checks,[k]:e.target.checked})}/> {l}</label>)}
   <div className="dialog-actions"><button className="button" type="button" disabled={busy||!checks.controls||!checks.ids||!checks.dup} onClick={()=>run("planCheck",{sheetNumber:sheetNo,confirm:{controlsAtTemplate:true,identifiersMatch:true,noDuplicates:true}},"ยืนยันแผนตำแหน่งแล้ว")}>ยืนยันแผน</button></div></div></Dialog>;
- if(dialog.type==="move"&&slot){const targets=w.slots.filter(s=>!s.control&&s.slot!==slot.slot&&EDITABLE.includes(w.sheets[s.sheet-1].state)&&w.sheets[s.sheet-1].placement_revision===0);const needReason=[sheet.state,w.sheets[Math.ceil(Number(target||slot.slot)/16)-1].state].includes("PlanChecked");
+ if(dialog.type==="move"&&slot){const targets=w.slots.filter(s=>!s.control&&s.slot!==slot.slot&&EDITABLE.includes(w.sheets[s.sheet-1].state)&&(w.sheets[s.sheet-1].placement_revision===0||w.sheets[s.sheet-1].state==="Amended"));const needReason=[sheet.state,w.sheets[Math.ceil(Number(target||slot.slot)/16)-1].state].includes("PlanChecked");
   return <Dialog title={`ย้าย/สลับตำแหน่ง ${slot.slot}`} onClose={close}><div className="stack"><label htmlFor="target">ไปยังตำแหน่ง (ถ้ามีตัวอย่างอยู่จะสลับกัน)</label><select id="target" value={target} onChange={e=>setTarget(e.target.value)}><option value="">เลือกตำแหน่ง</option>{targets.map(s=><option key={s.slot} value={s.slot}>ตน. {s.slot} ({s.plate}) {s.assignment?`— สลับกับ ${s.assignment.printedSampleId}`:"— ว่าง"}</option>)}</select>
    {needReason&&<><label htmlFor="mv-reason">เหตุผล (ยืนยันแผนแล้ว)</label><input id="mv-reason" value={reason} onChange={e=>setReason(e.target.value)}/></>}
    <div className="dialog-actions"><button className="button" type="button" disabled={busy||!target||(needReason&&reason.trim().length<8)} onClick={()=>run("move",{fromSlot:slot.slot,toSlot:Number(target),...(reason.trim()?{reason:reason.trim()}:{})},"ย้ายตำแหน่งแล้ว")}>ยืนยัน</button></div></div></Dialog>;}
@@ -303,8 +321,16 @@ function WorkspaceDialog({dialog,w,sheetNo,busy,act,close,setMsg,reload}:{dialog
  if(dialog.type==="amend")return <Dialog title={`Controlled amendment — Task List ${sheetNo}`} onClose={close}><div className="stack"><p>ใบงาน Pre-work ที่ออกแล้วจะถูก “ระงับใช้” และสำเนาใช้งานทุกฉบับต้องถูกเรียกคืนก่อนเริ่มงาน Snapshot และ PDF เดิมไม่ถูกแก้</p><label htmlFor="am-reason">เหตุผล</label><textarea id="am-reason" rows={3} value={reason} onChange={e=>setReason(e.target.value)}/>
   <div className="dialog-actions"><button className="button" type="button" disabled={busy||reason.trim().length<8} onClick={()=>run("amend",{sheetNumber:sheetNo,reason},"เปิด Controlled amendment แล้ว")}>ยืนยัน</button></div></div></Dialog>;
  if(dialog.type==="fill")return <FillDialog w={w} sheetNo={sheetNo} close={close} setMsg={setMsg} reload={reload}/>;
- if(dialog.type==="cancel")return <Dialog title={`ยกเลิก ${w.batch.runLabel}`} onClose={close}><div className="stack"><p>ยกเลิกได้เฉพาะก่อนเริ่มปฏิบัติ ตัวอย่างที่ยังไม่เคย Finalize กลับคิวพร้อมเข้าตรวจ ส่วนที่ Finalize แล้วเป็น “Batch ถูกยกเลิก” และต้องสั่งตรวจซ้ำ เลข Run ไม่ถูกนำกลับมาใช้</p><label htmlFor="cx-reason">เหตุผล</label><textarea id="cx-reason" rows={3} value={reason} onChange={e=>setReason(e.target.value)}/>
-  <div className="dialog-actions"><button className="button" type="button" disabled={busy||reason.trim().length<8} onClick={()=>run("cancel",{reason},"ยกเลิก Batch แล้ว")}>ยืนยันยกเลิก</button></div></div></Dialog>;
+ if(dialog.type==="reopen")return <Dialog title={`แก้ไขแผนผัง Task List ${sheetNo}`} onClose={close}><div className="stack"><p>แก้ไขตำแหน่งได้จนกว่าจะเริ่มบันทึกค่าใน QC Measurements — Task List ฉบับที่ {sheet.placement_revision} ที่พิมพ์ไว้จะใช้ไม่ได้เมื่อพิมพ์ฉบับใหม่</p>
+  <div className="dialog-actions"><button className="button" type="button" disabled={busy} onClick={()=>run("reopenPlacement",{sheetNumber:sheetNo},"เปิดแก้ไขแผนผังแล้ว")}>แก้ไขแผนผัง</button><button className="button secondary" type="button" onClick={close}>ยกเลิก</button></div></div></Dialog>;
+ if(dialog.type==="cancel"){
+  // OWNER-LAB-030: never printed and no evidence → one confirmation, no reason, Run number is given back. Otherwise the reasoned cancellation keeps the number.
+  const unused=w.sheets.every(t=>t.placement_revision===0)&&!w.documents.length&&!w.observations.length;
+  return <Dialog title={unused?`ลบ ${w.batch.runLabel}`:`ยกเลิก ${w.batch.runLabel}`} onClose={close}><div className="stack">
+   {unused?<p>Batch นี้ยังไม่ได้พิมพ์หรือใช้งาน ตัวอย่าง {w.slots.filter(x=>x.assignment).length} รายการจะกลับคิวพร้อมเข้าตรวจ และเลข {w.batch.runLabel} นำกลับมาใช้กับ Batch ถัดไป ประวัติยังเก็บไว้</p>
+    :<><p>Batch นี้พิมพ์หรือมีหลักฐานการปฏิบัติแล้ว จึงยกเลิกได้โดยเก็บเลข Run และประวัติไว้ทั้งหมด ตัวอย่างที่พิมพ์แล้วต้องสั่งตรวจซ้ำ</p><label htmlFor="cx-reason">เหตุผล (อย่างน้อย 8 ตัวอักษร)</label><textarea id="cx-reason" rows={3} value={reason} onChange={e=>setReason(e.target.value)}/></>}
+   <div className="dialog-actions"><button className="button danger" type="button" disabled={busy||(!unused&&reason.trim().length<8)} onClick={()=>run("trash",unused?{}:{reason:reason.trim()},unused?`ลบ ${w.batch.runLabel} แล้ว — ตัวอย่างกลับคิว`:"ยกเลิก Batch แล้ว")}>{unused?"ยืนยันลบ":"ยืนยันยกเลิก"}</button><button className="button secondary" type="button" onClick={close}>ไม่ลบ</button></div></div></Dialog>;
+ }
  return null;
 }
 
@@ -343,5 +369,5 @@ function ExactFillArea({w,sheetNo,busy,act,mode}:{w:Workspace;sheetNo:number;bus
  useEffect(()=>{let live=true;const timer=setTimeout(()=>{setLoading(true);setError('');labApi<CandidatePage>(`/api/p4/worklist?tab=READY&page=${pageNo}&pageSize=50&q=${encodeURIComponent(q)}`).then(r=>{if(!live)return;const eligible=r.attempts.filter(a=>mode!=='REPEAT'||!!a.repeat||a.roundNumber>1);setRows(previous=>pageNo===1?eligible:[...previous,...eligible.filter(candidate=>!previous.some(item=>item.attemptId===candidate.attemptId))]);setPage(r.page);}).catch(e=>{if(live)setError(failureText(e));}).finally(()=>{if(live)setLoading(false);});},250);return()=>{live=false;clearTimeout(timer);};},[q,mode,w.batch.version,pageNo]);
  const targets=w.slots.filter(s=>s.sheet===sheetNo&&!s.control&&(mode!=='MANUAL'||!s.assignment));
  const title=mode==='MANUAL'?'เพิ่มตัวอย่าง — เลือกตำแหน่ง':mode==='URGENT'?'Urgent Fill — งานด่วน':'Repeat / Re-Sampling Fill';
- return <section className="task-exact-fill" aria-label={title}><h3>{mode==='URGENT'&&<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m13 2-9 12h7l-1 8 10-13h-8z"/></svg>}{title}</h3><div className="form-grid"><div><label htmlFor={`find-${mode}`}>ค้นหา LN Halos / HIS LN / HN</label><input id={`find-${mode}`} value={q} maxLength={80} onChange={e=>{setQ(e.target.value);setSelected('');setPageNo(1);setRows([]);}}/></div><div><label htmlFor={`sample-${mode}`}>ตัวอย่างที่ผ่าน Gate</label><select id={`sample-${mode}`} value={selected} disabled={busy||loading} onChange={e=>setSelected(e.target.value)}><option value="">{loading?'กำลังค้นหา…':'เลือกตัวอย่าง'}</option>{rows.map(a=><option key={a.attemptId} value={a.attemptId}>{a.printedSampleId??a.labelCode} · LN {a.hisLn} · HN {a.hn??'—'} · รอบ {a.roundNumber}</option>)}</select></div><div><label htmlFor={`slot-${mode}`}>ตำแหน่งปลายทาง</label><select id={`slot-${mode}`} value={slot} onChange={e=>setSlot(e.target.value)}><option value="">เลือกตำแหน่งที่แน่นอน</option>{targets.map(s=><option key={s.slot} value={s.slot}>{s.slot} · {s.assignment?`แทนที่ ${s.assignment.printedSampleId}`:'ว่าง'}</option>)}</select></div><div><label htmlFor={`reason-${mode}`}>{mode==='URGENT'?'เหตุผลงานด่วน / แทรกคิว':'เหตุผลแทรกคิว (เมื่อแซง FIFO)'}</label><input id={`reason-${mode}`} value={reason} maxLength={500} onChange={e=>setReason(e.target.value)}/></div></div>{mode!=='MANUAL'&&<p className="help">แทนที่ได้เฉพาะผู้ป่วยที่ยังไม่เริ่มปฏิบัติงานใน Task ที่ยังแก้ไขได้ ตัวอย่างเดิมกลับคิวพร้อมเข้าตรวจ</p>}{rows.length>0&&<p className="small muted" role="status">ผลที่เข้าเกณฑ์ {rows.length} · หน้าคิว {page.number}/{page.totalPages}{page.total>50?` · พร้อมเข้าตรวจทั้งหมด ${page.total}`:''}</p>}{!loading&&!rows.length&&!error&&page.number===1&&<p>ไม่มีตัวอย่างที่เข้าเกณฑ์ตรงกับคำค้น</p>}{error&&<p role="alert">{error}</p>}{page.number<page.totalPages&&<button className="button small secondary" type="button" disabled={busy||loading} onClick={()=>setPageNo(n=>n+1)}>แสดงตัวอย่างหน้าถัดไป</button>}{page.number>1&&<button className="button small secondary" type="button" disabled={busy||loading} onClick={()=>{setRows([]);setPageNo(n=>Math.max(1,n-1));}}>กลับไปหน้าก่อน</button>}<button className="button secondary" type="button" disabled={busy||loading||!selected||!slot} onClick={async()=>{if(await act('assignExact',{attemptId:selected,slot:Number(slot),mode,...(reason.trim()?{queueOverrideReason:reason.trim()}:{})},'จัดตัวอย่างลงตำแหน่งที่เลือกแล้ว')){setSelected('');setSlot('');setReason('');}}}>เพิ่มลงตำแหน่ง {slot||'ที่เลือก'}</button></section>;
+ return <details className="task-exact-fill"><summary>{mode==='URGENT'&&<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m13 2-9 12h7l-1 8 10-13h-8z"/></svg>}{title}</summary><div className="form-grid"><div><label htmlFor={`find-${mode}`}>ค้นหา LN Halos / HIS LN / HN</label><input id={`find-${mode}`} value={q} maxLength={80} onChange={e=>{setQ(e.target.value);setSelected('');setPageNo(1);setRows([]);}}/></div><div><label htmlFor={`sample-${mode}`}>ตัวอย่างที่ผ่าน Gate</label><select id={`sample-${mode}`} value={selected} disabled={busy||loading} onChange={e=>setSelected(e.target.value)}><option value="">{loading?'กำลังค้นหา…':'เลือกตัวอย่าง'}</option>{rows.map(a=><option key={a.attemptId} value={a.attemptId}>{a.printedSampleId??a.labelCode} · LN {a.hisLn} · HN {a.hn??'—'} · รอบ {a.roundNumber}</option>)}</select></div><div><label htmlFor={`slot-${mode}`}>ตำแหน่งปลายทาง</label><select id={`slot-${mode}`} value={slot} onChange={e=>setSlot(e.target.value)}><option value="">เลือกตำแหน่งที่แน่นอน</option>{targets.map(s=><option key={s.slot} value={s.slot}>{s.slot} · {s.assignment?`แทนที่ ${s.assignment.printedSampleId}`:'ว่าง'}</option>)}</select></div><div><label htmlFor={`reason-${mode}`}>{mode==='URGENT'?'เหตุผลงานด่วน / แทรกคิว':'เหตุผลแทรกคิว (เมื่อแซง FIFO)'}</label><input id={`reason-${mode}`} value={reason} maxLength={500} onChange={e=>setReason(e.target.value)}/></div></div>{mode!=='MANUAL'&&<p className="help">แทนที่ได้เฉพาะผู้ป่วยที่ยังไม่เริ่มปฏิบัติงานใน Task ที่ยังแก้ไขได้ ตัวอย่างเดิมกลับคิวพร้อมเข้าตรวจ</p>}{rows.length>0&&<p className="small muted" role="status">ผลที่เข้าเกณฑ์ {rows.length} · หน้าคิว {page.number}/{page.totalPages}{page.total>50?` · พร้อมเข้าตรวจทั้งหมด ${page.total}`:''}</p>}{!loading&&!rows.length&&!error&&page.number===1&&<p>ไม่มีตัวอย่างที่เข้าเกณฑ์ตรงกับคำค้น</p>}{error&&<p role="alert">{error}</p>}{page.number<page.totalPages&&<button className="button small secondary" type="button" disabled={busy||loading} onClick={()=>setPageNo(n=>n+1)}>แสดงตัวอย่างหน้าถัดไป</button>}{page.number>1&&<button className="button small secondary" type="button" disabled={busy||loading} onClick={()=>{setRows([]);setPageNo(n=>Math.max(1,n-1));}}>กลับไปหน้าก่อน</button>}<button className="button secondary" type="button" disabled={busy||loading||!selected||!slot} onClick={async()=>{if(await act('assignExact',{attemptId:selected,slot:Number(slot),mode,...(reason.trim()?{queueOverrideReason:reason.trim()}:{})},'จัดตัวอย่างลงตำแหน่งที่เลือกแล้ว')){setSelected('');setSlot('');setReason('');}}}>เพิ่มลงตำแหน่ง {slot||'ที่เลือก'}</button></details>;
 }

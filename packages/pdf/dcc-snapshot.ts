@@ -3,7 +3,7 @@ import {createHash} from 'node:crypto';
 import {PDFDocument} from 'pdf-lib';
 import {loadTemplates} from '../forms/registry';
 import {isCurrentConsent,consentAcknowledged,DCC_CONSENT} from '../forms/consent-content';
-import {requestItems,consentItems,REQUEST_PAGE,CONSENT_PAGE,CONSENT_SIGNATURE_MASKS,CONSENT_SIGNATURE_LAYOUT,type RequestFields,type ConsentFields} from '../forms/layout';
+import {requestItems,consentItems,legacyConsentItems,LEGACY_CONSENT_SIGNATURE_LAYOUT,REQUEST_PAGE,CONSENT_PAGE,CONSENT_SIGNATURE_MASKS,CONSENT_SIGNATURE_LAYOUT,type RequestFields,type ConsentFields} from '../forms/layout';
 import {displayBe} from '../domain/thai-date';
 import {renderAncOverlay,composeForms} from './anc-overlay';
 import type {P2PdfInput} from './p2';
@@ -35,14 +35,15 @@ export async function renderDccSnapshot(s:P2PdfInput){
  if(frozen.requestSha256!==set.request.sha256||frozen.consentSha256!==set.consent.sha256||frozen.layout!==set.layout)throw Error('DCC_SNAPSHOT_TEMPLATE_MISMATCH');
  const approved=frozen.dccStatus==='DCC_APPROVED'&&set.dccStatus==='DCC_APPROVED';
  const fields=s.kind==='CONSENT'?snapshotConsentFields(s):null;
+ const balanced=s.payload.consentSignatureLayout==='balanced-20261025';
  const size=s.kind==='REQUEST'?REQUEST_PAGE:CONSENT_PAGE;
  const template=s.kind==='REQUEST'?templates.request:templates.consent;
  const source=await PDFDocument.load(template),page=source.getPages()[0];
  if(source.getPageCount()!==1||Math.abs(page.getWidth()-size.width)>0.1||Math.abs(page.getHeight()-size.height)>0.1)throw Error('DCC_TEMPLATE_PAGE_MISMATCH');
  const identity=record(s.payload.identity);
  const banner=`${approved?'LOCKED SNAPSHOT':'DRAFT / DCC NOT APPROVED'} · ${s.kind} · LN ${identity.ln??''} / HN ${identity.hn??''} · Snapshot ${s.id} · SHA-256 ${s.hash} · ${s.generatedAt} · ${s.kind==='CONSENT'?(fields?.decision?'signed evidence recorded':s.finalConsent?'INCOMPLETE SIGNING EVIDENCE':'UNSIGNED'):''}`;
- const overlays=await renderAncOverlay({pages:[{...size,items:s.kind==='REQUEST'?requestItems(s.payload.formFields as RequestFields):consentItems(fields!),banner,watermark:approved?'':'DRAFT / DCC NOT APPROVED'}]});
- const bytes=await composeForms([{template,overlay:overlays[0],...size,...(s.kind==='CONSENT'?{masks:CONSENT_SIGNATURE_MASKS}:{})}],`${approved?'':'DRAFT '}${s.kind} ${set.id}`);
+ const overlays=await renderAncOverlay({pages:[{...size,items:s.kind==='REQUEST'?requestItems(s.payload.formFields as RequestFields):(balanced?consentItems:legacyConsentItems)(fields!),banner,watermark:approved?'':'DRAFT / DCC NOT APPROVED'}]});
+ const bytes=await composeForms([{template,overlay:overlays[0],...size,...(s.kind==='CONSENT'?{masks:balanced?CONSENT_SIGNATURE_MASKS:[{x:38,y:106,width:517,height:109}]}:{})}],`${approved?'':'DRAFT '}${s.kind} ${set.id}`);
  const doc=await PDFDocument.load(bytes),out=doc.getPages()[0];
  const draw=async(value:unknown,hash:unknown,x:number,y:number,w:number,h:number)=>{
   const png=signatureBytes(value);if(!png)return;
@@ -51,7 +52,8 @@ export async function renderDccSnapshot(s:P2PdfInput){
   out.drawImage(image,{x:x+(w-width)/2,y:y+(h-height)/2,width,height});
  };
  const doctor=record(s.payload.doctor);
- const d=CONSENT_SIGNATURE_LAYOUT.doctor,p=CONSENT_SIGNATURE_LAYOUT.patient;
+ const layout=balanced?CONSENT_SIGNATURE_LAYOUT:LEGACY_CONSENT_SIGNATURE_LAYOUT;
+ const d=layout.doctor,p=layout.patient;
  await draw(doctor.signature_png,doctor.signature_hash,s.kind==='CONSENT'?d.x:400,s.kind==='CONSENT'?d.y:586,s.kind==='CONSENT'?d.width:130,s.kind==='CONSENT'?d.height:20);
  if(s.kind==='CONSENT'&&fields?.decision){const sig=record(s.finalConsent?.signature);await draw(sig.png,sig.signature_hash,p.x,p.y,p.width,p.height);}
  doc.setSubject(`Snapshot ${s.id}; SHA-256 ${s.hash}; request ${frozen.requestSha256}; consent ${frozen.consentSha256}; ${approved?'DCC_APPROVED':'REFERENCE_NOT_DCC_APPROVED'}`);

@@ -57,15 +57,17 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
   expect(s.orders).toHaveLength(1);expect(s.ln.verification).toBe('VERIFIED_BY_PET');expect(await openIssues(f.db)).toEqual([]);
  });
 
- it('PET identity never overwrites ANC name or date of birth already entered',async()=>{
+ it('Owner 006 blocked: PET preserves current ANC identity and locked original lineage',async()=>{
   const caseId=await register(f,{ln:LN,hn:HN});
   const workspace=(await rows<{round_id:string;draft:Record<string,unknown>}>(f.db,'SELECT w.round_id,w.draft FROM p2_workspace w JOIN specimen_round r ON r.id=w.round_id WHERE w.case_id=$1 AND r.round_number=1',[caseId]))[0];
   const draft={...workspace.draft,patient:{...(workspace.draft.patient as Record<string,unknown>),syntheticName:'ANC entered name',dob:'1999-01-01'}};
   await f.db.query('UPDATE p2_workspace SET draft=$2,version=version+1 WHERE round_id=$1',[workspace.round_id,draft]);
+  const {anc}=await registrar(f.db);const originalPayload={draft,immutableOriginal:true};await f.db.query("INSERT INTO p2_document_revision(case_id,round_id,kind,version,template_version,payload,content_hash,reason,created_by) VALUES($1,$2,'REQUEST',1,'SYNTHETIC-FM01-v1',$3,$4,'SYNTHETIC locked original',$5)",[caseId,workspace.round_id,originalPayload,'a'.repeat(64),anc.id]);
   await writePet(f.root,DAY,{ln:LN,hn:HN,name:'SYNTHETIC PET name',dob:'20000101',receivedAt:'20261012101500'});
   await cycle(f,{now:NOW});
   const saved=(await rows<{draft:{patient:{syntheticName:string;dob:string}}}>(f.db,'SELECT draft FROM p2_workspace WHERE round_id=$1',[workspace.round_id]))[0].draft;
   expect(saved.patient).toMatchObject({syntheticName:'ANC entered name',dob:'1999-01-01'});
+  expect((await rows<{payload:unknown;content_hash:string}>(f.db,'SELECT payload,content_hash FROM p2_document_revision WHERE case_id=$1',[caseId]))[0]).toEqual({payload:originalPayload,content_hash:'a'.repeat(64)});
   const event=(await rows<{details:{fields:string[]}}>(f.db,"SELECT details FROM case_event WHERE case_id=$1 AND event_type='PET_IDENTITY_CONFLICT'",[caseId]))[0];
   expect(event.details.fields.sort()).toEqual(['dob','name']);
  });
@@ -92,7 +94,7 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
   const issues=await openIssues(f.db,LN);
   expect(issues.map(i=>[i.kind,i.details.fields])).toEqual([['LN_REUSED_OR_CHANGED',['name']],['S1_INTEGRITY_EVENT',['specimenAt']],['S1_INTEGRITY_EVENT',['receivedAt']]]);
   expect(JSON.stringify(issues)).not.toContain('เปลี่ยนชื่อ');
-  expect((await rows<{event_type:string}>(f.db,'SELECT event_type FROM case_event WHERE case_id=$1 ORDER BY created_at',[caseId])).map(e=>e.event_type)).toEqual(['PET_IDENTITY_UPDATED','HIS_S1_RECEIVED','S1_INTEGRITY_EVENT','S1_INTEGRITY_EVENT','HIS_LN_CONFLICT']);
+  expect((await rows<{event_type:string}>(f.db,'SELECT event_type FROM case_event WHERE case_id=$1 ORDER BY created_at',[caseId])).map(e=>e.event_type)).toEqual(['PET_IDENTITY_UPDATED','PET_CURRENT_IDENTITY_APPLIED','HIS_S1_RECEIVED','S1_INTEGRITY_EVENT','S1_INTEGRITY_EVENT','HIS_LN_CONFLICT']);
  });
 
  it('AT-HISIN-05 Unlinked links when the registrant identifiers match (registration hook and worker rematch); mismatch → IDENTITY_MISMATCH',async()=>{
@@ -266,14 +268,14 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
   expect((await openIssues(f.db)).map(i=>i.kind)).toEqual(['HISTORICAL_LN_INTAKE']);
  });
 
- it('operational queue and health are PHI-free; Admin sees a masked LN; Test Connection is read-only and passes on the simulator',async()=>{
+ it('operational queue and health are PHI-free; Admin/IT see the full LN (OWNER-LAB-021), a role without LN privilege a masked LN; Test Connection is read-only and passes on the simulator',async()=>{
   await register(f,{ln:LN,hn:'9900009999'});
   await writePet(f.root,DAY,{ln:LN,hn:HN,name:'SYNTHETIC^^นาง ห้ามแสดง',dob:'19911111',receivedAt:'20261012090000',identity:'SYNTHETIC-ID-SECRET'});await cycle(f,{now:NOW});
-  const lab=await addUser(f.db,'LAB_STAFF','synthetic.p3.q1'),admin=await addUser(f.db,'APP_ADMIN','synthetic.p3.q2');
-  const forLab=await inboundQueue(f.db,lab),forAdmin=await inboundQueue(f.db,admin);
+  const lab=await addUser(f.db,'LAB_STAFF','synthetic.p3.q1'),admin=await addUser(f.db,'APP_ADMIN','synthetic.p3.q2'),auditor=await addUser(f.db,'CLINICAL_APPROVER','synthetic.p3.q3');
+  const forLab=await inboundQueue(f.db,lab),forAdmin=await inboundQueue(f.db,admin),forAuditor=await inboundQueue(f.db,auditor);
   const noPrivateFields=(value:unknown):void=>{if(value&&typeof value==='object')for(const [key,child] of Object.entries(value)){expect(['hn','dob','dateOfBirth','patientName','name','identity','parsed','raw','payload']).not.toContain(key);noPrivateFields(child);}};
-  for(const q of [forLab,forAdmin]){const text=JSON.stringify(q);for(const secret of [HN,'ห้ามแสดง','19911111','1991-11-11','SECRET'])expect(text).not.toContain(secret);noPrivateFields(q);}
-  expect(forLab.issues[0]).toMatchObject({ln:LN,kind:'IDENTITY_MISMATCH',fields:['hn']});expect(forAdmin.issues[0].ln).toBe('••••0001');expect(forAdmin.issues[0].caseId).toBeNull();
+  for(const q of [forLab,forAdmin,forAuditor]){const text=JSON.stringify(q);for(const secret of [HN,'ห้ามแสดง','19911111','1991-11-11','SECRET'])expect(text).not.toContain(secret);noPrivateFields(q);}
+  expect(forLab.issues[0]).toMatchObject({ln:LN,kind:'IDENTITY_MISMATCH',fields:['hn']});expect(forAdmin.issues[0].ln).toBe(LN);expect(forAuditor.issues[0].ln).toBe('••••0001');expect(forAuditor.issues[0].caseId).toBeNull();
   const report=await testInboundConnection(f.root,{now:NOW});
   expect(report).toMatchObject({passed:true,dayFolders:1,petFiles:1,pairedPetFiles:1,sampleParse:'PASSED'});expect(JSON.stringify(report)).not.toContain(LN);
   expect((await testInboundConnection(path.join(f.root,'missing'))).passed).toBe(false);

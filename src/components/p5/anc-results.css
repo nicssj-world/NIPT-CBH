@@ -1,0 +1,82 @@
+/* Owner artwork: 1384 x 934. Desktop geometry uses one container scale. */
+.anc-results-section{container-type:inline-size;min-width:0}
+.anc-case-workspace>.case-results{min-width:0;width:100%;margin-inline:0}
+.anc-result{--nt:#fff;--nm:#b6cef4;--nb:#294565;--nh:#192f50;--ni:#a6c8ff;--nib:#172e4d;--ng:#94f9d2;--ngb:#14313c;--nsb:#163a3e;--nd:#ffb8c6;--ndb:#542d3b;--nn:#c4d2e5;--nnb:#243950;--na:#7bd3fc;--noa:#061a2a;display:flex;flex-direction:column;min-width:0;padding:28px;border:1px solid #294262;border-radius:16px;color:var(--nt);background:linear-gradient(125deg,#0f223d,#0e1f36);box-shadow:0 18px 46px #020b1838}
+html:not([data-theme="dark"]) .anc-result{--nt:var(--color-ink);--nm:var(--color-muted);--nb:var(--color-line);--nh:var(--raised);--ni:var(--color-brand);--nib:var(--info-bg);--ng:var(--color-success);--ngb:var(--good-bg);--nsb:var(--good-bg);--nd:var(--color-danger);--ndb:var(--bad-bg);--nn:var(--color-muted);--nnb:var(--raised);--na:var(--color-brand);--noa:var(--on-primary);background:var(--color-surface);border-color:var(--color-line);box-shadow:var(--surface-shadow)}
+/* Owner 2026-10-26 (file 13): compact clinical result panel. Desktop sizes are fixed px (no container-width scaling): heading 27, meta 16,
+   QC badge 15, table head 15, row labels 17, risk text 15, supplement label 14 / value 17, buttons 15. Status keeps text + icon, not colour alone. */
+.anc-result .nipt-result-header{display:flex;align-items:center;gap:16px;margin:0 0 20px;min-width:0}
+.anc-result .nipt-result-header>div{min-width:0}
+.anc-result h2{font-size:27px;font-weight:700;line-height:1.3;margin:0 0 4px;color:var(--nt)}
+.anc-result .nipt-result-header p{font-size:16px;line-height:1.55;color:var(--nm);margin:0}
+.anc-result .nipt-icon{display:flex;align-items:center;justify-content:center;width:48px;height:48px;flex-shrink:0;border:1px solid var(--nb);border-radius:12px;background:var(--nib);color:var(--ni)}
+.anc-result .nipt-icon svg{width:26px;height:26px}
+.anc-result .nipt-result-header>.nipt-icon{width:52px;height:52px;align-self:flex-start}
+.anc-result .nipt-result-header>.nipt-icon svg{width:30px;height:30px}
+.anc-result .nipt-qc{display:inline-flex;align-items:center;gap:8px;margin-left:auto;align-self:flex-start;flex-shrink:0;max-width:40%;padding:7px 14px;border:1px solid currentColor;border-radius:12px;font-size:15px;font-weight:600;line-height:1.5;color:var(--nn);background:var(--nnb)}
+.anc-result .nipt-qc.good{color:var(--ng);background:var(--nsb);border-color:#32836b}
+.anc-result .nipt-qc.bad{color:var(--nd);background:var(--ndb)}
+.anc-result .nipt-qc>span{display:inline-flex;align-items:center;justify-content:center;flex:0 0 22px;width:22px;height:22px;border-radius:50%;background:var(--nn);color:var(--nnb);font-size:13px;font-weight:800}
+.anc-result .nipt-qc.good>span{background:var(--ng);color:var(--ngb)}
+.anc-result .nipt-qc.bad>span{background:var(--nd);color:var(--ndb)}
+.anc-result .nipt-table-wrap{border:1px solid var(--nb);border-radius:12px;overflow:hidden}
+.anc-result .nipt-table{width:100%;border-collapse:collapse;table-layout:fixed;margin:0}
+.anc-result .nipt-table :is(th,td){text-align:left;vertical-align:middle;border-bottom:1px solid var(--nb);padding:10px 24px;line-height:1.5}
+.anc-result .nipt-table th:first-child{width:38%}
+.anc-result .nipt-table th:nth-child(2){width:34%}
+.anc-result .nipt-table th:last-child{width:28%}
+.anc-result .nipt-table thead{background:var(--nh);color:var(--ni)}
+.anc-result .nipt-table thead th{font-size:15px;font-weight:600;line-height:1.55;padding-block:10px}
+.anc-result .nipt-table tbody th{font-size:17px;font-weight:700;color:var(--nt)}
+.anc-result .nipt-table tbody td{border-left:1px solid var(--nb);line-height:1.2}
+.anc-result .nipt-table tbody tr:last-child>*{border-bottom:0}
+.anc-result :is(.nipt-risk,.nipt-risk-summary){display:inline-flex;align-items:center;vertical-align:middle;max-width:100%;white-space:normal;line-height:1.45;border-radius:20px;font-weight:500}
+.anc-result .nipt-risk{gap:8px;padding:4px 14px;font-size:15px}
+.anc-result .nipt-risk>span{display:inline-block;flex:0 0 10px;width:10px;height:10px;border-radius:50%;background:currentColor;font-size:0}
+.anc-result .nipt-risk-summary{padding:4px 16px;font-size:14.5px}
+.anc-result :is(.nipt-risk.good,.nipt-risk-summary.good){color:var(--ng)}
+.anc-result .nipt-risk.good{background:var(--ngb)}
+.anc-result .nipt-risk-summary.good{background:var(--nsb)}
+.anc-result :is(.nipt-risk.bad,.nipt-risk-summary.bad){color:var(--nd);background:var(--ndb)}
+.anc-result :is(.nipt-risk.neutral,.nipt-risk-summary.neutral){color:var(--nn);background:var(--nnb)}
+.anc-result .nipt-supplement{display:grid;grid-template-columns:1.48fr 1fr 1fr;gap:0;margin:22px 0 24px;padding-top:20px;border-top:1px solid var(--nb)}
+.anc-result .nipt-supplement>div{display:flex;align-items:center;gap:14px;padding-left:20px;min-width:0;border-left:1px solid var(--nb)}
+.anc-result .nipt-supplement>div:first-child{padding:0 20px 0 0;border-left:0}
+.anc-result .nipt-supplement dl{display:block;grid-template-columns:none;margin:0;min-width:0}
+.anc-result .nipt-supplement dt{font-size:14px;line-height:1.5;color:var(--nm);margin:0 0 2px;white-space:normal}
+.anc-result .nipt-supplement dd{font-size:17px;line-height:1.4;font-weight:600;margin:0;padding:0;border:0;overflow-wrap:anywhere;word-break:normal}
+.anc-result .nipt-actions{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:auto}
+.anc-result .nipt-button{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-width:0;min-height:46px;padding:9px 20px;border:1px solid var(--na);border-radius:10px;background:transparent;color:var(--na);font-size:15px;font-weight:600;line-height:1.5;text-decoration:none;cursor:pointer}
+.anc-result .nipt-button.primary{background:var(--na);color:var(--noa)}
+.anc-result .nipt-button svg{width:20px;height:20px;flex-shrink:0}
+.anc-result .nipt-button:focus-visible{outline:3px solid var(--color-focus);outline-offset:3px}
+.anc-result .nipt-no-call{background:var(--nnb);color:var(--nn);padding:16px;border-radius:10px;line-height:1.65}
+.anc-result .print-frame{display:block;position:fixed;left:-100px;top:0;width:1px;height:1px;opacity:0;pointer-events:none;border:0}
+.p5-history{margin-top:24px}
+/* Bedside layout keeps the same data/table with readable Thai and touch targets (>=44px). */
+@container(max-width:800px){
+ .anc-result{padding:16px;border-radius:14px;min-height:0}
+ .anc-result .nipt-result-header{flex-wrap:wrap;gap:12px;margin:0 0 16px}
+ .anc-result .nipt-result-header>.nipt-icon{width:44px;height:44px;margin:0}
+ .anc-result .nipt-result-header>.nipt-icon svg{width:26px;height:26px}
+ .anc-result h2{font-size:24px;margin-bottom:4px}
+ .anc-result .nipt-result-header p{font-size:15px;line-height:1.6}
+ .anc-result .nipt-qc{max-width:100%;margin:0;padding:6px 12px;font-size:15px;gap:8px;border-radius:12px}
+ .anc-result .nipt-qc>span{flex-basis:22px;width:22px;height:22px}
+ .anc-result .nipt-table :is(th,td),.anc-result .nipt-table :is(th,td):nth-child(n){padding:10px 8px}
+ .anc-result .nipt-table thead th{font-size:14px;line-height:1.55}
+ .anc-result .nipt-table tbody th{font-size:15px;line-height:1.55}
+ .anc-result .nipt-table th:first-child{width:29%}
+ .anc-result .nipt-table th:nth-child(2){width:36%}
+ .anc-result .nipt-table th:last-child{width:35%}
+ .anc-result :is(.nipt-risk,.nipt-risk-summary){font-size:14px;padding:4px 10px;white-space:normal;gap:6px}
+ .anc-result .nipt-risk>span{width:9px;height:9px;flex-basis:9px}
+ .anc-result .nipt-supplement{grid-template-columns:1fr;gap:14px;margin:18px 0;padding-top:18px}
+ .anc-result .nipt-supplement>div,.anc-result .nipt-supplement>div:first-child,.anc-result .nipt-supplement>div:last-child{padding:0;border:0;gap:12px;min-height:0}
+ .anc-result .nipt-supplement .nipt-icon{width:44px;height:44px;border-radius:12px}
+ .anc-result .nipt-supplement dt{font-size:14px;line-height:1.55;margin-bottom:2px}
+ .anc-result .nipt-supplement dd,.anc-result .nipt-supplement>div:nth-child(n) dd{font-size:17px;line-height:1.4}
+ .anc-result .nipt-actions{gap:10px;margin-top:0}
+ .anc-result .nipt-button,.anc-result .nipt-button.primary,.anc-result button.nipt-button{width:100%;min-height:48px;padding:10px 16px;font-size:15px;gap:10px}
+ .anc-result .nipt-button svg{width:20px;height:20px}
+}

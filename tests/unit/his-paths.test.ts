@@ -18,8 +18,8 @@ it('reads an explicitly allowed local test directory and refuses traversal, sibl
 it('rechecks deployment authorization, service identity and secret reference for every operation',async()=>{
  const {folder,policy}=await setup();await expect(openAuthorizedDirectory(folder,'INBOUND','00000000-0000-4000-8000-000000000001')).rejects.toThrow('SHARE_CREDENTIAL_REFERENCE_MISMATCH');const d=await openAuthorizedDirectory(folder,'INBOUND',null);const p=JSON.parse(await fs.readFile(policy,'utf8'));p.grants[0].serviceAccount='wrong-account';await fs.writeFile(policy,JSON.stringify(p));await expect(d.file('sample.pet')).rejects.toThrow('SHARE_SERVICE_ACCOUNT_MISMATCH');
 });
-it('operational paths require an explicit operational policy grant and no test marker on a hospital share',async()=>{
- const {root,folder,policy}=await setup();vi.stubEnv('NIPT_MODE','operational');
+it('operational paths require an explicit operational policy grant and no test marker on a hospital share (IT lockdown: NIPT_HIS_SHARE_POLICY_ENFORCE=1)',async()=>{
+ const {root,folder,policy}=await setup();vi.stubEnv('NIPT_MODE','operational');vi.stubEnv('NIPT_HIS_SHARE_POLICY_ENFORCE','1');
  await expect(openAuthorizedDirectory(folder,'INBOUND',null)).rejects.toThrow('SHARE_MODE_NOT_ALLOWED');
  const p=JSON.parse(await fs.readFile(policy,'utf8'));p.grants[0].mode='operational';await fs.writeFile(policy,JSON.stringify(p));
  await fs.unlink(path.join(root,'.nipt-authorized-test-root'));
@@ -27,11 +27,25 @@ it('operational paths require an explicit operational policy grant and no test m
  await expect(d.file('probe',true)).rejects.toThrow('INBOUND_READ_ONLY');
  expect(d.base).toBe(folder);
 });
+it('OWNER-LAB-055/059 operational default: the folder an Admin saves in Settings is authorized without any policy file; unsafe targets are still refused',async()=>{
+ const {folder}=await setup();vi.stubEnv('NIPT_MODE','operational');vi.stubEnv('NIPT_HIS_SHARE_POLICY_FILE','');
+ const d=await openAuthorizedDirectory(folder,'INBOUND',null);
+ await fs.writeFile(path.join(folder,'a.pet'),'X');expect(await fs.readFile(await d.file('a.pet'),'utf8')).toBe('X');
+ await expect(d.file('probe',true)).rejects.toThrow('INBOUND_READ_ONLY');                                   // PET root stays read-only
+ const out=await openAuthorizedDirectory(folder,'OUTBOUND',null);                                            // RES/CFS/backup destinations are writable
+ expect((await out.file('x.res',true)).endsWith('x.res')).toBe(true);
+ await expect(openAuthorizedDirectory(path.join(folder,'missing'),'INBOUND',null)).rejects.toThrow(/SHARE_PATH_NOT_FOUND|ENOENT/);
+ await expect(openAuthorizedDirectory('relative/folder','INBOUND',null)).rejects.toThrow('UNSAFE_SHARE_PATH');
+ if(process.platform==='win32'){await expect(openAuthorizedDirectory(process.env.SystemRoot!,'OUTBOUND',null)).rejects.toThrow('SHARE_SYSTEM_PATH_PROHIBITED');
+  const store=await fs.mkdtemp(path.join(os.tmpdir(),'nipt-store-'));cleanup.push(store);vi.stubEnv('FILE_STORE_ROOT',store);
+  await expect(openAuthorizedDirectory(store,'OUTBOUND',null)).rejects.toThrow('SHARE_SYSTEM_PATH_PROHIBITED');}
+ vi.stubEnv('NIPT_MODE','production');await expect(openAuthorizedDirectory(folder,'INBOUND',null)).rejects.toThrow('HIS_SYNTHETIC_ONLY');
+});
 it('requires synthetic environment and marker; surfaces OS permission/path errors without raw paths',async()=>{
  const {root,folder}=await setup();await fs.unlink(path.join(root,'.nipt-authorized-test-root'));await expect(openAuthorizedDirectory(folder,'OUTBOUND',null)).rejects.toThrow('SHARE_TEST_MARKER_REQUIRED');vi.stubEnv('NIPT_MODE','production');await expect(openAuthorizedDirectory(folder,'INBOUND',null)).rejects.toThrow('HIS_SYNTHETIC_ONLY');expect(shareError(Object.assign(Error('private path'),{code:'EACCES'}))).toBe('SHARE_PERMISSION_DENIED');expect(shareError(Object.assign(Error('private path'),{code:'ENOENT'}))).toBe('SHARE_PATH_NOT_FOUND');
 });
-it('operational result folders use a separate read-only grant and hash actual nested PDFs',async()=>{
- const {folder,policy}=await setup();vi.stubEnv('NIPT_MODE','operational');
+it('operational result folders use a separate read-only grant and hash actual nested PDFs (IT lockdown)',async()=>{
+ const {folder,policy}=await setup();vi.stubEnv('NIPT_MODE','operational');vi.stubEnv('NIPT_HIS_SHARE_POLICY_ENFORCE','1');
  expect((await testResultFolder('',folder,{recursive:true,maxFiles:10})).passed).toBe(false);
  const p=JSON.parse(await fs.readFile(policy,'utf8'));p.grants[0].mode='operational';p.grants[0].purposes=['RESULTS'];await fs.writeFile(policy,JSON.stringify(p));
  await fs.mkdir(path.join(folder,'nested'));await fs.writeFile(path.join(folder,'nested','report.pdf'),'%PDF-test');

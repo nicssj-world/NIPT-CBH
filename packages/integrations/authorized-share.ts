@@ -24,13 +24,28 @@ function absolute(p:string){
 }
 function relative(p:string){if(!p||p.includes('\\')||/[\r\n\0:*?"<>|]/.test(p)||path.isAbsolute(p)||p.split('/').some(s=>!s||s==='..'||s==='.'||/[. ]$/.test(s)||/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(s)))throw Error('UNSAFE_SHARE_PATH');}
 async function checked(p:string,file=false,ownedTwin=false){const st=await fs.lstat(p);if(st.isSymbolicLink()||file&&st.nlink!==1&&!(ownedTwin&&st.nlink===2))throw Error('SHARE_LINK_PROHIBITED');if(file?!st.isFile():!st.isDirectory())throw Error(file?'SHARE_NOT_FILE':'SHARE_NOT_DIRECTORY');if(canonical(await fs.realpath(p))!==canonical(path.resolve(p)))throw Error('SHARE_LINK_PROHIBITED');return st;}
-/** Deployment-owned policy, never writable through Settings. Authentication is the worker OS account's
- * existing SMB session. A UUID binds an IT provisioned credential reference; no passwords enter jobs/logs.
- * Every access rechecks authorization and namespace. Hostile concurrent namespace changes require OS ACLs. */
+/** Directories the HIS interface must never read from or write into, whatever is saved in Settings. */
+function systemDirectory(p:string){
+ if(process.platform!=='win32')return ['/bin','/boot','/dev','/etc','/lib','/proc','/sbin','/sys','/usr'].some(d=>isWithinShareRoot(d,p))||path.parse(p).root===p;
+ const env=[process.env.SystemRoot,process.env.windir,process.env.ProgramFiles,process.env['ProgramFiles(x86)'],process.env.ProgramData,process.env.PROGRAMFILES].filter((d):d is string=>!!d);
+ // The evidence file store is never a HIS folder (outbound only creates new files, so it cannot overwrite application files).
+ const app=[process.env.FILE_STORE_ROOT].filter((d):d is string=>!!d).map(d=>path.resolve(d));
+ return [...env,...app].some(d=>isWithinShareRoot(path.resolve(d),p));
+}
+/** OWNER-LAB-055/059 (Owner final lock 2026-10-25): in operational mode the HIS folders saved through Settings are the
+ * authority — an administrator corrects a wrong path in Settings and the worker uses it on its next job, with no file,
+ * registry or environment edit. The deployment policy file remains an OPTIONAL IT lockdown: it is enforced only when
+ * NIPT_HIS_SHARE_POLICY_ENFORCE=1. Without lockdown every access still checks: absolute safe path, existing directory,
+ * no link/junction escape, not a system/application directory. Synthetic mode keeps the policy file and test marker.
+ * Authentication is the worker OS account's existing SMB session; no passwords enter jobs/logs. */
 export async function openAuthorizedDirectory(input:string,purpose:SharePurpose,secretRef:string|null){
  const base=absolute(input);
  const authorize=async()=>{
   if(!['synthetic','operational'].includes(process.env.NIPT_MODE??''))throw Error('HIS_SYNTHETIC_ONLY');
+  if(process.env.NIPT_MODE==='operational'&&process.env.NIPT_HIS_SHARE_POLICY_ENFORCE!=='1'){
+   if(systemDirectory(base))throw Error('SHARE_SYSTEM_PATH_PROHIBITED');
+   await checked(base);return base;
+  }
   const file=process.env.NIPT_HIS_SHARE_POLICY_FILE;if(!file)throw Error('SHARE_POLICY_REQUIRED');
   let policy:z.infer<typeof policySchema>;try{policy=policySchema.parse(JSON.parse(await fs.readFile(file,'utf8')));}catch{throw Error('SHARE_POLICY_INVALID');}
   const matches=policy.grants.filter(g=>isWithinShareRoot(absolute(g.root),base)&&g.purposes.includes(purpose));

@@ -334,7 +334,8 @@ describe('Tube labels from issued LN Halos (AT-LABEL-03..06)',()=>{
   const p=await run(t=>intake.printLabels(t,u.staff,{roundIds:[a.roundId,t2.roundId],includeName:false}));
   expect(p.kind).toBe('PRINT');expect(p.html.match(/class="sticker"/g)).toHaveLength(8);
   const twin=(await lnHalos(t2.roundId))+'D';expect(p.html).toContain(`${twin}-3`);expect(p.html.match(new RegExp(`LN: ${t2.ln}<`,'g'))).toHaveLength(8);expect(p.html.match(new RegExp(`LN: ${a.ln}<`,'g'))).toHaveLength(8);
-  await expect(run(t=>intake.printLabels(t,u.staff,{roundIds:[a.roundId],includeName:false}))).rejects.toMatchObject({code:'REPRINT_REASON_REQUIRED'});
+  // OWNER-LAB-025: a later print is a "พิมพ์ซ้ำ" and needs no arbitrary reason (actor/time stay audited); a note is optional.
+  expect((await run(t=>intake.printLabels(t,u.staff,{roundIds:[a.roundId],includeName:false}))).kind).toBe('REPRINT');
   const re=await run(t=>intake.printLabels(t,u.staff,{roundIds:[a.roundId],includeName:false,reason:'จำลอง สติ๊กเกอร์เสียหาย'}));expect(re.kind).toBe('REPRINT');
   expect((await db.query('SELECT count(*)::int n FROM specimen_lab_number')).rows[0]).toEqual(before);
   expect((await db.query('SELECT count(*)::int n FROM analytical_attempt')).rows[0]).toEqual({n:2}); // label -1/-2/-3 create no attempts
@@ -343,7 +344,7 @@ describe('Tube labels from issued LN Halos (AT-LABEL-03..06)',()=>{
   const expected=await run(t=>syntheticCase(t,u));
   await expect(run(t=>intake.printLabels(t,u.staff,{roundIds:[expected.roundId],includeName:false}))).rejects.toMatchObject({code:'LN_HALOS_NOT_ISSUED_OR_NOT_VISIBLE'});
   await expect(run(t=>intake.printLabels(t,u.anc,{roundIds:[a.roundId],includeName:false}))).rejects.toMatchObject({code:'FORBIDDEN'});
-  expect((await db.query("SELECT kind,sample_count,reason FROM label_print_job ORDER BY created_at")).rows).toEqual([{kind:'PRINT',sample_count:2,reason:null},{kind:'REPRINT',sample_count:1,reason:'จำลอง สติ๊กเกอร์เสียหาย'}]);
+  expect((await db.query("SELECT kind,sample_count,reason FROM label_print_job ORDER BY created_at")).rows).toEqual([{kind:'PRINT',sample_count:2,reason:null},{kind:'REPRINT',sample_count:1,reason:null},{kind:'REPRINT',sample_count:1,reason:'จำลอง สติ๊กเกอร์เสียหาย'}]);
  });
 });
 

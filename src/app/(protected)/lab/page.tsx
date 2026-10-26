@@ -11,7 +11,7 @@ export default async function LabPage(){
  const data=JSON.parse(JSON.stringify(await withTransaction(db=>labWorklistPage(db,user)))) as WorklistData;
  const can={labels:authorize(user,"label.print"),assign:authorize(user,"batch.assign"),receive:authorize(user,"round.receive"),repeat:authorize(user,"repeat.order"),redraw:authorize(user,"redraw.order"),noCall:authorize(user,"attempt.noCall"),redrawCancel:authorize(user,"redraw.cancel"),hold:authorize(user,"specimen.hold")};
  return <>
-  <header className="page-header"><div><h1>งาน Lab — คิวตัวอย่าง</h1><p className="muted">รอบที่ 1 เข้ามาเองจากการรับใน HIS (.pet ที่จับคู่แล้ว) — ไม่มีปุ่มรับซ้ำ · รอบเจาะซ้ำรับในระบบ NIPT · การรับไม่ใช่การจัดเข้า Batch</p></div><Link className="button secondary" href="/lab/batches">Batch / Task List</Link></header>
+  <header className="page-header"><div><h1>งาน Lab — คิวตัวอย่าง</h1></div><Link className="button secondary" href="/lab/batches">Batch / Task List</Link></header>
   <LabWorklist initial={data} can={can}/>
  </>;
 }

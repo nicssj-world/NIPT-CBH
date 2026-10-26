@@ -5,7 +5,7 @@ import {syntheticCase,receiveS1,tx} from '../helpers/lab';
 import {dashboard} from '../../packages/anc/service';
 import {authorize,type Principal} from '../../packages/security/policy';
 import {authenticate,readSession} from '../../packages/security/session';
-import {registerP2,saveRequest,lockRequest,doctorAction,prepareConsent,startSigning,patientAction} from '../../packages/p2/service';
+import {getCase,registerP2,saveRequest,lockRequest,doctorAction,prepareConsent,startSigning,patientAction} from '../../packages/p2/service';
 import {emptyRequest} from '../../packages/p2/schema';
 import {randomUUID} from 'node:crypto';
 let db:PGlite,anc:Principal,unit:string,other:string,caseId:string;
@@ -162,6 +162,7 @@ describe('ANC read-only migrated database aggregation',()=>{
    expect(await electronicReady()).toBe(false);
    await lockRequest(db,returnedStaff,registered.caseId,{expectedVersion:amended.version,reason:'SYNTHETIC amended request lock'});
    expect(await electronicReady()).toBe(false); // Request is current, but the single Consent remains bound to the earlier workspace version.
+   const currentDetail=await getCase(db,returnedStaff,registered.caseId);expect(currentDetail.readiness.missing).toContain('consent.currentBinding');expect(currentDetail.readiness.missing).not.toContain('request.document');
    expect((await db.query("SELECT f.id FROM p2_final_consent f JOIN p2_document_revision d ON d.id=f.document_id WHERE d.case_id=$1",[registered.caseId])).rows).toHaveLength(1);
   }finally{await db.query('ROLLBACK');vi.unstubAllEnvs();}
  });

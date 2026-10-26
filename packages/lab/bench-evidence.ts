@@ -6,7 +6,7 @@ import {LabError} from './core';
 
 /** Exact-attempt worksheet provenance; transcription never confers QC acceptance. */
 export async function benchAttemptEvidence(db:Queryable,attemptId:string){
- const assigned=(await db.query<{batch_id:string;slot_number:number;run_label:string;owner_paper_route:boolean}>(`SELECT x.batch_id,x.slot_number,b.run_label,EXISTS(SELECT 1 FROM analytical_attempt a JOIN lab_operational_registration l ON l.case_id=a.case_id WHERE a.id=x.attempt_id AND l.paper_request AND l.paper_consent) owner_paper_route FROM lab_slot_assignment x JOIN lab_batch b ON b.id=x.batch_id WHERE x.attempt_id=$1 AND x.removed_at IS NULL AND b.state<>'Cancelled'`,[attemptId])).rows;
+ const assigned=(await db.query<{batch_id:string;slot_number:number;run_label:string;owner_paper_route:boolean}>(`SELECT x.batch_id,x.slot_number,b.run_label,(EXISTS(SELECT 1 FROM analytical_attempt a JOIN lab_operational_registration l ON l.case_id=a.case_id WHERE a.id=x.attempt_id AND l.paper_request AND l.paper_consent) OR EXISTS(SELECT 1 FROM task_workbook_revision w WHERE w.batch_id=x.batch_id)) owner_paper_route FROM lab_slot_assignment x JOIN lab_batch b ON b.id=x.batch_id WHERE x.attempt_id=$1 AND x.removed_at IS NULL AND b.state<>'Cancelled'`,[attemptId])).rows;
  if(assigned.length!==1)return null;
  const a=assigned[0],draft=(await db.query<{id:string;revision:number;master_sha256:string;source_sha256:string;source_snapshot:{placements:{id:string;content_hash:string;payload:PlacementPayload}[]};values:Record<string,unknown>}>(`SELECT * FROM task_workbook_revision WHERE batch_id=$1 ORDER BY revision DESC LIMIT 1`,[a.batch_id])).rows[0];
  if(!draft)return null;

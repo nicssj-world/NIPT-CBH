@@ -21,6 +21,16 @@ const MESSAGES:Record<string,string>={
  DUPLICATE_ROW_IN_BATCH:"มีรายการซ้ำในชุดเดียวกัน",IDEMPOTENCY_KEY_REUSED:"คำขอนี้ถูกใช้แล้ว กรุณาโหลดหน้าใหม่",INTERNAL_RELEASE_REQUIRES_INTERNAL_REPORT:"ใช้ได้กับรายงานที่ออกในระบบเท่านั้น",EXTERNAL_ATTESTATION_NOT_FOR_INTERNAL_REPORT:"รายงานที่ออกในระบบใช้การรับรองของรายงานภายนอกไม่ได้",
  INTERNAL_REPORT_AUTHORITY_REQUIRED:"รายงานนี้ไม่ใช่ฉบับปัจจุบันที่ได้รับอนุมัติ — ส่งผลไม่ได้",HIS_ATTESTATION_TRANSFER_EXISTS:"ระบบเริ่มส่งผลเข้า HIS แล้ว — ใช้การกระทบยอด HIS แทน",HIS_ATTESTATION_EXISTS:"บันทึก \"มีผลใน HIS แล้ว\" ไว้แล้ว",
  HIS_ATTESTATION_LINKED_RESULT_REQUIRED:"บันทึกได้เฉพาะผลตรวจที่เชื่อมโยงกับรอบแล้ว",HIS_ATTESTATION_ALREADY_WITHDRAWN:"ยกเลิกการบันทึกนี้ไปแล้ว",FALLBACK_ALREADY_RECORDED:"บันทึกข้อมูลช่วงระบบขัดข้องไว้แล้ว",FALLBACK_REQUIRES_EXTERNAL_VERSION:"ใช้ได้กับ PDF จาก ReadyGen เท่านั้น",
+ // OWNER-LAB-056 report template registry
+ TEMPLATE_NOT_DOCX:"ไฟล์นี้ไม่ใช่ Word (.docx) ที่ถูกต้อง",TEMPLATE_TOO_LARGE:"ไฟล์แม่แบบใหญ่เกิน 5 MB",TEMPLATE_HAS_MACROS_OR_EMBEDDED_CODE:"แม่แบบมี Macro หรือวัตถุฝังที่เรียกใช้โค้ด จึงไม่รับ",
+ TEMPLATE_HAS_EXTERNAL_LINKS:"แม่แบบอ้างไฟล์ภายนอก จึงไม่รับ",TEMPLATE_UNKNOWN_PLACEHOLDER:"มีชื่อ ${...} ที่ระบบไม่รู้จัก — ดูรายการแนะนำชื่อที่ถูกต้อง",
+ TEMPLATE_AMBIGUOUS_PLACEHOLDER_SYNTAX:"มีข้อความที่หน้าตาคล้าย ${ชื่อ} แต่รูปแบบไม่ถูกต้อง (เว้นวรรค/ไม่ปิดปีกกา) จะพิมพ์ออกมาเป็นตัวอักษรจริง",
+ TEMPLATE_PLACEHOLDER_MISSING:"แม่แบบยังขาดช่อง ${...} ที่จำเป็นของแบบฟอร์มนี้",TEMPLATE_DOCUMENT_CODE_MISSING:"ไม่พบรหัสเอกสารควบคุมของแบบฟอร์ม (เช่น FM-WI-T-BM-17-07) ในหัว/ท้ายกระดาษ",
+ TEMPLATE_DOCUMENT_CODE_MISMATCH:"รหัสเอกสารควบคุมในไฟล์ไม่ตรงกับแบบฟอร์มที่เลือก (Singleton / Twin)",TEMPLATE_STRUCTURE_INCOMPATIBLE:"โครงสร้างแม่แบบใช้ไม่ได้ (ช่องลงนาม ผู้รายงาน/ผู้อนุมัติ รูปลายเซ็น หรือบรรทัด QC)",
+ TEMPLATE_ALREADY_ACTIVE:"ไฟล์นี้คือแม่แบบที่ใช้งานอยู่แล้ว",TEMPLATE_ALREADY_REGISTERED:"ไฟล์เดียวกันนี้ถูกนำเข้าไว้แล้ว",TEMPLATE_STATE_INVALID:"สถานะของรุ่นแม่แบบนี้ทำรายการดังกล่าวไม่ได้",
+ TEMPLATE_INSPECTION_ERRORS:"แม่แบบยังมีข้อผิดพลาดจากการตรวจ แก้ไฟล์แล้วนำเข้าใหม่",TEMPLATE_TEST_REQUIRED:"ต้องทดสอบสร้างตัวอย่างและอ่านกลับผ่านก่อนอนุมัติ",
+ TEMPLATE_PRODUCT_ACKNOWLEDGEMENT_REQUIRED:"ชื่อผลิตภัณฑ์ในไฟล์ต่างจากผลิตภัณฑ์ที่อนุมัติใช้กับรายงาน — ผู้อนุมัติต้องยืนยันรับทราบก่อน",TEMPLATE_APPROVAL_REQUIRED:"รุ่นนี้ยังไม่ได้รับการอนุมัติจากผู้อนุมัติอีกคน",
+ TEMPLATE_NAME_INVALID:"ชื่อไฟล์แม่แบบไม่ถูกต้อง",TEMPLATE_STORE_CORRUPT:"ไฟล์แม่แบบที่เก็บไว้ไม่ตรงค่าตรวจสอบ — ห้ามใช้",
  READYGEN_INPUT_ROW_COUNT_MISMATCH:"สร้างสำเนาสำหรับ ReadyGen ไม่ได้ (จำนวนแถวไม่ตรง)",DOWNLOAD_NAME_TEMPLATE_INVALID:"รูปแบบชื่อไฟล์ไม่ถูกต้อง"
 };
 export function task3Error(error:unknown){

@@ -21,6 +21,7 @@ GRANT SELECT,INSERT,UPDATE ON app_user,app_session,login_throttle,settings_revis
 GRANT SELECT,INSERT,UPDATE,DELETE ON role_assignment,user_unit_scope,user_permission,case_unit_scope TO app_rw;
 GRANT SELECT,INSERT,UPDATE ON unit,pdf_preview_cache TO app_rw;
 GRANT SELECT,INSERT,UPDATE ON admin_access_request TO app_rw;
+GRANT SELECT,INSERT ON admin_access_supersession TO app_rw;
 GRANT SELECT ON schema_migration TO app_rw;
 GRANT INSERT ON secret_revision TO app_rw;
 GRANT SELECT(id,secret_key,key_version,created_by,created_at,tested_at,retired_at) ON secret_revision TO app_rw;
@@ -124,9 +125,15 @@ GRANT SELECT ON lab_bench_review TO report_ro;
 GRANT SELECT,INSERT ON lab_actual_pooling,lab_seq_export_pair TO app_rw;
 GRANT SELECT ON lab_actual_pooling,lab_seq_export_pair TO report_ro;
 -- LAB-UAT-003/008: also provision grants when roles are created AFTER migrations.
-GRANT SELECT,INSERT ON lab_manual_result_review,lab_storage_box,lab_storage_position TO app_rw;
+GRANT SELECT,INSERT ON lab_manual_result_review TO app_rw;
 GRANT EXECUTE ON FUNCTION task1_no_call_source(uuid),task1_no_call_qc5_valid(result_qc5_review) TO app_rw;
-GRANT USAGE,SELECT ON SEQUENCE lab_storage_box_box_number_seq TO app_rw;
+-- OWNER-LAB-051/052 (migrations 126/135): storage rows are written only by the SECURITY DEFINER functions, which also
+-- write the immutable box log; the app role reads the tables and executes the functions.
+REVOKE INSERT,UPDATE,DELETE ON lab_storage_box,lab_storage_position,lab_storage_typed_position,lab_storage_movement,lab_storage_box_event FROM app_rw;
+REVOKE USAGE,SELECT ON SEQUENCE lab_storage_box_box_number_seq FROM app_rw;
+GRANT SELECT ON lab_storage_box,lab_storage_position,lab_storage_typed_position,lab_storage_movement,lab_storage_box_event TO app_rw;
+GRANT EXECUTE ON FUNCTION lab_storage_create_box(text,uuid),lab_storage_set_position(uuid,text,uuid,integer,uuid,uuid,integer),
+ lab_storage_swap(uuid,uuid,text,uuid,integer,uuid,integer,uuid),lab_storage_log_label(uuid,uuid,text,uuid) TO app_rw;
 -- Task 3 (migration 128): HALOS import evidence, signer profiles/delegations, internal reports, outage provenance and HIS-presence attestation.
 GRANT SELECT,INSERT ON halos_import_row,report_signer_profile,report_signer_profile_event,internal_report_batch,result_external_fallback TO app_rw;
 GRANT SELECT,INSERT,UPDATE ON halos_import,report_signature_delegation,internal_report,result_his_attestation TO app_rw;
@@ -135,3 +142,8 @@ GRANT EXECUTE ON FUNCTION task3_his_presence_attested(uuid),task3_signer_profile
 GRANT SELECT ON result_his_attestation TO worker_rw;
 GRANT EXECUTE ON FUNCTION task3_his_presence_attested(uuid) TO worker_rw;
 GRANT SELECT ON halos_import,halos_import_row,internal_report,internal_report_batch,result_external_fallback,result_his_attestation TO report_ro;
+-- OWNER-LAB-056: report template registry (web role manages revisions; reads for report_ro; no deletes anywhere).
+GRANT SELECT,INSERT,UPDATE ON report_template_revision,report_template_active TO app_rw;
+GRANT SELECT ON report_template_revision,report_template_active TO report_ro;
+-- ANC current-patient projection (inbound worker evidence on PET apply): only name/DOB through a definer function, never the draft.
+GRANT EXECUTE ON FUNCTION anc_workspace_patient(uuid) TO app_rw,worker_rw;

@@ -54,9 +54,20 @@ function gpaItems(gpa:RequestFields['gpa']):OverlayItem[]{
 }
 const CLAUSE_ROWS=[687.8,657.9,628.1,598.1,568.3,519.4,472.5,442.6,412.7,382.9,338.3,323.1];
 /** Owner-authorized rendered signature block; installed original remains hash-identical. */
-export const CONSENT_SIGNATURE_MASKS=[{x:38,y:106,width:517,height:109}];
-export const CONSENT_SIGNATURE_LAYOUT={patient:{x:55,y:157,width:230,height:24},doctor:{x:325,y:157,width:220,height:24}};
+export const CONSENT_SIGNATURE_MASKS=[{x:38,y:106,width:517,height:113}];
+export const CONSENT_SIGNATURE_LAYOUT={patient:{x:53,y:157,width:230,height:26},doctor:{x:312,y:157,width:230,height:26}};
 export function consentItems(f:ConsentFields):OverlayItem[]{
+ return [
+  ...CLAUSE_ROWS.flatMap((y,i)=>check(f.acknowledged[i]===true,536,y+3.5)),
+  ...check(f.decision==='Granted',373.35,247),...check(f.decision==='Declined',373.35,228.9),
+  ...text(53,193,230,'ผู้รับบริการ / ผู้แทนโดยชอบธรรม',9,{align:'center'}),...text(312,193,230,'แพทย์ผู้สั่งตรวจ',9,{align:'center'}),
+  ...text(53,135,230,f.patientName,10,{align:'center',lines:2}),...text(312,135,230,f.doctor,10,{align:'center',lines:2}),
+  ...text(53,111,230,f.patientSignedDate?`วันที่ ${f.patientSignedDate}`:'วันที่',9,{align:'center'}),
+  ...text(312,111,230,f.documentCreatedDate?`วันที่จัดทำเอกสาร ${f.documentCreatedDate}`:'วันที่จัดทำเอกสาร',9,{align:'center'}),
+ ];
+}
+export const LEGACY_CONSENT_SIGNATURE_LAYOUT={patient:{x:55,y:157,width:230,height:24},doctor:{x:325,y:157,width:220,height:24}};
+export function legacyConsentItems(f:ConsentFields):OverlayItem[]{
  return [
   ...CLAUSE_ROWS.flatMap((y,i)=>check(f.acknowledged[i]===true,536,y+3.5)),
   ...check(f.decision==='Granted',373.35,247),...check(f.decision==='Declined',373.35,228.9),

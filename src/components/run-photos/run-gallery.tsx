@@ -23,7 +23,7 @@ type Item={key:string;file:File;preview:string|null;thumb:Blob|null;status:"prep
 function Uploader({run,placement,onUploaded}:{run:RunGallery["run"];placement:Placement;onUploaded:()=>void}){
  const id=useId();
  const [items,setItems]=useState<Item[]>([]),[takenOn,setTakenOn]=useState(()=>bangkokIsoDay()),[from,setFrom]=useState(""),[to,setTo]=useState(""),[caption,setCaption]=useState("");
- const [busy,setBusy]=useState(false),[summary,setSummary]=useState<{ok:boolean;text:string}|null>(null);
+ const [busy,setBusy]=useState(false),[summary,setSummary]=useState<{ok:boolean;text:string}|null>(null),[toast,setToast]=useState("");
  const patch=(key:string,p:Partial<Item>)=>setItems(list=>list.map(x=>x.key===key?{...x,...p}:x));
  const add=async(files:FileList|null)=>{
   if(!files?.length)return;setSummary(null);
@@ -44,15 +44,16 @@ function Uploader({run,placement,onUploaded}:{run:RunGallery["run"];placement:Pl
    catch(e){const dup=e instanceof LabFailure&&e.code==="DUPLICATE_IN_RUN";if(dup)duplicate++;else failed++;patch(it.key,{status:dup?"duplicate":"error",progress:0,message:failureText(e)});}
   }
   setBusy(false);
+  if(ok&&!failed&&!duplicate){setToast(`อัปโหลดแล้ว ${ok} ภาพ`);setTimeout(()=>setToast(""),4000);}
   setSummary({ok:failed===0,text:[ok?`อัปโหลดแล้ว ${ok} ภาพ`:"",duplicate?`ซ้ำกับภาพเดิมใน Run นี้ ${duplicate} ภาพ (ไม่บันทึกซ้ำ)`:"",failed?`ไม่สำเร็จ ${failed} ภาพ — กด อัปโหลด อีกครั้งเพื่อลองใหม่`:"",elsewhere.size?`พบไฟล์เดียวกันใน ${[...elsewhere].join(", ")}`:""].filter(Boolean).join(" · ")});
   if(ok){setItems(list=>list.filter(x=>x.status!=="done"||x.message!=="บันทึกแล้ว"));onUploaded();}
  };
  return <section className="panel" aria-labelledby={id+"-h"}>
   <div className="photo-run-head"><h2 id={id+"-h"}>เพิ่มภาพ</h2><p className="muted small">ไม่บังคับ — Run ที่ไม่มีภาพทำงานต่อได้ตามปกติ</p></div>
   <div className="photo-capture">
-   <div><FileDropInput id={id+"-camera"} type="file" accept="image/*" capture="environment" disabled={busy} onChange={e=>{void add(e.target.files);e.target.value="";}}/>
+   <div><FileDropInput compact id={id+"-camera"} type="file" accept="image/*" capture="environment" disabled={busy} onChange={e=>{void add(e.target.files);e.target.value="";}}/>
     <label className="button" htmlFor={id+"-camera"}><Icon d={CAMERA}/>ถ่ายภาพด้วยกล้อง</label></div>
-   <div><FileDropInput id={id+"-pick"} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple disabled={busy} onChange={e=>{void add(e.target.files);e.target.value="";}}/>
+   <div><FileDropInput compact id={id+"-pick"} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple disabled={busy} onChange={e=>{void add(e.target.files);e.target.value="";}}/>
     <label className="button secondary" htmlFor={id+"-pick"}><Icon d={IMAGES}/>เลือกภาพจากเครื่อง (หลายภาพได้)</label></div>
   </div>
   <div className="photo-fields">
@@ -61,21 +62,22 @@ function Uploader({run,placement,onUploaded}:{run:RunGallery["run"];placement:Pl
     <label id={id+"-range-label"} htmlFor={id+"-from"}>ลำดับตัวอย่างในภาพ (คนที่)</label>
     <div className="photo-range"><input id={id+"-from"} inputMode="numeric" pattern="[0-9]*" aria-label="ตั้งแต่คนที่" placeholder="ตั้งแต่" value={from} onChange={e=>setFrom(e.target.value.replace(/\D/g,"").slice(0,2))} aria-invalid={!!rangeError}/><span>ถึง</span>
      <input inputMode="numeric" pattern="[0-9]*" aria-label="ถึงคนที่" placeholder="ถึง" value={to} onChange={e=>setTo(e.target.value.replace(/\D/g,"").slice(0,2))} aria-invalid={!!rangeError}/></div>
-    {rangeError?<p className="field-error" role="alert">{rangeError}</p>:<p id={id+"-range-help"} className="photo-coverage">{cover?cover.text+(cover.beyond?` · Run นี้มีตัวอย่าง ${placement.length} คน`:""):"เว้นว่างได้ · นับเฉพาะตัวอย่างผู้ป่วยตามลำดับตำแหน่ง ไม่นับ PC/NC/Blank"}</p>}
+    {rangeError?<p className="field-error" role="alert">{rangeError}</p>:<p id={id+"-range-help"} className="photo-coverage">{cover?cover.text+(cover.beyond?` · Run นี้มีตัวอย่าง ${placement.length} คน`:""):""}</p>}
    </div>
    <div className="field"><label htmlFor={id+"-caption"}>คำอธิบายภาพ</label><textarea id={id+"-caption"} maxLength={1000} value={caption} onChange={e=>setCaption(e.target.value)} placeholder="เช่น Task 1 ชั้นวางหลอด หลังติดฉลาก"/></div>
   </div>
   {run.placementEditable&&<p className="notice warning-notice small" role="note">Run นี้ยังแก้ตำแหน่งได้ (ยังไม่ Finalize ครบ) — ลำดับ คนที่ อาจเปลี่ยนตามการจัดวาง</p>}
   {items.length>0&&<ul className="photo-queue" aria-label="ภาพที่เลือก">{items.map(it=><li key={it.key}>
    {it.preview?<img src={it.preview} alt="" width={56} height={56}/>:<span className="photo-placeholder" aria-hidden="true">{it.status==="preparing"?"…":"ไม่มีภาพย่อ"}</span>}
-   <div><span className="name">{it.file.name||"ภาพจากกล้อง"} · {formatBytes(it.file.size)}</span>
+   <div><span className="name">{formatBytes(it.file.size)}</span>
     {it.status==="uploading"?<span className="photo-progress"><progress max={1} value={it.progress} aria-label={`กำลังอัปโหลด ${Math.round(it.progress*100)}%`}/></span>
      :<span className={`status small queue-status ${it.status==="done"?(it.message==="บันทึกแล้ว"?"good":"warning"):it.status==="error"?"bad":it.status==="duplicate"?"warning":""}`}>{it.status==="preparing"?"กำลังเตรียมภาพย่อ":it.status==="ready"?(it.preview?"พร้อมอัปโหลด":"พร้อมอัปโหลด (เบราว์เซอร์นี้แสดงภาพย่อไม่ได้ จะเก็บต้นฉบับครบ)"):it.message}</span>}</div>
    {["ready","error","duplicate"].includes(it.status)&&!busy?<button type="button" className="button secondary small" onClick={()=>setItems(list=>list.filter(x=>x.key!==it.key))} aria-label={`นำ ${it.file.name||"ภาพ"} ออกจากรายการ`}>นำออก</button>:<span/>}
   </li>)}</ul>}
   <div className="action-bar row" aria-live="polite">
    <button type="button" className="button" disabled={busy||!pending.length||!!rangeError||!takenOn||items.some(x=>x.status==="preparing")} onClick={()=>void upload()}>{busy?"กำลังอัปโหลด…":pending.length?`อัปโหลด ${pending.length} ภาพ`:"อัปโหลด"}</button>
-   {summary&&<p className={`notice ${summary.ok?"success":""}`} role="status">{summary.text}</p>}
+   {summary&&!summary.ok&&<p className={`notice ${summary.ok?"success":""}`} role="status">{summary.text}</p>}
+   {toast&&<p className="photo-toast" role="status">{toast}</p>}
   </div>
  </section>;
 }

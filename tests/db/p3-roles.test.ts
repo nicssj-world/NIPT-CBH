@@ -13,7 +13,7 @@ describe('P3 least-privilege DB roles (worker_rw / app_rw) and LD-04 guard',()=>
   const caseId=await register(f,{ln:'990001000101',hn:HN});
   await writePet(f.root,DAY,{ln:'990001000101',hn:HN,receivedAt:'20261012090000'});await writePet(f.root,DAY,{ln:'990001000102',hn:HN,receivedAt:'20261012090000'});
   await f.db.query('SET ROLE worker_rw');
-  const r=await cycle(f,{now:NOW});expect(r.counts).toMatchObject({stored:2,outcome_APPLIED_S1:1,outcome_UNLINKED:1});
+  const r=await cycle(f,{now:NOW});console.log('COUNTS',JSON.stringify(r.counts),JSON.stringify(r.failures));expect(r.counts).toMatchObject({stored:2,outcome_APPLIED_S1:1,outcome_UNLINKED:1});
   await f.db.query('RESET ROLE');expect((await caseState(f.db,caseId)).rounds[0].state).toBe('ReceivedInHIS');
  });
 

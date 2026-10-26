@@ -12,7 +12,7 @@ const q=()=>db as unknown as Queryable;
 const REVIEW=130,UNLINKED=70,FILES=110,WAITING=65;
 const ln=(n:number)=>String(990000000000+n);
 beforeAll(async()=>{
- db=await testDatabase();lab=await addUser(db,'LAB_STAFF','synthetic.inbound.lab');admin=await addUser(db,'APP_ADMIN','synthetic.inbound.admin');
+ db=await testDatabase();lab=await addUser(db,'LAB_STAFF','synthetic.inbound.lab');admin=await addUser(db,'CLINICAL_APPROVER','synthetic.inbound.masked');
  await db.query(`INSERT INTO his_inbound_file(sha256,state,ln,source_path,path_version,discovered_at)
   SELECT md5(g::text)||md5(g::text||'x'),'Ready',$1::bigint+g,'inbound/20261012/'||($1::bigint+g)||'-7.pet',1,now()-(g||' minutes')::interval FROM generate_series(1,${FILES+REVIEW+UNLINKED}) g`,[990000000000]);
  // the oldest files carry the issues: issue i belongs to file i, created i minutes after a fixed origin so "oldest first" is well defined
@@ -44,7 +44,7 @@ describe('inbound lists page independently with exact totals',()=>{
  it('LN search narrows every list across all rows for roles that can see LN; a role with masked LN cannot probe it',async()=>{
   const target=ln(REVIEW+5);                         // an UNLINKED issue far past page 1
   const d=await page({q:target});expect(d.unlinked.page.total).toBe(1);expect(d.unlinked.rows[0].ln).toBe(target);expect(d.review.page.total).toBe(0);expect(d.files.page.total).toBe(1);
-  const m=await page({q:target},admin);expect(canSeeLn(admin)).toBe(false);
+  const m=await page({q:target},admin);expect(canSeeLn(admin)).toBe(false); // no LN privilege: masked (LAB/Admin/IT/Auditor see full LN, OWNER-LAB-021)
   expect(m.search).toMatchObject({enabled:false});expect(m.unlinked.page.total).toBe(UNLINKED);expect(m.unlinked.rows[0].ln).toMatch(/^••••/); // q ignored, LN masked
   expect((await page({q:'zzz'})).review.page).toMatchObject({total:0,number:1,totalPages:1});
  });

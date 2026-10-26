@@ -192,7 +192,8 @@ async function bumpSheet(db:Queryable,batchId:string,slot:number){
  await db.query('UPDATE lab_batch SET version=version+1 WHERE id=$1',[batchId]);
 }
 
-const labelInput=z.strictObject({roundIds:z.array(uuid).min(1).max(48).refine(v=>new Set(v).size===v.length,'DUPLICATE_ROUND'),includeName:z.boolean(),reason:reasonText.optional()});
+// OWNER-LAB-025: a reprint reason is optional free text (no minimum length); first print vs reprint is decided by the server.
+const labelInput=z.strictObject({roundIds:z.array(uuid).min(1).max(48).refine(v=>new Set(v).size===v.length,'DUPLICATE_ROUND'),includeName:z.boolean(),reason:z.string().trim().min(1).max(500).refine(v=>!/\d{13}/.test(v)&&!/[\u0000-\u001f]/.test(v),'REASON_TEXT_INVALID').optional()});
 /** Owner Lock §5: labels come only from an already-issued LN Halos; printing/reprinting never issues or changes a number. */
 async function labelSamples(db:Queryable,user:Staff,d:z.infer<typeof labelInput>){
  const rows=(await db.query<{round_id:string;case_id:string;ln:string;ln_halos:string;resampling:boolean;round_state:string;unit_id:string|null;registration_origin:string;prints:number;name:string|null}>(`SELECT n.round_id,n.case_id,l.ln,n.ln_halos,(n.original_round_id IS NOT NULL) resampling,r.state round_state,
@@ -219,10 +220,39 @@ export async function previewLabels(db:Queryable,user:Staff,input:unknown){
 export async function printLabels(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'label.print','write');const d=labelInput.parse(input);
  const {ordered,samples,html,reprint}=await labelSamples(db,user,d);
- if(reprint&&!d.reason)throw new LabError('REPRINT_REASON_REQUIRED',422);
  const job=(await db.query<{id:string}>('INSERT INTO label_print_job(actor_id,kind,reason,sample_count,include_name,html_sha256) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',[user.id,reprint?'REPRINT':'PRINT',d.reason??null,samples.length,d.includeName,createHash('sha256').update(html).digest('hex')])).rows[0].id;
  for(const [i,r] of ordered.entries())await db.query('INSERT INTO label_print_item(job_id,position,round_id,printed_code) VALUES($1,$2,$3,$4)',[job,i+1,r.round_id,samples[i].lnHalos]);
  for(const r of ordered)await caseEvent(db,user,r.case_id,reprint?'LAB_LABEL_REPRINTED':'LAB_LABEL_PRINTED',{jobId:job});
  await audit(db,user,reprint?'LAB_LABEL_REPRINTED':'LAB_LABEL_PRINTED','label_print_job',job,{count:samples.length,outcome:d.includeName?'WITH_NAME':'WITHOUT_NAME'});
  return {jobId:job,kind:reprint?'REPRINT':'PRINT',html};
+}
+
+const ACTION_REASON_TEXT:Record<string,string>={QC1_LOW:'QC1 ต่ำกว่าเกณฑ์',LIBRARY_FAILURE:'Library ล้มเหลว',BATCH_CANCELLED:'Batch ถูกยกเลิก',STOPPED_BY_LAB:'Lab หยุดงาน',
+ QC1_FAILED:'QC1 ไม่ผ่าน',QC_SAMPLE_FAILED:'QC ระดับตัวอย่างไม่ผ่าน',FETAL_FRACTION_LOW:'FF ต่ำ',SPECIMEN_PROBLEM:'ปัญหาสิ่งส่งตรวจ',OTHER:'อื่น ๆ'};
+/** OWNER-LAB-012/028 Sample Action Center: one popup action replaces the separate inline "ยืนยันผลไม่สำเร็จ" step.
+ *  An attempt still Assigned/InProgress first gets the existing failure confirmation for the chosen stage (same evidence
+ *  rule), then the chosen action runs through the existing function and all of its guards, in the caller's transaction.
+ *  Free text is mandatory only for an override that creates a 5th or later attempt; otherwise the selected reason is the note. */
+export async function actionCenter(db:Queryable,user:Staff,input:unknown){
+ await assertSession(db,user);
+ const d=z.strictObject({attemptId:uuid,kind:z.enum(['RE_LIBRARY','RE_EXTRACTION','RE_SAMPLING','NO_CALL']),stage:z.enum(['QC1','QC2','QC3','QC4','SEQUENCING']).optional(),
+  reasonCode:z.string().max(40).optional(),note:z.string().trim().max(500).optional()}).parse(input);
+ const a=await lockedAttempt(db,user,d.attemptId);
+ const reasonLabel=d.reasonCode?ACTION_REASON_TEXT[d.reasonCode]:undefined;
+ if(d.reasonCode&&!reasonLabel)throw new LabError('REASON_CODE_INVALID',422);
+ const override=['RE_LIBRARY','RE_EXTRACTION'].includes(d.kind)&&a.overall_ordinal>=4;
+ if(override&&(d.note??'').length<8)throw new LabError('OVERRIDE_REASON_REQUIRED',422);
+ const note=d.note&&d.note.length>=8?d.note:`${reasonLabel??'เลือกจาก Action Center'} (เลือกจากรายการ)`;
+ const live=['Assigned','InProgress'].includes(a.attempt_state);
+ if(live&&d.kind!=='RE_SAMPLING'){
+  if(!d.stage)throw new LabError('FAILURE_STAGE_REQUIRED',422);
+  await confirmFailure(db,user,{attemptId:a.attempt_id,stage:d.stage,confirmed:true,note});
+ }
+ if(d.kind==='NO_CALL')return {kind:d.kind,...await noCall(db,user,{attemptId:a.attempt_id,note})};
+ if(d.kind==='RE_SAMPLING'){
+  if(!d.reasonCode||!(REDRAW_REASONS as readonly string[]).includes(d.reasonCode))throw new LabError('REASON_CODE_INVALID',422);
+  return {kind:d.kind,...await orderRedraw(db,user,{caseId:a.case_id,reasonCode:d.reasonCode,note})};
+ }
+ if(!d.reasonCode||!(REPEAT_REASONS as readonly string[]).includes(d.reasonCode))throw new LabError('REASON_CODE_INVALID',422);
+ return {kind:d.kind,override,...await orderRepeat(db,user,{attemptId:a.attempt_id,level:d.kind==='RE_LIBRARY'?'RE_LIBRARY':'RE_EXTRACTION',reasonCode:d.reasonCode,note})};
 }

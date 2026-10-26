@@ -31,3 +31,43 @@ export async function systemHealth(db:Queryable=pool(),mode=runtimeMode(),render
  return {...base,reconciliationOldestAt:reconciliation.rows[0].oldest,inboundEnabled:SETTINGS.his_inbound.schema.parse(settings.his_inbound??SETTINGS.his_inbound.default).enabled,web:'ALIVE',postgresql:'ALIVE',storage,
  backup:await backupMonitoring()};
 }
+
+/** OWNER-LAB-059 operations evidence, measured on each request (no stored history, no synthetic uptime). A value that cannot be
+ *  measured is returned as null/UNKNOWN so the page never shows it as healthy. */
+export async function tlsEvidence(origin=process.env.APP_ORIGIN):Promise<{protocol:'https'|'http'|'UNKNOWN';validTo:string|null;daysLeft:number|null;subject:string|null;error:string|null}>{
+ if(!origin)return {protocol:'UNKNOWN',validTo:null,daysLeft:null,subject:null,error:'APP_ORIGIN_NOT_SET'};
+ let url:URL;try{url=new URL(origin);}catch{return {protocol:'UNKNOWN',validTo:null,daysLeft:null,subject:null,error:'APP_ORIGIN_INVALID'};}
+ if(url.protocol!=='https:')return {protocol:'http',validTo:null,daysLeft:null,subject:null,error:null};
+ const tls=await import('node:tls');
+ return new Promise(done=>{
+  const socket=tls.connect({host:url.hostname,port:Number(url.port||443),servername:/^\d+\.\d+\.\d+\.\d+$/.test(url.hostname)?undefined:url.hostname,rejectUnauthorized:false,timeout:2000},()=>{
+   const cert=socket.getPeerCertificate();socket.end();
+   if(!cert?.valid_to){done({protocol:'https',validTo:null,daysLeft:null,subject:null,error:'NO_CERTIFICATE'});return;}
+   const validTo=new Date(cert.valid_to);done({protocol:'https',validTo:validTo.toISOString(),daysLeft:Math.floor((validTo.getTime()-Date.now())/86_400_000),subject:typeof cert.subject?.CN==='string'?cert.subject.CN:null,error:null});
+  });
+  socket.on('timeout',()=>{socket.destroy();done({protocol:'https',validTo:null,daysLeft:null,subject:null,error:'TLS_TIMEOUT'});});
+  socket.on('error',e=>done({protocol:'https',validTo:null,daysLeft:null,subject:null,error:(e as NodeJS.ErrnoException).code??'TLS_ERROR'}));
+ });
+}
+export async function operationsEvidence(db:Queryable=pool()){
+ const {inboundHealth}=await import('../../packages/inbound/health');
+ const settings=await readActiveSettings(db);
+ const inboundSettings=SETTINGS.his_inbound.schema.parse(settings.his_inbound??SETTINGS.his_inbound.default);
+ const outboundSettings=settings.his_outbound?SETTINGS.his_outbound.schema.safeParse(settings.his_outbound):null;
+ const started=performance.now();await db.query('SELECT 1');const dbLatencyMs=Math.round((performance.now()-started)*10)/10;
+ const [inbound,outbound,queues,tls]=await Promise.all([
+  inboundHealth(db,inboundSettings),
+  db.query<{written:number;pending:number;retry:number;attention:number;last_written:Date|null}>(`SELECT
+    count(*) FILTER(WHERE model->>'state' IN ('OK_OBSERVED','AWAITING_CONFIRMATION','PICKED_UP_UNCONFIRMED','SYNTHETIC_CONFIRMED'))::int written,
+    count(*) FILTER(WHERE model->>'state' IN ('PREPARED','PDF_VERIFIED','RES_VERIFIED','BACKUP_VERIFIED'))::int pending,
+    count(*) FILTER(WHERE model->>'state'='RETRY_PENDING')::int retry,
+    count(*) FILTER(WHERE model->>'state' IN ('FAILED_NEEDS_ADMIN','RECONCILIATION_REQUIRED','UNKNOWN_TIMEOUT'))::int attention,
+    max(updated_at) FILTER(WHERE model->>'state' IN ('OK_OBSERVED','AWAITING_CONFIRMATION','PICKED_UP_UNCONFIRMED','SYNTHETIC_CONFIRMED')) last_written FROM p6_transfer`),
+  db.query<{kind:string;pending:number;oldest:Date|null}>(`SELECT o.kind,count(*)::int pending,min(o.created_at) oldest FROM job_outbox o LEFT JOIN integration_job_receipt r ON r.outbox_id=o.id
+    WHERE o.state<>'Cancelled' AND r.outbox_id IS NULL GROUP BY o.kind ORDER BY count(*) DESC LIMIT 8`),
+  tlsEvidence()]);
+ const o=outbound.rows[0];
+ return {checkedAt:new Date().toISOString(),dbLatencyMs,inbound:{enabled:inboundSettings.enabled,intervalSeconds:inboundSettings.intervalSeconds,lastSuccess:inbound.LastSuccess,lastError:inbound.LastError,share:inbound.shareStatus,alive:inbound.Alive,healthy:inbound.healthy,readyBacklog:inbound.readyBacklog,waitingOkOverdue:inbound.waitingOkOverdue},
+  outbound:{configured:!!outboundSettings?.success,enabled:outboundSettings?.success?outboundSettings.data.enabled:false,target:outboundSettings?.success?outboundSettings.data.target:null,written:o.written,pending:o.pending,retry:o.retry,attention:o.attention,lastWritten:o.last_written?.toISOString()??null,hisAck:'NOT_IMPLEMENTED' as const},
+  queues:queues.rows.map(q=>({kind:q.kind,pending:q.pending,oldest:q.oldest?.toISOString()??null})),tls};
+}

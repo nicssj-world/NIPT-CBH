@@ -8,15 +8,8 @@ import {writeArchive,xmlEscape} from '../workbook/archive';
 export const TABLE_LIMITS={bytes:5*1024*1024,rows:1000,columns:40,cellChars:500} as const;
 export class TableError extends Error{constructor(public code:string){super(code);}}
 
-/** Canonical columns of the import template. `required` ones must be present in the header; blanks are judged per row. */
-export const TABLE_COLUMNS=[
- {key:'ln',required:true,label:'LN ตามเอกสาร'},{key:'hn',required:true,label:'HN'},{key:'name',required:true,label:'ชื่อ-สกุล (ข้อมูลจำลอง)'},{key:'dob',required:false,label:'วันเกิด'},
- {key:'collection_date',required:false,label:'วันที่เจาะเลือด'},{key:'receipt_date',required:false,label:'วันที่รับตัวอย่าง'},{key:'report_date',required:false,label:'วันที่รายงานผล'},
- {key:'control_record_date',required:false,label:'วันที่บันทึกควบคุมของ Lab'},{key:'request_date',required:false,label:'วันที่ใบขอส่งตรวจ'},{key:'consent_date',required:false,label:'วันที่ใบยินยอม'},
- {key:'pdf_file',required:false,label:'ชื่อไฟล์ PDF ผลเดิม'},{key:'original_location',required:true,label:'ที่เก็บเอกสารต้นฉบับ'},
- {key:'request_paper',required:false,label:'มีใบขอส่งตรวจกระดาษ (Y/N)'},{key:'consent_paper',required:false,label:'มีใบยินยอมกระดาษ (Y/N)'},{key:'consent_decision',required:false,label:'การตัดสินใจใน Consent ตามที่เขียน'},
- {key:'pregnancy_type',required:false,label:'ประเภทครรภ์'},{key:'past_certification',required:false,label:'การรับรองในอดีตตามที่ปรากฏ (ข้อความ)'},
-] as const;
+import {TABLE_COLUMNS} from './columns';
+export {TABLE_COLUMNS};
 export type ColumnKey=typeof TABLE_COLUMNS[number]['key'];
 export type TableRow={rowNo:number;cells:Partial<Record<ColumnKey,string>>};
 export type ParsedTable={rows:TableRow[]};

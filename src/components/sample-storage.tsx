@@ -4,10 +4,12 @@ import {useEffect,useMemo,useRef,useState} from 'react';
 import {failureText,LabFailure,labApi,labPdf} from './p4/lab-api';
 import {csrf} from './p2/shared';
 import {Pager} from './shared/pager';
-import type {storageSearch,StorageType,StorageBoxType} from '../../packages/lab/sample-storage';
+import type {storageSearch,storageBoxLog,storagePendingDestruction,StorageType,StorageBoxType} from '../../packages/lab/sample-storage';
 import styles from './sample-storage.module.css';
 
 type Data=Awaited<ReturnType<typeof storageSearch>>;
+type BoxLog=Awaited<ReturnType<typeof storageBoxLog>>;
+type Pending=Awaited<ReturnType<typeof storagePendingDestruction>>;
 type StorageRow=Data['rows'][number];
 type Box=Data['boxes'][number];
 type AutoPlan={storageTypes:StorageType[];waiting:number;selected:number;batchSize:number;remaining:number;planned:number;unplaced:number;planHash:string;placements:{roundId:string;ln:string;hn:string|null;lnHalos:string;roundNumber:number;receivedAt:string;storageType:StorageType;storageLabel:string;boxUuid:string;boxId:string;slot:number;position:string}[]};
@@ -17,6 +19,12 @@ const TYPE_LABEL:Record<StorageType,string>={BACKUP:'Backup Box',BUFFY_COAT:'Buf
 const TYPE_SHORT:Record<StorageBoxType,string>={BACKUP:'Backup',BUFFY_COAT:'Buffy Coat',LEGACY_UNCLASSIFIED:'ข้อมูลเดิม'};
 const rowKey=(row:StorageRow)=>`${row.roundId}:${row.storageType}`;
 const displayStorageDate=(value:string|null)=>value?new Intl.DateTimeFormat('th-TH-u-ca-buddhist',{dateStyle:'medium',timeStyle:'short',timeZone:'Asia/Bangkok'}).format(new Date(value)):'—';
+const displayLogTime=(value:string)=>new Intl.DateTimeFormat('th-TH-u-ca-buddhist',{dateStyle:'medium',timeStyle:'medium',timeZone:'Asia/Bangkok'}).format(new Date(value));
+/** OWNER-LAB-052: a due date exists only when this round's PET P[23] receipt is verified; otherwise it is stated as unknown. */
+const dueText=(row:{retentionDueAt:string|null})=>row.retentionDueAt?displayStorageDate(row.retentionDueAt):'ไม่ทราบ (ไม่มีเวลารับจาก PET)';
+const EVENT_LABEL:Record<string,string>={BOX_CREATED:'เปิดกล่อง',BOX_LABEL_PRINTED:'พิมพ์ฉลากกล่อง',BOX_LABEL_REPRINTED:'พิมพ์ฉลากกล่องซ้ำ',SAMPLE_LABEL_PRINTED:'พิมพ์ฉลากตัวอย่าง',SAMPLE_LABEL_REPRINTED:'พิมพ์ฉลากตัวอย่างซ้ำ',
+ SAMPLE_PLACED:'จัดเก็บเข้ากล่อง',SAMPLE_MOVED_IN:'ย้ายเข้า',SAMPLE_MOVED_OUT:'ย้ายออก',SAMPLE_MOVED_WITHIN:'ย้ายภายในกล่อง',SAMPLE_REPLACED:'สลับตำแหน่ง'};
+const csvCell=(value:string|null|undefined)=>`"${String(value??'').replaceAll('"','""')}"`;
 
 async function postStorage<T>(body:Record<string,unknown>):Promise<T>{
  const response=await fetch('/api/sample-storage',{method:'POST',cache:'no-store',headers:{'content-type':'application/json','x-csrf-token':csrf()},body:JSON.stringify(body)});
@@ -34,6 +42,8 @@ export function SampleStorage({canWrite,canPrint}:{canWrite:boolean;canPrint:boo
  const [targetBoxId,setTargetBoxId]=useState(''),[targetSlot,setTargetSlot]=useState(1);
  const [autoPlan,setAutoPlan]=useState<AutoPlan|null>(null),[autoRoundIds,setAutoRoundIds]=useState<string[]|undefined>();
  const [dragTarget,setDragTarget]=useState('');
+ const [view,setView]=useState<'STORE'|'DUE'>('STORE'),[logBoxId,setLogBoxId]=useState<string|null>(null);
+ const [swap,setSwap]=useState<null|{storageType:StorageType;a:{roundId:string;label:string;boxId:string;slot:number};b:{roundId:string;label:string;boxId:string;slot:number}}>(null);
  const gridScrollerRef=useRef<HTMLDivElement>(null);
 
  useEffect(()=>{
@@ -156,9 +166,16 @@ export function SampleStorage({canWrite,canPrint}:{canWrite:boolean;canPrint:boo
 
  async function dropIntoCell(event:React.DragEvent,slot:number,occupied:boolean){
   event.preventDefault();setDragTarget('');
-  if(occupied){setError('ตำแหน่งนี้มีตัวอย่างอยู่แล้ว กรุณาเลือกช่องว่าง');return;}
   const payload=decodeDrag(event);
   if(!payload||!activeBox)return;
+  if(occupied){
+   const other=activeBox.grid[slot-1];
+   if(payload.kind!=='stored'||!other.roundId||other.storageType!==payload.storageType||!payload.fromBoxId||!payload.fromSlot){setError('ตำแหน่งนี้มีตัวอย่างอยู่แล้ว กรุณาเลือกช่องว่าง หรือย้ายตัวอย่างที่จัดเก็บแล้วมาวางเพื่อสลับตำแหน่ง');return;}
+   if(other.roundId===payload.roundId)return;
+   const source=payload.fromBoxId===activeBox.id?activeBox.grid[payload.fromSlot-1]:null;
+   setSwap({storageType:payload.storageType,a:{roundId:payload.roundId,label:source?.storageLabel??'ตัวอย่างที่ย้าย',boxId:payload.fromBoxId,slot:payload.fromSlot},b:{roundId:other.roundId,label:other.storageLabel??'ตัวอย่างในช่องนี้',boxId:activeBox.id,slot}});
+   return;
+  }
   if(payload.storageType!==activeBox.boxType){setError('ประเภทกล่องไม่ตรงกับชนิดตัวอย่าง');return;}
   const result=payload.kind==='waiting'
    ?await command({action:'place',roundId:payload.roundId,storageType:payload.storageType,boxId:activeBox.id,slot})
@@ -188,12 +205,20 @@ export function SampleStorage({canWrite,canPrint}:{canWrite:boolean;canPrint:boo
   if(selectedPosition){
    if(selectedPosition.storageType==='LEGACY_UNCLASSIFIED')return;
    if(selectedPosition.storageType!==targetBox.boxType){setError('ประเภทกล่องไม่ตรงกับชนิดตัวอย่าง');return;}
+   const occupant=activeBox?.id===targetBox.id?activeBox.grid[targetSlot-1]:null;
+   if(occupant?.occupied&&occupant.roundId){setSwap({storageType:selectedPosition.storageType,a:{roundId:selectedPosition.roundId,label:selectedPosition.storageLabel,boxId:selectedPosition.boxId,slot:selectedPosition.slot},b:{roundId:occupant.roundId,label:occupant.storageLabel??'ตัวอย่างในช่องนี้',boxId:targetBox.id,slot:targetSlot}});return;}
    const result=await command({action:'move',roundId:selectedPosition.roundId,storageType:selectedPosition.storageType,fromBoxId:selectedPosition.boxId,fromSlot:selectedPosition.slot,toBoxId:targetBox.id,toSlot:targetSlot});
    if(result)setSelectedPosition(null);
   }
  }
 
- const targetSlots=targetBox&&activeBox?.id===targetBox.id?activeBox.grid.filter(cell=>!cell.occupied).map(cell=>cell.slot):targetBox?.nextSlot?[targetBox.nextSlot]:[];
+ // Moving a stored sample may also target an occupied slot of the open box: that is a replace (swap), confirmed in a dialog.
+ const targetSlots=targetBox&&activeBox?.id===targetBox.id?activeBox.grid.filter(cell=>!cell.occupied||(selectedPosition&&cell.roundId&&cell.roundId!==selectedPosition.roundId&&cell.storageType===selectedPosition.storageType)).map(cell=>cell.slot):targetBox?.nextSlot?[targetBox.nextSlot]:[];
+ async function confirmSwap(){
+  if(!swap)return;
+  const result=await command({action:'swap',roundId:swap.a.roundId,otherRoundId:swap.b.roundId,storageType:swap.storageType,boxId:swap.a.boxId,slot:swap.a.slot,otherBoxId:swap.b.boxId,otherSlot:swap.b.slot});
+  if(result){setNotice(`สลับตำแหน่ง ${swap.a.label} กับ ${swap.b.label} แล้ว`);setSwap(null);setSelectedPosition(null);}
+ }
 
  return <section className={styles.storage}>
   <header className={styles.hero}>
@@ -216,6 +241,11 @@ export function SampleStorage({canWrite,canPrint}:{canWrite:boolean;canPrint:boo
    <article className={styles.metric}><span className={styles.metricIcon} aria-hidden="true">◇</span><div><span>รายการจัดเก็บเดิม</span><strong>{data?.summary.legacyStored??0}</strong><small>ยังไม่ระบุประเภท</small></div></article>
   </div>
 
+  <nav className={styles.typeTabs} aria-label="มุมมองจัดเก็บ">
+   <button type="button" aria-pressed={view==='STORE'} className={view==='STORE'?styles.tabActive:styles.tab} onClick={()=>setView('STORE')}>จัดเก็บและค้นหา</button>
+   <button type="button" aria-pressed={view==='DUE'} className={view==='DUE'?styles.tabActive:styles.tab} onClick={()=>setView('DUE')}>ครบกำหนด 3 ปี (รอทำลาย)</button>
+  </nav>
+  {view==='DUE'?<PendingDestruction onOpenBox={id=>{setView('STORE');setBoxFilter('ALL');setBoxQuery('');setActiveBoxId(id);setTargetBoxId(id);}} onOpenLog={setLogBoxId}/>:<>
   <nav className={styles.typeTabs} aria-label="กรองประเภทกล่อง">
    {([{id:'ALL',label:'ทั้งหมด'},{id:'BACKUP',label:'Backup Box'},{id:'BUFFY_COAT',label:'Buffy Coat Box'}] as const).map(tab=><button key={tab.id} type="button" aria-pressed={boxFilter===tab.id} className={boxFilter===tab.id?styles.tabActive:styles.tab} onClick={()=>{setBoxFilter(tab.id);setActiveBoxId('');setTargetBoxId('');setTargetSlot(1);setPage(1);setSelectedKeys([]);setSelectedWaiting(null);setSelectedPosition(null);}}>{tab.label}{tab.id==='BACKUP'&&<span>{data?.summary.storedBackup??0}</span>}{tab.id==='BUFFY_COAT'&&<span>{data?.summary.storedBuffy??0}</span>}</button>)}
   </nav>
@@ -241,12 +271,12 @@ export function SampleStorage({canWrite,canPrint}:{canWrite:boolean;canPrint:boo
    <main className={styles.activePanel}>
     <div className={styles.activeHeading}>
      <div><h2>{activeBox?.boxId??'เลือกกล่องจัดเก็บ'}</h2><p>{activeBox?`${activeBox.used}/81 ช่อง · ${Math.round(activeBox.used/81*100)}%`: 'เลือกกล่องจากรายการ หรือเปิดกล่องใหม่'}{activeBox&&<span className={styles.badge}>{activeBox.boxType==='LEGACY_UNCLASSIFIED'?'ข้อมูลเดิม':TYPE_LABEL[activeBox.boxType]}</span>}</p></div>
-     <div className={styles.actions}>{canWrite&&<button type="button" className={styles.secondaryButton} onClick={()=>void openBox()} disabled={busy}>＋ เปิดกล่องใหม่</button>}{canPrint&&activeBox&&<button type="button" className={styles.secondaryButton} onClick={()=>void printBox(activeBox.id)} disabled={busy}>▤ พิมพ์ / พิมพ์ซ้ำฉลากกล่อง</button>}</div>
+     <div className={styles.actions}>{canWrite&&<button type="button" className={styles.secondaryButton} onClick={()=>void openBox()} disabled={busy}>＋ เปิดกล่องใหม่</button>}{canPrint&&activeBox&&<button type="button" className={styles.secondaryButton} onClick={()=>void printBox(activeBox.id)} disabled={busy}>▤ พิมพ์ / พิมพ์ซ้ำฉลากกล่อง</button>}{activeBox&&<button type="button" className={styles.secondaryButton} onClick={()=>setLogBoxId(activeBox.id)}>ประวัติกล่อง</button>}</div>
     </div>
     {activeBox&&<div className={styles.boxProgress}><span style={{width:`${Math.min(100,activeBox.used/81*100)}%`}} /></div>}
     {activeBox?<>
      <div className={styles.boxFacts}><span><small>ประเภท</small><strong>{activeBox.boxType==='LEGACY_UNCLASSIFIED'?'ข้อมูลเดิมที่ยังไม่ระบุ':TYPE_LABEL[activeBox.boxType]}</strong></span><span><small>การใช้งาน</small><strong>{activeBox.used}/81 ช่อง</strong></span><span><small>สถานะ</small><strong>{activeBox.status==='FULL'?'เต็ม':activeBox.status==='IN_USE'?'กำลังใช้งาน':'ว่าง'}</strong></span></div>
-     {(selectedWaiting||selectedCell)&&<section className={styles.retentionDetails} aria-label="รายละเอียดตัวอย่างและกำหนดเก็บรักษา"><strong>{selectedWaiting?.storageLabel??selectedCell?.storageLabel??'ข้อมูลเดิม'}{selectedCell?` · ${selectedCell.position}`:''}</strong><span>LN {selectedWaiting?.ln??selectedCell?.ln??'—'} · HN {selectedWaiting?.hn??selectedCell?.hn??'—'} · LN Halos {selectedWaiting?.lnHalos??selectedCell?.lnHalos??'—'} · รอบ {selectedWaiting?.roundNumber??selectedCell?.roundNumber??'—'}</span><span>รับจาก HIS (PET): {(selectedWaiting?.retentionVerified??selectedCell?.retentionVerified)?displayStorageDate(selectedWaiting?.receivedAt??selectedCell?.receivedAt??null):'ไม่มีวันที่รับจาก PET ที่ยืนยันได้'}</span><span>ครบกำหนดเก็บรักษา: {displayStorageDate(selectedWaiting?.retentionDueAt??selectedCell?.retentionDueAt??null)=== '—'?'ยังคำนวณไม่ได้จากข้อมูลที่ยืนยัน':displayStorageDate(selectedWaiting?.retentionDueAt??selectedCell?.retentionDueAt??null)}</span></section>}
+     {(selectedWaiting||selectedCell)&&<section className={styles.retentionDetails} aria-label="รายละเอียดตัวอย่างและกำหนดเก็บรักษา"><strong>{selectedWaiting?.storageLabel??selectedCell?.storageLabel??'ข้อมูลเดิม'}{selectedCell?` · ${selectedCell.position}`:''}</strong><span>LN {selectedWaiting?.ln??selectedCell?.ln??'—'} · HN {selectedWaiting?.hn??selectedCell?.hn??'—'} · LN Halos {selectedWaiting?.lnHalos??selectedCell?.lnHalos??'—'} · รอบ {selectedWaiting?.roundNumber??selectedCell?.roundNumber??'—'}</span><span>รับจาก HIS (PET): {(selectedWaiting?.retentionVerified??selectedCell?.retentionVerified)?displayStorageDate(selectedWaiting?.receivedAt??selectedCell?.receivedAt??null):'ไม่มีวันที่รับจาก PET ที่ยืนยันได้'}</span><span>ครบกำหนดเก็บรักษา 3 ปี: {dueText({retentionDueAt:selectedWaiting?.retentionDueAt??selectedCell?.retentionDueAt??null})}</span></section>}
      <div className={styles.gridScroller} ref={gridScrollerRef} role="region" aria-label="ตารางตำแหน่ง 9 คูณ 9" tabIndex={0}>
       <div className={styles.grid} role="grid" aria-label={`ตำแหน่งใน ${activeBox.boxId}`}>
        <div className={styles.columnHeaders} role="row"><span role="presentation" />{'ABCDEFGHI'.split('').map(letter=><span key={letter} role="columnheader">{letter}</span>)}</div>
@@ -260,7 +290,7 @@ export function SampleStorage({canWrite,canPrint}:{canWrite:boolean;canPrint:boo
     {canWrite&&(selectedWaiting||selectedPosition&&selectedPosition.storageType!=='LEGACY_UNCLASSIFIED')&&<section className={styles.keyboardMove} aria-label="จัดเก็บหรือย้ายด้วยแป้นพิมพ์">
      <div><strong>{selectedWaiting?`เลือก ${selectedWaiting.storageLabel} เพื่อจัดเก็บ`: `เลือก ${selectedPosition?.storageLabel} เพื่อย้าย`}</strong><p>ใช้ตัวเลือกกล่องและช่องว่าง แล้วกดปุ่มเพื่อบันทึกตำแหน่ง</p></div>
      <label>กล่องปลายทาง<select value={targetBoxId} onChange={event=>{const box=visibleBoxes.find(item=>item.id===event.target.value);setTargetBoxId(event.target.value);if(box?.nextSlot)setTargetSlot(box.nextSlot);}}>{visibleBoxes.filter(box=>box.boxType===(selectedWaiting?.storageType??selectedPosition?.storageType)&&box.nextSlot!==null).map(box=><option key={box.id} value={box.id}>{box.boxId} · {box.used}/81</option>)}</select></label>
-     <label>ช่องปลายทาง<select value={targetSlot} onChange={event=>setTargetSlot(Number(event.target.value))}>{targetSlots.map(slot=><option key={slot} value={slot}>{'ABCDEFGHI'[(slot-1)%9]}{Math.floor((slot-1)/9)+1}</option>)}</select></label>
+     <label>ช่องปลายทาง<select value={targetSlot} onChange={event=>setTargetSlot(Number(event.target.value))}>{targetSlots.map(slot=><option key={slot} value={slot}>{'ABCDEFGHI'[(slot-1)%9]}{Math.floor((slot-1)/9)+1}{activeBox?.id===targetBox?.id&&activeBox?.grid[slot-1]?.occupied?` · สลับกับ ${activeBox.grid[slot-1].storageLabel??''}`:''}</option>)}</select></label>
      <button type="button" className={styles.secondaryButton} onClick={()=>void placeOrMoveByKeyboard()} disabled={busy||!targetSlots.includes(targetSlot)}>{selectedWaiting?'จัดเก็บ':'ย้ายตำแหน่ง'}</button>
      <button type="button" className={styles.textButton} onClick={()=>{setSelectedWaiting(null);setSelectedPosition(null);}}>ยกเลิก</button>
     </section>}
@@ -286,6 +316,15 @@ export function SampleStorage({canWrite,canPrint}:{canWrite:boolean;canPrint:boo
    </aside>
   </div>
 
+  </>}
+  {logBoxId&&<BoxLogDialog boxId={logBoxId} onClose={()=>setLogBoxId(null)}/>}
+  {swap&&<div className={styles.dialogBackdrop} role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)setSwap(null);}}>
+   <section className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="storage-swap-title">
+    <div className={styles.dialogHeading}><div><h2 id="storage-swap-title">สลับตำแหน่งตัวอย่าง</h2><p>{TYPE_LABEL[swap.storageType]} · บันทึกในประวัติของทั้งสองกล่อง</p></div><button type="button" className={styles.smallIconButton} onClick={()=>setSwap(null)} aria-label="ปิด">×</button></div>
+    <dl className={styles.previewFacts}><div><dt>{swap.a.label}</dt><dd className={styles.swapTarget}>ไปยังตำแหน่งของ {swap.b.label}</dd></div><div><dt>{swap.b.label}</dt><dd className={styles.swapTarget}>ไปยังตำแหน่งเดิมของ {swap.a.label}</dd></div></dl>
+    <div className={styles.dialogActions}><button type="button" className={styles.secondaryButton} onClick={()=>setSwap(null)}>ยกเลิก</button><button type="button" className={styles.confirmButton} onClick={()=>void confirmSwap()} disabled={busy}>ยืนยันสลับตำแหน่ง</button></div>
+   </section>
+  </div>}
   {autoPlan&&<div className={styles.dialogBackdrop} role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget){setAutoPlan(null);setAutoRoundIds(undefined);}}}>
    <section className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="storage-autofill-title">
     <div className={styles.dialogHeading}><div><h2 id="storage-autofill-title">Preview Auto-fill</h2><p>{autoPlan.storageTypes.map(type=>TYPE_LABEL[type]).join(' · ')} · FIFO ตามเวลารับตัวอย่าง</p></div><button type="button" className={styles.smallIconButton} onClick={()=>{setAutoPlan(null);setAutoRoundIds(undefined);}} aria-label="ปิด Preview">×</button></div>
@@ -296,4 +335,59 @@ export function SampleStorage({canWrite,canPrint}:{canWrite:boolean;canPrint:boo
    </section>
   </div>}
  </section>;
+}
+
+function PendingDestruction({onOpenBox,onOpenLog}:{onOpenBox:(id:string)=>void;onOpenLog:(id:string)=>void}){
+ const [viewMode,setViewMode]=useState<'DUE'|'UNKNOWN'>('DUE'),[page,setPage]=useState(1),[data,setData]=useState<Pending|null>(null),[error,setError]=useState('');
+ useEffect(()=>{let current=true;postStorage<Pending>({action:'pending',view:viewMode,page}).then(result=>{if(current){setData(result);setError('');}}).catch(reason=>{if(current)setError(failureText(reason));});return()=>{current=false;};},[viewMode,page]);
+ return <section className={styles.pending} aria-labelledby="pending-title">
+  <div className={styles.panelHeading}><div><h2 id="pending-title">ตัวอย่างครบกำหนดเก็บรักษา 3 ปี</h2><p>นับจากเวลารับตัวอย่างใน HIS (PET) ของแต่ละรอบเก็บตัวอย่าง · ระบบไม่ทำลายหรือลบข้อมูลอัตโนมัติ</p></div></div>
+  <nav className={styles.typeTabs} aria-label="สถานะกำหนดเก็บรักษา">
+   <button type="button" aria-pressed={viewMode==='DUE'} className={viewMode==='DUE'?styles.tabActive:styles.tab} onClick={()=>{setViewMode('DUE');setPage(1);}}>ครบกำหนดแล้ว<span>{data?.counts.due??0}</span></button>
+   <button type="button" aria-pressed={viewMode==='UNKNOWN'} className={viewMode==='UNKNOWN'?styles.tabActive:styles.tab} onClick={()=>{setViewMode('UNKNOWN');setPage(1);}}>ไม่ทราบกำหนด<span>{data?.counts.unknown??0}</span></button>
+  </nav>
+  {error&&<p role="alert" className={styles.alert}>{error}</p>}
+  {data&&(data.boxes.length?<div className={styles.pendingBoxes}>{data.boxes.map(box=><article key={box.id} className={styles.pendingBox}>
+    <div><strong>{box.boxId}</strong><span className={styles.badge}>{TYPE_SHORT[box.storageType]}</span>{box.mixed&&<span className={styles.badge}>กล่องผสม</span>}</div>
+    <small>ครบกำหนด {box.due} · ไม่ทราบกำหนด {box.unknown} · ทั้งหมด {box.total} ตัวอย่าง{box.earliestDueAt?` · ครบกำหนดแรก ${displayStorageDate(box.earliestDueAt)}`:''}</small>
+    <div className={styles.sampleActions}><button type="button" className={styles.textButton} onClick={()=>onOpenBox(box.id)}>เปิดกล่อง</button><button type="button" className={styles.textButton} onClick={()=>onOpenLog(box.id)}>ประวัติกล่อง</button></div>
+   </article>)}</div>:<p className={styles.emptyState}>{viewMode==='DUE'?'ยังไม่มีตัวอย่างที่ครบกำหนดเก็บรักษา':'ทุกตัวอย่างที่จัดเก็บมีกำหนดเก็บรักษาจาก PET'}</p>)}
+  {data&&data.rows.length>0&&<div className="table-wrap" role="region" aria-label="รายการตัวอย่างตามกำหนดเก็บรักษา" tabIndex={0}><table className="data-table"><thead><tr><th scope="col">ตัวอย่าง</th><th scope="col">LN · HN</th><th scope="col">กล่อง · ตำแหน่ง</th><th scope="col">รับใน HIS (PET)</th><th scope="col">ครบกำหนด 3 ปี</th></tr></thead>
+   <tbody>{data.rows.map(row=><tr key={`${row.roundId}:${row.storageType}`}><td className="mono">{row.storageLabel}</td><td>LN {row.ln} · HN {row.hn??'—'}</td><td>{row.boxId} · {row.position}</td><td>{row.retentionVerified?displayStorageDate(row.receivedAt):'ไม่มีเวลารับจาก PET'}</td><td>{dueText(row)}</td></tr>)}</tbody></table></div>}
+  {data&&data.total>25&&<Pager label="ตัวอย่างตามกำหนดเก็บรักษา" page={data.page} pageSize={25} sizes={[25]} total={data.total} totalPages={data.totalPages} onPage={setPage} onSize={()=>{}}/>}
+ </section>;
+}
+
+function BoxLogDialog({boxId,onClose}:{boxId:string;onClose:()=>void}){
+ const [eventType,setEventType]=useState('ALL'),[q,setQ]=useState(''),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(25),[data,setData]=useState<BoxLog|null>(null),[error,setError]=useState(''),[exporting,setExporting]=useState(false);
+ const closeRef=useRef<HTMLButtonElement>(null);
+ useEffect(()=>{closeRef.current?.focus();const key=(event:KeyboardEvent)=>{if(event.key==='Escape')onClose();};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[onClose]);
+ useEffect(()=>{let current=true;const timer=setTimeout(()=>{postStorage<BoxLog>({action:'boxLog',boxId,eventType,q,page,pageSize}).then(result=>{if(current){setData(result);setError('');}}).catch(reason=>{if(current)setError(failureText(reason));});},200);return()=>{current=false;clearTimeout(timer);};},[boxId,eventType,q,page,pageSize]);
+ const describe=(e:BoxLog['events'][number])=>`${EVENT_LABEL[e.eventType]??e.eventType}${e.eventType==='SAMPLE_MOVED_IN'&&e.relatedBox?` จาก ${e.relatedBox} ${e.relatedPosition}`:''}${e.eventType==='SAMPLE_MOVED_OUT'&&e.relatedBox?` ไป ${e.relatedBox} ${e.relatedPosition}`:''}${e.eventType==='SAMPLE_MOVED_WITHIN'?` จาก ${e.relatedPosition}`:''}${e.eventType==='SAMPLE_REPLACED'&&e.relatedBox?` (เดิมอยู่ ${e.relatedBox} ${e.relatedPosition})`:''}`;
+ async function exportCsv(){
+  setExporting(true);setError('');
+  try{
+   const rows:BoxLog['events']=[];let next=1,totalPages=1;
+   do{const part=await postStorage<BoxLog>({action:'boxLog',boxId,eventType,q,page:next,pageSize:1000});rows.push(...part.events);totalPages=part.totalPages;next++;}while(next<=totalPages);
+   const header=['เวลา (Asia/Bangkok)','เหตุการณ์','ตัวอย่าง','LN','HN','ตำแหน่ง','กล่อง/ตำแหน่งที่เกี่ยวข้อง','ผู้ทำรายการ','ที่มา'];
+   const lines=rows.map(e=>[displayLogTime(e.createdAt),describe(e),e.storageLabel,e.ln,e.hn,e.position,e.relatedBox?`${e.relatedBox} ${e.relatedPosition??''}`:'',e.actor,e.source==='BACKFILL'?'ย้อนหลังจากประวัติเดิม':'ระบบ'].map(csvCell).join(','));
+   const url=URL.createObjectURL(new Blob(['\ufeff'+[header.map(csvCell).join(','),...lines].join('\r\n')],{type:'text/csv;charset=utf-8'}));
+   const a=document.createElement('a');a.href=url;a.download=`${data?.box.boxId??'box'}-activity-log.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);
+  }catch(reason){setError(failureText(reason));}finally{setExporting(false);}
+ }
+ return <div className={styles.dialogBackdrop} role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)onClose();}}>
+  <section className={`${styles.dialog} ${styles.logDialog}`} role="dialog" aria-modal="true" aria-labelledby="box-log-title">
+   <div className={styles.dialogHeading}><div><h2 id="box-log-title">ประวัติกล่อง {data?.box.boxId??''}</h2><p>{data?`${TYPE_SHORT[data.box.boxType]} · เปิดกล่อง ${displayLogTime(data.box.createdAt)} · ${data.total} เหตุการณ์ · บันทึกอัตโนมัติ แก้ไขหรือลบไม่ได้`:'กำลังโหลด…'}</p></div><button ref={closeRef} type="button" className={styles.smallIconButton} onClick={onClose} aria-label="ปิดประวัติกล่อง">×</button></div>
+   <div className={styles.logFilters}>
+    <label>ค้นหา<input type="search" value={q} onChange={event=>{setQ(event.target.value);setPage(1);}} placeholder="LN / HN / LN Halos / ผู้ทำรายการ" autoComplete="off"/></label>
+    <label>เหตุการณ์<select value={eventType} onChange={event=>{setEventType(event.target.value);setPage(1);}}><option value="ALL">ทั้งหมด</option>{Object.entries(EVENT_LABEL).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
+    <button type="button" className={styles.secondaryButton} onClick={()=>void exportCsv()} disabled={exporting||!data?.total}>{exporting?'กำลังส่งออก…':'ส่งออก CSV'}</button>
+   </div>
+   {error&&<p role="alert" className={styles.alert}>{error}</p>}
+   {data&&(data.events.length?<div className="table-wrap" role="region" aria-label="รายการประวัติกล่อง" tabIndex={0}><table className="data-table"><thead><tr><th scope="col">เวลา</th><th scope="col">เหตุการณ์</th><th scope="col">ตัวอย่าง · ตำแหน่ง</th><th scope="col">ผู้ทำรายการ</th></tr></thead>
+    <tbody>{data.events.map(e=><tr key={e.sequence}><td>{displayLogTime(e.createdAt)}</td><td>{describe(e)}{e.source==='BACKFILL'&&<small className={styles.logSource}>บันทึกย้อนหลังจากประวัติเดิม</small>}</td><td>{e.roundId?<><span className="mono">{e.storageLabel??'จำกัดสิทธิ์'}</span>{e.ln&&<small className={styles.logSource}>LN {e.ln} · HN {e.hn??'—'}</small>}</>:'—'}{e.position&&<small className={styles.logSource}>ตำแหน่ง {e.position}</small>}</td><td>{e.actor}</td></tr>)}</tbody></table></div>:<p className={styles.emptyState}>ไม่มีเหตุการณ์ที่ตรงกับเงื่อนไข</p>)}
+   {data&&data.total>0&&<Pager label="ประวัติกล่อง" page={data.page} pageSize={data.pageSize} sizes={[25,50,100]} total={data.total} totalPages={data.totalPages} onPage={setPage} onSize={size=>{setPageSize(size);setPage(1);}}/>}
+   {data&&data.retention.length>0&&<details className={styles.logRetention}><summary>กำหนดเก็บรักษาของตัวอย่างในกล่องนี้ ({data.retention.length})</summary><ul>{data.retention.map(row=><li key={`${row.roundId}:${row.storageType}`}><span className="mono">{row.storageLabel}</span> · {row.position} · ครบกำหนด {dueText(row)}</li>)}</ul></details>}
+  </section>
+ </div>;
 }

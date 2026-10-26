@@ -137,7 +137,7 @@ legend {font-weight:600;padding:0 var(--space-2);}
 .filters {display:flex;flex-wrap:wrap;align-items:end;gap:var(--space-4);margin-bottom:var(--space-4);}
 .filters .grow {flex:1 1 280px;}
 .bulk-bar {display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3);padding:var(--space-3) 0;border-top:1px solid var(--color-line);border-bottom:1px solid var(--color-line);margin-bottom:var(--space-3);}
-.table-wrap {overflow-x:auto;max-width:100%;}
+.table-wrap {overflow-x:auto;max-width:100%;position:relative;}
 .data-table :is(th,td) > .table-check-target {display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;margin:0;cursor:pointer;}
 .data-table .table-check-target input[type="checkbox"] {margin:0;}
 .historical-check {display:flex;align-items:center;gap:var(--space-3);min-height:44px;margin:0 0 var(--space-2);font-weight:400;cursor:pointer;}
@@ -315,17 +315,29 @@ input::placeholder,textarea::placeholder {color:var(--color-muted);opacity:1;}
 .mobile-menu-heading {padding:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--color-line);}
 .mobile-menu-heading .button {width:auto;}
 .login-wrap {grid-template-columns:minmax(0,1fr) minmax(400px,1fr);padding:0;background:var(--color-surface);}
-.login-art {height:100%;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding:64px 12%;background:var(--raised);}
-.login-art img {width:min(320px,100%);height:auto;object-fit:contain;margin-bottom:32px;}
+/* UI-01: the illustration, headline and subtitle are ONE lockup, centred horizontally and vertically in the pale pane. */
+.login-art {height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:64px 6%;background:var(--raised);}
+.login-art img {width:min(320px,100%);height:auto;object-fit:contain;margin:0 auto 32px;}
+.login-art h2,.login-art p {max-width:30ch;margin-inline:auto;}
 .login-art h2 {font-size:28px;line-height:1.6;}
 .login-art p {color:var(--color-muted);}
 .login-panel {max-width:480px;padding:48px 40px;border:0;border-radius:0;box-shadow:none;justify-self:center;}
 .login-logo-row {display:flex;align-items:center;gap:18px;margin-bottom:40px;}
-.login-logo-row .product-logo {object-fit:contain;}
+.login-logo-row .product-logo {object-fit:contain;width:60px;height:60px;}
+/* UI-02: the hospital mark (3:2) is sized so its optical weight matches the square NIPT mark; no distortion, no clipping. */
+.login-logo-row .hospital-logo {width:108px;height:72px;object-fit:contain;padding:0;}
 .login-panel h1 {font-size:32px;}
 .login-panel form>.button {width:100%;}
 .login-panel .login-brand {margin:0;font-size:20px;}
-.login-theme {display:flex;justify-content:flex-end;margin-bottom:16px;}
+/* UI-04: the theme button sits on the title row, inside the form panel. */
+.login-title-row {display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.login-title-row h1 {margin:0;}
+/* UI-03: show/hide password is an eye button inside the field. */
+.password-field {position:relative;}
+.password-field input {width:100%;padding-right:52px;}
+.password-toggle {position:absolute;right:2px;top:50%;transform:translateY(-50%);display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;border:0;border-radius:9px;background:transparent;color:var(--color-muted);cursor:pointer;}
+.password-toggle:hover {background:var(--raised);color:var(--color-brand);}
+.password-toggle:focus-visible {outline:3px solid var(--color-focus);outline-offset:-2px;}
 @media(max-width:1024px){.app-topbar{padding:0 24px;}.workspace{padding:28px 24px;}}
 @media(max-width:900px){.app-shell{grid-template-columns:1fr;}.desktop-sidebar{display:none;}.mobile-menu-button{display:inline-flex;}.app-topbar{height:68px;padding:0 20px;}.mobile-navigation .sidebar nav{display:grid;}.mobile-navigation .sidebar .session{margin-top:auto;}.login-art{padding:40px;}.login-art h2{font-size:24px;}.login-wrap{grid-template-columns:1fr 1fr;}}
 @media(max-width:600px){h1{font-size:24px;}.app-topbar{height:64px;padding:0 12px;}.topbar-context{gap:8px;}.topbar-context>.muted{display:none;}.app-topbar>.row{gap:4px;}.hospital-logo{width:54px;height:36px;}.workspace{padding:22px 16px 30px;}.panel{padding:18px;border-radius:12px;}.scope-banner{padding:12px;font-size:12px;}.data-table{font-size:14px;}.data-table th,.data-table td{padding:10px;}.login-wrap{display:block;min-height:100dvh;}.login-art{display:none;}.login-panel{padding:24px;max-width:480px;margin:auto;}.login-panel h1{font-size:28px;}.login-logo-row{margin-bottom:32px;}.p2-dialog{border-radius:12px;}}
@@ -657,34 +669,42 @@ input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-o
 /* ANC workspace: top navigation is scoped to ANC routes; LAB keeps the existing sidebar. */
 .anc-shell { display:block; min-height:100vh; }
 .anc-shell-content { min-width:0; min-height:100vh; }
-.anc-topbar { height:auto; min-height:82px; padding:12px 28px; display:grid; grid-template-columns:minmax(160px,1fr) auto minmax(260px,1fr); align-items:center; gap:20px; }
+.anc-shell { --anc-content-max:1360px; --anc-gutter:36px; }
+/* Owner 2026-10-26 (UI-05): the full-width white bar stays, but brand, navigation and account live in an inner container whose edges are
+   exactly the content edges: [content-left] brand → nav → (space) → profile → theme → logout [content-right]. */
+.anc-topbar { height:auto; min-height:82px; padding:12px 0; display:block; }
+.anc-topbar-inner { display:flex; align-items:center; gap:20px; width:100%; max-width:var(--anc-content-max); margin-inline:auto; padding-inline:var(--anc-gutter); box-sizing:border-box; }
+.anc-lead { display:flex; align-items:center; gap:24px; min-width:0; flex:1 1 auto; }
 .anc-brand { display:flex; align-items:center; gap:10px; min-width:0; color:var(--color-ink); font-size:16px; }
 .anc-brand img { width:40px; height:40px; object-fit:contain; flex:0 0 auto; }
-.anc-navigation-slot { min-width:0; justify-self:center; }
-.anc-navigation { display:flex; flex-wrap:wrap; justify-content:center; gap:4px; }
+.anc-navigation-slot { min-width:0; }
+.anc-navigation { display:flex; flex-wrap:wrap; justify-content:flex-start; gap:4px; }
 .anc-navigation a { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:48px; padding:8px 12px; border-radius:10px; color:var(--color-muted); text-decoration:none; white-space:nowrap; }
 .anc-navigation a:hover { background:var(--raised); color:var(--color-brand); }
 .anc-navigation a[aria-current="page"] { background:var(--info-bg); color:var(--color-brand); font-weight:650; }
 .anc-navigation a svg { flex:0 0 auto; }
-.anc-account { display:flex; align-items:center; justify-content:flex-end; gap:8px; min-width:0; }
+.anc-account { display:flex; align-items:center; justify-content:flex-end; gap:8px; min-width:0; margin-left:auto; flex:0 0 auto; }
 .anc-identity { display:flex; flex-direction:column; gap:2px; min-width:0; line-height:1.35; text-align:right; }
 .anc-identity span { color:var(--color-muted); font-size:11px; }
 .anc-identity strong { max-width:180px; color:var(--color-ink); font-size:14px; overflow-wrap:anywhere; }
 .anc-account .theme-button { flex:0 0 44px; }
 .anc-account .button { flex:0 0 auto; width:auto; min-height:44px; white-space:nowrap; }
-.anc-shell .workspace,.anc-shell .workspace:has(.data-table) { width:100%; max-width:1360px; margin-inline:auto; }
+.anc-shell .workspace,.anc-shell .workspace:has(.data-table) { width:100%; max-width:var(--anc-content-max); margin-inline:auto; padding-inline:var(--anc-gutter); box-sizing:border-box; }
 .anc-navigation a:focus-visible,.anc-account .button:focus-visible,.anc-account .theme-button:focus-visible { outline:3px solid var(--color-focus); outline-offset:2px; }
 @media(max-width:1024px) {
- .anc-topbar { padding-inline:24px; }
+ .anc-shell { --anc-gutter:24px; }
 }
 @media(max-width:900px) {
- .anc-topbar { grid-template-columns:minmax(0,1fr) auto; grid-template-rows:auto auto; gap:10px 16px; padding:12px 20px; }
- .anc-brand { grid-column:1; grid-row:1; }
- .anc-account { grid-column:2; grid-row:1; }
- .anc-navigation-slot { grid-column:1/-1; grid-row:2; justify-self:stretch; }
+ /* Tablet / phone: brand and account share the first row, the navigation wraps to its own row; nothing is hidden or clipped. */
+ .anc-topbar-inner { flex-wrap:wrap; gap:10px 16px; }
+ .anc-lead { display:contents; }
+ .anc-brand { order:1; }
+ .anc-account { order:2; }
+ .anc-navigation-slot { order:3; flex:1 0 100%; }
 }
 @media(max-width:600px) {
- .anc-topbar { gap:10px 8px; padding:12px; }
+ .anc-shell { --anc-gutter:16px; }
+ .anc-topbar-inner { gap:10px 8px; }
  .anc-brand { gap:7px; font-size:14px; }
  .anc-brand img { width:34px; height:34px; }
  .anc-account { gap:4px; }
@@ -694,7 +714,6 @@ input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-o
  .anc-account .button { min-height:42px; padding-inline:8px; font-size:12px; }
  .anc-navigation { gap:2px; }
  .anc-navigation a { flex:1 1 auto; gap:6px; min-height:44px; padding:7px 8px; font-size:13px; }
- .anc-shell .workspace,.anc-shell .workspace:has(.data-table) { padding-inline:16px; }
 }
 
 .result-status-filters { display: flex; flex-wrap: wrap; gap: 12px; margin-block: 24px; }
@@ -749,3 +768,10 @@ input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-o
 .t3-signature{display:block;max-width:240px;max-height:96px;object-fit:contain;background:#fff;border:1px solid var(--color-line);border-radius:6px;padding:6px;margin:8px 0;}
 .anc-summary{padding:12px 0;}
 .print-frame{position:absolute;width:0;height:0;border:0;left:-9999px;top:0;}
+/* OWNER-LAB-053: transient upload confirmation for Run photos */
+.photo-toast {position:fixed;right:var(--space-6);bottom:var(--space-6);z-index:var(--dialog-layer);margin:0;padding:var(--space-3) var(--space-4);border-radius:var(--radius);background:var(--color-success);color:var(--on-primary);box-shadow:0 8px 24px color-mix(in srgb,var(--color-ink) 20%,transparent);font-weight:600;}
+/* OWNER-LAB-005 single-patient historical import */
+.single-patient {margin-top:var(--space-6);padding-top:var(--space-4);border-top:1px solid var(--color-line);}
+.single-patient > summary {min-height:44px;display:list-item;cursor:pointer;font-weight:600;padding-block:var(--space-2);}
+.single-patient[open] > .form-grid {margin-top:var(--space-3);}
+@media(max-width:600px){.login-logo-row{gap:12px;}.login-logo-row .product-logo{width:50px;height:50px;}.login-logo-row .hospital-logo{width:84px;height:56px;}}

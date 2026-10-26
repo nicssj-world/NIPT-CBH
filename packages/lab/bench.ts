@@ -22,14 +22,16 @@ export async function benchSource(db:Queryable,user:Staff,batchId:string,deps:Wo
  const workbook=await workbookWorkspace(db,user,batchId,deps),batch=await batchDetail(db,user,batchId);
  const placements=(await db.query<{payload:PlacementPayload}>(`SELECT DISTINCT ON(t.sheet_number) p.payload FROM lab_placement_snapshot p JOIN lab_task_sheet t ON t.id=p.sheet_id WHERE t.batch_id=$1 ORDER BY t.sheet_number,p.revision DESC`,[batchId])).rows;
  const slots=placements.flatMap(p=>p.payload.slots).sort((a,b)=>a.slot-b.slot);
- return {workbook,batch,slots};
+ // OWNER-LAB-031: a Task re-opened after printing makes its last snapshot obsolete until it is printed again.
+ const reopened=batch.sheets.some(t=>t.state==='Amended'&&t.placement_revision>0);
+ return {workbook,batch,slots,reopened};
 }
 export async function benchWorkspace(db:Queryable,user:Staff,batchId:string,deps:WorkbookDeps){
  const s=await benchSource(db,user,uuid.parse(batchId),deps);
  const actualPooling=(await db.query<{id:string;members:{slot:number;pooled:boolean;actualVolume?:number;reason?:string}[];note:string;current:boolean}>(`SELECT id,members,note,lab_actual_pooling_current(id) current FROM lab_actual_pooling WHERE batch_id=$1 ORDER BY recorded_at DESC,id DESC LIMIT 1`,[batchId])).rows[0]??null;
- return {canNoCall:authorize(user,'attempt.noCall'),canRepeat:authorize(user,'repeat.order'),canRedraw:authorize(user,'redraw.order'),batchId,runLabel:s.batch.batch.runLabel,version:s.workbook.version,revision:s.workbook.draft?.revision??0,values:s.workbook.values,automaticKeys:Object.keys(s.workbook.automaticValues),sourceStale:s.workbook.sourceStale,finalized:s.slots.length===48,
+ return {canNoCall:authorize(user,'attempt.noCall'),canRepeat:authorize(user,'repeat.order'),canRedraw:authorize(user,'redraw.order'),batchId,runLabel:s.batch.batch.runLabel,version:s.workbook.version,revision:s.workbook.draft?.revision??0,values:s.workbook.values,automaticKeys:Object.keys(s.workbook.automaticValues),sourceStale:s.workbook.sourceStale,finalized:s.slots.length===48&&!s.reopened,reopened:s.reopened,
   actualPooling,
-  slots:s.batch.slots.map(slot=>({attemptId:slot.assignment?.attemptId??null,caseId:slot.assignment?.caseId??null,roundId:slot.assignment?.roundId??null,attemptState:slot.assignment?.attemptState??null,outcomeStatus:slot.assignment?.outcomeStatus??null,overallOrdinal:slot.assignment?.overallOrdinal??null,exceptional:slot.assignment?.exceptional??false,slot:slot.slot,sheet:slot.sheet,kind:slot.controlLabel??(slot.assignment?'PATIENT':'EMPTY'),sampleId:slot.assignment?.printedSampleId??slot.controlCode??'',hisLn:slot.assignment?.hisLn??null,hn:slot.assignment?.hn??null,roundNumber:slot.assignment?.roundNumber??null})),
+  slots:s.batch.slots.map(slot=>({attemptId:slot.assignment?.attemptId??null,caseId:slot.assignment?.caseId??null,roundId:slot.assignment?.roundId??null,attemptState:slot.assignment?.attemptState??null,outcomeStatus:slot.assignment?.outcomeStatus??null,overallOrdinal:slot.assignment?.overallOrdinal??null,attemptNumber:slot.assignment?.attemptNumber??null,exceptional:slot.assignment?.exceptional??false,slot:slot.slot,sheet:slot.sheet,kind:slot.controlLabel??(slot.assignment?'PATIENT':'EMPTY'),sampleId:slot.assignment?.printedSampleId??slot.controlCode??'',hisLn:slot.assignment?.hisLn??null,hn:slot.assignment?.hn??null,roundNumber:slot.assignment?.roundNumber??null})),
   seqFields:s.workbook.matrix.bindings.filter(f=>f.sheet==='Seq Task-G50').map(f=>({key:f.key,type:f.dataType,label:s.workbook.matrix.cells.find(c=>c.sheet===f.sheet&&c.cell===f.cell)?.text.replaceAll('☐','').trim()||f.source})),
   exports:(await db.query<{id:string;kind:string;source_sha256:string}>('SELECT id,kind,source_sha256,file_sha256,created_at,workbook_revision_id FROM lab_bench_export WHERE batch_id=$1 ORDER BY created_at DESC',[batchId])).rows.map(e=>({...e,current:e.kind==='POOL_CSV'?e.source_sha256===qcSourceHash(s.slots,s.workbook.values)&&!s.workbook.sourceStale:null}))};
 }
@@ -37,6 +39,7 @@ export async function savedSource(db:Queryable,user:Staff,batchId:string,deps:Wo
  const s=await benchSource(db,user,batchId,deps);need(user,'qc.record');
  if(!s.workbook.draft||s.workbook.sourceStale)throw new LabError('TASK_CURRENT_DRAFT_REQUIRED',409);
  if(s.slots.length!==48||s.slots.some((slot,i)=>slot.slot!==i+1))throw new LabError('ALL_TASK_PLACEMENTS_REQUIRED',409);
+ if(s.reopened)throw new LabError('TASK_PLACEMENT_REOPENED',409);
  return s;
 }
 export async function benchPooling(db:Queryable,user:Staff,batchId:string,deps:WorkbookDeps){

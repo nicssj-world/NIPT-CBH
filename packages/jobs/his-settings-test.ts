@@ -7,7 +7,7 @@ import {SETTINGS} from '../settings/catalog';
 import {assertHisVersion,outboundDraftSettings,type ActiveHis} from '../settings/his';
 import {openInboundSource} from '../inbound/source';
 import {testInboundConnection} from '../inbound/connection-test';
-import {shareError,openAuthorizedDirectory} from '../integrations/authorized-share';
+import {shareError,openAuthorizedDirectory,workerServiceAccount} from '../integrations/authorized-share';
 import {freezeSyntheticTransfer} from '../p6/transfer';
 import {syntheticProfile} from '../p6/res';
 import {transaction} from '../p6/journal';
@@ -47,5 +47,7 @@ export async function runHisSettingsTest(db:Queryable,payload:unknown){
  // Worker supplies an autocommit PoolClient. Own only this short audit
  // transaction, after connection probes/publication transactions have finished.
  await transaction(db,()=>appendAudit(db,{action:'HIS_SETTINGS_TEST_COMPLETED',resourceType:'SETTING',resourceId:row.id,details:{version:row.version,outcome:report.passed?'PASSED':'FAILED',synthetic:!operationalDataEnabled()}}));
- return {...report,revisionId:row.id,version:row.version,syntheticOnly:!operationalDataEnabled()};
+ // OWNER-LAB-055/059: the report names the identity that actually tested the folders (the worker's service account).
+ let workerAccount:string|null=null;try{workerAccount=workerServiceAccount();}catch{/* identity unavailable */}
+ return {...report,workerAccount,revisionId:row.id,version:row.version,syntheticOnly:!operationalDataEnabled()};
 }

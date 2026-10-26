@@ -1,8 +1,23 @@
 // Tube label composition — Owner Lock 2026-10-12 (§12.11 addendum) and Genomic-CBH lib/nipt/label-print.ts @57de674 (owner size correction 2026-10-15).
 // The HTML remains byte-identical to the current Genomic-CBH print layout (tested against a versioned fixture).
-// No barcode bars and no QR: each 25 × 20 mm half prints LN Halos, `LN: <HIS LN>` and optionally an authorized name.
+// OWNER-LAB-004/026 (supersedes the earlier no-barcode layout): each 25 × 20 mm half prints LN Halos, a Code 128
+// barcode of that half's printed code across the text width, then `LN: <HIS LN>` (and optionally an authorized name).
+// The barcode sits in the middle band, clear of the unchanged 4-corner digits. No QR.
 // The `-1/-2/-3` strings are label composition only; they are never analytical attempts or Printed Sample IDs.
+import { code128Modules } from './code128';
+
 export type TubeLabelSample = { ln: string; lnHalos: string; patientName: string | null };
+
+/** Code 128 bars as inline SVG; 10-module quiet zones; the SVG stretches to the half's text width. */
+function barcodeSvg(value: string): string {
+  // Only an issued printed code gets bars (same rule as the corner digits); anything else prints text only.
+  if (!/^\d{2}B\d{9}D?R?(?:-[123])?$/.test(value)) return ''
+  const widths = code128Modules(value)
+  const quiet = 10, total = widths.reduce((sum, width) => sum + width, 0) + quiet * 2
+  let x = quiet
+  const bars = widths.map((width, index) => { const rect = index % 2 === 0 ? `<rect x="${x}" y="0" width="${width}" height="1"/>` : ''; x += width; return rect }).join('')
+  return `<svg class="bc" data-code="${escapeHtml(value)}" viewBox="0 0 ${total} 1" preserveAspectRatio="none" aria-hidden="true">${bars}</svg>`
+}
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ({
@@ -49,7 +64,7 @@ function half(lnHalos: string, ln: string, name: string | null, isRight: boolean
     </div>`
     : ''
   return `<div class="${isRight ? 'right' : 'left'} half">
-    <div class="ln-halos"${codeStyle}>${escapeHtml(lnHalos)}</div>
+    <div class="ln-halos"${codeStyle}>${escapeHtml(lnHalos)}</div>${barcodeSvg(lnHalos)}
     <div class="patient-ln"${lnStyle}>LN: ${escapeHtml(ln)}</div>
     ${name ? `<div class="name">${escapeHtml(name)}</div>` : ''}
     ${corners}
@@ -75,7 +90,9 @@ export function buildTubeLabelsHtml(samples: TubeLabelSample[]): string {
     body { font-family: 'Courier New', Courier, monospace; }
     .sticker { width: 50mm; height: 20mm; display: flex; page-break-after: always; overflow: hidden; }
     .sticker:last-child { page-break-after: auto; }
-    .half { position: relative; width: 25mm; height: 20mm; display: flex; flex-direction: column; justify-content: center; gap: 1mm; padding: 1.2mm 1mm 1.2mm 3mm; overflow: hidden; }
+    .half { position: relative; width: 25mm; height: 20mm; display: flex; flex-direction: column; justify-content: center; gap: 0.4mm; padding: 1.2mm 1mm 1.2mm 3mm; overflow: hidden; }
+    .bc { display: block; width: 100%; height: 1.8mm; fill: #000; shape-rendering: crispEdges; }
+    .corner-set { position: absolute; inset: 0; }
     .right { border-left: 0.5px dashed #555; padding-left: 2.5mm; padding-right: 1mm; }
     .ln-halos { font-size: 6.5pt; font-weight: 900; letter-spacing: -0.02em; line-height: 1; white-space: nowrap; }
     .patient-ln { font-size: 6pt; font-weight: 700; letter-spacing: -0.02em; color: #222; line-height: 1.1; white-space: nowrap; }

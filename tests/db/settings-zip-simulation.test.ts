@@ -67,7 +67,7 @@ describe.skipIf(!FIX||!existsSync(path.join(FIX??'','MANIFEST.json')))('Settings
   admin=await addUser(db,'APP_ADMIN','zip.admin');checker=await addUser(db,'CLINICAL_APPROVER','zip.checker');lab=await labUsers(db);
   unit=(await db.query<{id:string}>("INSERT INTO unit(code,name) VALUES('ZIPSIM','หน่วยจำลอง ZIP') RETURNING id")).rows[0].id;anc={...(await addUser(db,'ANC_NURSE','zip.anc')),unitIds:[unit]};
   store=new FileStore(path.join(root,'files'));await writePolicy();
-  vi.stubEnv('NIPT_MODE','operational');vi.stubEnv('APP_ORIGIN','https://nipt.zip-simulation.invalid');vi.stubEnv('NIPT_HIS_SHARE_POLICY_FILE',policyFile());
+  vi.stubEnv('NIPT_MODE','operational');vi.stubEnv('APP_ORIGIN','https://nipt.zip-simulation.invalid');vi.stubEnv('NIPT_HIS_SHARE_POLICY_FILE',policyFile());vi.stubEnv('NIPT_HIS_SHARE_POLICY_ENFORCE','1'); // IT lockdown mode: the allowed-root policy is enforced (default operational mode trusts the Settings-saved folders, see tests/unit/his-paths.test.ts)
   expect(await configureOperational(db)).toEqual({configured:true});
  },120000);
  afterAll(async()=>{vi.unstubAllEnvs();await db?.close();if(root)await fs.rm(root,{recursive:true,force:true});});

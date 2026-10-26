@@ -1,0 +1,17 @@
+/* OWNER-LAB-012/028 Sample Action Center */
+.action-center {display:grid;gap:var(--space-4);}
+.action-center-identity {display:grid;gap:var(--space-1);padding:var(--space-3) var(--space-4);border:1px solid var(--color-line);border-radius:var(--radius);background:var(--raised);}
+.action-center-identity strong {font-size:1.25rem;line-height:1.3;}
+.action-center-identity span {color:var(--color-muted);font-size:.875rem;}
+.action-center-options {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-3);margin:0;padding:0;border:0;}
+.action-center-options legend {margin-bottom:var(--space-2);font-weight:600;}
+.action-center-option {display:flex;align-items:center;gap:var(--space-3);min-height:64px;padding:var(--space-3) var(--space-4);border:1px solid var(--input-line);border-radius:var(--radius);background:var(--color-surface);cursor:pointer;}
+.action-center-option input {position:absolute;opacity:0;pointer-events:none;}
+.action-center-option svg {flex-shrink:0;color:var(--color-brand);}
+.action-center-option span {display:grid;gap:2px;min-width:0;}
+.action-center-option small {color:var(--color-muted);font-size:.8125rem;line-height:1.4;}
+.action-center-option.selected {border-color:var(--color-brand);box-shadow:inset 0 0 0 1px var(--color-brand);background:var(--info-bg);}
+.action-center-option:focus-within {outline:2px solid var(--color-focus);outline-offset:2px;}
+.action-center-option.disabled {cursor:not-allowed;opacity:.55;}
+.action-center-note {grid-column:1/-1;}
+@media(max-width:600px){.action-center-options {grid-template-columns:1fr;}}

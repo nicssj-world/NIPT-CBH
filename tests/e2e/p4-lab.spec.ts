@@ -39,7 +39,8 @@ for(const width of [375,768,1280])test(`P4 Lab worklist is accessible and respon
  if(await page.getByRole("button",{name:"เปิดเมนูหลัก",exact:true}).isVisible())await page.getByRole("button",{name:"เปิดเมนูหลัก",exact:true}).click();await page.getByRole("navigation",{name:"เมนูหลัก"}).getByRole("link",{name:"งาน Lab"}).click();
  await expect(page.getByRole("heading",{level:1,name:"งาน Lab — คิวตัวอย่าง"})).toBeVisible();
  await expect(page.getByRole("tab",{name:/พร้อมเข้าตรวจ/})).toHaveAttribute("aria-selected","true");
- await expect(page.getByText("รอบที่ 1 เข้ามาเองจากการรับใน HIS")).toBeVisible();
+ // OWNER-LAB-029: the worklist row states the receipt source in its own cell ("รับใน HIS") next to "รอบที่ 1".
+ await expect(page.getByRole("cell",{name:/รับใน HIS/}).first()).toBeVisible();
  await expect(page.getByRole("button",{name:/รับสิ่งส่งตรวจ.*HIS/})).toHaveCount(0); // no second S1 receipt
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  await axe(page);
@@ -51,29 +52,31 @@ test("P4 journey: labels (4 stickers/8 halves) → batch → plan check → fina
  test.setTimeout(180000);
  const cases=await labFixture(2);
  await page.setViewportSize({width:1440,height:1000});await login(page,"synthetic.lab");await page.goto("/lab");
- await page.getByLabel("ค้นหา LN / LN Halos / Sample ID / Run").fill(cases[0].ln);
+ await page.getByLabel("ค้นหา LN / HN / LN Halos / Sample ID / Run").fill(cases[0].ln);
  const row=page.getByRole("row",{name:new RegExp(cases[0].ln)});await expect(row).toBeVisible();
  await expect(row.getByText("ยังไม่พิมพ์")).toBeVisible();
  // Labels: preview and print the exact Genomic-CBH layout from the issued LN Halos.
  await row.getByRole("button",{name:"ฉลาก",exact:true}).click();
- const dialog=page.getByRole("dialog",{name:/พิมพ์ฉลากหลอด 1 ตัวอย่าง/});await expect(dialog).toBeVisible();
+ const dialog=page.getByRole("dialog",{name:/^ฉลากหลอด /});await expect(dialog).toBeVisible();
  const sheet=dialog.frameLocator("iframe");await expect(sheet.locator(".sticker")).toHaveCount(4);await expect(sheet.locator(".half")).toHaveCount(8);
  await expect(sheet.locator(".patient-ln").filter({hasText:`LN: ${cases[0].ln}`})).toHaveCount(8);
- await expect(sheet.locator("svg,img,canvas")).toHaveCount(0);
+ // OWNER-LAB-004/026: each half carries a Code 128 barcode (the earlier no-barcode layout is superseded).
+ await expect(sheet.locator("svg.bc")).toHaveCount(8);
  await axe(page);
- await dialog.getByRole("button",{name:"บันทึกและพิมพ์"}).click();
+ await dialog.getByRole("button",{name:"พิมพ์",exact:true}).click();
  await expect(dialog.locator('[role="status"]:not([popover])')).toContainText("บันทึกการพิมพ์แล้ว");
  await dialog.getByRole("button",{name:"ปิด"}).last().click();
  const jobs=await fixtureQuery<{kind:string;n:number}>("SELECT j.kind,j.sample_count n FROM label_print_job j JOIN label_print_item i ON i.job_id=j.id WHERE i.round_id=$1",[cases[0].roundId]);
  expect(jobs).toEqual([{kind:"PRINT",n:1}]);
  // Reprint requires a reason and never issues a number.
- await page.getByLabel("ค้นหา LN / LN Halos / Sample ID / Run").fill("");
+ await page.getByLabel("ค้นหา LN / HN / LN Halos / Sample ID / Run").fill("");
  for(const c of cases)await page.getByRole("row",{name:new RegExp(c.ln)}).getByRole("checkbox").check();
  await page.getByRole("button",{name:/พิมพ์ฉลาก \(2\)/}).click();
- const multi=page.getByRole("dialog",{name:/พิมพ์ฉลากหลอด 2 ตัวอย่าง/});await expect(multi.frameLocator("iframe").locator(".sticker")).toHaveCount(8);
- await expect(multi.getByRole("button",{name:"บันทึกและพิมพ์ซ้ำ"})).toBeDisabled();
- await multi.getByLabel("เหตุผลการพิมพ์ซ้ำ (จำเป็น)").fill("จำลอง สติ๊กเกอร์เสียหาย");
- await multi.getByRole("button",{name:"บันทึกและพิมพ์ซ้ำ"}).click();await expect(multi.locator('[role="status"]:not([popover])')).toContainText("เลข LN Halos เดิม");
+ const multi=page.getByRole("dialog",{name:"พิมพ์ฉลากหลอด"});await expect(multi.frameLocator("iframe").locator(".sticker")).toHaveCount(8);await expect(multi.locator(".label-total")).toContainText("เลือก 2 จาก 2 ตัวอย่าง");
+ // OWNER-LAB-025: a reprint needs no typed reason (the note is optional); it is audited and never issues a number.
+ await expect(multi.getByRole("button",{name:"พิมพ์ซ้ำ",exact:true})).toBeEnabled();
+ await multi.getByLabel("หมายเหตุการพิมพ์ซ้ำ (ไม่บังคับ)").fill("สติ๊กเกอร์เสียหาย");
+ await multi.getByRole("button",{name:"พิมพ์ซ้ำ",exact:true}).click();await expect(multi.locator('[role="status"]:not([popover])')).toContainText("LN Halos เดิม");
  await multi.getByRole("button",{name:"ปิด"}).last().click();
  expect(await fixtureQuery("SELECT 1 FROM specimen_lab_number WHERE round_id=ANY($1::uuid[])",[cases.map(c=>c.roundId)])).toHaveLength(2);
  // Add both to a batch (FIFO order, control slots skipped).
@@ -141,9 +144,13 @@ test("AT-SORT-01/02: registry receive column defaults newest first; Ready Queue 
  const cases=await labFixture(2); // receipts 2 min and 1 min ago
  await page.setViewportSize({width:1280,height:900});await login(page,"synthetic.lab");
  await page.goto("/cases");
- const sortButton=page.getByRole("button",{name:/เรียงตามวันที่\/เวลารับสิ่งส่งตรวจ ปัจจุบันใหม่ไปเก่า/});await expect(sortButton).toContainText("↓");
+ // ANC UAT-FIX-001/002: the registry opens on "ลงทะเบียนใหม่ก่อน"; the receive-time button then cycles newest-first (↓) and oldest-first (↑).
  const lnOrder=async()=>(await page.locator(".registry-row strong").allTextContents()).map(t=>t.replace(/\D/g,""));
- const order=await lnOrder();expect(order.indexOf(cases[1].ln)).toBeLessThan(order.indexOf(cases[0].ln));
+ await expect(page.getByRole("button",{name:/เรียงตามวันที่\/เวลารับสิ่งส่งตรวจ ปัจจุบันลงทะเบียนใหม่ก่อน/})).toBeVisible();
+ await expect(page.getByRole("button",{name:"ลงทะเบียนใหม่ก่อน",exact:true})).toHaveAttribute("aria-pressed","true");
+ await page.getByRole("button",{name:/เรียงตามวันที่\/เวลารับสิ่งส่งตรวจ ปัจจุบันลงทะเบียนใหม่ก่อน/}).click();
+ const sortButton=page.getByRole("button",{name:/เรียงตามวันที่\/เวลารับสิ่งส่งตรวจ ปัจจุบันใหม่ไปเก่า/});await expect(sortButton).toContainText("↓");
+ await expect.poll(async()=>{const o=await lnOrder();return o.indexOf(cases[1].ln)<o.indexOf(cases[0].ln);}).toBe(true);
  await sortButton.click();await expect(page.getByRole("button",{name:/ปัจจุบันเก่าไปใหม่/})).toContainText("↑");
  await expect.poll(async()=>{const o=await lnOrder();return o.indexOf(cases[0].ln)<o.indexOf(cases[1].ln);}).toBe(true);
  await axe(page);

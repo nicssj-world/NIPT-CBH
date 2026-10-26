@@ -58,6 +58,9 @@ export async function runTransfer(db:Queryable,id:string,hooks:WorkerTestHooks={
     if(freezeSyntheticTransfer(draft,row.plan.sequence).fingerprint!==row.plan.fingerprint)throw Error('FROZEN_CONTRACT_CHANGED');
     if(row.model.state==='RETRY_PENDING'){
       if(Date.now()<(row.model.nextRetryAt??Infinity))return 'BACKOFF_PENDING';
+      // OWNER-LAB-055/059: an unreachable destination folder (wrong default/inaccessible path) is not a write attempt, so it
+      // does not use up the retry budget; the transfer waits until the folder is reachable or the administrator changes it.
+      if(row.model.resumeState==='PREPARED'){try{await openSandbox(row.sandbox_id,draft.settings);}catch(e){if(['SHARE_PATH_NOT_FOUND','SHARE_PERMISSION_DENIED'].includes(shareError(e)))return 'DESTINATION_UNAVAILABLE';}}
       await dispatch({type:'RETRY'});
     }
     let sandbox;
@@ -131,6 +134,14 @@ export async function runP6Cycle(pool:Pool){
   try{
     const rows=(await db.query<{id:string}>("SELECT id FROM p6_transfer WHERE model->>'state' IN ('PREPARED','PDF_VERIFIED','RES_VERIFIED','BACKUP_VERIFIED','OK_OBSERVED','AWAITING_CONFIRMATION','PICKED_UP_UNCONFIRMED','RETRY_PENDING') ORDER BY CASE WHEN model->>'state' IN ('AWAITING_CONFIRMATION','PICKED_UP_UNCONFIRMED') THEN 1 ELSE 0 END,created_at")).rows;
     for(const r of rows){try{const outcome=await runTransfer(db,r.id);if(outcome==='BUSY')busy++;else processed++;}catch{lastError='P6_CYCLE_FAILED';}}
+    // OWNER-LAB-055/059: a still-current release whose transfer was cancelled by an HIS folder change is queued once for the
+    // folder now active (idempotent per cancelled transfer; the reservation and database decide whether it may be sent).
+    if(operationalDataEnabled())await db.query(`INSERT INTO job_outbox(kind,payload,idempotency_key)
+     SELECT 'result_release_completed',jsonb_build_object('releaseId',t.clinical_release_id),'release:'||t.clinical_release_id||':reroute:'||t.id FROM p6_transfer t JOIN result_release r ON r.id=t.clinical_release_id
+     WHERE t.model->>'state'='CANCELLED' AND p6_release_eligible(r.id,r.epoch)
+      AND EXISTS(SELECT 1 FROM p6_transfer_event e WHERE e.transfer_id=t.id AND e.code='GATE_CHANGED' AND e.event->>'reason'='CONFIG_CHANGED')
+      AND NOT EXISTS(SELECT 1 FROM p6_transfer n WHERE n.clinical_release_id=t.clinical_release_id AND n.created_at>t.created_at)
+     ON CONFLICT(idempotency_key) DO NOTHING`);
     await db.query("INSERT INTO p6_worker_heartbeat(worker_id,details) VALUES('SYNTHETIC-P6-WORKER',$1) ON CONFLICT(worker_id) DO UPDATE SET observed_at=now(),details=excluded.details",[{processed,busy,lastError,syntheticOnly:!operationalDataEnabled()}]);
     return {processed,busy};
   }finally{db.release();}

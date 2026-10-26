@@ -43,7 +43,8 @@ it('S2 labels/print audit/worklist show BASE[D]R while S1 keeps BASE; base, coun
  const print=await tx(f.db,()=>printLabels(f.db,single.lab,{roundIds:[single.s2,twin.s2],includeName:false}));
  expect(print.kind).toBe('PRINT');
  expect(await rows(f.db,'SELECT printed_code FROM label_print_item WHERE job_id=$1 ORDER BY position',[print.jobId])).toEqual([{printed_code:s2Code},{printed_code:twinS2}]);
- await expect(tx(f.db,()=>printLabels(f.db,single.lab,{roundIds:[single.s2],includeName:false}))).rejects.toThrow('REPRINT_REASON_REQUIRED');
+ // OWNER-LAB-025: a later print is a reprint without a mandatory reason (still audited with actor/time).
+ expect((await tx(f.db,()=>printLabels(f.db,single.lab,{roundIds:[single.s2],includeName:false}))).kind).toBe('REPRINT');
  const reprint=await tx(f.db,()=>printLabels(f.db,single.lab,{roundIds:[single.s2],includeName:false,reason:'จำลอง สติ๊กเกอร์เสียหาย'}));
  expect(reprint.kind).toBe('REPRINT');
  expect(await rows(f.db,'SELECT count(*)::int n FROM specimen_lab_number WHERE case_id=ANY($1::uuid[])',[[single.caseId,twin.caseId]])).toEqual([{n:4}]); // print never issues a number

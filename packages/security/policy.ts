@@ -102,7 +102,9 @@ const rows = {
   "photo.read": "--YY---R-",
   "photo.upload": "--YY-----",
   "photo.manage": "--YY-----",
-  "photo.storage.configure": "-----YY--"
+  "photo.storage.configure": "-----YY--",
+  // OWNER-LAB-056: bring in / test / activate a report template (approval stays with settings.approve, a different person)
+  "report.template.manage": "-----Y---"
 } as const;
 export const PERMISSION_MATRIX = rows;
 export type Action = keyof typeof rows;
@@ -123,7 +125,7 @@ export const APP_ADMIN_SYSTEMWIDE_ACTIONS:ReadonlySet<Action>=new Set<Action>([
   "round.receive","attempt.noCall","result.import","result.review","result.release.check","result.read.released","result.read.obsolete","his.retry",
   "his.reconcile","integration.configure","res.profile.change","user.manage","settings.read","audit.read","report.export","backup.manage",
   "health.read","settings.general.change","settings.integration.propose","secret.write","photo.read","photo.upload","photo.manage",
-  "photo.storage.configure"
+  "photo.storage.configure","report.template.manage"
 ]);
 export const APP_ADMIN_RESTRICTED_ACTIONS:ReadonlySet<Action>=new Set<Action>([
   "intake.link","history.promote","history.send","clinical.correct","clinical.sop","consent.sign.patient","paper.verify","round.attest",

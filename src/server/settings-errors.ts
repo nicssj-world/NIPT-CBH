@@ -7,6 +7,12 @@ import type {SettingKey} from "../../packages/settings/catalog";
 // Settings acceptance (2026-10-18): a refused save, test, approval or activation says what to fix instead of one generic message.
 // Permission (403) and session (401) answers stay with apiError.
 export const SETTINGS_MESSAGES:Record<string,string>={
+ // OWNER-LAB-055/059 HIS path change
+ HIS_PATH_UNCHANGED:"ไม่มีเส้นทางที่เปลี่ยนจากค่าที่ใช้อยู่",
+ HIS_PATH_DRAFT_REQUIRED:"ไม่พบการเปลี่ยนเส้นทางที่คุณทดสอบไว้ กรุณากดทดสอบอีกครั้ง",
+ HIS_PATH_TEST_RUNNING:"Worker กำลังทดสอบเส้นทาง กรุณารอผลทดสอบแล้วกดบันทึกและใช้งานอีกครั้ง",
+ HIS_PATH_TEST_NOT_PASSED:"ยังใช้งานไม่ได้: Worker ทดสอบเส้นทางไม่ผ่าน แก้เส้นทางหรือสิทธิ์โฟลเดอร์ แล้วทดสอบใหม่",
+ HIS_PATH_ONLY_CHANGE_REQUIRED:"หน้านี้เปลี่ยนได้เฉพาะเส้นทางไฟล์ ค่าอื่นของ HIS ถูกเปลี่ยนระหว่างนี้ กรุณาโหลดหน้าใหม่",
  REASON_REQUIRED:"กรุณาระบุเหตุผลที่เปลี่ยน (ไม่เกิน 250 ตัวอักษร)",
  SETTING_DRAFT_REQUIRED:"ทดสอบได้เฉพาะร่างที่คุณบันทึกเองและยังเป็นร่างอยู่",
  SETTING_NOT_VALIDATED:"ต้องทดสอบร่างให้ผ่านก่อนจึงจะอนุมัติได้",

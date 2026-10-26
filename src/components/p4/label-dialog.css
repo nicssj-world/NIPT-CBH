@@ -1,0 +1,22 @@
+/* OWNER-LAB-025/026/027 tube-label dialog */
+.label-dialog {display:grid;gap:var(--space-4);}
+.label-identity {display:grid;gap:var(--space-1);padding:var(--space-3) var(--space-4);border:1px solid var(--color-line);border-radius:var(--radius);background:var(--raised);}
+.label-identity strong {font-size:1.5rem;line-height:1.25;}
+.label-identity span {display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);font-size:1.0625rem;}
+/* Multi-sample selection: the dialog takes ~88% of the viewport, the list scrolls, the footer total stays visible. */
+.p2-dialog:has(.label-dialog.multi) {height:88vh;max-height:calc(100dvh - var(--space-4));}
+.label-dialog.multi {grid-template-rows:auto minmax(0,1fr) auto auto auto;height:calc(100% - 72px);}
+.label-dialog.multi .label-picker {display:grid;grid-template-rows:auto minmax(0,1fr);gap:var(--space-3);min-height:0;}
+.label-picker-tools {display:flex;flex-wrap:wrap;gap:var(--space-3);align-items:center;}
+.label-picker-tools input {flex:1 1 240px;min-height:44px;}
+.label-picker-list {margin:0;padding:0;list-style:none;overflow-y:auto;border:1px solid var(--color-line);border-radius:var(--radius);max-height:34vh;}
+.label-picker-list li {border-bottom:1px solid var(--color-line);}
+.label-picker-list li:last-child {border-bottom:0;}
+.label-picker-list label {display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-3);min-height:48px;padding:var(--space-2) var(--space-3);cursor:pointer;}
+.label-picker-list label.selected {background:var(--info-bg);}
+.label-picker-list input {width:22px;height:22px;}
+.label-dialog .label-preview iframe {height:260px;}
+.label-footer {justify-content:space-between;align-items:center;}
+.label-footer .button {display:inline-flex;align-items:center;gap:var(--space-2);}
+.label-total {font-weight:600;}
+@media (max-width:600px){.p2-dialog:has(.label-dialog.multi) {height:calc(100dvh - var(--space-4));}.label-picker-list {max-height:28vh;}}

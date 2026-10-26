@@ -18,6 +18,7 @@ import {interpretRow,productCodeOf,halosGaDays,TEMPLATES,RULESET,RULESET_SHA256,
 import {resolveSample} from './halos-import';
 import {fillReport,DocxError,type ReportValues,type SignerSlot} from './docx';
 import {renderDocxBatch,type RenderedPdf} from './native-word';
+import {activeTemplate} from './template-active';
 import {signerAuthority,type SignerAuthority} from './signers';
 import {renderDownloadName,uniqueNames,DEFAULT_DOWNLOAD_TEMPLATE} from './filename';
 import type {HalosRow} from './halos-adapter';
@@ -31,10 +32,14 @@ const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov',
 /** dd-MMM-yyyy (ReadyGen enrich_datetime) of a Bangkok calendar date. */
 export const reportDate=(isoDay:string)=>{const [y,m,d]=isoDay.slice(0,10).split('-');return `${d}-${MONTHS[Number(m)-1]}-${y}`;};
 const bangkokDay=(iso:string|Date)=>new Date(new Date(iso).getTime()+7*3600000).toISOString().slice(0,10);
-async function masterBytes(deps:ReportDeps,kind:'SINGLETON'|'TWIN'){
- if(deps.templates?.[kind])return deps.templates[kind]!;
+export type Master={bytes:Buffer;sha256:string;code:string;revisionId:string|null};
+/** OWNER-LAB-056: an Admin-approved ACTIVE registry revision wins; otherwise the Owner's installed master pinned by SHA-256 (unchanged). */
+async function masterBytes(db:Queryable|null,deps:ReportDeps,kind:'SINGLETON'|'TWIN'):Promise<Master|null>{
+ if(deps.templates?.[kind])return {bytes:deps.templates[kind]!,sha256:TEMPLATES[kind].sha256,code:TEMPLATES[kind].code,revisionId:null};
+ const act=db?await activeTemplate(db,kind):null;
+ if(act){try{const b=await deps.store.get(act.sha256);return sha256(b)===act.sha256?{bytes:b,sha256:act.sha256,code:TEMPLATES[kind].code,revisionId:act.revisionId}:null;}catch{return null;}}
  const path=process.env[kind==='SINGLETON'?'NIPT_REPORT_TEMPLATE_SINGLETON':'NIPT_REPORT_TEMPLATE_TWIN'];if(!path)return null;
- try{const b=await readFile(path);return sha256(b)===TEMPLATES[kind].sha256?b:null;}catch{return null;}
+ try{const b=await readFile(path);return sha256(b)===TEMPLATES[kind].sha256?{bytes:b,sha256:TEMPLATES[kind].sha256,code:TEMPLATES[kind].code,revisionId:null}:null;}catch{return null;}
 }
 /** Active CLINICAL approval of the interpretation. A default (never activated) value approves nothing. */
 export async function interpretationApproval(db:Queryable){
@@ -142,7 +147,7 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  else if(!approval.rulesetMatches)h('RULESET_VERSION_MISMATCH');
  if(noCall&&(!approval.approvedRevision||!approval.value.noCallRenderingApproved))h('NO_CALL_RENDERING_NOT_APPROVED');
  if(productCode&&(!approval.approvedRevision||approvedProduct!==productCode))h('PRODUCT_TEMPLATE_COMBINATION_NOT_APPROVED',{raw:`${productCode}/${TEMPLATES[template].code}`});
- if(!await masterBytes(deps,template))h('REPORT_MASTER_NOT_INSTALLED');
+ if(!await masterBytes(db,deps,template))h('REPORT_MASTER_NOT_INSTALLED');
  const v=interpretation.values,identityBound=pet&&specimenAt&&receivedAt&&ga!==null;
  const canBind=identityBound&&(noCall?!!noCallQc:v.qc&&v.t21&&v.t18&&v.t13&&v.probability.t21&&v.probability.t18&&v.probability.t13);
  // No Call (proposal shown in Settings for approval): every result cell reads "No Call", probabilities "-" (the master's own not-applicable mark).
@@ -158,7 +163,7 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
 }
 
 const PREVIEW_MARK='PREVIEW - NOT A FINAL REPORT';
-async function watermark(pdf:Buffer){
+export async function watermark(pdf:Buffer){
  const doc=await PDFDocument.load(pdf),font=await doc.embedFont(StandardFonts.HelveticaBold);
  for(const page of doc.getPages()){const {width,height}=page.getSize();page.drawText(PREVIEW_MARK,{x:width*0.12,y:height*0.3,size:38,font,color:rgb(0.85,0.1,0.1),opacity:0.28,rotate:degrees(38)});
   page.drawText(PREVIEW_MARK+' - DRAFT FOR REVIEW ONLY',{x:24,y:height-18,size:8,font,color:rgb(0.85,0.1,0.1)});}
@@ -203,9 +208,9 @@ export async function previewReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  await assertSession(db,user);need(user,'result.review','read');
  const d=previewSchema.parse(input),p=await prepareReport(db,user,deps,d);
  if(!p.values)throw new LabError('REPORT_VALUES_INCOMPLETE',409,{holds:p.holds});
- const master=await masterBytes(deps,p.template);if(!master)throw new LabError('REPORT_MASTER_NOT_INSTALLED',409);
+ const master=await masterBytes(db,deps,p.template);if(!master)throw new LabError('REPORT_MASTER_NOT_INSTALLED',409);
  const signers=await signerSlots(db,user,deps.store,d,false);
- let docx;try{docx=fillReport(master,p.template,p.values,{reported:signers.reported.slot,approved:signers.approved.slot});}catch(e){if(e instanceof DocxError)throw new LabError(e.message,409,e.details);throw e;}
+ let docx;try{docx=fillReport(master.bytes,p.template,p.values,{reported:signers.reported.slot,approved:signers.approved.slot},{sha256:master.sha256,code:master.code});}catch(e){if(e instanceof DocxError)throw new LabError(e.message,409,e.details);throw e;}
  const [pdf]=await(deps.render??renderDocxBatch)([{id:'preview',docx:docx.bytes}]);
  await db.query("INSERT INTO result_access_log(actor_id,case_id,purpose) VALUES($1,$2,'LAB_INTERNAL_PREVIEW')",[user.id,p.caseId]);
  await audit(db,user,'INTERNAL_REPORT_PREVIEWED','HALOS_IMPORT_ROW',p.rowId,{outcome:p.holds.length?'HOLD':'ELIGIBLE',count:p.holds.length});
@@ -215,7 +220,7 @@ export async function previewReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
 export async function reportCandidate(db:Queryable,user:Staff,deps:ReportDeps,input:unknown){
  await assertSession(db,user);need(user,'result.review','read');
  const d=previewSchema.pick({rowId:true,pregnancyOverride:true,overrideReason:true}).parse(input),p=await prepareReport(db,user,deps,d);
- return {rowId:p.rowId,template:p.template,templateCode:TEMPLATES[p.template].code,pregnancySource:p.pregnancySource,holds:p.holds,eligible:p.holds.length===0,values:p.values,interpretation:p.interpretation,
+ return {rowId:p.rowId,template:p.template,templateCode:(await masterBytes(db,deps,p.template))?.code??TEMPLATES[p.template].code,pregnancySource:p.pregnancySource,holds:p.holds,eligible:p.holds.length===0,values:p.values,interpretation:p.interpretation,
   productCode:p.productCode,sources:p.sources,hisLn:p.hisLn,lnHalos:p.lnHalos,hn:p.hn,sampleId:p.sampleId,reissue:p.reissue,approval:{revisionId:p.approval.revisionId,approved:p.approval.approvedRevision&&p.approval.value.interpretationApproved,reference:p.approval.value.approvalReference},
   canFinalize:authorize(user,'result.certify')};
 }
@@ -235,15 +240,16 @@ export async function finalizeReports(db:Queryable,user:Staff,deps:ReportDeps,in
  const prior=(await db.query<{id:string;operator_id:string;outcome:FinalizeOutcome[]}>('SELECT id,operator_id,outcome FROM internal_report_batch WHERE idempotency_key=$1',[d.idempotencyKey])).rows[0];
  if(prior){if(prior.operator_id!==user.id)throw new LabError('IDEMPOTENCY_KEY_REUSED',409);return {batchId:prior.id,replayed:true,items:prior.outcome};}
  if(new Set(d.items.map(i=>i.rowId)).size!==d.items.length)throw new LabError('DUPLICATE_ROW_IN_BATCH',422);
- const template=await downloadTemplate(db),out:FinalizeOutcome[]=[],work:{i:number;p:Prepared;signers:Awaited<ReturnType<typeof signerSlots>>;docx:ReturnType<typeof fillReport>}[]=[];
+ const template=await downloadTemplate(db),out:FinalizeOutcome[]=[],work:{i:number;p:Prepared;signers:Awaited<ReturnType<typeof signerSlots>>;docx:ReturnType<typeof fillReport>;master:Master}[]=[];
  // Phase 1: authority, eligibility and filled masters. Nothing is written yet.
  for(const [i,item] of d.items.entries()){
   try{
    const p=await prepareReport(db,user,deps,{rowId:item.rowId,pregnancyOverride:item.pregnancyOverride,overrideReason:item.overrideReason,reissue:!!item.reissueReason});
    if(p.holds.length||!p.values){out[i]={rowId:item.rowId,outcome:'HOLD',holds:p.holds};continue;}
    const signers=await signerSlots(db,user,deps.store,{reportedBy:item.reportedBy??d.defaults.reportedBy,approvedBy:item.approvedBy??d.defaults.approvedBy},true);
-   const docx=fillReport((await masterBytes(deps,p.template))!,p.template,p.values,{reported:signers.reported.slot,approved:signers.approved.slot});
-   work.push({i,p,signers,docx});
+   const master=(await masterBytes(db,deps,p.template))!;
+   const docx=fillReport(master.bytes,p.template,p.values,{reported:signers.reported.slot,approved:signers.approved.slot},{sha256:master.sha256,code:master.code});
+   work.push({i,p,signers,docx,master});
   }catch(e){
    if(e instanceof LabError&&e.code==='ROW_NOT_REPORTABLE'){out[i]={rowId:item.rowId,outcome:'HOLD',holds:[{code:'ROW_NOT_REPORTABLE',raw:String((e.details as {raw?:string})?.raw??'')}]};continue;}
    if(e instanceof LabError||e instanceof DocxError)out[i]={rowId:item.rowId,outcome:'ERROR',code:e instanceof LabError?e.code:e.message,...(e.details?{details:e.details}:{})};else throw e;}
@@ -275,7 +281,7 @@ export async function finalizeReports(db:Queryable,user:Staff,deps:ReportDeps,in
    const report=(await db.query<{id:string}>(`INSERT INTO internal_report(halos_row_id,attempt_id,round_id,case_id,template_kind,template_code,template_sha256,pregnancy_source,pregnancy_override_reason,interpretation,ruleset,bindings,operator_id,
      reported_by,reported_profile_id,reported_authority,reported_at,approved_by,approved_profile_id,approved_authority,approved_at,pdf_sha256,download_name,supersedes_id,batch_id)
      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25) RETURNING id`,
-    [w.p.rowId,w.p.attemptId,w.p.roundId,w.p.caseId,w.p.template,TEMPLATES[w.p.template].code,TEMPLATES[w.p.template].sha256,w.p.pregnancySource,w.p.overrideReason,JSON.stringify(interpretation),JSON.stringify(ruleset),
+    [w.p.rowId,w.p.attemptId,w.p.roundId,w.p.caseId,w.p.template,w.master.code,w.master.sha256,w.p.pregnancySource,w.p.overrideReason,JSON.stringify(interpretation),JSON.stringify(ruleset),
      JSON.stringify({values:w.p.values,docx:w.docx.bindings,sources:w.p.sources,docxSha256:w.docx.sha256,renderer:pdf.renderer,pages:pdf.pages,readback:{templateKind:check.parsed.templateKind,parserVersion:check.parsed.parserVersion}}),user.id,
      w.signers.reported.authority!.profile.user_id,w.signers.reported.authority!.profile.id,JSON.stringify(snap(w.signers.reported.authority!)),w.signers.reported.authority!.checkedAt,
      w.signers.approved.authority!.profile.user_id,w.signers.approved.authority!.profile.id,JSON.stringify(snap(w.signers.approved.authority!)),w.signers.approved.authority!.checkedAt,hash,name,w.p.reissue?.internalId??null,batchId])).rows[0];
@@ -365,7 +371,7 @@ export async function internalReportFile(db:Queryable,user:Staff,store:FileStore
  return {bytes:await store.get(r.pdf_sha256),sha256:r.pdf_sha256,name:r.download_name};
 }
 /** Settings validation: an approval may name a product for a master only if that master is installed with its pinned SHA-256. */
-export async function reportMastersInstalled(value:{singletonApprovedProduct:string;twinApprovedProduct:string}){
- for(const [kind,product] of [['SINGLETON',value.singletonApprovedProduct],['TWIN',value.twinApprovedProduct]] as const)if(product!=='NONE'&&!await masterBytes({store:null as unknown as FileStore},kind))return false;
+export async function reportMastersInstalled(value:{singletonApprovedProduct:string;twinApprovedProduct:string},db:Queryable|null=null,store:FileStore|null=null){
+ for(const [kind,product] of [['SINGLETON',value.singletonApprovedProduct],['TWIN',value.twinApprovedProduct]] as const)if(product!=='NONE'&&!await masterBytes(db,{store:store as unknown as FileStore},kind))return false;
  return true;
 }

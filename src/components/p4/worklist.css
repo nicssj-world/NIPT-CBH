@@ -1,1 +1,12 @@
 .task-exceptional { color: var(--color-danger); font-weight: 700; }
+
+/* OWNER-LAB-029: LN / HN identity cell — formatted HIS LN (last 4 emphasised) opens the Sample Action Center. */
+.ln-hn-cell { white-space: nowrap; }
+.ln-button { display: inline-flex; align-items: center; min-height: 44px; padding: 0; border: 0; background: none; color: var(--color-brand); font-size: 1rem; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.ln-button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; border-radius: 4px; }
+
+/* OWNER-LAB-016 specimen row accent: a 5px state bar on the first cell, same tokens in light and dark. */
+.spec-row>td:first-child {box-shadow:inset 5px 0 0 var(--spec-accent,transparent);}
+.spec-ready {--spec-accent:var(--color-success);} .spec-progress {--spec-accent:var(--color-brand);} .spec-waiting {--spec-accent:var(--color-warning,#b7791f);} .spec-attention {--spec-accent:var(--color-danger);}
+.spec-row.selected>td:first-child {box-shadow:inset 5px 0 0 var(--spec-accent,transparent),inset 0 0 0 1px var(--color-brand);}
+@media (forced-colors:active){.spec-row>td:first-child{border-left:5px solid CanvasText;box-shadow:none;}}

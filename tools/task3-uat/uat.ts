@@ -83,16 +83,16 @@ async function prepareDatabase(){
  }finally{await owner.end();}
 }
 async function build(){
- const inventory=await sourceInventory(repo),stampFile=path.join(base,'build-source.json');
+ const inventory=await sourceInventory(repo),runtimeFiles=Object.fromEntries(Object.entries(inventory.files).filter(([name])=>!name.startsWith('docs/'))),runtimeSourceSha256=createHash('sha256').update(JSON.stringify(runtimeFiles)).digest('hex'),stampFile=path.join(base,'build-source.json');
  const previous=await exists(stampFile)?JSON.parse(await readFile(stampFile,'utf8')) as {sha256:string}:null;
  if(previous?.sha256!==inventory.sha256||!await exists(path.join(repo,'.next','standalone','server.js'))){
   const r=spawnSync(process.env.ComSpec??'cmd.exe',['/d','/s','/c','npm.cmd run build'],{cwd:repo,stdio:'inherit',windowsHide:true,env:{...env('web'),NODE_ENV:'production'}});
   if(r.status!==0)throw Error('UAT_BUILD_FAILED');
   const standalone=path.join(repo,'.next','standalone');
   await cp(path.join(repo,'public'),path.join(standalone,'public'),{recursive:true,force:true});await cp(path.join(repo,'.next','static'),path.join(standalone,'.next','static'),{recursive:true,force:true});
-  await writeFile(stampFile,JSON.stringify({sha256:inventory.sha256,buildId:(await readFile(path.join(repo,'.next','BUILD_ID'),'utf8')).trim(),builtAt:new Date().toISOString()},null,2));
+  await writeFile(stampFile,JSON.stringify({sha256:inventory.sha256,runtimeSourceSha256,runtimeFiles,buildId:(await readFile(path.join(repo,'.next','BUILD_ID'),'utf8')).trim(),builtAt:new Date().toISOString()},null,2));
  }
- return JSON.parse(await readFile(stampFile,'utf8')) as {sha256:string;buildId:string};
+ return JSON.parse(await readFile(stampFile,'utf8')) as {sha256:string;runtimeSourceSha256:string;runtimeFiles:Record<string,string>;buildId:string};
 }
 function launch(name:string,args:string[],cwd:string,e:NodeJS.ProcessEnv){
  const log=openSync(path.join(dir.logs,name+'.log'),'a'),child=spawn(process.execPath,args,{cwd,env:e,detached:true,windowsHide:true,stdio:['ignore',log,log]});closeSync(log);child.unref();
@@ -118,12 +118,26 @@ async function start(){
   tls:launch('tls',['tools/task3-uat/tls-proxy.mjs',path.join(dir.tls,'uat.pfx'),path.join(dir.secrets,'tls-passphrase'),String(PORTS.https),String(PORTS.web)],repo,process.env)};
  await waitHttp(`http://127.0.0.1:${PORTS.web}/login`);
  const head=execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim(),dirty=execFileSync('git',['status','--porcelain'],{cwd:repo,encoding:'utf8'}).trim().length>0;
- const runtime={url:ORIGIN+'/login',project,database:DATABASE,ports:PORTS,pids,sourceSha256:stamp.sha256,buildId:stamp.buildId,gitHead:head,gitDirty:dirty,serverSha256:createHash('sha256').update(await readFile(path.join(repo,'.next','standalone','server.js'))).digest('hex'),
+ const runtime={url:ORIGIN+'/login',project,database:DATABASE,ports:PORTS,pids,sourceSha256:stamp.sha256,runtimeSourceSha256:stamp.runtimeSourceSha256,buildId:stamp.buildId,gitHead:head,gitDirty:dirty,serverSha256:createHash('sha256').update(await readFile(path.join(repo,'.next','standalone','server.js'))).digest('hex'),
   startedAt:new Date().toISOString(),seededNow:seed.seeded,accounts:'admin/admin, lab/lab, lab2/lab2, certifier/certifier, approver/approver, anc/anc, auditor/auditor (loopback synthetic UAT only)'};
  await writeFile(path.join(base,'runtime.json'),JSON.stringify(runtime,null,2));
  process.stdout.write(JSON.stringify({status:'TASK3_UAT_READY',url:runtime.url,database:DATABASE,buildId:stamp.buildId,gitHead:head})+'\n');
 }
+// ANC Owner update: preserve the existing database/fixtures, and do not invoke any seed or template-copy step.
+async function restartPreserved(){
+ const previous=JSON.parse(await readFile(path.join(base,'runtime.json'),'utf8'));
+ if(previous.database!==DATABASE||previous.project!==project)throw Error('UAT_TARGET_MISMATCH');
+ for(const pid of Object.values(previous.pids??{}))kill(Number(pid));
+ const owner=new Client({connectionString:url('nipt_migrator',secret('db-password'))});await owner.connect();
+ try{await owner.query('SELECT 1');const {migrate}=await import('../migrate');await migrate(owner);}finally{await owner.end();}
+ const stamp=await build();
+ const tsx=['--import','tsx'];
+ const pids={renderer:launch('renderer',[...tsx,'apps/renderer/main.ts'],repo,env('renderer')),worker:launch('worker',[...tsx,'apps/worker/main.ts'],repo,env('worker')),web:launch('web',['server.js'],path.join(repo,'.next','standalone'),env('web')),tls:launch('tls',['tools/task3-uat/tls-proxy.mjs',path.join(dir.tls,'uat.pfx'),path.join(dir.secrets,'tls-passphrase'),String(PORTS.https),String(PORTS.web)],repo,process.env)};
+ await waitHttp(`http://127.0.0.1:${PORTS.web}/login`);
+ const runtime={...previous,pids,sourceSha256:stamp.sha256,runtimeSourceSha256:stamp.runtimeSourceSha256,buildId:stamp.buildId,gitHead:execFileSync('git',['rev-parse','HEAD'],{cwd:repo,encoding:'utf8'}).trim(),gitDirty:true,serverSha256:createHash('sha256').update(await readFile(path.join(repo,'.next','standalone','server.js'))).digest('hex'),startedAt:new Date().toISOString(),seededNow:false,updateMode:'ANC_PRESERVE_NO_SEED'};
+ await writeFile(path.join(base,'runtime.json'),JSON.stringify(runtime,null,2));process.stdout.write(JSON.stringify({status:'PRESERVED_RESTART_READY',url:runtime.url,buildId:stamp.buildId})+'\n');
+}
 const command=process.argv[2];
-if(command==='start')await start();else if(command==='stop')await stop();
+if(command==='restart-preserved')await restartPreserved();else if(command==='start')await start();else if(command==='stop')await stop();
 else if(command==='status')process.stdout.write(await readFile(path.join(base,'runtime.json'),'utf8').catch(()=>'not started')+'\n');
 else{process.stderr.write('usage: tsx tools/task3-uat/uat.ts start|status|stop\n');process.exitCode=2;}

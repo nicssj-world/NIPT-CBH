@@ -22,9 +22,12 @@ it.skipIf(!process.env.NIPT_LEGACY_PET_PARSER_DIR)('AT-HISIN-02 differential: TS
   for(const [i,f] of files.entries()){
    if(i===99){expect(legacy[i]).toBeNull();expect(classifyPet(f.bytes)).toBe('NOT_NIPT');continue;}
    const ts=parsePet(f.bytes,f.filename),py=legacy[i]!;
+   // Owner PET clock lock (commit b91e26e): NIPT-CBH's receivedAt is the ACTUAL HIS receipt time (P[23]); the legacy parser's `request_date`
+   // is a different field, so that one field intentionally differs and is checked as a valid timestamp instead of equal to legacy.
+   expect(Number.isNaN(Date.parse(ts.receivedAt)),f.filename).toBe(false);
    const [last,rest]=ts.name.split('^^'),[prefix,...first]=rest.split(' ');
-   expect({ln:py.ln,hn:py.hn,dob:py.dob,sex:py.sex,received:py.request_date,specimen:py.specimen_date,order:py.order_date,ward:py.ward_code,id:py.citizen_id,code:py.test_code,section:py.section,last:py.name_last,prefix:py.name_prefix,first:py.name_first},f.filename)
-    .toEqual({ln:ts.ln,hn:ts.hn,dob:ts.dob.slice(0,10),sex:ts.sex,received:iso(ts.receivedAt),specimen:iso(ts.specimenAt),order:iso(ts.orderAt),ward:ts.ward,id:ts.identity,code:'70096',section:'7',last,prefix,first:first.join(' ')});
+   expect({ln:py.ln,hn:py.hn,dob:py.dob,sex:py.sex,specimen:py.specimen_date,order:py.order_date,ward:py.ward_code,id:py.citizen_id,code:py.test_code,section:py.section,last:py.name_last,prefix:py.name_prefix,first:py.name_first},f.filename)
+    .toEqual({ln:ts.ln,hn:ts.hn,dob:ts.dob.slice(0,10),sex:ts.sex,specimen:iso(ts.specimenAt),order:iso(ts.orderAt),ward:ts.ward,id:ts.identity,code:'70096',section:'7',last,prefix,first:first.join(' ')});
   }
  }finally{await rm(dir,{recursive:true,force:true});}
 },60000);

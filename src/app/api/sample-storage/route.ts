@@ -1,6 +1,6 @@
 import {NextResponse,type NextRequest} from 'next/server';
 import {withTransaction} from '../../../../packages/db/connection';
-import {storageSearch,storageCommand,storageLabel,storageSampleLabel} from '../../../../packages/lab/sample-storage';
+import {storageSearch,storageCommand,storageLabel,storageSampleLabel,storageBoxLog,storagePendingDestruction} from '../../../../packages/lab/sample-storage';
 import {readJson} from '../../../server/http';
 import {p5hError,p5hMutation,noStore} from '../../../server/p5h';
 
@@ -10,6 +10,11 @@ export async function POST(request:NextRequest){
   if(body.action==='search'){
    const query=Object.fromEntries(Object.entries(body).filter(([key])=>key!=='action'));
    return NextResponse.json(await withTransaction(db=>storageSearch(db,user,query)),{headers:noStore});
+  }
+  if(body.action==='boxLog'||body.action==='pending'){
+   const query=Object.fromEntries(Object.entries(body).filter(([key])=>key!=='action'));
+   try{return NextResponse.json(body.action==='boxLog'?await withTransaction(db=>storageBoxLog(db,user,query)):await withTransaction(db=>storagePendingDestruction(db,user,query)),{headers:noStore});}
+   catch(error){return p5hError(error);}
   }
   if(body.action==='printLabel'){
    const pdf=await withTransaction(db=>storageLabel(db,user,typeof body.boxId==='string'?body.boxId:''));

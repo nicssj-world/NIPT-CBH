@@ -10,7 +10,7 @@ async function post(url:string,body:unknown){
 
 export function TestConnectionButton(){
  const router=useRouter(),[busy,setBusy]=useState(false),[message,setMessage]=useState("");
- return <div className="stack"><button className="button secondary" disabled={busy} onClick={async()=>{setBusy(true);try{await post("/api/p3/inbound/test-connection",{});setMessage("เข้าคิวทดสอบการเชื่อมต่อแล้ว ผลจะแสดงเมื่อ Worker ทำเสร็จ (อ่านอย่างเดียว ไม่เขียนไฟล์)");router.refresh();}catch(e){setMessage((e as Error).message);}finally{setBusy(false);}}}>{busy?"กำลังเข้าคิว…":"ทดสอบการเชื่อมต่อตัวจำลอง"}</button><p aria-live="polite" className="help">{message}</p></div>;
+ return <div className="stack"><button className="button secondary" disabled={busy} onClick={async()=>{setBusy(true);try{await post("/api/p3/inbound/test-connection",{});setMessage("เข้าคิวทดสอบการเชื่อมต่อแล้ว ผลจะแสดงเมื่อ Worker ทำเสร็จ (อ่านอย่างเดียว ไม่เขียนไฟล์)");router.refresh();}catch(e){setMessage((e as Error).message);}finally{setBusy(false);}}}>{busy?"กำลังเข้าคิว…":"ทดสอบการเชื่อมต่อ"}</button><p aria-live="polite" className="help">{message}</p></div>;
 }
 
 export function DeepScanForm({defaultDays}:{defaultDays:number}){

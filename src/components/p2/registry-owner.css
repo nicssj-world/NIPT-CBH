@@ -1,0 +1,4 @@
+.anc-registry .registry-row{padding:1rem 1.25rem;border-bottom:1px solid var(--color-line,#d6dce5)}
+.anc-registry .registry-row:hover,.anc-registry .registry-row:focus-within{box-shadow:none!important;background:color-mix(in srgb,var(--color-brand,#4a8cdb) 6%,transparent)}
+.anc-registry .registry-row a:focus-visible,.anc-registry .registry-row button:focus-visible{outline:2px solid var(--color-brand,#4a8cdb);outline-offset:3px}
+.anc-registry .registry-case-action{display:inline-flex;align-items:center;gap:.4rem;white-space:normal;min-height:2.5rem}

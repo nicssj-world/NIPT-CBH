@@ -41,7 +41,9 @@ function pageHtml(p:OverlayPage,font:string){
 export async function renderAncOverlay(input:z.infer<typeof overlaySchema>):Promise<Buffer[]>{
  const s=overlaySchema.parse(input);
  const font=(await readFile(path.resolve('node_modules/@fontsource/noto-sans-thai/files/noto-sans-thai-thai-400-normal.woff2'))).toString('base64');
- const browser=await chromium.launch({headless:true,args:process.env.CHROMIUM_NO_SANDBOX==='true'?['--no-sandbox']:[]});
+ // On Windows the default headless-shell is a console executable. Full Chromium uses
+ // the Windows GUI subsystem with headless mode, avoiding a console on every ANC preview.
+ const browser=await chromium.launch({headless:true,...(process.platform==='win32'?{channel:'chromium'}:{}),args:process.env.CHROMIUM_NO_SANDBOX==='true'?['--no-sandbox']:[]});
  try{
   const out:Buffer[]=[];
   for(const p of s.pages as OverlayPage[]){
@@ -58,7 +60,7 @@ export async function requestAncOverlay(input:z.infer<typeof overlaySchema>):Pro
  const doc=overlaySchema.parse(input),token=process.env.RENDERER_TOKEN_FILE?(await readFile(process.env.RENDERER_TOKEN_FILE,'utf8')).trim():process.env.RENDERER_TOKEN;
  if(!token||token.length<32)throw Error('RENDERER_TOKEN_REQUIRED');
  const url=new URL(process.env.RENDERER_URL||'http://127.0.0.1:3001');if(!['127.0.0.1','localhost','renderer'].includes(url.hostname)||url.protocol!=='http:')throw Error('RENDERER_INTERNAL_REQUIRED');
- const r=await fetch(new URL('/render/anc-overlay',url),{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(doc)});
+ const r=await fetch(new URL('/render/anc-overlay',url),{method:'POST',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:JSON.stringify(doc),signal:AbortSignal.timeout(30000),redirect:"error"});
  if(!r.ok)throw Error('RENDERER_FAILED');const all=Buffer.from(await r.arrayBuffer());
  // Multi-page overlay arrives as one PDF; split by page with pdf-lib.
  const src=await PDFDocument.load(all),parts:Buffer[]=[];

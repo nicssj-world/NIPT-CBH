@@ -6,6 +6,7 @@ import {appendAudit} from '../db/audit';
 import {petDifferences} from './wire';
 import {compareRegistrant,defaultIdentitySource,type RegistrantIdentitySource} from './identity';
 import {transactional,errorCode} from './tx';
+import {currentPatient,type CurrentPatient} from '../anc/current-patient';
 
 export const ISSUE_KINDS=['IDENTITY_MISMATCH','LN_REUSED_OR_CHANGED','LN_REUSED_DIFFERENT_PATIENT','UNLINKED','IDENTITY_UNVERIFIED','S1_INTEGRITY_EVENT','HISTORICAL_LN_INTAKE'] as const;
 export type IssueKind=typeof ISSUE_KINDS[number];
@@ -39,24 +40,32 @@ async function autoClose(db:Queryable,fileId:string,kind:IssueKind,reasonCode:st
 
 /** S1 only (LD-02/LD-04): his_order + VERIFIED_BY_PET (trigger) + round 1 ReceivedInHIS at immutable P[23] component 2. Caller holds the LN lock. */
 export async function applyS1(db:Queryable,file:{id:string},pet:Pet,target:Target,via:'AUTOMATIC'|'REGISTRATION'|'TWO_PERSON',actorId?:string){
+ const before=target.origin==='ANC'?await currentPatient(db,target.case_id):null;
  await db.query("UPDATE his_inbound_file SET state='Applied(S1)',case_id=$2,processed_at=now(),error_code=NULL WHERE id=$1",[file.id,target.case_id]);
  await db.query('INSERT INTO his_order(case_ln_id,inbound_file_id,his_received_at) VALUES($1,$2,$3)',[target.case_ln_id,file.id,pet.receivedAt]);
  const r=await db.query<{id:string}>("UPDATE specimen_round SET received_source='HIS_PET_RECEIPT',received_at=$2,state='ReceivedInHIS',collection_date=$3 WHERE case_ln_id=$1 AND round_number=1 AND received_at IS NULL AND state='Expected' RETURNING id",[target.case_ln_id,pet.receivedAt,pet.specimenAt.slice(0,10)]);
  if(r.rows.length!==1)throw Error('S1_NOT_EXPECTED');
  await reconcilePetPatient(db,target.case_id,r.rows[0].id,pet);
+ if(before)await recordCurrentPetIdentity(db,target.case_id,r.rows[0].id,file.id,before,actorId);
  await autoClose(db,file.id,'UNLINKED','LINKED');
  await caseEvent(db,target.case_id,'HIS_S1_RECEIVED',{via,inboundFileId:file.id});
  await collectionProvenance(db,target.case_id,r.rows[0].id,pet,actorId);
  await appendAudit(db,{actorId,action:'INBOUND_PET_APPLIED',resourceType:'his_inbound_file',resourceId:file.id,details:{outcome:'APPLIED_S1',reasonCode:via,synthetic:true}});
 }
 
-/** PET may fill blank ANC name/DOB fields; it never replaces a value or rewrites a locked Request snapshot. */
+/** Clinical workspace reconciliation stays blank-only; current demographics use the separate applied-PET projection. */
 async function reconcilePetPatient(db:Queryable,caseId:string,roundId:string,pet:Pet){
  const result=(await db.query<{result:{filled:string[];conflicts:string[];pending:string[]}}>('SELECT p2_reconcile_pet_patient($1,$2,$3,$4) AS result',[caseId,roundId,pet.name.trim(),pet.dob.slice(0,10)])).rows[0]?.result;
  if(!result)return;
  if(result.filled.length)await db.query("INSERT INTO case_event(case_id,event_type,details) VALUES($1,'PET_IDENTITY_UPDATED',$2)",[caseId,{fields:result.filled,synthetic:true}]);
  if(result.conflicts.length)await db.query("INSERT INTO case_event(case_id,event_type,details) VALUES($1,'PET_IDENTITY_CONFLICT',$2)",[caseId,{fields:result.conflicts,synthetic:true}]);
  if(result.pending.length)await db.query("INSERT INTO case_event(case_id,event_type,details) VALUES($1,'PET_IDENTITY_PENDING_DOCUMENT',$2)",[caseId,{fields:result.pending,synthetic:true}]);
+}
+
+/** ANC-only application evidence. Reads never backfill events or amend historical signed snapshots. */
+async function recordCurrentPetIdentity(db:Queryable,caseId:string,roundId:string,inboundFileId:string,before:CurrentPatient,actorId?:string){
+ const after=await currentPatient(db,caseId);
+ await db.query("INSERT INTO case_event(case_id,event_type,details) VALUES($1,'PET_CURRENT_IDENTITY_APPLIED',$2::jsonb||jsonb_build_object('recordedAt',clock_timestamp()))",[caseId,json({before,after,source:'HIS_PET_RECEIPT',roundId,inboundFileId,actorId:actorId??null,synthetic:process.env.NIPT_MODE!=='operational'})]);
 }
 
 /**
@@ -111,10 +120,12 @@ export async function processInboundFile(db:Queryable,fileId:string,deps:Inbound
     WHERE c.id=$1 AND r.case_ln_id=$2 AND r.state='Expected' AND r.received_at IS NULL AND d.state='Requested' FOR UPDATE OF r`,[target.case_id,target.case_ln_id])).rows[0];
    // New receipt time, same immutable patient identity and an explicitly requested current round are all required.
    if(round && round.round_number>=2 && diff.order.includes('receivedAt') && new Date(pet.receivedAt)>round.previous_received_at){
+    const before=target.origin==='ANC'?await currentPatient(db,target.case_id):null;
     await db.query("UPDATE his_inbound_file SET state='Applied(Redraw)',case_id=$2,processed_at=now(),error_code=NULL WHERE id=$1",[file.id,target.case_id]);
     await db.query('INSERT INTO his_order(case_ln_id,inbound_file_id,his_received_at,round_id) VALUES($1,$2,$3,$4)',[target.case_ln_id,file.id,pet.receivedAt,round.id]);
     const received=await db.query("UPDATE specimen_round SET received_source='HIS_PET_RECEIPT',received_at=$2,state='ReceivedInHIS',collection_date=$3 WHERE id=$1 AND state='Expected' AND received_at IS NULL RETURNING id",[round.id,pet.receivedAt,pet.specimenAt.slice(0,10)]);
     if(received.rows.length!==1)throw Error('REDRAW_NOT_EXPECTED');
+    if(before)await recordCurrentPetIdentity(db,target.case_id,round.id,file.id,before,context?.actorId);
     await collectionProvenance(db,target.case_id,round.id,pet,context?.actorId);
     await caseEvent(db,target.case_id,'HIS_REDRAW_RECEIVED',{roundNumber:round.round_number,inboundFileId:file.id});
     await appendAudit(db,{actorId:context?.actorId,action:'INBOUND_PET_APPLIED',resourceType:'his_inbound_file',resourceId:file.id,details:{outcome:'APPLIED_REDRAW',count:round.round_number,synthetic:process.env.NIPT_MODE!=='operational'}});

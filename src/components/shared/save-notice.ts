@@ -7,10 +7,10 @@ export function notifySaved(){if(typeof window!=="undefined")window.dispatchEven
 // Explicit write commands only: POST is also used for queries, previews, tests and exports.
 const writes=new Set([
  "save","saveDraft","updatePlan","record","review","verify","decideQc","recordActualPooling",
- "amend","planCheck","finalize","move","remove","urgent40","start","end","confirmDisposition","proposeDisposition",
+ "amend","planCheck","finalize","reopenPlacement","trash","move","remove","urgent40","start","end","confirmDisposition","proposeDisposition",
  "create","accept","crosscheck","decideQc2","transition","createDnb","createHandoff","createSequencing",
  "decideQc3","recordObservation","recordQc4","reviewObservation","reviewQc4","transferHandoff","transitionSequencing","verifyHandoff",
- "setHold","setUrgent","acceptSpecimen","receiveRedraw","orderRedraw","cancelRedraw","orderRepeat","recoverLnHalos","assign",
+ "actionCenter","setHold","setUrgent","acceptSpecimen","receiveRedraw","orderRedraw","cancelRedraw","orderRepeat","recoverLnHalos","assign",
  "lockRequest","paperReview","preparePaper","prepareConsent","setModes","approveClinical","refusePaperConsent","withdraw",
  "qc5","certify","propose","proposeAuto","decide","acceptRelease","unlink","void",
  "fix","confirm","edit","saveUnit","saveUser","updateUser",

@@ -7,9 +7,45 @@
 .task-tabs [aria-selected="true"] { background: var(--info-bg); color: var(--color-brand); border-color: var(--color-brand); font-weight: 600; }
 
 .task-exceptional { color: var(--color-danger); font-weight: 700; }
-.task-exact-fill { border-top: 1px solid var(--color-line); padding-block: 16px; }
+.task-exact-fill { border-top: 1px solid var(--color-line); padding-block: 4px; }
 .task-exact-fill .form-grid > div { min-width: 0; }
+.task-exact-fill[open] { padding-bottom: 16px; }
+.task-exact-fill > .form-grid { margin-top: 12px; }
+.task-exact-fill > p, .task-exact-fill > .button { margin-top: 12px; }
 
-/* Keep the Urgent lightning icon directly before its heading text. */
-.task-exact-fill h3 { display: flex; align-items: center; gap: 8px; }
-.task-exact-fill h3 > svg { display: block; flex: 0 0 20px; }
+/* OWNER-LAB-035: fill forms are collapsed sections; the Urgent lightning icon stays directly before its title. */
+.task-exact-fill > summary { display: flex; align-items: center; gap: 8px; min-height: 48px; font-size: 1.0625rem; font-weight: 600; cursor: pointer; }
+.task-exact-fill > summary > svg { display: block; flex: 0 0 20px; }
+
+/* OWNER-LAB-040: 16–20px between Batch alerts and the navigation below them. */
+.lab-task-panel, .task-tabs { scroll-margin-top: 16px; }
+main .notice + .action-bar, main .notice + .tabs, main [role="alert"] + .action-bar { margin-top: 18px; }
+.page-header + .notice { margin-top: 0; }
+
+/* OWNER-LAB-030 single red trash action */
+.button.danger-outline { border-color: var(--color-danger); color: var(--color-danger); background: var(--color-surface); }
+.button.danger-outline:hover { background: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface)); }
+.button.icon-only { width: 48px; min-width: 48px; padding: 0; justify-content: center; }
+
+/* OWNER-LAB-033 compact Task header */
+.task-context { display: grid; gap: 12px; }
+.task-context-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin: 0; }
+.task-context-line strong { font-size: 1.0625rem; }
+.task-context-line span { color: var(--color-muted); }
+.task-context .task-context-grid { display: grid; gap: 8px 24px; margin: 0; }
+.task-context .task-context-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.task-context .task-context-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-top: 12px; border-top: 1px solid var(--color-line); }
+@media (max-width: 640px) { .task-context .task-context-grid.three, .task-context .task-context-grid.two { grid-template-columns: 1fr; } }
+
+/* OWNER-LAB-031: plate actions top-right of the plate heading */
+.plate-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.plate-heading h2 { margin: 0; }
+.plate-actions, .task-pdf-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.plate-actions .button, .task-pdf-actions .button { display: inline-flex; align-items: center; gap: 8px; }
+
+/* OWNER-LAB-036: whole-row control colours (PC #FDE8E8, NC #E7F6EC, Blank #FFF1DC) on Task Lists */
+.lab-task-panel { --row-pc: #fde8e8; --row-nc: #e7f6ec; --row-blank: #fff1dc; }
+html[data-theme="dark"] .lab-task-panel { --row-pc: #3d2226; --row-nc: #1c3a2a; --row-blank: #3d3020; }
+.plate-table tr.row-pc > *, .data-table tr.row-pc > * { background: var(--row-pc); }
+.plate-table tr.row-nc > *, .data-table tr.row-nc > * { background: var(--row-nc); }
+.plate-table tr.row-blank > *, .data-table tr.row-blank > * { background: var(--row-blank); }

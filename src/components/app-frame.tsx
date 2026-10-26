@@ -4,9 +4,10 @@
 import {useRef, useSyncExternalStore} from "react";
 import {InputSafety} from "./shared/input-safety";
 import {usePathname} from "next/navigation";
+import {OwnProfile} from "./own-profile";
 import {LogoutButton} from "./navigation";
 
-const routeNames:Record<string,string>={"/":"ภาพรวม","/cases":"ทะเบียนกลาง","/inbound":"รับใบสั่งจาก HIS","/lab":"งาน Lab","/lab/batches":"Batch / Task List","/sample-storage":"Sample Storage","/results":"ผลตรวจ NIPT","/historical":"นำเข้าย้อนหลัง","/doctors":"ทะเบียนแพทย์","/settings":"ตั้งค่าระบบ","/health":"สถานะระบบ"};
+const routeNames:Record<string,string>={"/":"ภาพรวม","/cases":"ทะเบียนกลาง","/inbound":"รับตัวอย่างจาก HIS","/lab":"งาน Lab","/lab/batches":"Batch / Task List","/sample-storage":"Sample Storage","/results":"ผลตรวจ NIPT","/historical":"นำเข้าย้อนหลัง","/doctors":"ทะเบียนแพทย์","/settings":"ตั้งค่าระบบ","/health":"สถานะระบบ"};
 
 function subscribeTheme(notify:()=>void){window.addEventListener("nipt-theme-change",notify);return ()=>window.removeEventListener("nipt-theme-change",notify);}
 export function ThemeButton(){
@@ -21,6 +22,6 @@ export function AppFrame({sidebar,ancNavigation,ancUserName,ancWorkspace=false,c
  const casesPath=path==="/cases"||path.startsWith("/cases/"),doctorsPath=path==="/doctors";
  const overviewPath=path==="/";
  const isAncPage=ancWorkspace&&(overviewPath||casesPath||doctorsPath);
- if(isAncPage)return <div className="app-shell anc-shell"><InputSafety/><div className="anc-shell-content"><header className="app-topbar anc-topbar"><div className="anc-brand"><img src="/brand/ui-logo.png" width="40" height="40" alt=""/><strong>NIPT-CBH</strong></div><div className="anc-navigation-slot">{ancNavigation}</div><div className="anc-account"><div className="anc-identity"><span>ผู้ใช้งาน</span><strong title={ancUserName??"บัญชีผู้ใช้"}>{ancUserName??"บัญชีผู้ใช้"}</strong></div><ThemeButton/><LogoutButton/></div></header><div className="shell-content">{children}</div></div></div>;
+ if(isAncPage)return <div className="app-shell anc-shell"><InputSafety/><div className="anc-shell-content"><header className="app-topbar anc-topbar"><div className="anc-topbar-inner"><div className="anc-lead"><div className="anc-brand"><img src="/brand/ui-logo.png" width="40" height="40" alt=""/><strong>NIPT-CBH</strong></div><div className="anc-navigation-slot">{ancNavigation}</div></div><div className="anc-account"><div className="anc-identity"><span>ผู้ใช้งาน</span><OwnProfile name={ancUserName??"บัญชีผู้ใช้"}/></div><ThemeButton/><LogoutButton/></div></div></header><div className="shell-content">{children}</div></div></div>;
  return <div className="app-shell"><InputSafety/><aside className="sidebar desktop-sidebar">{sidebar}</aside><div className="shell-content"><header className="app-topbar"><div className="topbar-context"><button type="button" className="mobile-menu-button" aria-label="เปิดเมนูหลัก" aria-haspopup="dialog" onClick={()=>menu.current?.showModal()}><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><img className="mobile-product-logo" src="/brand/ui-logo.png" width="30" height="30" alt="NIPT-CBH"/><strong>{routeNames[route]}</strong><span className="muted">ระบบปฏิบัติงาน NIPT</span></div><div className="row"><ThemeButton/>{/* Supplied hospital artwork has its original 3:2 ratio. */}<img className="hospital-logo" src="/brand/hospital.png" width="66" height="44" alt="โรงพยาบาลชลบุรี"/></div></header>{children}</div><dialog ref={menu} className="mobile-navigation" aria-label="เมนูหลัก"><div className="mobile-menu-heading"><strong>เมนูหลัก</strong><button type="button" className="button secondary small" onClick={()=>menu.current?.close()}>ปิดเมนู</button></div><aside className="sidebar" onClick={event=>{if((event.target as HTMLElement).closest("a"))menu.current?.close();}}>{sidebar}</aside></dialog></div>;
 }

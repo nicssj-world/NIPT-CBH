@@ -1,7 +1,9 @@
 "use client";
 import {useCallback,useEffect,useMemo,useRef,useState} from "react";
 import Link from "next/link";
-import {Dialog} from "../p2/shared";
+import {Dialog,Ln} from "../p2/shared";
+import {SampleActionCenter} from "./action-center";
+import {formatHisLn} from "./his-ln";
 import {LabelDialog} from "./label-dialog";
 import {labApi,failureText,bkk,gateText,LabFailure} from "./lab-api";
 import {compareReceive,READY_QUEUE_DEFAULT_SORT,type SortDirection} from "../../../packages/lab/receive-sort";
@@ -11,7 +13,10 @@ import {ThaiDateInput} from "../shared/thai-date-input";
 import "./worklist.css";
 import {Pager} from "../shared/pager";
 
-export type Attempt={kind:"ATTEMPT";category:string;caseId:string;roundId:string;roundNumber:number;receivedSource:string|null;receivedAt:string|null;hisLn:string;lnHalos:string|null;labelCode:string|null;pregnancy:string|null;ga:Ga;attemptId:string;attemptNumber:number;overallOrdinal?:number;exceptional?:boolean;outcomeStatus?:string|null;attemptState:string;printedSampleId:string|null;
+/** OWNER-LAB-016: the left accent of a specimen row follows its state (the status text beside it always says the same thing). */
+const specimenTone=(a:{urgent:boolean;hold:unknown;resumeDecisionRequired:boolean;category:string;attemptState:string;gate:{eligible:boolean}|null})=>
+ a.urgent||a.hold||a.resumeDecisionRequired||a.category==="GATE_BLOCKED"||a.category==="QC_FAILED"?"attention":a.gate?.eligible?"ready":["Assigned","InProgress"].includes(a.attemptState)?"progress":"waiting";
+export type Attempt={kind:"ATTEMPT";category:string;caseId:string;roundId:string;roundNumber:number;receivedSource:string|null;receivedAt:string|null;hisLn:string;hn?:string|null;lnHalos:string|null;labelCode:string|null;pregnancy:string|null;ga:Ga;attemptId:string;attemptNumber:number;overallOrdinal?:number;exceptional?:boolean;outcomeStatus?:string|null;attemptState:string;printedSampleId:string|null;
  repeat:{level:string|null;state:string|null}|null;urgent:boolean;urgentReason:string|null;hold:{stage:string|null}|null;resumeDecisionRequired:boolean;qcFailedStage:string|null;gate:{eligible:boolean;syntheticPendingAccepted:boolean;failed:string[];pending:string[]}|null;
  placement:{batchId:string;runLabel:string|null;slot:number|null;sheetState:string|null}|null;labels:{prints:number;lastPrintedAt:string|null}};
 type Expected={kind:"REDRAW_EXPECTED";caseId:string;roundId:string;roundNumber:number;hisLn:string;requestedAt:string;reasonCode:string;previousLnHalos:string|null};
@@ -61,11 +66,11 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
   {data.scan.capped&&<p className="notice warning-notice" role="note">มีตัวอย่างสถานะ Ready {data.scan.ready} รายการ — ระบบตรวจ “พร้อม / ติด Gate” แล้ว {data.scan.scanned} รายการแรกตามลำดับ จำนวนที่แสดงเป็นอย่างน้อย และจะตรวจต่อเมื่อเปิดหน้าถัดไป ไม่มีรายการใดถูกตัดทิ้ง</p>}
   <section id="queue-panel" ref={panel} role="tabpanel" aria-labelledby={`tab-${tab}`} aria-busy={loading} className="panel">
    <div className="filters">
-    <div className="field grow"><label htmlFor="q">ค้นหา LN / LN Halos / Sample ID / Run</label><input id="q" type="search" value={typed} onChange={e=>setTyped(e.target.value)} autoComplete="off"/></div>
+    <div className="field grow"><label htmlFor="q">ค้นหา LN / HN / LN Halos / Sample ID / Run</label><input id="q" type="search" value={typed} onChange={e=>setTyped(e.target.value)} autoComplete="off"/></div>
     {!["REDRAW_EXPECTED","LN_HALOS_MISSING"].includes(tab)&&<><div className="field"><label htmlFor="round">รอบ</label><select id="round" value={params.round} onChange={e=>change({round:e.target.value})}><option value="ALL">ทุกรอบ</option><option value="S1">รอบที่ 1 (HIS)</option><option value="S2">รอบที่ 2+ (เจาะซ้ำ)</option></select></div>
      <label className="check-label"><input type="checkbox" checked={params.unprinted} onChange={e=>change({unprinted:e.target.checked})}/> ยังไม่พิมพ์ฉลาก</label>
      <label className="check-label"><input type="checkbox" checked={params.urgent} onChange={e=>change({urgent:e.target.checked})}/> ด่วนเท่านั้น</label></>}
-    <button className="button secondary" type="button" onClick={reload}>โหลดใหม่</button>
+    <button className="button secondary" type="button" onClick={reload}>โหลดใหม่</button><a className="button secondary" href="/api/p4/worklist/export" download>ส่งออก Excel (LN / LN Halos)</a>
    </div>
    {status&&<p className="notice" role="alert">{status}</p>}
    {tab==="REDRAW_EXPECTED"?<><ExpectedTable operational={!!data.operational} rows={data.expected} can={can} open={(type,row)=>setDialog({type,row})} q={data.filters.q}/>{pager}</>
@@ -79,10 +84,10 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
     {attempts.length===0?<p className="empty-state">ไม่มีรายการในคิวนี้{data.filters.q?" ที่ตรงกับคำค้น":""}</p>:
     <div className="table-wrap" role="region" aria-label="รายการงาน Lab" tabIndex={0}><table className="data-table">
      <caption className="sr-only">รายการตัวอย่าง เรียงตามวันที่/เวลารับสิ่งส่งตรวจ ({sort==="asc"?"เก่าไปใหม่ — FIFO":"ใหม่ไปเก่า"})</caption>
-     <thead><tr><th scope="col"><label className="table-check-target"><input type="checkbox" aria-label="เลือกทั้งหมดที่แสดง" checked={allShown} onChange={()=>setSelected(m=>{const n=new Map(m);if(allShown)for(const a of attempts)n.delete(a.attemptId);else for(const a of attempts)n.set(a.attemptId,a);return n;})}/></label></th><th scope="col">LN (HIS)</th><th scope="col">LN Halos / Sample ID</th><th scope="col" aria-sort={sort==="asc"?"ascending":"descending"}><button type="button" className="sort-button" aria-label={`วันที่/เวลารับสิ่งส่งตรวจ เรียง${sort==="asc"?"เก่าไปใหม่":"ใหม่ไปเก่า"} กดเพื่อสลับ`} onClick={()=>change({sort:sort==="asc"?"desc":"asc"})}>วันที่/เวลารับ <span aria-hidden="true">{sort==="asc"?"↑":"↓"}</span></button></th><th scope="col">รอบ</th><th scope="col">สถานะ / Gate</th><th scope="col">ฉลาก</th><th scope="col">Batch</th><th scope="col">จัดการ</th></tr></thead>
-     <tbody>{attempts.map(a=><tr key={a.attemptId} className={selected.has(a.attemptId)?"selected":undefined}>
-      <td><label className="table-check-target"><input type="checkbox" aria-label={`เลือก LN ${a.hisLn}`} checked={selected.has(a.attemptId)} onChange={()=>toggle(a)}/></label></td>
-      <td><span className="mono">{a.hisLn}</span></td>
+     <thead><tr><th scope="col"><label className="table-check-target"><input type="checkbox" aria-label="เลือกทั้งหมดที่แสดง" checked={allShown} onChange={()=>setSelected(m=>{const n=new Map(m);if(allShown)for(const a of attempts)n.delete(a.attemptId);else for(const a of attempts)n.set(a.attemptId,a);return n;})}/></label></th><th scope="col">LN / HN</th><th scope="col">LN Halos / Sample ID</th><th scope="col" aria-sort={sort==="asc"?"ascending":"descending"}><button type="button" className="sort-button" aria-label={`วันที่/เวลารับสิ่งส่งตรวจ เรียง${sort==="asc"?"เก่าไปใหม่":"ใหม่ไปเก่า"} กดเพื่อสลับ`} onClick={()=>change({sort:sort==="asc"?"desc":"asc"})}>วันที่/เวลารับ <span aria-hidden="true">{sort==="asc"?"↑":"↓"}</span></button></th><th scope="col">รอบ</th><th scope="col">สถานะ / Gate</th><th scope="col">ฉลาก</th><th scope="col">Batch</th><th scope="col">จัดการ</th></tr></thead>
+     <tbody>{attempts.map(a=><tr key={a.attemptId} className={`spec-row spec-${specimenTone(a)}${selected.has(a.attemptId)?" selected":""}`}>
+      <td><label className="table-check-target"><input type="checkbox" aria-label={`เลือก LN ${formatHisLn(a.hisLn)}`} checked={selected.has(a.attemptId)} onChange={()=>toggle(a)}/></label></td>
+      <td className="ln-hn-cell"><button type="button" className="ln-button" aria-haspopup="dialog" aria-label={`จัดการตัวอย่าง LN ${formatHisLn(a.hisLn)}`} onClick={()=>setDialog({type:"center",row:a})}><Ln value={a.hisLn}/></button><div className="small muted">HN {a.hn??"—"}</div></td>
       <td><span className="mono strong">{a.labelCode??"—"}</span>{a.printedSampleId&&<div className={`mono small${a.exceptional?" task-exceptional":""}`}>{a.printedSampleId}</div>}{a.pregnancy==="Twins"&&<span className="badge">ครรภ์แฝด (D)</span>}</td>
       <td className="receive-time">{a.receivedAt?bkk(a.receivedAt):"— / ยังไม่รับ"}<div className="small muted">{SOURCE[a.receivedSource??""]??""}</div></td><td>รอบที่ {a.roundNumber}{a.roundNumber>1&&<span className="badge warning">เจาะซ้ำ</span>}{a.repeat&&<span className="badge warning">ตรวจซ้ำ #{a.attemptNumber} {a.repeat.level==="RE_LIBRARY"?"Re-Library":a.repeat.level==="RE_EXTRACTION"?"Re-extraction":""}</span>}</td>
       <td><span className={`status ${a.gate?.eligible?"good":a.category==="GATE_BLOCKED"||a.category==="QC_FAILED"?"bad":"warning"}`}>{a.outcomeStatus??STATE[a.attemptState]??a.attemptState}{a.qcFailedStage?` (${a.qcFailedStage})`:""}</span>
@@ -96,19 +101,20 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
    {pager}</>}
   </section>
   {dialog?.type==="labels"&&<LabelDialog samples={(dialog.samples??[dialog.row as Attempt]).map(a=>({roundId:a.roundId,hisLn:a.hisLn,lnHalos:a.lnHalos,labelCode:a.labelCode,roundNumber:a.roundNumber,printed:a.labels.prints}))} onClose={()=>setDialog(null)} onPrinted={reload}/>}
+  {dialog?.type==="center"&&<SampleActionCenter subject={{...(dialog.row as Attempt),sampleId:(dialog.row as Attempt).printedSampleId??(dialog.row as Attempt).labelCode,overallOrdinal:(dialog.row as Attempt).overallOrdinal??null,attemptNumber:(dialog.row as Attempt).attemptNumber}} can={{repeat:can.repeat,redraw:can.redraw,noCall:!!can.noCall}} onClose={()=>setDialog(null)} onDone={async msg=>{setStatus(msg);await reload();}}/>}
   {dialog?.type==="assign"&&<AssignDialog attempts={dialog.samples!} onClose={()=>setDialog(null)} onDone={async msg=>{setDialog(null);setStatus(msg);await reload();}}/>}
   {dialog&&["accept","urgent","hold","repeat","redraw","receive","recover","cancelRedraw","repeatLibrary","repeatExtraction","noCall","confirmFailure"].includes(dialog.type)&&<ActionDialog operational={!!data.operational} type={dialog.type} row={dialog.row!} onClose={()=>setDialog(null)} onDone={async msg=>{setStatus(msg);await reload();}}/>}
  </>;
 }
 function RowActions({a,can,open}:{a:Attempt;can:Can;open:(type:string)=>void}){
  const waitingNoCall=a.outcomeStatus==="รอรับ PDF No Call";
+ const center=!waitingNoCall&&(can.repeat||can.redraw||can.noCall)&&["Assigned","InProgress","QcFailed","Stopped","BatchCancelled"].includes(a.attemptState);
  return <div className="row-actions">
   {can.labels&&a.lnHalos&&<button className="button small secondary" type="button" onClick={()=>open("labels")}>ฉลาก</button>}
   {can.assign&&["Ready"].includes(a.attemptState)&&<button className="button small secondary" type="button" onClick={()=>open("urgent")}>{a.urgent?"ยกเลิกด่วน":"ด่วน"}</button>}
   {can.hold&&["Ready","Assigned","InProgress"].includes(a.attemptState)&&<button className="button small secondary" type="button" onClick={()=>open("hold")}>{a.hold?"ปลด Hold":"Hold"}</button>}
-  {!waitingNoCall&&can.repeat&&["Assigned","InProgress"].includes(a.attemptState)&&<button className="button small secondary" type="button" onClick={()=>open("confirmFailure")}>ยืนยันผลไม่สำเร็จ</button>}
-  {!waitingNoCall&&can.repeat&&(a.roundNumber>1||a.attemptNumber===1)&&["QcFailed","Stopped","BatchCancelled"].includes(a.attemptState)&&<><button className="button small" type="button" onClick={()=>open("repeatLibrary")}>Re-Library</button><button className="button small secondary" type="button" onClick={()=>open("repeatExtraction")}>Re-Extraction</button></>}{!waitingNoCall&&can.noCall&&a.outcomeStatus==="รอพิจารณาหลังครบ 4 ครั้ง"&&<button className="button small secondary" type="button" onClick={()=>open("noCall")}>No Call</button>}
-  {!waitingNoCall&&can.redraw&&<button className="button small secondary" type="button" onClick={()=>open("redraw")}>Re-Sampling</button>}
+  {center&&<button className="button small" type="button" aria-haspopup="dialog" onClick={()=>open("center")}>จัดการตัวอย่าง</button>}
+  {!center&&!waitingNoCall&&can.redraw&&a.attemptState==="Ready"&&<button className="button small secondary" type="button" onClick={()=>open("redraw")}>Re-Sampling</button>}
  </div>;
 }
 function ExpectedTable({operational,rows,can,open,q}:{operational:boolean;rows:Expected[];can:Can;open:(t:string,r:Expected)=>void;q:string}){

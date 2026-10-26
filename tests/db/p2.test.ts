@@ -22,6 +22,32 @@ describe('P2 synthetic PostgreSQL integration',()=>{
  beforeAll(async()=>{db=await testDatabase();anc=await addUser(db,'ANC_NURSE','synthetic.anc');lab=await addUser(db,'LAB_STAFF','synthetic.lab');admin=await addUser(db,'APP_ADMIN','synthetic.admin');checker=await addUser(db,'CLINICAL_APPROVER','synthetic.checker');cert=await addUser(db,'LAB_CERTIFIER','synthetic.cert');unit=(await db.query<{id:string}>("INSERT INTO unit(code,name) VALUES('SYNTHETIC_ANC','จำลอง') RETURNING id")).rows[0].id;anc.unitIds=[unit];await db.query('INSERT INTO user_unit_scope(user_id,unit_id) VALUES($1,$2)',[anc.id,unit]);const auth=await tx(()=>authenticate(db,'synthetic.anc',TEST_PASSWORD));staffRaw=auth!.token;const u=await readSession(db,staffRaw);anc={...anc,sessionId:u!.sessionId};caseId=await newCase('009900010001');doctorId=await doctor();});
  afterAll(async()=>{await db.close();});
  afterEach(async()=>{const auth=await tx(()=>authenticate(db,'synthetic.anc',TEST_PASSWORD));staffRaw=auth!.token;const session=await readSession(db,staffRaw);anc={...anc,sessionId:session!.sessionId};});
+ it('confirms Request revisions 1, 2 and 3 with separate amendment audit, refresh identity and no-op protection',async()=>{
+  const id=await newCase('9900000390'),draft=completeDraft(doctorId);
+  let saved=await tx(()=>saveRequest(db,anc,id,{expectedVersion:0,draft,saveMode:'Auto'}));
+  const first=await tx(()=>lockRequest(db,anc,id,{expectedVersion:saved.version,reason:'SYNTHETIC initial confirmed request'}));
+  const original=(await db.query<{content_hash:string;payload:unknown}>('SELECT content_hash,payload FROM p2_document_revision WHERE id=$1',[first.id])).rows[0];
+  for(const n of [2,3]){
+   const reason='SYNTHETIC amendment '+n;draft.ordering.phone='SYNTHETIC phone 390'+n;
+   await expect(tx(()=>saveRequest(db,anc,id,{expectedVersion:saved.version,draft,saveMode:'Manual'}))).rejects.toThrow('AMENDMENT_REASON_REQUIRED');
+   saved=await tx(()=>saveRequest(db,anc,id,{expectedVersion:saved.version,draft,saveMode:'Manual',reason}));
+   let detail=await getCase(db,anc,id);expect(detail.readiness.missing).toContain('request.document');
+   const revision=await tx(()=>lockRequest(db,anc,id,{expectedVersion:saved.version,reason}));expect(revision.version).toBe(n);
+   detail=await getCase(db,anc,id);expect(detail.readiness.missing).not.toContain('request.document');
+   const audit=detail.history.events.find(e=>e.event_type==='P2_REQUEST_LOCKED'&&e.details.revisionId===revision.id);
+   expect(audit).toMatchObject({actor_id:anc.id,details:{revisionId:revision.id,revisionNumber:n,reason,amendment:true}});
+   expect(Number.isFinite(Date.parse(audit!.created_at))).toBe(true);
+   expect(detail.history.events.some(e=>e.event_type==='P2_REQUEST_AMENDMENT_DRAFT_SAVED'&&e.details.reason===reason)).toBe(true);
+  }
+  const before=(await db.query<{n:number}>('SELECT count(*)::int n FROM case_event WHERE case_id=$1',[id])).rows[0].n;
+  const unchanged=await tx(()=>saveRequest(db,anc,id,{expectedVersion:saved.version,draft,saveMode:'Manual'}));expect(unchanged.version).toBe(saved.version);
+  const repeated=await tx(()=>lockRequest(db,anc,id,{expectedVersion:saved.version,reason:'SYNTHETIC unchanged confirmation'}));expect(repeated.version).toBe(3);
+  expect((await db.query<{n:number}>('SELECT count(*)::int n FROM case_event WHERE case_id=$1',[id])).rows[0].n).toBe(before);
+  expect((await db.query('SELECT version FROM p2_document_revision WHERE case_id=$1 ORDER BY version',[id])).rows).toEqual([{version:1},{version:2},{version:3}]);
+  expect((await db.query('SELECT content_hash,payload FROM p2_document_revision WHERE id=$1',[first.id])).rows[0]).toEqual(original);
+  const refreshed=await getCase(db,anc,id);expect(refreshed.history.events.filter(e=>e.event_type==='P2_REQUEST_AUTOSAVED')).toHaveLength(1);
+  const other=await newCase('9900000391');expect((await getCase(db,anc,other)).revisions).toHaveLength(0);
+ });
  it('channel changes keep the last Request-save timestamp and its actual Auto source',async()=>{const id=await newCase('9900001901');const saved=await tx(()=>saveRequest(db,anc,id,{expectedVersion:0,draft:completeDraft(doctorId),saveMode:'Auto'}));await tx(()=>setModes(db,anc,id,{expectedVersion:saved.version,requestMode:'Paper',consentMode:'Electronic'}));const detail=await getCase(db,anc,id);expect(detail.workspace.requestSave).toMatchObject({at:saved.savedAt,mode:'Auto'});expect(detail.workspace.version).toBe(2);});
  it('preserves leading zero LN/HN, duplicate opens same case, conflicting HN hides case',async()=>{const r=await tx(()=>registerP2(db,anc,{ln:'00-990-001-0001',hn:'009900001',unitId:unit,origin:'ANC',idempotencyKey:'SYNTHETIC_REGISTER_REOPEN'},key));expect(r).toEqual({caseId,outcome:'OPENED',intake:{outcome:'NO_INTAKE',fields:[]}});const bad=await tx(()=>registerP2(db,anc,{ln:'009900010001',hn:'009900002',unitId:unit,origin:'ANC',idempotencyKey:'SYNTHETIC_REGISTER_CONFLICT'},key));expect(bad).toEqual({caseId:null,outcome:'IDENTITY_UNVERIFIED'});const detail=await getCase(db,anc,caseId);expect(detail.case).toMatchObject({ln:'009900010001',hn:'009900001'});expect(detail.roundReceipt).toEqual({roundId:detail.case.current_round_id,receivedSource:null,receivedAt:null,collectionDate:null});expect(detail.currentCollectionFacts).toEqual([]);expect((await db.query('SELECT * FROM his_order')).rows).toHaveLength(0);});
  it('enforces scoped registration, real identifier rejection, LAB_DIRECT paper Request default (Paper Consent only by explicit selection)',async()=>{await expect(tx(()=>registerP2(db,{...anc,unitIds:[]},{ln:'9900001010',hn:'9900001',unitId:unit,origin:'ANC',idempotencyKey:'SYNTHETIC_REGISTER_DENIED'},key))).rejects.toThrow('FORBIDDEN');await expect(tx(()=>registerP2(db,anc,{ln:'1234567890',hn:'9900001',unitId:unit,origin:'ANC',idempotencyKey:'SYNTHETIC_REGISTER_REAL'},key))).rejects.toThrow();await expect(tx(()=>registerP2(db,lab,{ln:'9900001012',hn:'9900001',unitId:unit,origin:'LAB_DIRECT',idempotencyKey:'SYNTHETIC_REGISTER_NO_SOURCE'},key))).rejects.toThrow('IDENTIFIER_SOURCE_REQUIRED');const id=await newCase('9900001011','LAB_DIRECT',lab);expect((await db.query('SELECT identifier_source FROM registration_attempt WHERE case_id=$1',[id])).rows).toEqual([{identifier_source:'TUBE_LABEL'}]);const c=await getCase(db,lab,id);expect(c.workspace).toMatchObject({request_mode:'Paper',consent_mode:'Electronic'});await expect(getCase(db,{...anc,unitIds:[]},id)).rejects.toThrow('FORBIDDEN');});

@@ -230,7 +230,7 @@ it('LAB-UAT-003: sample pagination and FIFO Auto-fill explicitly expose the 10,0
   const preview=await f.run(db=>storageCommand(db,f.maker,{action:'autoFillPreview',storageTypes:['BACKUP']}));
   expect(preview).toMatchObject({waiting:10001,selected:10000,batchSize:10000,remaining:1,planned:10000,unplaced:0});
   expect(preview.placements[0]).toMatchObject({roundId:fixture.round_id,ln:fixture.ln,receivedAt:fixture.received_at.toISOString(),position:'A1'});
-  expect(preview.placements.every((item,index,items)=>index===0||items[index-1].receivedAt<=item.receivedAt)).toBe(true);
+  expect(preview.placements.every((item,index,items)=>index===0||items[index-1].receivedAt!<=item.receivedAt!)).toBe(true);
  }finally{await f.close();}
 });
 it('LAB-UAT-003: actual cross-table occupancy blocks overwrite and unauthorized sample search is denied',async()=>{

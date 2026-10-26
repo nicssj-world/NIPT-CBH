@@ -1,0 +1,34 @@
+/* OWNER-LAB-059 operations dashboard */
+.health-page {display:grid;gap:var(--space-6);}
+.health-page > .page-header {margin-bottom:0;align-items:center;}
+.health-refresh {display:flex;align-items:center;gap:var(--space-3);}
+.health-refresh .button {display:inline-flex;align-items:center;gap:var(--space-2);}
+.health-overall {display:flex;align-items:center;gap:var(--space-3);padding:var(--space-4);border:1px solid var(--color-line);border-radius:var(--radius);background:var(--color-surface);}
+.health-overall p {display:grid;gap:2px;margin:0;}
+.health-overall span {font-size:.875rem;color:var(--color-muted);}
+.health-overall.tone-good svg {color:var(--color-success);}
+.health-overall.tone-warn svg {color:var(--color-warning);}
+.health-overall.tone-bad {border-color:var(--color-danger);} .health-overall.tone-bad svg {color:var(--color-danger);}
+.health-group h2 {margin:0 0 var(--space-3);font-size:1.125rem;}
+.health-grid {display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:var(--space-3);}
+.health-tile {display:grid;align-content:start;gap:var(--space-2);padding:var(--space-4);border:1px solid var(--color-line);border-radius:var(--radius);background:var(--color-surface);min-width:0;}
+.health-tile header {display:flex;align-items:center;gap:var(--space-2);}
+.health-tile h3 {flex:1;margin:0;font-size:1rem;}
+.health-tile-icon {display:grid;place-items:center;flex:0 0 36px;height:36px;border-radius:50%;background:var(--raised);color:var(--color-muted);}
+.health-tile.tone-good .health-tile-icon {background:var(--good-bg);color:var(--color-success);}
+.health-tile.tone-warn .health-tile-icon {background:var(--warn-bg);color:var(--color-warning);}
+.health-tile.tone-bad .health-tile-icon {background:var(--bad-bg);color:var(--color-danger);}
+.health-badge {padding:2px var(--space-2);border-radius:999px;font-size:.75rem;font-weight:600;background:var(--raised);color:var(--color-muted);}
+.health-badge.tone-good {background:var(--good-bg);color:var(--color-success);}
+.health-badge.tone-warn {background:var(--warn-bg);color:var(--color-warning);}
+.health-badge.tone-bad {background:var(--bad-bg);color:var(--color-danger);}
+.health-tile-value {margin:0;font-size:1.125rem;font-weight:700;}
+.health-tile dl {display:grid;grid-template-columns:1fr;gap:var(--space-1);margin:0;}
+.health-tile dl div {display:flex;justify-content:space-between;gap:var(--space-3);font-size:.8125rem;}
+.health-tile dt {flex:0 1 auto;color:var(--color-muted);}
+.health-tile dd {flex:1 1 50%;margin:0;text-align:right;overflow-wrap:anywhere;}
+.health-tile-link {display:inline-flex;align-items:center;gap:var(--space-1);margin-top:var(--space-1);font-size:.875rem;font-weight:600;min-height:32px;}
+.health-alerts {display:grid;gap:var(--space-2);margin:0;padding:0;list-style:none;}
+.health-alerts li {display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-3);}
+.health-alerts code {font-size:.75rem;color:var(--color-muted);}
+@media (max-width:600px){.health-page > .page-header {flex-direction:column;align-items:flex-start;}}

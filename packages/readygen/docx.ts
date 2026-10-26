@@ -80,8 +80,10 @@ function apply(xml:string,edits:Edit[]){
 const TRANSPARENT_PNG=Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000'+'1f15c4890000000d49444154789c636000020000050001e9fadcd80000000049454e44ae426082','hex');
 
 /** Returns the filled .docx and the list of every substitution made (the "bindings" evidence). */
-export function fillReport(template:Buffer,kind:TemplateKind,values:ReportValues,signers:{reported:SignerSlot;approved:SignerSlot}){
- if(sha256(template)!==TEMPLATES[kind].sha256)throw new DocxError('REPORT_TEMPLATE_SHA256_MISMATCH');
+export type TemplateDescriptor={sha256:string;code:string};
+/** `descriptor` defaults to the Owner's SHA-256-locked master; an Admin-approved registry revision passes its own hash and code. */
+export function fillReport(template:Buffer,kind:TemplateKind,values:ReportValues,signers:{reported:SignerSlot;approved:SignerSlot},descriptor:TemplateDescriptor=TEMPLATES[kind]){
+ if(sha256(template)!==descriptor.sha256)throw new DocxError('REPORT_TEMPLATE_SHA256_MISMATCH');
  const parts=readArchive(template),name='word/document.xml';let xml=parts.get(name)!.toString('utf8');
  const parsed=paragraphs(xml),ps=[...parsed.paragraphs].sort((a,b)=>a.nodes[0].start-b.nodes[0].start);
  const edits:Edit[]=[],used=new Set<string>(),bindings:{token:string;value:string;role?:string}[]=[],labels:{at:number;role:'REPORTED'|'APPROVED'}[]=[];
@@ -140,7 +142,14 @@ export function fillReport(template:Buffer,kind:TemplateKind,values:ReportValues
  parts.set(name,Buffer.from(xml,'utf8'));
  for(const [part,bytes] of parts)if(/^word\/.*\.xml$/.test(part)&&bytes.toString('utf8').includes('${'))throw new DocxError('DOCX_PLACEHOLDER_REMAINS',{part});
  const bytes=writeArchive(parts);
- return {bytes,sha256:sha256(bytes),bindings,templateSha256:TEMPLATES[kind].sha256,templateCode:TEMPLATES[kind].code};
+ return {bytes,sha256:sha256(bytes),bindings,templateSha256:descriptor.sha256,templateCode:descriptor.code};
 }
 /** Plain text of the filled document, used to verify that nothing static from the master survives. */
 export function docxText(bytes:Buffer){const xml=readArchive(bytes).get('word/document.xml')!.toString('utf8');return paragraphs(xml).paragraphs.map(textOf).join('\n');}
+
+/** Paragraph texts of every word/*.xml part (document, headers, footers) for template inspection; read-only. */
+export function templateParts(bytes:Buffer){
+ const parts=readArchive(bytes),out:{part:string;paragraphs:string[]}[]=[];
+ for(const [name,data] of parts)if(/^word\/(document|header\d*|footer\d*)\.xml$/.test(name))out.push({part:name,paragraphs:paragraphs(data.toString('utf8')).paragraphs.map(textOf)});
+ return {parts:out,names:[...parts.keys()],rels:parts.get('word/_rels/document.xml.rels')?.toString('utf8')??'',contentTypes:parts.get('[Content_Types].xml')?.toString('utf8')??''};
+}

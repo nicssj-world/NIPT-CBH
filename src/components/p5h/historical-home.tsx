@@ -1,5 +1,6 @@
 "use client";
 import {FileDropInput} from "../shared/file-drop-input";
+import {SinglePatientImport} from "./single-patient";
 import Link from "next/link";
 import {useRouter} from "next/navigation";
 import {useCallback,useEffect,useRef,useState} from "react";
@@ -42,7 +43,8 @@ export function HistoricalHome({canImport}:{canImport:boolean}){
      <div className="field"><label htmlFor="hist-files">ไฟล์ PDF ผลเดิม (เลือกได้หลายไฟล์) หรือ ZIP</label><FileDropInput id="hist-files" ref={files} type="file" accept=".pdf,.zip" multiple onChange={e=>setFileCount(e.target.files?.length??0)}/><p className="hint">{fileCount?`เลือกแล้ว ${fileCount} ไฟล์`:"ไม่บังคับ — ระบุชื่อไฟล์ในคอลัมน์ pdf_file หรือให้ระบบจับคู่ด้วย LN ใน PDF"} · สูงสุด {data?.limits.files??150} ไฟล์</p></div>
     </div>
     <div className="action-bar historical-actions"><button className="button" onClick={()=>void upload()} disabled={busy}>{busy?"กำลังอัปโหลด…":"อัปโหลดและตรวจสอบ"}</button><a className="button secondary" href="/api/p5h/template" download>ดาวน์โหลดแบบฟอร์มตาราง (XLSX)</a></div>
-    <p className="hint">ปีในตารางใช้ ค.ศ. รูปแบบ YYYY-MM-DD (ไม่ทราบวันที่ให้เว้นว่างหรือพิมพ์ unknown) ชื่อต้องเป็นข้อมูลจำลอง</p>
+    <p className="hint">ปีในตารางใช้ ค.ศ. รูปแบบ YYYY-MM-DD (ไม่ทราบวันที่ให้เว้นว่างหรือพิมพ์ unknown)</p>
+    <SinglePatientImport/>
    </>:<p>บัญชีนี้ไม่มีสิทธิ์นำเข้า</p>}
   </section>
   <section className="panel" aria-labelledby="hist-list"><h2 id="hist-list">ชุดนำเข้า</h2><label>ค้นหา Batch / LN / HN<input type="search" value={q} onChange={e=>{setQ(e.target.value);setList(l=>({...l,page:1}));}}/></label>

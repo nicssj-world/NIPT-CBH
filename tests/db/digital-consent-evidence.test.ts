@@ -7,6 +7,7 @@ import {createDocumentPreview} from '../../packages/p2/documents';
 import {emptyRequest} from '../../packages/p2/schema';
 import {renderP2Pdf} from '../../packages/pdf/p2';
 import {verifyAuditChain} from '../../packages/db/audit';
+import {factsSql} from '../../packages/anc/service';
 
 // Go-Live check of Digital Consent after the Paper Consent correction (2026-10-18): the patient signs on the Signature Pad, the doctor
 // signature is the Doctor Registry version chosen on the same request, and the evidence chain DB → API service → PDF → audit is intact.
@@ -126,5 +127,34 @@ describe('Digital Consent evidence chain',()=>{
   try{
    await expect(approveClinicalP2(db,reviewer,id,{expectedVersion:revised.version,reason:'SYNTHETIC review',sourceReference:'SYNTHETIC current request',attestation:true})).rejects.toMatchObject({code:'CURRENT_GRANTED_CONSENT_REQUIRED'});
   }finally{await db.query('ROLLBACK');vi.unstubAllEnvs();}
+ });
+ it('reuses the unchanged signed consent for a proven phone-only amendment, while keeping Request and clinical review gates',async()=>{
+  vi.stubEnv('NIPT_MODE','synthetic');await loginAnc();
+  const id=(await tx(()=>registerP2(db,anc,{ln:'009900020003',hn:'0099000202',unitId:unit,origin:'ANC',idempotencyKey:'SYNTHETIC_PHONE_ONLY_CONSENT'},key))).caseId!;
+  const draft=completeDraft(doctorId);Object.assign(draft.patient,{identifier:'SYNTHETIC-PHONE-CASE',identifierType:'Synthetic',entitlement:'SYNTHETIC self pay'});draft.ordering.phone='SYNTHETIC original phone';
+  const saved=await tx(()=>saveRequest(db,anc,id,{expectedVersion:0,draft}));
+  const consent=await tx(()=>prepareConsent(db,anc,id,{doctorVersionId:doctorId,representativeRequired:false,reason:'SYNTHETIC complete original consent'}));
+  const signing=await tx(()=>startSigning(db,anc,id,{documentId:consent.id,devicePresent:true,syntheticPatient:true}));
+  const act=(input:object)=>tx(()=>patientAction(db,signing.raw,input,{origin,expectedOrigin:origin,token:signing.csrf}));
+  for(let item=1;item<=12;item++)await act({action:'acknowledge',item});await act({action:'complete',decision:'Granted',vector});await loginAnc();
+  const originals=(await db.query('SELECT payload,content_hash FROM p2_document_revision WHERE id=$1',[consent.id])).rows;
+  const signed=(await db.query('SELECT payload,content_hash FROM p2_final_consent WHERE document_id=$1',[consent.id])).rows;
+  const amended=structuredClone(draft);amended.ordering.phone='SYNTHETIC changed phone';
+  const updated=await tx(()=>saveRequest(db,anc,id,{expectedVersion:saved.version,draft:amended,reason:'SYNTHETIC phone-only amendment'}));
+  const round=(await getCase(db,anc,id)).case.current_round_id;
+  expect((await db.query<{ready:boolean}>('SELECT p2_clinical_documents_ready($1) ready',[round])).rows[0].ready).toBe(false); // Autosave/draft is never confirmation.
+  const payload={identity:{roundId:round},workspaceVersion:updated.version,draft:updated.draft};
+  await db.query("INSERT INTO p2_document_revision(case_id,round_id,kind,version,template_version,payload,content_hash,reason,created_by) VALUES($1,$2,'REQUEST',1,'CBH-FM01-v1',$3,$4,'SYNTHETIC confirmed phone amendment',$5)",[id,round,payload,contentHash(payload),anc.id]);
+  expect((await db.query<{ready:boolean}>('SELECT p2_clinical_documents_ready($1) ready',[round])).rows[0].ready).toBe(true);
+  expect((await db.query<{id:string;documentsReady:boolean}>(factsSql,[[unit]])).rows.find(row=>row.id===id)?.documentsReady).toBe(true);
+  expect((await getCase(db,anc,id)).readiness.missing).not.toContain('consent.currentBinding');
+  expect((await db.query<{ready:boolean}>('SELECT p2_clinical_ready($1) ready',[round])).rows[0].ready).toBe(false); // No automatic clinical approval.
+  expect((await db.query('SELECT payload,content_hash FROM p2_document_revision WHERE id=$1',[consent.id])).rows).toEqual(originals);
+  expect((await db.query('SELECT payload,content_hash FROM p2_final_consent WHERE document_id=$1',[consent.id])).rows).toEqual(signed);
+  expect((await db.query('SELECT id FROM p2_document_revision WHERE case_id=$1 AND kind=\'CONSENT\'',[id])).rows).toHaveLength(1);
+  const material=structuredClone(amended);material.pregnancy.edd='2027-05-20';await tx(()=>saveRequest(db,anc,id,{expectedVersion:updated.version,draft:material,reason:'SYNTHETIC material change still held'}));
+  expect((await db.query<{ready:boolean}>('SELECT p2_clinical_documents_ready($1) ready',[round])).rows[0].ready).toBe(false);
+  expect((await getCase(db,anc,id)).readiness.missing).toContain('consent.currentBinding');
+  vi.unstubAllEnvs();
  });
 });

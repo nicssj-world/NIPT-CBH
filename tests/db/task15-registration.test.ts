@@ -87,7 +87,8 @@ it('R15-04/15: old S1 PET never satisfies pending S2; a newly discovered Ready S
 });
 it('R15-10/15: deferred metadata never bypasses an existing clinical assessment',async()=>{
  await pet();const r=await submit({ln,unitId:u.unit,consentMode:'Paper',idempotencyKey:randomUUID()}),d=await tx(f.db,db=>getCase(db,u.lab,r.caseId!));
- await tx(f.db,db=>saveRequest(db,u.lab,r.caseId!,{expectedVersion:d.workspace.version,draft:d.workspace.draft}));const current=await tx(f.db,db=>getCase(db,u.lab,r.caseId!));
+ // An unchanged draft is a no-op save (ANC no-churn rule), so make a real edit to establish an existing clinical assessment.
+ await tx(f.db,db=>saveRequest(db,u.lab,r.caseId!,{expectedVersion:d.workspace.version,draft:{...d.workspace.draft,pregnancy:{...d.workspace.draft.pregnancy,weightKg:61}}}));const current=await tx(f.db,db=>getCase(db,u.lab,r.caseId!));
  await expect(tx(f.db,db=>saveLabClinicalMetadata(db,u.lab,r.caseId!,{expectedVersion:current.workspace.version,edd:'2027-03-24',pregnancy:'Singleton'}))).rejects.toMatchObject({code:'CLINICAL_REVIEW_REQUIRED'});
  expect((await f.db.query<{n:number}>('SELECT count(*)::int n FROM clinical_snapshot')).rows[0].n).toBe(1);
 });

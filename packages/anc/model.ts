@@ -7,7 +7,7 @@ export type Stage = typeof stages[number][0];
 export const flagLabels = {redraw:'เก็บตัวอย่างใหม่',repeat:'ตรวจซ้ำ',hold:'HOLD',urgent:'เร่งด่วน',documents:'เอกสารยังไม่ครบ',missing_s1:'ข้อมูล S1 ไม่ครบ',conflicting_release:'หลักฐานผลตรวจขัดกัน',unmapped_state:'ตรวจสอบสถานะ',validation_blocked:'ผลตรวจติดเงื่อนไข',consent_revoked:'ถอนความยินยอม',identity_issue:'ข้อมูลระบุตัวตนรอตรวจสอบ'} as const;
 export type Flag = keyof typeof flagLabels;
 export type CaseFacts = {
- id:string; ln:string; hn:string|null; patientName?:string|null; unitIds:string[]; currentRoundId:string|null; roundNumber:number|null; roundState:string|null;
+ registeredAt?:string; id:string; ln:string; hn:string|null; patientName?:string|null; unitIds:string[]; currentRoundId:string|null; roundNumber:number|null; roundState:string|null;
  s1ReceivedAt:string|null; currentReceivedAt:string|null; analysisStarted:boolean; documentsReady:boolean;
  reportState:string|null; activeReleaseCount:number; certifiedReleaseCount:number; redraw:boolean; repeat:boolean; hold:boolean; urgent:boolean; consentRevoked:boolean; identityIssue:boolean;
 };
@@ -42,4 +42,4 @@ export function matches(c:QueueItem,f:Partial<Filters>):boolean {
  (!f.tab||f.tab==='all'||(f.tab==='redraw'?c.redraw:f.tab==='hold'?c.hold:metric(f.tab)))&&
  (!f.q||([c.ln,c.hn??'',c.patientName??'',c.id].some(v=>v.toLowerCase().includes(f.q!.trim().toLowerCase()))||(/^\d{2}-\d{3}-\d-\d{4}$/.test(f.q!.trim())&&c.ln.includes(f.q!.trim().replaceAll('-','')))));
 }
-export type Dashboard = {fiscalYear:number;generatedAt:string;asOf:string;scope:{unitIds:string[];allUnits:boolean};metrics:Record<'sent'|'pending'|'released'|'attention',number>;stages:{id:Stage;label:string;count:number}[];queue:{items:QueueItem[];total:number;page:number;pageSize:number;totalPages:number;nextCursor:string|null};units:{id:string;name:string}[];limitations:string[]};
+export type Dashboard = {fiscalYear:number;generatedAt:string;asOf:string;scope:{unitIds:string[];allUnits:boolean};metrics:Record<'sent'|'pending'|'released'|'attention',number>;stages:{id:Stage;label:string;count:number}[];queue:{tabCounts?:Record<'all'|'pending'|'released'|'attention'|'redraw'|'hold',number>;items:QueueItem[];total:number;page:number;pageSize:number;totalPages:number;nextCursor:string|null};units:{id:string;name:string}[];limitations:string[]};

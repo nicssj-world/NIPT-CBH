@@ -1,0 +1,27 @@
+/* OWNER-LAB-020/023: summary cards → actions → work lists → scan history. */
+.inbound-page {display:grid;gap:var(--space-6);}
+.inbound-page > .page-header {margin-bottom:0;}
+.inbound-summary {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--space-3);}
+.inbound-card {display:flex;gap:var(--space-3);align-items:flex-start;padding:var(--space-4);border:1px solid var(--color-line);border-radius:var(--radius);background:var(--color-surface);min-width:0;}
+.inbound-card h3 {margin:0 0 var(--space-1);font-size:.875rem;font-weight:600;color:var(--color-muted);}
+.inbound-card-icon {display:grid;place-items:center;flex:0 0 40px;height:40px;border-radius:50%;background:var(--raised);color:var(--color-muted);}
+.inbound-card-value {margin:0;font-size:1.125rem;font-weight:700;line-height:1.35;}
+.inbound-card-detail,.inbound-card-next {margin:var(--space-1) 0 0;font-size:.8125rem;line-height:1.5;color:var(--color-muted);overflow-wrap:anywhere;}
+.inbound-card-next {color:var(--color-ink);font-weight:600;}
+.inbound-card.tone-good .inbound-card-icon {background:var(--good-bg);color:var(--color-success);}
+.inbound-card.tone-good .inbound-card-value {color:var(--color-success);}
+.inbound-card.tone-warn .inbound-card-icon {background:var(--warn-bg);color:var(--color-warning);}
+.inbound-card.tone-bad .inbound-card-icon {background:var(--bad-bg);color:var(--color-danger);}
+.inbound-card.tone-bad .inbound-card-value {color:var(--color-danger);}
+.inbound-card.tone-unknown .inbound-card-value {color:var(--color-muted);}
+.inbound-alerts {margin:0;padding-left:var(--space-8);}
+.inbound-actions h2 {margin-top:0;}
+.inbound-action-grid {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-4);}
+.inbound-action {display:grid;align-content:start;gap:var(--space-3);padding:var(--space-4);border:1px solid var(--color-line);border-radius:var(--radius);min-width:0;}
+.inbound-action h3 {margin:0;font-size:1rem;}
+.inbound-test ul {display:grid;gap:var(--space-1);margin:var(--space-2) 0;padding:0;list-style:none;}
+.inbound-test li {display:flex;align-items:center;gap:var(--space-2);font-size:.875rem;}
+.inbound-test li.pass svg {color:var(--color-success);}
+.inbound-test li.fail {color:var(--color-danger);font-weight:600;}
+@media (max-width:1100px){.inbound-summary {grid-template-columns:repeat(2,minmax(0,1fr));}.inbound-action-grid {grid-template-columns:1fr;}}
+@media (max-width:560px){.inbound-summary {grid-template-columns:1fr;}}

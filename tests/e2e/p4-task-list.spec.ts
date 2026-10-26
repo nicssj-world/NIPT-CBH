@@ -34,9 +34,9 @@ async function freshBatch(page:Page){
  const r=await labPost(page,"/api/p4/batches",{});expect(r.ok(),`${r.status()} ${await r.text()}`).toBe(true);
  return (await r.json()).batchId as string;
 }
-const operator=(page:Page)=>page.getByLabel("ผู้ปฏิบัติที่วางแผน");
+const operator=(page:Page)=>page.getByLabel("ผู้ปฏิบัติงาน",{exact:true});
 /** Planned work date for Task n, typed in BE (dd/mm/yyyy) as a user would. Day offset keeps the three Tasks distinct. */
-async function fillPlannedDate(page:Page,n:number){const f=page.getByLabel(/วันที่.*วางแผน/);await f.fill(`${16+n}/10/2569`);await f.blur();}
+async function fillPlannedDate(page:Page,n:number){const f=page.getByLabel(/วันที่ทำ Library Preparation/);await f.fill(`${16+n}/10/2569`);await f.blur();}
 /** Fixture owner plays HIS + P2 evidence and activates the labelled synthetic gate policy (same as p4-lab.spec.ts). */
 async function readyCases(count:number,exportable=false,lnPrefix?:string){
  const db=new Client({connectionString:browserFixtureDatabaseUrl()});await db.connect();const q=db as unknown as Queryable;
@@ -105,14 +105,14 @@ test("P0-2: Task tabs show per-Task counts, context card, BE dates, keyboard nav
  expect(assigned.ok(),await assigned.text()).toBe(true);
  await page.goto(`/lab/batches/${batchId}`);
  const tab=(n:number)=>page.getByRole("tab",{name:new RegExp(`^Task List ${n}`)});
- await expect(tab(1)).toContainText("ผู้ป่วย 3/15 · ว่าง 12");
- await expect(tab(2)).toContainText("ผู้ป่วย 0/15 · ว่าง 15");await expect(tab(3)).toContainText("ผู้ป่วย 0/15 · ว่าง 15");
+ await expect(tab(1)).toContainText("ตัวอย่าง 3/15 · ว่าง 12");
+ await expect(tab(2)).toContainText("ตัวอย่าง 0/15 · ว่าง 15");await expect(tab(3)).toContainText("ตัวอย่าง 0/15 · ว่าง 15");
  await tab(1).click();
  const context=page.getByRole("region",{name:"สรุป Task List 1"});
- await expect(context).toContainText(/Run\d{3}\/\d{4} · Run\d{3} S1-1\/3 · Run\d{3} S2-1\/3/);
+ await expect(context).toContainText(/Run\d{3}\/\d{4}[\s\S]*Run\d{3} S1-1\/3 · Run\d{3} S2-1\/3/);
  await expect(context).toContainText("รอวันที่ปฏิบัติงาน");
  // BE input: a CE-looking year is refused with a clear message and cannot be saved.
- const date=page.getByLabel(/วันที่.*วางแผน/);await date.fill("17/10/2026");await date.blur();
+ const date=page.getByLabel(/วันที่ทำ Library Preparation/);await date.fill("17/10/2026");await date.blur();
  await expect(page.getByText("ใช้ปี พ.ศ. 4 หลัก เช่น 2569 (ไม่ใช่ ค.ศ.)")).toBeVisible();
  await expect(page.getByRole("button",{name:"บันทึกข้อมูลแผน"})).toBeDisabled();
  // BE in, ISO CE stored, BE shown back; the control ID stays Gregorian.
@@ -123,7 +123,7 @@ test("P0-2: Task tabs show per-Task counts, context card, BE dates, keyboard nav
  await expect(context).toContainText("17/10/2569");await expect(context).toContainText("SYN-EXT-01 / Exp. 31/12/2569");
  await expect(context).toContainText("26N120261017-1");
  expect(await fixtureQuery("SELECT planned_work_date::text d,planned_extraction_expiry::text e FROM lab_task_sheet WHERE batch_id=$1 AND sheet_number=1",[batchId])).toEqual([{d:"2026-10-17",e:"2026-12-31"}]);
- await page.reload();await expect(page.getByLabel(/วันที่.*วางแผน/)).toHaveValue("17/10/2569");
+ await page.reload();await expect(page.getByLabel(/วันที่ทำ Library Preparation/)).toHaveValue("17/10/2569");
  // Keyboard: roving tabindex, arrows/Home/End, URL keeps the Task.
  await tab(1).focus();await page.keyboard.press("ArrowRight");
  await expect(tab(2)).toHaveAttribute("aria-selected","true");await expect(tab(2)).toBeFocused();await expect(page).toHaveURL(/\?task=2/);
@@ -135,7 +135,7 @@ test("P0-2: Task tabs show per-Task counts, context card, BE dates, keyboard nav
  await axe(page);
  // Worklist names the Task and deep-links to it.
  await page.goto("/lab");await page.getByRole("tab",{name:/อยู่ใน Batch/}).click();
- await page.getByLabel("ค้นหา LN / LN Halos / Sample ID / Run").fill(cases[0].ln);
+ await page.getByLabel("ค้นหา LN / HN / LN Halos / Sample ID / Run").fill(cases[0].ln);
  const link=page.getByRole("row",{name:new RegExp(cases[0].ln)}).getByRole("link",{name:/Task List 1 · ตน\. \d+/});
  await expect(link).toBeVisible();await expect(link).toHaveAttribute("href",new RegExp(`/lab/batches/${batchId}\\?task=1`));
 });
@@ -195,7 +195,7 @@ test("T1-09: more than 50 authenticated Ready attempts paginate and remain searc
  const prefix=`99000${Date.now()}`,cases=await readyCases(55,false,prefix);
  await page.setViewportSize({width:1440,height:1000});await login(page,"synthetic.lab");await page.goto("/lab");
  // Keep exact 55-row/page-size assertions without modifying pre-existing integrated cases.
- await page.getByLabel("ค้นหา LN / LN Halos / Sample ID / Run").fill(prefix);
+ await page.getByLabel("ค้นหา LN / HN / LN Halos / Sample ID / Run").fill(prefix);
  const summary=page.getByRole("status").filter({hasText:/แสดง 1–50 จาก 55 รายการ/});
  await expect(summary).toContainText("หน้า 1 จาก 2");
  const rows=page.getByRole("region",{name:"รายการงาน Lab"}).getByRole("row");
@@ -206,7 +206,7 @@ test("T1-09: more than 50 authenticated Ready attempts paginate and remain searc
  const candidate=page.getByRole("row",{name:new RegExp(cases[54].ln)});
  await expect(candidate).toBeVisible();await candidate.getByRole("checkbox").check();
  await expect(page.getByText("เลือก 1 รายการ",{exact:true})).toBeVisible();
- const search=page.getByLabel("ค้นหา LN / LN Halos / Sample ID / Run");
+ const search=page.getByLabel("ค้นหา LN / HN / LN Halos / Sample ID / Run");
  await search.fill(cases[54].ln);await expect(page.getByRole("row",{name:new RegExp(cases[54].ln)})).toBeVisible();
  const pageEvidence={scope:"authenticated browser; real worklist API and isolated synthetic PostgreSQL",total:55,pageSize:50,page2Rows:5,selectedAttempt:cases[54].ln,search:"HIS LN"};
  await mkdir(process.env.NIPT_E2E_P4_EVIDENCE_DIR??".local/p0-e2e/evidence",{recursive:true});
@@ -229,7 +229,8 @@ test("T1-03/T1-06: urgent Slot 40 replaces the previous Ready sample without los
  await slot40Toggle.click();const toggleResponse=await toggleRequest;expect(toggleResponse.ok(),await toggleResponse.text()).toBe(true);
  await expect.poll(async()=>page.request.get(`/api/p4/batches/${batchId}`).then(r=>r.json()).then(x=>x.urgent40)).toBe(true);
  await expect(slot40Toggle).toBeChecked();
- const urgent=page.getByRole("region",{name:"Urgent Fill — งานด่วน"});
+ // OWNER-LAB-035: the three fill forms are collapsed by default; open the urgent one first.
+ const urgent=page.locator("details.task-exact-fill",{hasText:"Urgent Fill — งานด่วน"});await urgent.locator("summary").click();
  const fillUrgent=async(index:number)=>{
   await urgent.getByLabel("ค้นหา LN Halos / HIS LN / HN").fill(cases[index].ln);
   const sample=urgent.getByLabel("ตัวอย่างที่ผ่าน Gate");await expect(sample.locator(`option[value="${ids[index].id}"]`)).toHaveCount(1);await sample.selectOption(ids[index].id);
@@ -333,10 +334,10 @@ test("T1-50: Manual, Urgent and Repeat fills fit at all required viewports and t
  const measurements=[];
  for(const width of [1440,1280,768,375]){
   await page.setViewportSize({width,height:1000});await page.goto(`/lab/batches/${batchId}?task=3`);
-  const regions=page.locator(".task-exact-fill");await expect(regions).toHaveCount(3);for(const region of await regions.all())await expect(region).toBeVisible();
+  const regions=page.locator(".task-exact-fill");await expect(regions).toHaveCount(3);for(const region of await regions.all())await expect(region).toBeVisible();for(const region of await regions.all())await region.locator("summary").click(); // collapsed by default (OWNER-LAB-035)
   if(width===1440)await page.screenshot({path:path.join(process.env.NIPT_E2E_P4_EVIDENCE_DIR??".local/p0-e2e/evidence","task1-responsive-1440.png"),fullPage:false});
   const sample=await page.evaluate(()=>({viewport:innerWidth,document:document.documentElement.scrollWidth,areas:[...document.querySelectorAll<HTMLElement>(".task-exact-fill")].map(area=>{
-   const b=area.getBoundingClientRect(),grid=area.querySelector<HTMLElement>(".form-grid")!,h=area.querySelector<HTMLElement>("h3")!,svg=h.querySelector("svg"),icon=svg?.getBoundingClientRect(),cs=getComputedStyle(h),fontSize=parseFloat(cs.fontSize),specifiedLineHeight=parseFloat(cs.lineHeight),lineHeight=Number.isFinite(specifiedLineHeight)?specifiedLineHeight:fontSize*1.5,heading=h.getBoundingClientRect(),headingHeight=heading.height;
+   const b=area.getBoundingClientRect(),grid=area.querySelector<HTMLElement>(".form-grid")!,h=area.querySelector<HTMLElement>("summary")!,svg=h.querySelector("svg"),icon=svg?.getBoundingClientRect(),cs=getComputedStyle(h),fontSize=parseFloat(cs.fontSize),specifiedLineHeight=parseFloat(cs.lineHeight),lineHeight=Number.isFinite(specifiedLineHeight)?specifiedLineHeight:fontSize*1.5,heading=h.getBoundingClientRect(),headingHeight=heading.height;
    return {title:h.innerText,x:b.x,right:b.right,clientWidth:area.clientWidth,scrollWidth:area.scrollWidth,gridClientWidth:grid.clientWidth,gridScrollWidth:grid.scrollWidth,controls:[...area.querySelectorAll<HTMLElement>("input,select,button")].map(e=>{const r=e.getBoundingClientRect();return{x:r.x,y:r.y,right:r.right,bottom:r.bottom,tag:e.tagName,label:e.getAttribute("aria-label")??e.getAttribute("id")}}),icon:icon?{x:icon.x,y:icon.y,right:icon.right,bottom:icon.bottom}:null,headingY:heading.y,headingHeight,lineHeight,titleLineCount:Math.ceil(headingHeight/lineHeight)};})}));
   await writeFile(path.join(process.env.NIPT_E2E_P4_EVIDENCE_DIR??".local/p0-e2e/evidence",`task1-responsive-${width}-debug.json`),JSON.stringify(sample,null,2));
   expect(sample.document,width+"px document overflow").toBeLessThanOrEqual(width);
@@ -354,7 +355,7 @@ test("P0-3: choosing a sample out of FIFO order shows the reason requirement bef
  await fixtureQuery("UPDATE lab_batch SET state='Cancelled',cancelled_by=(SELECT id FROM app_user WHERE username='synthetic.lab'),cancelled_at=now(),cancel_reason='SYNTHETIC e2e isolation' WHERE state='Draft'");
  await page.goto("/lab");
  // Earlier pagination fixtures can leave >50 synthetic Ready rows in this shared disposable DB.
- await page.getByLabel("ค้นหา LN / LN Halos / Sample ID / Run").fill(cases[1].ln);
+ await page.getByLabel("ค้นหา LN / HN / LN Halos / Sample ID / Run").fill(cases[1].ln);
  const newest=page.getByRole("row",{name:new RegExp(cases[1].ln)});await expect(newest).toBeVisible({timeout:15000});
  await newest.getByRole("checkbox").check();await page.getByRole("button",{name:/เพิ่มเข้า Batch \(1\)/}).click();
  const dialog=page.getByRole("dialog",{name:"เพิ่มตัวอย่างเข้า Batch"});
@@ -393,7 +394,7 @@ test("G07 + OD-B: 'เติมตัวอย่างจากคิว' previ
  const placed=await fixtureQuery<{slot_number:number;received_at:Date}>("SELECT s.slot_number,r.received_at FROM lab_slot_assignment s JOIN analytical_attempt a ON a.id=s.attempt_id JOIN specimen_round r ON r.id=a.round_id WHERE s.batch_id=$1 AND s.removed_at IS NULL ORDER BY s.slot_number",[batchId]);
  expect(placed).toHaveLength(n);expect(placed.every(p=>p.slot_number>=17&&p.slot_number<=32&&p.slot_number!==25)).toBe(true);
  expect(placed.map(p=>p.received_at.getTime())).toEqual([...placed.map(p=>p.received_at.getTime())].sort((a,b)=>a-b));
- await expect(page.getByRole("tab",{name:/Task List 2/})).toContainText(`ผู้ป่วย ${n}/15`);
+ await expect(page.getByRole("tab",{name:/Task List 2/})).toContainText(`ตัวอย่าง ${n}/15`);
  // OD-B: uncontrolled DRAFT preview of the not-yet-finalized Task.
   // labPdf opens the PDF with `noopener`, so it is intentionally not an opener-linked popup.
   const previewPage=page.context().waitForEvent("page");
