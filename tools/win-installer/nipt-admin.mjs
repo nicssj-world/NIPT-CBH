@@ -1,7 +1,7 @@
 // NIPT-CBH Windows offline installer / operator CLI. Node built-ins only (runs from the package's own node.exe before any dependency exists).
 //   node nipt-admin.mjs <command> --root <install root> [options]
 // Commands: verify-package, preflight, install, start, stop, restart, status, health, backup, restore, upgrade, rollback, uninstall.
-// TEST ENVIRONMENT ONLY. Nothing here connects to a HIS, touches a hospital share, applies a Production migration or accepts clinical use.
+// Profile follows the signed package: `test` (six UAT accounts, test banner) or `production` (admin bootstrap, no test account, acceptance never set). Nothing here connects to a HIS, touches a hospital share, applies a Production migration or accepts clinical use.
 import {execFileSync,spawnSync} from 'node:child_process';
 import {randomBytes,randomUUID,generateKeyPairSync} from 'node:crypto';
 import {existsSync,readFileSync,writeFileSync,mkdirSync,rmSync,cpSync,readdirSync,copyFileSync,appendFileSync,statSync} from 'node:fs';
@@ -210,12 +210,15 @@ async function preflight(){
  else add('master_workbook_sha256',false,'MASTER_WORKBOOK_REQUIRED (operational backups need the approved master)');
  add('task_scheduler',taskSchedulerAvailable(),'');
  add('powershell7_in_package',existsSync(path.join(packageDir,'payload','runtime','pwsh','pwsh.exe')),'the native Excel export needs PowerShell 7');
+ const word=wordInstalled();
+ add('word_installed',word||args['allow-no-word']==='yes',word?'':'Microsoft Word is not registered on this host: the signed NIPT result PDF cannot be produced (override: --allow-no-word yes)');
  const excel=excelInstalled();
  add('excel_installed',excel||args['allow-no-excel']==='yes',excel?'':'Microsoft Excel is not registered on this host: Task List PDFs cannot be produced (override: --allow-no-excel yes)');
  if(excel&&(args['excel-mode']??(args['task-mode']==='system'?'bridge':'direct'))==='direct')add('default_printer_current_user',defaultPrinterPresent(),'the export reads the signed-in user default printer (HKCU) and sets it to A4');
  const ok=checks.every(c=>c.ok);
  return {ok,checks,manifest:manifest?{version:manifest.version,revision:manifest.revision}:null};
 }
+function wordInstalled(){try{run(system32('reg.exe'),['query','HKCR\\Word.Application\\CurVer']);return true;}catch{return false;}}
 function excelInstalled(){try{run(system32('reg.exe'),['query','HKCR\\Excel.Application\\CurVer']);return true;}catch{return false;}}
 function defaultPrinterPresent(){try{return ps("(Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Windows' -Name Device -ErrorAction Stop).Device").trim().length>0;}catch{return false;}}
 function taskSchedulerAvailable(){try{ps('Get-Command Register-ScheduledTask | Out-Null');return true;}catch{return false;}}
@@ -250,6 +253,10 @@ async function install(){
  const packageDir=path.resolve(args.package),L=layout(args.root);
  const m=await verifyPackage(packageDir,path.resolve(args['public-key']));
  if(m.testFault)fail('PACKAGE_TEST_FAULT_NOT_ALLOWED');
+ const production=m.testEnvironmentOnly===false;
+ if(args.profile!==undefined&&args.profile!==(production?'production':'test'))fail('PROFILE_PACKAGE_MISMATCH',{package:production?'production':'test',requested:args.profile});
+ if(production&&m.extraTestMigration)fail('PRODUCTION_PACKAGE_REFUSES_TEST_INPUTS');
+ const initialAdmins=production?initialAdminInput():null;
  const masterSource=path.resolve(args['master-workbook']??path.join(packageDir,'payload','master','approved-master.xlsx'));
  const retained=existsSync(L.installState)&&JSON.parse(readFileSync(L.installState,'utf8')).status==='UNINSTALLED_DATA_RETAINED';
  const keptConfig=retained?cfgOf(L):null;
@@ -259,7 +266,7 @@ async function install(){
  const hostChosen=String(args.host??(lanWanted?(detectedLan?.ipv4??fail('LAN_ADDRESS_NOT_FOUND')):'localhost'));
  const config=validateConfig({
   instance,mode:'operational',database:keptConfig?keptConfig.database:String(args.database??`nipt_operational_${instance.replaceAll('-','_')}`).slice(0,60),ports,
-  origin:String(args.origin??originFor(hostChosen,ports.https)),host:hostChosen,lanEnabled:lanWanted,taskMode:args['task-mode']==='system'?'system':'user',testEnvironmentOnly:true,
+  origin:String(args.origin??originFor(hostChosen,ports.https)),host:hostChosen,lanEnabled:lanWanted,taskMode:args['task-mode']==='system'?'system':'user',testEnvironmentOnly:!production,
   masterWorkbook:true,
   excelMode:args['excel-mode']==='bridge'?'bridge':args['excel-mode']==='direct'?'direct':(args['task-mode']==='system'?'bridge':'direct'),
   ...(args['excel-user']?{excelUser:String(args['excel-user'])}:{}),
@@ -277,10 +284,10 @@ async function install(){
  await writeJson(L.configFile,config);
  if(!retained)copyFileSync(masterSource,path.join(L.master,'approved-master.xlsx'));
  const release=await readJson(path.join(target,'release.json'));
- const state={retainedHistory:retained?(JSON.parse(readFileSync(L.installState,'utf8')).history??[]):[],format:'NIPT_WINDOWS_INSTALL_STATE_V1',instance,testEnvironmentOnly:true,status:'INSTALLING',current:{version:m.version,revision:m.revision,migrationsSha256:m.migrationsSha256},previous:null,history:[],installedAt:new Date().toISOString(),acceptance:'NOT_ACCEPTED'};
+ const state={retainedHistory:retained?(JSON.parse(readFileSync(L.installState,'utf8')).history??[]):[],format:'NIPT_WINDOWS_INSTALL_STATE_V1',instance,testEnvironmentOnly:!production,profile:production?'production':'test',status:'INSTALLING',current:{version:m.version,revision:m.revision,migrationsSha256:m.migrationsSha256},previous:null,history:[],installedAt:new Date().toISOString(),acceptance:'NOT_ACCEPTED'};
  saveState(L,state);
  say('generating secrets, certificate and policies');
- const credentials=retained?null:generateSecrets(L,config);
+ const credentials=retained?null:generateSecrets(L,config,initialAdmins);
  generateCertificate(L,config);
  writePolicies(L,config);
  const trust=args['trust-certificate']==='yes'?trustCertificate(L,config):{trusted:false,reason:'NOT_REQUESTED'};
@@ -290,7 +297,7 @@ async function install(){
  pgStart(L,config);
  try{
   say(retained?'applying forward migrations to the retained database':'migrating the database and creating accounts');
-  const r=nodeIn(L,path.join(target,'ops'),['--import','tsx','tools/win-installer/provision.ts','--root',L.root,'--phase',retained?'migrate':'install'],appEnv(L,config,state));
+  const r=nodeIn(L,path.join(target,'ops'),['--import','tsx','tools/win-installer/provision.ts','--root',L.root,'--phase',retained?'migrate':'install','--profile',production?'production':'test'],appEnv(L,config,state));
   if(r.status!==0)fail('PROVISION_FAILED',(r.stderr||r.stdout).slice(-2000));
  }finally{pgStop(L);}
  if(credentials)writeFileSync(L.credentials,credentials,{mode:0o600});
@@ -323,16 +330,27 @@ function syncAdmin(L,releaseRoot){
  writeFileSync(path.join(L.root, 'Status.cmd'), `@echo off\r\nchcp 65001 >nul\r\n${cli} lan-status --root "%~dp0."\r\necho.\r\n${cli} status --root "%~dp0."\r\npause\r\n`);
 }
 
-function generateSecrets(L,c){
+/** Production: the operator names the two first accounts; there are no default usernames and no default passwords. */
+function initialAdminInput(){
+ const need=k=>{const v=args[k];if(typeof v!=='string'||!v.trim())fail('PRODUCTION_ADMIN_IDENTITY_REQUIRED',{missing:k});return v.trim();};
+ const admin={username:need('admin-user').toLowerCase(),displayName:need('admin-name')},checker={username:need('checker-user').toLowerCase(),displayName:need('checker-name')};
+ for(const a of [admin,checker])if(!/^[a-z0-9._-]{3,64}$/.test(a.username)||a.username.startsWith('synthetic.')||a.username.startsWith('uat.'))fail('PRODUCTION_ADMIN_USERNAME_INVALID',{username:a.username});
+ if(admin.username===checker.username)fail('DISTINCT_BOOTSTRAP_IDENTITIES_REQUIRED');
+ return {admin,checker};
+}
+
+function generateSecrets(L,c,initial){
  const rnd=()=>randomBytes(32).toString('hex'),db=rnd(),web=rnd(),worker=rnd();
  const url=(user,pw)=>`postgresql://${user}:${pw}@127.0.0.1:${c.ports.postgres}/${c.database}`;
- const accounts=[['uat.admin','Installed test administrator','APP_ADMIN'],['uat.lab','Installed test laboratory staff','LAB_STAFF'],['uat.certifier','Installed test laboratory certifier','LAB_CERTIFIER'],
+ const production=!!initial;
+ const accounts=production?[]:[['uat.admin','Installed test administrator','APP_ADMIN'],['uat.lab','Installed test laboratory staff','LAB_STAFF'],['uat.certifier','Installed test laboratory certifier','LAB_CERTIFIER'],
   ['uat.clinical-approver','Installed test clinical approver','CLINICAL_APPROVER'],['uat.auditor','Installed test auditor','AUDITOR'],['uat.anc','Installed test ANC nurse','ANC_NURSE']]
   .map(([username,displayName,role])=>({username,displayName,role,password:rnd()}));
  const {publicKey,privateKey}=generateKeyPairSync('rsa',{modulusLength:3072,publicKeyEncoding:{type:'spki',format:'pem'},privateKeyEncoding:{type:'pkcs8',format:'pem'}});
  const files={'db-password':db,'web-password':web,'worker-password':worker,'migration-url':url('nipt_migrator',db),'web-url':url('nipt_web',web),'worker-url':url('nipt_worker',worker),
-  'renderer-token':rnd(),'identity-lookup.key':randomBytes(32),'backup.key':randomBytes(32),'tls-passphrase':rnd(),'integration-public.pem':publicKey,'integration-private.pem':privateKey,'uat-accounts.json':JSON.stringify(accounts,null,2)};
+  'renderer-token':rnd(),'identity-lookup.key':randomBytes(32),'backup.key':randomBytes(32),'tls-passphrase':rnd(),'integration-public.pem':publicKey,'integration-private.pem':privateKey,...(production?{'initial-admins.json':JSON.stringify({admin:{...initial.admin,password:rnd().slice(0,32)},checker:{...initial.checker,password:rnd().slice(0,32)}})}:{'uat-accounts.json':JSON.stringify(accounts,null,2)})};
  for(const [name,value] of Object.entries(files))writeFileSync(secretFile(L,name),value,{flag:'wx',mode:0o600});
+ if(production){const i=JSON.parse(files['initial-admins.json']);return ['NIPT-CBH WINDOWS INSTALLATION — FIRST SIGN-IN (CONFIDENTIAL)',`URL: ${c.origin}/login`,'','One-time passwords: each account must choose a new password at first sign-in.','Deliver each password only to its owner, then DELETE THIS FILE.','',`Role: APP_ADMIN`,`Username: ${i.admin.username}`,`Password: ${i.admin.password}`,'',`Role: CLINICAL_APPROVER`,`Username: ${i.checker.username}`,`Password: ${i.checker.password}`,''].join(String.fromCharCode(13,10));}
  return ['NIPT-CBH WINDOWS INSTALLATION — TEST ENVIRONMENT ONLY — NOT FOR CLINICAL USE',`URL: ${c.origin}/login`,'',...accounts.flatMap(a=>[`Role: ${a.role}`,`Username: ${a.username}`,`Password: ${a.password}`,''])].join('\r\n');
 }
 
@@ -753,6 +771,15 @@ async function photos(){
  let out;try{out=JSON.parse(r.stdout);}catch{out={raw:(r.stdout||'').slice(-800),stderr:(r.stderr||'').slice(-800)};}
  return {exit:r.status,...(Array.isArray(out)?{result:out}:out)};
 }
+/** Word + Excel proof in the CURRENT Windows session with the installed runtime (run it as the account that runs the NIPT startup task, and again after a reboot). */
+function officeCheck(){
+ const L=layout(args.root),c=cfgOf(L),st=stateOf(L),ops=path.join(releaseDir(L,st.current.version),'ops');
+ const master=c.masterWorkbook?(c.masterPath??path.join(L.master,'approved-master.xlsx')):undefined;
+ const extra=[...(args['report-master']?['--report-master',path.resolve(args['report-master'])]:[]),...(master&&existsSync(master)?['--excel-workbook',master]:[])];
+ const r=nodeIn(L,ops,['--import','tsx','tools/win-installer/office-check.ts',...extra],appEnv(L,c,st));
+ let out;try{out=JSON.parse(r.stdout.trim().split(String.fromCharCode(10)).pop());}catch{out={ok:false,error:'OFFICE_CHECK_FAILED',stderr:(r.stderr||'').slice(-800)};}
+ return {exit:r.status,taskMode:c.taskMode,excelMode:c.excelMode??'direct',...out};
+}
 function hostCheck(){
  const script=path.join(path.dirname(fileURLToPath(import.meta.url)),'host-check.mjs');
  const r=spawnSync(process.execPath,[script,...process.argv.slice(3).filter(a=>a!=='--root'||true)],{encoding:'utf8',windowsHide:true});
@@ -768,7 +795,7 @@ const commands={
  status,
  health:async()=>{const L=layout(args.root);return healthReport(L,cfgOf(L));},
  backup,restore,upgrade,rollback,uninstall,
- 'set-lan':setLan,'lan-status':lanStatus,'set-backup-root':setBackupRoot,'schedule-backup':scheduleBackup,'unschedule-backup':unscheduleBackup,'backups':backupsList,'dr-drill':drDrill,photos,'host-check':hostCheck
+ 'set-lan':setLan,'lan-status':lanStatus,'set-backup-root':setBackupRoot,'schedule-backup':scheduleBackup,'unschedule-backup':unscheduleBackup,'backups':backupsList,'dr-drill':drDrill,photos,'host-check':hostCheck,'office-check':officeCheck
 };
 if(!commands[command]){process.stderr.write(`usage: nipt-admin <${Object.keys(commands).join('|')}> --root <dir> [options]\n`);process.exit(2);}
 try{

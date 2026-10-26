@@ -32,8 +32,11 @@ describe('configuration and install root',()=>{
  it('accepts the intended test configuration and nothing looser',()=>{
   expect(validateConfig(goodConfig()).instance).toBe('nipt-test');
   const bad=(patch:Record<string,unknown>,code:string)=>expect(()=>validateConfig({...goodConfig(),...patch}),code).toThrow(code);
-  bad({testEnvironmentOnly:false},'CONFIG_TEST_ENVIRONMENT_ONLY_REQUIRED');
-  bad({testEnvironmentOnly:undefined},'CONFIG_TEST_ENVIRONMENT_ONLY_REQUIRED');
+  // the profile is explicit: production is allowed only for an operational database, and an absent flag never defaults to either profile
+  expect(validateConfig({...goodConfig(),testEnvironmentOnly:false}).instance).toBe('nipt-test');
+  bad({testEnvironmentOnly:undefined},'CONFIG_PROFILE_REQUIRED');
+  bad({testEnvironmentOnly:'false'},'CONFIG_PROFILE_REQUIRED');
+  bad({testEnvironmentOnly:false,mode:'synthetic',database:'nipt_synthetic_nipt_test'},'CONFIG_PRODUCTION_REQUIRES_OPERATIONAL_MODE');
   bad({instance:'X'},'CONFIG_INSTANCE_INVALID');
   bad({mode:'production'},'CONFIG_MODE_INVALID');
   bad({database:'postgres'},'CONFIG_DATABASE_INVALID');
@@ -102,9 +105,10 @@ describe('package authenticity',()=>{
   m.version='9.9.9';await writeFile(path.join(root,'manifest.json'),JSON.stringify(m));
   await expect(verifyPackage(root,key)).rejects.toThrow('SIGNATURE_INVALID');
  });
- it('requires the test-environment flag, provenance, a valid version and safe relative paths',async()=>{
+ it('requires an explicit profile flag, provenance, a valid version and safe relative paths',async()=>{
   const key=await pub();
-  await expect(verifyPackage(await makePackage(undefined,{testEnvironmentOnly:false}),key)).rejects.toThrow('PACKAGE_MANIFEST_INVALID');
+  expect((await verifyPackage(await makePackage(undefined,{testEnvironmentOnly:false}),key)).testEnvironmentOnly).toBe(false);
+  await expect(verifyPackage(await makePackage(undefined,{testEnvironmentOnly:undefined}),key)).rejects.toThrow('PACKAGE_MANIFEST_INVALID');
   await expect(verifyPackage(await makePackage(undefined,{format:'OTHER'}),key)).rejects.toThrow('PACKAGE_MANIFEST_INVALID');
   await expect(verifyPackage(await makePackage(undefined,{revision:'abc'}),key)).rejects.toThrow('PACKAGE_PROVENANCE_REQUIRED');
   await expect(verifyPackage(await makePackage(undefined,{version:'latest'}),key)).rejects.toThrow('VERSION_INVALID');

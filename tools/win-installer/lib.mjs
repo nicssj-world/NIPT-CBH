@@ -53,7 +53,9 @@ export function validateConfig(c){
  const p=c.ports??{};
  for(const k of ['postgres','web','https','renderer'])need(Number.isInteger(p[k])&&p[k]>=1&&p[k]<=65535,'CONFIG_PORT_INVALID');
  need(new Set([p.postgres,p.web,p.https,p.renderer]).size===4,'CONFIG_PORTS_DUPLICATE');
- need(c.testEnvironmentOnly===true,'CONFIG_TEST_ENVIRONMENT_ONLY_REQUIRED');
+ // true = test/training install (six UAT accounts, banner); false = production install (admin bootstrap, no test accounts). Never absent.
+ need(typeof c.testEnvironmentOnly==='boolean','CONFIG_PROFILE_REQUIRED');
+ need(c.testEnvironmentOnly===true||c.mode==='operational','CONFIG_PRODUCTION_REQUIRES_OPERATIONAL_MODE');
  need(['user','system'].includes(c.taskMode),'CONFIG_TASK_MODE_INVALID');
  // The HTTPS front listens on loopback unless IT explicitly publishes it on a LAN address (never PostgreSQL, web or renderer).
  need(c.httpsHost===undefined||c.httpsHost==='0.0.0.0'||/^(?:\d{1,3}\.){3}\d{1,3}$/.test(c.httpsHost),'CONFIG_HTTPS_HOST_INVALID');
@@ -128,7 +130,7 @@ export async function verifyPackage(dir,publicKeyFile){
  if(raw.length>8*1024*1024)throw Error('MANIFEST_TOO_LARGE');
  if(!verify(null,raw,await readFile(publicKeyFile),await readFile(path.join(dir,'manifest.sig'))))throw Error('SIGNATURE_INVALID');
  const m=JSON.parse(raw);
- if(m.format!==INSTALLER_FORMAT||m.testEnvironmentOnly!==true||!m.files||typeof m.files!=='object')throw Error('PACKAGE_MANIFEST_INVALID');
+ if(m.format!==INSTALLER_FORMAT||typeof m.testEnvironmentOnly!=='boolean'||!m.files||typeof m.files!=='object')throw Error('PACKAGE_MANIFEST_INVALID');
  parseVersion(m.version);
  if(!/^[a-f0-9]{40}$/.test(m.revision??'')||!/^[a-f0-9]{64}$/.test(m.migrationsSha256??''))throw Error('PACKAGE_PROVENANCE_REQUIRED');
  for(const n of Object.keys(m.files))if(!safeRelative(n))throw Error('PACKAGE_UNSAFE_PATH');

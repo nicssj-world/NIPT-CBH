@@ -1,22 +1,26 @@
 /** Database provisioning for the Windows installation. Runs with the release's own Node/tsx from the release `ops` folder.
  *  phase=install : create the database, apply forward migrations, mark the runtime operational, create the least-privilege
- *                  logins and the six test accounts (first installation only; refuses a database that is not empty).
+ *                  logins and the first accounts (first installation only; refuses a database that is not empty).
+ *                  profile=test       : the six UAT accounts.
+ *                  profile=production : the existing administrator bootstrap (APP_ADMIN + CLINICAL_APPROVER, one-time passwords, forced change); no test account, no test unit.
  *  phase=migrate : apply forward migrations and re-assert grants/logins (upgrade). No accounts, no mode change.
  *  The migration ledger is forward-only with SHA-256 checksums (tools/migrate.ts): a changed, missing or backdated migration aborts.
  *  Test environment only; the installer never targets a database whose name looks like synthetic/template/postgres. */
 import {Pool,escapeIdentifier,escapeLiteral} from 'pg';
 import {PgBoss} from 'pg-boss';
-import {readFile} from 'node:fs/promises';
+import {readFile,rm} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {releaseFormEnvironment} from './form-assets.mjs';
 import {assertRuntimeDatabase,assertDatabaseMode} from '../../packages/db/connection';
 import {hashPassword} from '../../packages/security/password';
+import {bootstrapAdministrators} from '../../packages/admin/bootstrap';
 import {configureOperational} from '../configure-operational';
 import {migrate} from '../migrate';
 type Account={username:string;displayName:string;password:string;role:'APP_ADMIN'|'LAB_STAFF'|'LAB_CERTIFIER'|'CLINICAL_APPROVER'|'AUDITOR'|'ANC_NURSE'};
 const arg=(name:string)=>{const i=process.argv.indexOf('--'+name);return i>=0?process.argv[i+1]:undefined;};
-const root=arg('root'),phase=arg('phase');
+const root=arg('root'),phase=arg('phase'),profile=arg('profile')??'test';
+if(!['test','production'].includes(profile))throw Error('PROVISION_PROFILE_INVALID');
 if(!root||!['install','migrate'].includes(phase??''))throw Error('PROVISION_ARGUMENTS_REQUIRED');
 // Validate the selected release before any database provisioning or forward migration.
 // This also covers upgrades, whose install-state still points to the old release until health succeeds.
@@ -24,7 +28,7 @@ Object.assign(process.env,releaseFormEnvironment(path.resolve(path.dirname(fileU
 const secrets=path.join(root,'secrets');
 const secret=async(name:string)=>(await readFile(path.join(secrets,name),'utf8')).trim();
 const database=process.env.NIPT_OPERATIONAL_DATABASE??'';
-if(process.env.NIPT_MODE!=='operational'||!/^nipt_operational_[a-z0-9_]{1,40}$/.test(database)||/synthetic|template/.test(database))throw Error('INSTALLER_OPERATIONAL_TEST_DATABASE_REQUIRED');
+if(process.env.NIPT_MODE!=='operational'||!/^nipt_operational_[a-z0-9_]{1,40}$/.test(database)||/synthetic|template/.test(database))throw Error('INSTALLER_OPERATIONAL_DATABASE_REQUIRED');
 
 const migrationUrl=await secret('migration-url');assertRuntimeDatabase(migrationUrl);
 const accountsOf=(raw:string):Account[]=>{
@@ -40,6 +44,14 @@ async function ensureLogin(db:Pool,login:'nipt_web'|'nipt_worker',group:'app_rw'
  else await db.query(`ALTER ROLE ${escapeIdentifier(login)} PASSWORD ${escapeLiteral(password)}`);
  await db.query(`GRANT ${escapeIdentifier(group)} TO ${escapeIdentifier(login)}`);
  if(login==='nipt_worker')await db.query(`GRANT CREATE ON DATABASE ${escapeIdentifier(database)} TO nipt_worker`);
+}
+/** Production first install: the existing bootstrap against an EMPTY installation, inside one transaction. The input file is removed once the accounts exist. */
+async function bootstrapProduction(db:Pool){
+ const file=path.join(secrets,'initial-admins.json');
+ const input=JSON.parse(await readFile(file,'utf8')) as {admin:unknown;checker:unknown};
+ const client=await db.connect();
+ try{await client.query('BEGIN');await bootstrapAdministrators(client,input);await client.query('COMMIT');}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
+ await rm(file,{force:true});
 }
 async function seedAccounts(db:Pool,values:Account[]){
  const ids:Record<string,string>={};
@@ -70,7 +82,7 @@ try{
  await ensureLogin(db,'nipt_worker','worker_rw','worker-password');
  await db.query('GRANT USAGE ON SCHEMA pgboss TO worker_rw; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA pgboss TO worker_rw; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA pgboss TO worker_rw');
  await db.query('GRANT SELECT,INSERT ON file_asset,case_event TO worker_rw');
- if(phase==='install')await seedAccounts(db,accountsOf(await secret('uat-accounts.json')));
+ if(phase==='install'){if(profile==='production')await bootstrapProduction(db);else await seedAccounts(db,accountsOf(await secret('uat-accounts.json')));}
  const ledger=(await db.query<{name:string}>('SELECT name FROM schema_migration ORDER BY name')).rows;
- process.stdout.write(JSON.stringify({phase,database,migrations:ledger.length,last:ledger.at(-1)?.name,accounts:phase==='install'?6:undefined})+'\n');
+ process.stdout.write(JSON.stringify({phase,database,migrations:ledger.length,last:ledger.at(-1)?.name,profile,accounts:phase==='install'?(profile==='production'?2:6):undefined})+'\n');
 }finally{await db.end();}

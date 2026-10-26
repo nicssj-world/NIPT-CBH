@@ -1,9 +1,9 @@
 /** Build the signed Windows offline package from the clean committed source.
  *    tsx tools/win-installer/build-package.ts --version 1.0.0 [--out <dir>] [--app-only] [--skip-build]
- *        [--extra-migration <file.sql>] [--signing-key <private.pem>] [--min-from <version>] [--test-fault web-exits] [--master-workbook <approved master .xlsx>]
+ *        [--extra-migration <file.sql>] [--signing-key <private.pem>] [--min-from <version>] [--test-fault web-exits] [--master-workbook <approved master .xlsx>] [--profile test|production]
  *  The package is a folder: installer/ (operator CLI), payload/release (app + ops + migrations), payload/runtime (Node, PostgreSQL 17 binaries,
  *  Chromium for the PDF renderer; omitted with --app-only for upgrades), manifest.json + manifest.sig (Ed25519 over every file's SHA-256).
- *  Test environment only: nothing is published, pushed or deployed. `--extra-migration` exists for upgrade rehearsals and is recorded in the manifest. */
+ *  Default profile is `test`; `--profile production` builds the hospital package (no test accounts). Nothing is published, pushed or deployed. `--extra-migration` exists for upgrade rehearsals and is recorded in the manifest. */
 import {execFileSync} from 'node:child_process';
 import {createHash,generateKeyPairSync,createPublicKey,sign} from 'node:crypto';
 import {cp,mkdir,readFile,writeFile,readdir,rm,access,lstat} from 'node:fs/promises';
@@ -15,6 +15,11 @@ import {stageFormAssets,FORM_ASSETS} from './form-assets.mjs';
 const arg=(n:string)=>{const i=process.argv.indexOf('--'+n);return i<0?undefined:(process.argv[i+1]&&!process.argv[i+1].startsWith('--')?process.argv[i+1]:'true');};
 const git=(...a:string[])=>execFileSync('git',a,{encoding:'utf8'}).trim();
 const version=arg('version')??'';parseVersion(version);
+// --profile production: no UAT accounts, admin bootstrap at install, no test banner. Test-only inputs are refused for a production package.
+const profile=arg('profile')??'test';
+if(profile!=='test'&&profile!=='production')throw Error('PROFILE_INVALID');
+const production=profile==='production';
+if(production&&(arg('extra-migration')||arg('test-fault')))throw Error('PRODUCTION_PACKAGE_REFUSES_TEST_INPUTS');
 if(git('status','--porcelain','--untracked-files=normal'))throw Error('CLEAN_COMMITTED_SOURCE_REQUIRED');
 const revision=git('rev-parse','HEAD'),appOnly=arg('app-only')==='true',skipBuild=arg('skip-build')==='true';
 const localRoot=path.resolve('.local/p8-win');
@@ -73,6 +78,7 @@ await mkdir(path.join(ops,'deploy'),{recursive:true});await cp('deploy/scripts',
 await mkdir(path.join(ops,'tools'),{recursive:true});
 for(const f of ['migrate.ts','migration-checksums.ts','configure-operational.ts','runtime-env.mjs','run-photos.ts'])await cp(path.join('tools',f),path.join(ops,'tools',f));
 await mkdir(path.join(ops,'tools','operational'),{recursive:true});await cp('tools/operational/native-excel-bridge.ps1',path.join(ops,'tools','operational','native-excel-bridge.ps1'));
+await mkdir(path.join(ops,'tools','task3-uat'),{recursive:true});await cp('tools/task3-uat/signature.ts',path.join(ops,'tools','task3-uat','signature.ts'));
 for(const d of ['p8','win-installer'])await cp(path.join('tools',d),path.join(ops,'tools',d),{recursive:true,filter:s=>!/build-package\.ts$/.test(s)});
 for(const f of ['package.json','package-lock.json','tsconfig.json'])await cp(f,path.join(ops,f));
 await cp(path.join(modulesCache,'node_modules'),path.join(ops,'node_modules'),{recursive:true});
@@ -125,7 +131,7 @@ const privateKey=await readFile(keyFile,'utf8');
 const publicFile=keyFile.replace('private','public');
 if(!await exists(publicFile))await writeFile(publicFile,createPublicKey(privateKey).export({type:'spki',format:'pem'}));
 const files=await directoryHashes(out);
-const manifest={format:INSTALLER_FORMAT,version,revision,migrationsSha256:inventory.sha256,testEnvironmentOnly:true,runtimeIncluded:!appOnly,runtime:runtime??null,minFromVersion:arg('min-from')??null,extraTestMigration:extra?path.basename(extra):null,testFault:testFault??null,files};
+const manifest={format:INSTALLER_FORMAT,version,revision,migrationsSha256:inventory.sha256,testEnvironmentOnly:!production,profile,runtimeIncluded:!appOnly,runtime:runtime??null,minFromVersion:arg('min-from')??null,extraTestMigration:extra?path.basename(extra):null,testFault:testFault??null,files};
 const raw=Buffer.from(JSON.stringify(manifest));
 await writeFile(path.join(out,'manifest.json'),raw);await writeFile(path.join(out,'manifest.sig'),sign(null,raw,privateKey));
 await rm(staging,{recursive:true,force:true});

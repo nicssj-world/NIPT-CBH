@@ -1,5 +1,5 @@
 <#
-.SYNOPSIS  Operator entry point for the NIPT-CBH Windows installation (test environment only).
+.SYNOPSIS  Operator entry point for the NIPT-CBH Windows installation.
 .EXAMPLE   .\Nipt-Admin.ps1 status -Root C:\NIPT-CBH
 .EXAMPLE   .\Nipt-Admin.ps1 backup -Root C:\NIPT-CBH
 .EXAMPLE   .\Nipt-Admin.ps1 upgrade -Root C:\NIPT-CBH -Package D:\media\nipt-cbh-1.1.0-app -PublicKey D:\media\package-signing-public.pem
@@ -7,7 +7,7 @@ Commands: verify-package preflight install start stop restart status health back
 #>
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory,Position=0)][ValidateSet('verify-package','preflight','install','start','stop','restart','status','health','backup','restore','upgrade','rollback','uninstall')][string]$Command,
+  [Parameter(Mandatory,Position=0)][ValidateSet('verify-package','preflight','install','start','stop','restart','status','health','backup','restore','upgrade','rollback','uninstall','host-check','office-check')][string]$Command,
   [string]$Root='C:\NIPT-CBH',
   [string]$Package,
   [string]$PublicKey,
