@@ -255,7 +255,7 @@ async function install(){
  if(m.testFault)fail('PACKAGE_TEST_FAULT_NOT_ALLOWED');
  const production=m.testEnvironmentOnly===false;
  if(args.profile!==undefined&&args.profile!==(production?'production':'test'))fail('PROFILE_PACKAGE_MISMATCH',{package:production?'production':'test',requested:args.profile});
- if(production&&m.extraTestMigration)fail('PRODUCTION_PACKAGE_REFUSES_TEST_INPUTS');
+ if(production&&(m.extraTestMigration||m.rehearsalOnly||m.testFault))fail('PRODUCTION_PACKAGE_REFUSES_TEST_INPUTS');
  const initialAdmins=production?initialAdminInput():null;
  const masterSource=path.resolve(args['master-workbook']??path.join(packageDir,'payload','master','approved-master.xlsx'));
  const retained=existsSync(L.installState)&&JSON.parse(readFileSync(L.installState,'utf8')).status==='UNINSTALLED_DATA_RETAINED';
@@ -471,7 +471,9 @@ async function upgrade(){
  const L=layout(args.root),c=cfgOf(L),st=stateOf(L);
  const packageDir=path.resolve(args.package??fail('PACKAGE_REQUIRED'));
  const m=await verifyPackage(packageDir,path.resolve(args['public-key']??fail('PUBLIC_KEY_REQUIRED')));
- if(m.testFault&&args['allow-test-fault']!=='yes')fail('PACKAGE_TEST_FAULT_NOT_ALLOWED');
+ if((m.testFault||m.rehearsalOnly)&&args['allow-test-fault']!=='yes')fail('PACKAGE_TEST_FAULT_NOT_ALLOWED');
+ // an installation never changes profile through an upgrade: a test package cannot be applied to production data, nor the reverse
+ if((m.testEnvironmentOnly===false)!==(c.testEnvironmentOnly===false))fail('UPGRADE_PROFILE_MISMATCH',{installed:c.testEnvironmentOnly===false?'production':'test',package:m.testEnvironmentOnly===false?'production':'test'});
  if(!args['allow-same-version']&&compareVersions(m.version,st.current.version)<=0)fail('UPGRADE_VERSION_NOT_NEWER',{current:st.current.version,package:m.version});
  if(m.minFromVersion&&compareVersions(st.current.version,m.minFromVersion)<0)fail('UPGRADE_FROM_VERSION_TOO_OLD',{minFromVersion:m.minFromVersion});
  const installedRuntime=await readJson(path.join(L.runtime,'runtime.json'),null);
