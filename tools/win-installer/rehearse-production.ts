@@ -71,10 +71,10 @@ try{
   const build=(label:string,dir:string,a:string[])=>{if(existsSync(dir))return;out[label]=JSON.parse(tsx('tools/win-installer/build-package.ts',...a).trim().split('\n').pop()!);};
   build('1.1.0',pkgDir('1.1.0'),['--version','1.1.0','--profile','production','--master-workbook',master,...(flag('skip-build')?['--skip-build']:[])]);
   build('1.1.1-app',pkgDir('1.1.1',true),['--version','1.1.1','--profile','production','--app-only','--skip-build']);
-  build('1.1.2-app',pkgDir('1.1.2',true),['--version','1.1.2','--profile','production','--app-only','--skip-build','--rehearsal-only','--extra-migration','tools/win-installer/rehearsal/105_p8_rehearsal_marker.sql']);
+  build('1.1.2-app',pkgDir('1.1.2',true),['--version','1.1.2','--profile','production','--app-only','--skip-build','--rehearsal-only','--extra-migration','tools/win-installer/rehearsal/900_p8_rehearsal_marker.sql']);
   build('1.1.3-app-test-profile',pkgDir('1.1.3',true),['--version','1.1.3','--profile','test','--app-only','--skip-build']);
   // a production package can never be built with test inputs unless it is an explicit rehearsal-only app package
-  const bad=spawnSync(process.execPath,['node_modules/tsx/dist/cli.mjs','tools/win-installer/build-package.ts','--version','9.9.9','--profile','production','--extra-migration','tools/win-installer/rehearsal/105_p8_rehearsal_marker.sql'],{encoding:'utf8'});
+  const bad=spawnSync(process.execPath,['node_modules/tsx/dist/cli.mjs','tools/win-installer/build-package.ts','--version','9.9.9','--profile','production','--extra-migration','tools/win-installer/rehearsal/900_p8_rehearsal_marker.sql'],{encoding:'utf8'});
   assert.notEqual(bad.status,0);assert.match(bad.stderr,/PRODUCTION_PACKAGE_REFUSES_TEST_INPUTS/);
   out.refusal='PRODUCTION_PACKAGE_REFUSES_TEST_INPUTS';return out;
  });
@@ -220,7 +220,7 @@ try{
   const up=cli('installed','upgrade',['--package',pkgDir('1.1.1',true),'--public-key',publicKey]);assert.equal(up.upgraded,true);assert.deepEqual(up.pendingMigrationsApplied,[]);
   await healthOk('AFTER_APP_ONLY_UPGRADE');
   const rb=cli('installed','rollback');assert.equal(rb.rolledBack,true);assert.equal(rb.to,'1.1.0');await healthOk('AFTER_COMPATIBLE_ROLLBACK');
-  const mig=cli('installed','upgrade',['--package',pkgDir('1.1.2',true),'--public-key',publicKey,'--allow-test-fault','yes']);assert.equal(mig.upgraded,true);assert.deepEqual(mig.pendingMigrationsApplied,['105_p8_rehearsal_marker.sql']);
+  const mig=cli('installed','upgrade',['--package',pkgDir('1.1.2',true),'--public-key',publicKey,'--allow-test-fault','yes']);assert.equal(mig.upgraded,true);assert.deepEqual(mig.pendingMigrationsApplied,['900_p8_rehearsal_marker.sql']);
   assert.ok(existsSync(mig.preUpgradeBackup));assert.equal(psql('SELECT note FROM p8_rehearsal_marker WHERE id=1'),'p8 windows installer rehearsal');
   await healthOk('AFTER_MIGRATION_UPGRADE');
   const refused=cli('installed','rollback',[],{allowFail:true});assert.equal(refused.error,'ROLLBACK_REQUIRES_DATABASE_RESTORE');
