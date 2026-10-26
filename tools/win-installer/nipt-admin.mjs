@@ -247,6 +247,12 @@ function secureDirectory(dir){
  run(system32('icacls.exe'),[dir,'/inheritance:r','/grant:r',`${user}:(OI)(CI)F`,'*S-1-5-18:(OI)(CI)F','*S-1-5-32-544:(OI)(CI)F']);
 }
 
+/** A single confidential file (the one-time credential hand-off): installing user, SYSTEM and Administrators only, no inherited access. */
+function secureFile(file){
+ const user=whoami();
+ run(system32('icacls.exe'),[file,'/inheritance:r','/grant:r',`${user}:F`,'*S-1-5-18:F','*S-1-5-32-544:F']);
+}
+
 async function install(){
  const pre=await preflight();
  if(!pre.ok)fail('PREFLIGHT_FAILED',pre.checks.filter(c=>!c.ok));
@@ -256,9 +262,10 @@ async function install(){
  const production=m.testEnvironmentOnly===false;
  if(args.profile!==undefined&&args.profile!==(production?'production':'test'))fail('PROFILE_PACKAGE_MISMATCH',{package:production?'production':'test',requested:args.profile});
  if(production&&(m.extraTestMigration||m.rehearsalOnly||m.testFault))fail('PRODUCTION_PACKAGE_REFUSES_TEST_INPUTS');
- const initialAdmins=production?initialAdminInput():null;
  const masterSource=path.resolve(args['master-workbook']??path.join(packageDir,'payload','master','approved-master.xlsx'));
  const retained=existsSync(L.installState)&&JSON.parse(readFileSync(L.installState,'utf8')).status==='UNINSTALLED_DATA_RETAINED';
+ // retained data already holds its accounts: a reinstall never bootstraps again and never needs new first-account names
+ const initialAdmins=production&&!retained?initialAdminInput():null;
  const keptConfig=retained?cfgOf(L):null;
  const ports=keptConfig?keptConfig.ports:await resolvePorts(),instance=keptConfig?keptConfig.instance:String(args.instance??'nipt-cbh');
  const lanWanted=args.lan==='yes';
@@ -300,7 +307,7 @@ async function install(){
   const r=nodeIn(L,path.join(target,'ops'),['--import','tsx','tools/win-installer/provision.ts','--root',L.root,'--phase',retained?'migrate':'install','--profile',production?'production':'test'],appEnv(L,config,state));
   if(r.status!==0)fail('PROVISION_FAILED',(r.stderr||r.stdout).slice(-2000));
  }finally{pgStop(L);}
- if(credentials)writeFileSync(L.credentials,credentials,{mode:0o600});
+ if(credentials){writeFileSync(L.credentials,credentials,{mode:0o600});secureFile(L.credentials);}
  history(L,state,retained?'REINSTALLED_ON_RETAINED_DATA':'INSTALLED',{version:m.version});
  state.status='INSTALLED_NOT_ACCEPTED';saveState(L,state);
  // the scoped firewall rule exists BEFORE the first start, so Windows never shows its own "allow access" prompt for node.exe

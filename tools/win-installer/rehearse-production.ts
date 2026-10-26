@@ -130,6 +130,7 @@ try{
   assert.ok(!existsSync(path.join(root,'secrets','uat-accounts.json')));assert.ok(!existsSync(path.join(root,'secrets','initial-admins.json')),'the bootstrap input is removed once the accounts exist');
   const cred=readFileSync(path.join(root,'credentials.txt'),'utf8');assert.ok(!/TEST ENVIRONMENT|uat\./i.test(cred));assert.equal((cred.match(/^Password: /gm)??[]).length,2);
   const pw=[...cred.matchAll(/^Password: (.+)$/gm)].map(m=>m[1]);assert.ok(pw.every(p=>p.length>=32)&&pw[0]!==pw[1]);
+  const credAcl=execFileSync(path.join(process.env.SystemRoot??'C:/Windows','System32','icacls.exe'),[path.join(root,'credentials.txt')],{encoding:'utf8'});assert.ok(!/Everyone|BUILTIN.Users|Authenticated Users/i.test(credAcl),'credentials.txt must not be readable by broad groups');
   const hash=psql("SELECT count(*) FROM app_user WHERE password_hash LIKE '$argon2id$%'");assert.equal(hash,'2');
   const listen=await Promise.all(ports.map(listening));assert.deepEqual(listen,[true,true,true,true]);
   const roles=psql("SELECT string_agg(rolname||':'||(rolsuper OR rolcreatedb OR rolcreaterole)::text,',' ORDER BY rolname) FROM pg_roles WHERE rolname IN ('nipt_web','nipt_worker')");assert.equal(roles,'nipt_web:false,nipt_worker:false');

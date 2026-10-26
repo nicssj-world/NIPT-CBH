@@ -1,4 +1,4 @@
-﻿; NIPT-CBH one-click Windows Setup (Inno Setup 6). TEST RELEASE: synthetic accounts, self-signed certificate, no Production HIS.
+﻿; NIPT-CBH one-click Windows Setup (Inno Setup 6). /DProduction=1 = PRODUCTION profile (the person installing names the first administrator and clinical approver; random one-time passwords; no test accounts); without it = TEST RELEASE (synthetic accounts). Self-signed certificate, no HIS connection either way.
 ; The wizard only extracts the verified offline package to a temporary folder and runs the unchanged P8 engine through setup-run.mjs.
 ; Build:  ISCC /DPackageDir=<package folder> /DKeyFile=<public key .pem> /DAppVersion=1.0.0 /DOutDir=<folder> NIPT-CBH-Setup.iss
 ; Command line (all optional): /ROOT=C:\NIPT-CBH /HOST=<ip or dns name> /LAN=yes|no /LANALLOW=<LocalSubnet|CIDR> /ALLOWPUBLIC=1 /TASKMODE=user|system
@@ -15,13 +15,24 @@
 #ifndef OutDir
   #define OutDir "."
 #endif
+#ifdef Production
+  #define Publisher "NIPT-CBH โรงพยาบาลชลบุรี"
+  #define VersionDescription "NIPT-CBH Setup (production profile)"
+  #define WelcomeNote "ตัวติดตั้งจะสร้างบัญชีผู้ดูแลระบบและผู้อนุมัติทางคลินิกตามชื่อที่ท่านระบุ พร้อมรหัสผ่านครั้งเดียวที่ต้องเปลี่ยนเมื่อเข้าสู่ระบบครั้งแรก การใช้งานทางคลินิกต้องผ่านการรับรองของโรงพยาบาลก่อน"
+  #define CredentialsDescription "เปิดไฟล์รหัสผ่านครั้งเดียวของผู้ดูแลระบบ (เปิดได้เฉพาะผู้ติดตั้ง ลบไฟล์หลังส่งมอบ)"
+#else
+  #define Publisher "NIPT-CBH โรงพยาบาลชลบุรี (รุ่นทดลอง)"
+  #define VersionDescription "NIPT-CBH Setup (test release)"
+  #define WelcomeNote "รุ่นนี้เป็นรุ่นทดลอง (บัญชีผู้ใช้ทดสอบ ข้อมูลสมมติ) ยังไม่ใช่การใช้งานทางคลินิก"
+  #define CredentialsDescription "เปิดไฟล์รหัสผ่านของผู้ใช้ทดสอบ (เปิดได้เฉพาะผู้ติดตั้ง)"
+#endif
 
 [Setup]
 AppId={code:GetSetupAppId}
 AppName=NIPT-CBH
 AppVersion={#AppVersion}
 AppVerName=NIPT-CBH {#AppVersion}
-AppPublisher=NIPT-CBH โรงพยาบาลชลบุรี (รุ่นทดลอง)
+AppPublisher={#Publisher}
 DefaultDirName={autopf}\NIPT-CBH
 DisableDirPage=yes
 DisableProgramGroupPage=yes
@@ -54,7 +65,7 @@ ShowLanguageDialog=no
 UsePreviousLanguage=no
 WizardSizePercent=130,150
 VersionInfoVersion={#AppVersion}
-VersionInfoDescription=NIPT-CBH Setup (test release)
+VersionInfoDescription={#VersionDescription}
 ExtraDiskSpaceRequired=8589934592
 
 [Languages]
@@ -62,7 +73,7 @@ Name: "thai"; MessagesFile: "compiler:Languages\Thai.isl"
 
 [Messages]
 WelcomeLabel1=NIPT-CBH Setup {#AppVersion}
-WelcomeLabel2=ติดตั้งระบบ NIPT-CBH สำหรับโรงพยาบาลชลบุรี%n%nกดปุ่ม "ติดตั้ง" เพียงครั้งเดียว ระบบจะติดตั้งและเริ่มทำงานเอง โดยไม่ต้องใช้อินเทอร์เน็ต ไม่ต้องติดตั้ง Node.js, PostgreSQL หรืออื่นๆ เพิ่ม%n%nรุ่นนี้เป็นรุ่นทดลอง (บัญชีผู้ใช้ทดสอบ ข้อมูลสมมติ) ยังไม่ใช่การใช้งานทางคลินิก
+WelcomeLabel2=ติดตั้งระบบ NIPT-CBH สำหรับโรงพยาบาลชลบุรี%n%nกดปุ่ม "ติดตั้ง" เพียงครั้งเดียว ระบบจะติดตั้งและเริ่มทำงานเอง โดยไม่ต้องใช้อินเทอร์เน็ต ไม่ต้องติดตั้ง Node.js, PostgreSQL หรืออื่นๆ เพิ่ม%n%n{#WelcomeNote}
 ClickNext=กด "ติดตั้ง" เพื่อเริ่ม หรือกด "ยกเลิก" เพื่อออกจากตัวติดตั้ง
 SetupAppTitle=NIPT-CBH Setup
 SetupWindowTitle=NIPT-CBH Setup %1
@@ -85,7 +96,7 @@ Name: "{autoprograms}\NIPT-CBH\ถอนการติดตั้ง NIPT-CBH"
 
 [Run]
 Filename: "{code:GetUrl}"; Description: "เปิด NIPT-CBH ตอนนี้"; Flags: postinstall shellexec skipifsilent; Check: UrlIsReady
-Filename: "{win}\notepad.exe"; Parameters: """{code:GetCredentialsFile}"""; Description: "เปิดไฟล์รหัสผ่านของผู้ใช้ทดสอบ (เปิดได้เฉพาะผู้ติดตั้ง)"; Flags: postinstall nowait skipifsilent unchecked; Check: CredentialsExist
+Filename: "{win}\notepad.exe"; Parameters: """{code:GetCredentialsFile}"""; Description: "{#CredentialsDescription}"; Flags: postinstall nowait skipifsilent unchecked; Check: CredentialsExist
 
 [UninstallDelete]
 Type: files; Name: "{autodesktop}\NIPT-CBH.url"
@@ -102,6 +113,8 @@ var
   AdvancedCheck: TNewCheckBox;
   AdvancedPage: TWizardPage;
   RootEdit, HostEdit: TNewEdit;
+  AdminPage: TInputQueryWizardPage;
+  AdminNeeded: Boolean;
   PublicCheck, SystemCheck: TNewCheckBox;
   ResultKeys, ResultValues: TStringList;
   FinalUrl, FinalCredentials, FinalMessage, FinalWarnings: String;
@@ -120,6 +133,40 @@ end;
 function CmdParam(const Name, Default: String): String;
 begin
   Result := ExpandConstant('{param:' + Name + '|' + Default + '}');
+end;
+
+function IsProductionBuild: Boolean;
+begin
+#ifdef Production
+  Result := True;
+#else
+  Result := False;
+#endif
+end;
+
+{ Production: usernames are lowercase ASCII (3-64), never uat.* / synthetic.*; names must not contain quotes (they travel as command-line arguments). }
+function IsValidUsername(const S: String): Boolean;
+var I: Integer;
+begin
+  Result := (Length(S) >= 3) and (Length(S) <= 64);
+  for I := 1 to Length(S) do
+    if not (((S[I] >= 'a') and (S[I] <= 'z')) or ((S[I] >= '0') and (S[I] <= '9')) or (S[I] = '.') or (S[I] = '_') or (S[I] = '-')) then Result := False;
+  if (Copy(S, 1, 4) = 'uat.') or (Copy(S, 1, 10) = 'synthetic.') then Result := False;
+end;
+
+function IsValidFullName(const S: String): Boolean;
+var I: Integer;
+begin
+  Result := (Length(Trim(S)) >= 1) and (Length(S) <= 120);
+  for I := 1 to Length(S) do
+    if (S[I] = '"') or (Ord(S[I]) < 32) then Result := False;
+end;
+
+{ value typed on the first-account page, or the silent-install command-line parameter }
+function AdminValue(Index: Integer; const ParamName: String): String;
+begin
+  Result := CmdParam(ParamName, '');
+  if (Result = '') and Assigned(AdminPage) then Result := Trim(AdminPage.Values[Index]);
 end;
 
 { Opt-in test wrapper isolation. Never reads/writes the normal product registration or shortcuts. }
@@ -298,6 +345,19 @@ begin
   SystemCheck := TNewCheckBox.Create(AdvancedPage); SystemCheck.Parent := AdvancedPage.Surface; SystemCheck.Left := 0; SystemCheck.Top := PublicCheck.Top + ScaleY(28); SystemCheck.Width := AdvancedPage.SurfaceWidth;
   SystemCheck.Caption := 'เริ่มระบบตอนเปิดเครื่อง (SYSTEM) — ยังไม่ผ่านการทดสอบจริง ไม่แนะนำ';
   SystemCheck.Checked := CmdParam('TASKMODE', 'user') = 'system';
+  AdminNeeded := True;
+  if IsProductionBuild then begin
+    AdminPage := CreateInputQueryPage(AdvancedPage.ID, 'บัญชีเริ่มต้นของระบบ', 'ระบุผู้ดูแลระบบและผู้อนุมัติทางคลินิก (คนละคน) ระบบจะสร้างรหัสผ่านครั้งเดียวให้ ไม่มีบัญชีหรือรหัสผ่านที่กำหนดไว้ล่วงหน้า',
+      'ชื่อผู้ใช้ใช้ตัวพิมพ์เล็กภาษาอังกฤษ ตัวเลข จุด ขีดกลาง หรือขีดล่าง (3-64 ตัวอักษร)');
+    AdminPage.Add('ชื่อผู้ใช้ของผู้ดูแลระบบ (APP_ADMIN):', False);
+    AdminPage.Add('ชื่อ-นามสกุลผู้ดูแลระบบ:', False);
+    AdminPage.Add('ชื่อผู้ใช้ของผู้อนุมัติทางคลินิก (CLINICAL_APPROVER):', False);
+    AdminPage.Add('ชื่อ-นามสกุลผู้อนุมัติทางคลินิก:', False);
+    AdminPage.Values[0] := CmdParam('ADMINUSER', '');
+    AdminPage.Values[1] := CmdParam('ADMINNAME', '');
+    AdminPage.Values[2] := CmdParam('CHECKERUSER', '');
+    AdminPage.Values[3] := CmdParam('CHECKERNAME', '');
+  end;
   CopyButton := TNewButton.Create(WizardForm);
   CopyButton.Parent := WizardForm;
   CopyButton.Left := ScaleX(20);
@@ -328,11 +388,28 @@ function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := False;
   if (AdvancedPage <> nil) and (PageID = AdvancedPage.ID) then Result := not AdvancedCheck.Checked;
+  if (AdminPage <> nil) and (PageID = AdminPage.ID) then Result := not AdminNeeded;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
+var AU, CU: String;
 begin
   Result := True;
+  if (AdminPage <> nil) and (CurPageID = AdminPage.ID) then begin
+    AU := Trim(AdminPage.Values[0]); CU := Trim(AdminPage.Values[2]);
+    if not IsValidUsername(AU) or not IsValidUsername(CU) then begin
+      SuppressibleMsgBox('ชื่อผู้ใช้ไม่ถูกต้อง: ใช้ตัวพิมพ์เล็กภาษาอังกฤษ ตัวเลข จุด ขีดกลาง ขีดล่าง ความยาว 3-64 ตัวอักษร และห้ามขึ้นต้นด้วย uat. หรือ synthetic.', mbError, MB_OK, IDOK);
+      Result := False; Exit;
+    end;
+    if AU = CU then begin
+      SuppressibleMsgBox('ผู้ดูแลระบบและผู้อนุมัติทางคลินิกต้องเป็นคนละคน (ชื่อผู้ใช้ต้องไม่ซ้ำกัน)', mbError, MB_OK, IDOK);
+      Result := False; Exit;
+    end;
+    if not IsValidFullName(AdminPage.Values[1]) or not IsValidFullName(AdminPage.Values[3]) then begin
+      SuppressibleMsgBox('กรุณากรอกชื่อ-นามสกุลทั้งสองคน (ห้ามมีเครื่องหมายอัญประกาศ)', mbError, MB_OK, IDOK);
+      Result := False; Exit;
+    end;
+  end;
   if (AdvancedPage <> nil) and (CurPageID = AdvancedPage.ID) then begin
     if not IsAsciiPath(RootEdit.Text) then begin
       SuppressibleMsgBox('ชื่อโฟลเดอร์ติดตั้งต้องเป็นตัวอักษรภาษาอังกฤษ ตัวเลข หรือช่องว่างเท่านั้น (PostgreSQL ใช้ชื่อโฟลเดอร์ภาษาไทยไม่ได้)', mbError, MB_OK, IDOK);
@@ -395,6 +472,14 @@ begin
   if (Assigned(SystemCheck) and SystemCheck.Checked) or (CmdParam('TASKMODE', 'user') = 'system') then Params := Params + ' --task-mode system'
   else Params := Params + ' --task-mode user';
   if CmdParam('NOTRUST', '') = '1' then Params := Params + ' --trust no';
+  if CmdParam('INSTANCE', '') <> '' then Params := Params + ' --instance "' + CmdParam('INSTANCE', '') + '"';
+  if IsProductionBuild and AdminNeeded then begin
+    { silent installs pass /ADMINUSER= /ADMINNAME= /CHECKERUSER= /CHECKERNAME=; setup-run refuses a production install without all four }
+    if AdminValue(0, 'ADMINUSER') <> '' then Params := Params + ' --admin-user "' + AdminValue(0, 'ADMINUSER') + '"';
+    if AdminValue(1, 'ADMINNAME') <> '' then Params := Params + ' --admin-name "' + AdminValue(1, 'ADMINNAME') + '"';
+    if AdminValue(2, 'CHECKERUSER') <> '' then Params := Params + ' --checker-user "' + AdminValue(2, 'CHECKERUSER') + '"';
+    if AdminValue(3, 'CHECKERNAME') <> '' then Params := Params + ' --checker-name "' + AdminValue(3, 'CHECKERNAME') + '"';
+  end;
   WizardForm.StatusLabel.Caption := 'กำลังติดตั้ง NIPT-CBH ...';
   WizardForm.FilenameLabel.Caption := '';
   WizardForm.ProgressGauge.Min := 0; WizardForm.ProgressGauge.Max := 100; WizardForm.ProgressGauge.Position := 1;
@@ -437,6 +522,8 @@ begin
       FinalMessage := 'ที่อยู่ที่ตั้งไว้: ' + FinalUrl + #13#10 + 'ยังตรวจไม่ผ่านจากเครื่องนี้ — ยังไม่ใช่ที่อยู่ที่ยืนยันว่าใช้งานได้';
   end else
     FinalMessage := 'ที่อยู่เปิดระบบบนเครื่องนี้: ' + FinalUrl + #13#10 + 'ยังไม่ได้เปิดให้เครื่องอื่นเข้า (โหมด LAN ปิด)';
+  if IsProductionBuild and (FinalCredentials <> '') and FileExists(FinalCredentials) then
+    FinalMessage := FinalMessage + #13#10 + #13#10 + 'บัญชีผู้ดูแลระบบและผู้อนุมัติทางคลินิกถูกสร้างแล้ว รหัสผ่านครั้งเดียวอยู่ในไฟล์ (เปิดได้เฉพาะผู้ติดตั้ง): ' + FinalCredentials + #13#10 + 'ต้องเปลี่ยนรหัสผ่านเมื่อเข้าสู่ระบบครั้งแรก และให้ลบไฟล์นี้หลังส่งมอบรหัสผ่านแล้ว';
   FinalMessage := FinalMessage + #13#10 + #13#10 + 'ไฟล์ใบรับรองสำหรับติดตั้งบนเครื่องอื่น (ถ้า Browser เตือน): ' + ResultValue('certificateDownload');
   if FinalWarnings <> '' then FinalMessage := FinalMessage + #13#10 + #13#10 + 'สิ่งที่ต้องทราบ / ตั้งค่าเพิ่ม:' + FinalWarnings;
 end;

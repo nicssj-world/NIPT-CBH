@@ -13,6 +13,7 @@ const CHECK={
  task_scheduler:'Windows Task Scheduler ใช้งานไม่ได้',
  powershell7_in_package:'ไฟล์ติดตั้งไม่ครบ (PowerShell 7)',
  excel_installed:'ไม่พบ Microsoft Excel',
+ word_installed:'ไม่พบ Microsoft Word',
  lan_address:'ไม่พบที่อยู่ IP ของเครื่องนี้ในเครือข่าย LAN (ต้องเสียบสายเครือข่ายและมี Default Gateway)',
  default_printer_current_user:'ยังไม่มีเครื่องพิมพ์เริ่มต้นของผู้ใช้นี้'
 };
@@ -21,6 +22,8 @@ const ROOT={
  INSTALL_ROOT_TOO_SHORT:'ชื่อโฟลเดอร์ติดตั้งสั้นเกินไป',
  INSTALL_ROOT_IS_DRIVE_ROOT:'ห้ามติดตั้งที่รากของไดรฟ์ ให้ระบุโฟลเดอร์ เช่น C:\\NIPT-CBH'
 };
+// Office and printer are reported as warnings, never as a reason to refuse the installation (the system runs; PDF export needs them)
+const SOFT_CHECKS=new Set(['excel_installed','word_installed','default_printer_current_user']);
 export function thaiCheck(c){
  if(c.id==='install_root_safe'&&ROOT[c.detail])return ROOT[c.detail];
  if(c.id.startsWith('port_'))return `พอร์ต ${c.detail} ถูกโปรแกรมอื่นใช้อยู่ ปิดโปรแกรมนั้นหรือเลือกติดตั้งแบบกำหนดเอง`;
@@ -42,6 +45,13 @@ const CODE={
  BACKUP_FAILED:'สร้างข้อมูลสำรองครั้งแรกไม่สำเร็จ',
  LAN_ADDRESS_NOT_FOUND:'ไม่พบที่อยู่ IP ของเครื่องนี้ในเครือข่าย LAN',
  NO_FREE_PORT:'ไม่พบพอร์ตว่างสำหรับระบบ กรุณาปิดโปรแกรมที่ใช้พอร์ตจำนวนมากแล้วลองใหม่',
+ ADMIN_IDENTITY_REQUIRED:'ต้องระบุชื่อผู้ใช้และชื่อ-นามสกุลของผู้ดูแลระบบ (APP_ADMIN) และผู้อนุมัติทางคลินิก (CLINICAL_APPROVER) ก่อนติดตั้ง ไม่มีบัญชีหรือรหัสผ่านเริ่มต้นที่กำหนดไว้ล่วงหน้า',
+ PRODUCTION_ADMIN_IDENTITY_REQUIRED:'ต้องระบุชื่อผู้ใช้และชื่อ-นามสกุลของผู้ดูแลระบบ (APP_ADMIN) และผู้อนุมัติทางคลินิก (CLINICAL_APPROVER) ก่อนติดตั้ง ไม่มีบัญชีหรือรหัสผ่านเริ่มต้นที่กำหนดไว้ล่วงหน้า',
+ PRODUCTION_ADMIN_USERNAME_INVALID:'ชื่อผู้ใช้ไม่ถูกต้อง ใช้ได้เฉพาะตัวพิมพ์เล็กอังกฤษ ตัวเลข จุด ขีดกลาง ขีดล่าง ความยาว 3-64 ตัวอักษร และห้ามขึ้นต้นด้วย uat. หรือ synthetic.',
+ DISTINCT_BOOTSTRAP_IDENTITIES_REQUIRED:'ผู้ดูแลระบบและผู้อนุมัติทางคลินิกต้องเป็นคนละคน (ชื่อผู้ใช้ต้องไม่ซ้ำกัน)',
+ PRODUCTION_PACKAGE_REFUSES_TEST_INPUTS:'ชุดติดตั้งนี้มีส่วนทดสอบปนอยู่ จึงไม่ติดตั้งเป็นระบบใช้งานจริง',
+ UPGRADE_PROFILE_MISMATCH:'ชุดติดตั้งนี้เป็นคนละประเภท (ทดสอบ/ใช้งานจริง) กับระบบที่ติดตั้งอยู่ จึงไม่อัปเกรดทับ',
+ PROFILE_PACKAGE_MISMATCH:'ประเภทของชุดติดตั้งไม่ตรงกับที่ร้องขอ',
  PACKAGE_CHECKSUM_MISMATCH:'ไฟล์ติดตั้งเสียหายหรือถูกแก้ไข (ตรวจความสมบูรณ์ไม่ผ่าน) กรุณาคัดลอกไฟล์ติดตั้งใหม่',
  SIGNATURE_INVALID:'ลายเซ็นของชุดติดตั้งไม่ถูกต้อง จึงไม่ติดตั้งต่อ',
  PACKAGE_FILESET_MISMATCH:'ไฟล์ติดตั้งไม่ครบหรือมีไฟล์เกิน จึงไม่ติดตั้งต่อ'
@@ -52,7 +62,7 @@ const GENERIC_TEXT='การติดตั้งไม่สำเร็จ �
 const ERRORS={...CODE,BACKUP_BUSY:BUSY_TEXT,TIMEOUT_HEALTH:HEALTH_TEXT,GENERIC:GENERIC_TEXT};
 // the stable key the wizard uses to show the same sentence from its own table
 export function errorKey(code,detail){
- if(code==='PREFLIGHT_FAILED'&&Array.isArray(detail)&&detail.some(c=>c.id!=='excel_installed'&&c.id!=='default_printer_current_user'))return 'PREFLIGHT_FAILED';
+ if(code==='PREFLIGHT_FAILED'&&Array.isArray(detail)&&detail.some(c=>!SOFT_CHECKS.has(c.id)))return 'PREFLIGHT_FAILED';
  if(code==='BACKUP_FAILED'&&/QUEUE_NOT_QUIESCENT|WORKER_OR_WRITER_NOT_QUIESCENT/.test(String(detail)))return 'BACKUP_BUSY';
  if(String(code).startsWith('TIMEOUT_HEALTH'))return 'TIMEOUT_HEALTH';
  return CODE[code]?code:'GENERIC';
@@ -60,7 +70,7 @@ export function errorKey(code,detail){
 export function thaiError(code,detail){
  const key=errorKey(code,detail);
  if(key==='PREFLIGHT_FAILED'){
-  const lines=[...new Set(detail.filter(c=>!(c.id==='excel_installed')&&!(c.id==='default_printer_current_user')).map(thaiCheck))];
+  const lines=[...new Set(detail.filter(c=>!SOFT_CHECKS.has(c.id)).map(thaiCheck))];
   return 'ยังติดตั้งไม่ได้ เพราะ:\n- '+lines.join('\n- ');
  }
  return ERRORS[key];
@@ -73,7 +83,7 @@ const STEPS=[
  ['reusing the retained',55,'กำลังใช้ฐานข้อมูลเดิมที่เก็บไว้'],
  ['initializing the private PostgreSQL',55,'กำลังเตรียมฐานข้อมูล PostgreSQL ส่วนตัว'],
  ['applying forward migrations',65,'กำลังปรับปรุงโครงสร้างฐานข้อมูล'],
- ['migrating the database',65,'กำลังสร้างโครงสร้างฐานข้อมูลและบัญชีผู้ใช้ทดสอบ'],
+ ['migrating the database',65,'กำลังสร้างโครงสร้างฐานข้อมูลและบัญชีผู้ดูแลระบบเริ่มต้น'],
  ['registering the startup task',78,'กำลังตั้งให้ระบบเริ่มทำงานเอง'],
  ['taking the first verified backup',90,'กำลังสร้างข้อมูลสำรองครั้งแรกและตรวจสอบ'],
  ['pre-upgrade verified backup',30,'กำลังสำรองข้อมูลก่อนอัปเกรด'],
@@ -99,7 +109,9 @@ export const THAI_WARNING={
  CERT_NOT_TRUSTED:'ใบรับรอง HTTPS เป็นแบบสร้างเอง: Browser ของเครื่องอื่นจะแจ้งเตือนครั้งแรก ให้กดยอมรับ หรือติดตั้งใบรับรองจากลิงก์ดาวน์โหลดในคู่มือ',
  LAN_PROBE_FAILED:'ตรวจ URL จากเครื่องนี้ไม่ผ่าน: อย่าเพิ่งแจ้งผู้ใช้ ให้ตรวจ Log และสถานะระบบ',
  HOST_CHANGED:'ที่อยู่ IP ของเครื่องนี้ไม่ตรงกับที่ตั้งไว้ตอนติดตั้ง: ใช้ nipt.cmd set-lan เพื่อตั้ง URL ใหม่',
- RESTART_NOT_TESTED:'ระบบถูกตั้งให้เริ่มทำงานเองเมื่อผู้ใช้เข้าสู่ Windows (ไม่ใช่ตอนเปิดเครื่องเฉยๆ)'
+ RESTART_NOT_TESTED:'ระบบถูกตั้งให้เริ่มทำงานเองเมื่อผู้ใช้เข้าสู่ Windows (ไม่ใช่ตอนเปิดเครื่องเฉยๆ)',
+ WORD_MISSING:'ไม่พบ Microsoft Word บนเครื่องนี้: ระบบหลักใช้งานได้ แต่ไฟล์ PDF ผลตรวจ NIPT (ชื่อ เลขใบอนุญาต และลายเซ็น) จะสร้างไม่ได้จนกว่าจะติดตั้งและเปิดใช้งาน Word',
+ OFFICE_SESSION:'Word และ Excel ทำงานได้เมื่อมีผู้ใช้ Windows ที่ติดตั้งระบบลงชื่อเข้าใช้อยู่เท่านั้น หลังไฟดับหรือรีสตาร์ต ต้องตั้ง Automatic sign-in ของบัญชีนั้นโดยฝ่าย IT โรงพยาบาล และต้องทดสอบรีบูตจริงด้วยคำสั่ง office-check ก่อนใช้งานจริง (ตัวติดตั้งยังไม่ได้พิสูจน์ข้อนี้)'
 };
 export function thaiLanWarnings(lan,{admin,networkCategory}={}){
  const out=[];

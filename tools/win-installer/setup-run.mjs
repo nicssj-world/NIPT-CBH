@@ -27,7 +27,8 @@ const psEnv=()=>({...process.env,PSModulePath:[path.join(process.env.USERPROFILE
 const ps=script=>{try{return execFileSync(path.join(SYS,'System32','WindowsPowerShell','v1.0','powershell.exe'),['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',script],{encoding:'utf8',windowsHide:true,stdio:['ignore','pipe','pipe'],env:psEnv()}).trim();}catch{return null;}};
 const isAdmin=()=>{try{execFileSync(path.join(SYS,'System32','net.exe'),['session'],{windowsHide:true,stdio:'ignore'});return true;}catch{return false;}};
 const whoami=()=>execFileSync(path.join(SYS,'System32','whoami.exe'),[],{encoding:'utf8',windowsHide:true}).trim();
-const excelInstalled=()=>{try{execFileSync(path.join(SYS,'System32','reg.exe'),['query','HKCR\\Excel.Application\\CurVer'],{windowsHide:true,stdio:'ignore'});return true;}catch{return false;}};
+const officeInstalled=app=>{try{execFileSync(path.join(SYS,'System32','reg.exe'),['query',`HKCR\\${app}.Application\\CurVer`],{windowsHide:true,stdio:'ignore'});return true;}catch{return false;}};
+const excelInstalled=()=>officeInstalled('Excel');
 
 function finish(result){
  const flat=v=>String(v??'').replace(/\r?\n/g,' | ');
@@ -63,6 +64,7 @@ const trust=arg('trust','auto');
 const profiles=normalizeLanProfiles(arg('lan-profiles',arg('allow-public')==='yes'?'Domain,Private,Public':'Domain,Private'));
 const admin=isAdmin();
 const excel=excelInstalled();
+const word=officeInstalled('Word');
 const warnings=[];
 progress(2,'กำลังเริ่มการติดตั้ง');
 log(`START package=${packageDir} root=${root} admin=${admin} excel=${excel} lan=${wantLan} host=${host??'auto'} taskMode=${taskMode}`);
@@ -103,10 +105,17 @@ try{
   const console=ps('(Get-CimInstance Win32_ComputerSystem).UserName');
   if(console&&console.toLowerCase()!==whoami().toLowerCase()){log(`USER_MISMATCH console=${console} installer=${whoami()}`);finish({ok:false,action:'INSTALL',code:'INSTALL_USER_IS_NOT_THE_LOGGED_ON_USER',message:thaiError('INSTALL_USER_IS_NOT_THE_LOGGED_ON_USER')});}
  }
+ const production=manifest.testEnvironmentOnly===false;
+ // Production: the first accounts are named by the person installing (no default usernames or passwords exist); the engine creates them with random one-time passwords.
+ const adminArgs=['admin-user','admin-name','checker-user','checker-name'].flatMap(n=>arg(n)&&arg(n)!=='true'?['--'+n,arg(n)]:[]);
+ if(production&&!retained&&adminArgs.length!==8)finish({ok:false,action:'INSTALL',code:'ADMIN_IDENTITY_REQUIRED',message:thaiError('ADMIN_IDENTITY_REQUIRED')});
+ if(production)warnings.push(THAI_WARNING.OFFICE_SESSION);
+ if(!word)warnings.push(THAI_WARNING.WORD_MISSING);
  if(!excel)warnings.push(THAI_WARNING.EXCEL_MISSING);
  else if(!ps("(Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Windows' -Name Device -ErrorAction SilentlyContinue).Device"))warnings.push(THAI_WARNING.PRINTER_MISSING);
  if(taskMode==='user')warnings.push(THAI_WARNING.RESTART_NOT_TESTED);
- const args=['--package',packageDir,'--public-key',publicKey,'--instance','nipt-cbh','--task-mode',taskMode,'--excel-mode',taskMode==='system'?'bridge':'direct','--allow-no-excel','yes',
+ const args=['--package',packageDir,'--public-key',publicKey,'--instance',arg('instance','nipt-cbh'),'--task-mode',taskMode,'--excel-mode',taskMode==='system'?'bridge':'direct','--allow-no-excel','yes','--allow-no-word','yes',
+  ...(production&&!retained?adminArgs:[]),
   ...(retained?['--ports','auto']:['--ports','auto']),'--lan',wantLan?'yes':'no','--lan-profiles',profiles,'--lan-allow',arg('lan-allow','LocalSubnet'),
   ...(host?['--host',host]:[]),...(arg('origin')?['--origin',arg('origin')]:[]),
   ...(trust==='yes'||(trust==='auto'&&admin)?['--trust-certificate','yes']:[]),
