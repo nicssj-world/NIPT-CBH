@@ -65,7 +65,7 @@ await stageFormAssets(release,{request:arg('anc-request-pdf')??process.env.NIPT_
 await mkdir(app,{recursive:true});await mkdir(ops,{recursive:true});
 log('staging app');
 // Next's standalone output links externalized packages (e.g. argon2) through hashed symlinks; a package must hold real files (creating a symlink needs a privilege on the target).
-await cp(standalone,app,{recursive:true,dereference:true,filter:s=>!/[\\/]\.local([\\/]|$)/.test(s)});
+await cp(standalone,app,{recursive:true,dereference:true,filter:s=>!/^\.local([\\/]|$)/.test(path.relative(standalone,s))});
 await cp('.next/static',path.join(app,'.next','static'),{recursive:true});
 await cp('public',path.join(app,'public'),{recursive:true});
 await mkdir(path.join(app,'tools'),{recursive:true});await cp('tools/runtime-env.mjs',path.join(app,'tools','runtime-env.mjs'));
