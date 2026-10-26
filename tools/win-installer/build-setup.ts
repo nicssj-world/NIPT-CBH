@@ -9,7 +9,7 @@
  *  The Ed25519 key is the developer/test key; the EXE is NOT Authenticode-signed (reported as such). */
 import {execFileSync} from 'node:child_process';
 import {readFile,writeFile,stat,mkdir} from 'node:fs/promises';
-import {existsSync} from 'node:fs';
+import {existsSync,rmSync,symlinkSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {parseVersion,verifyPackage} from './lib.mjs';
@@ -58,9 +58,15 @@ verifyReleaseFormAssets(path.join(packageDir,'payload','release'),true);
 const messagesInc=path.join(local,'setup-gen','messages.inc');
 await mkdir(path.dirname(messagesInc),{recursive:true});
 await writeFile(messagesInc,'﻿'+pascalTables()+'\r\n','utf8');
+// Inno Setup cannot open source paths beyond MAX_PATH. Deep node_modules paths under a long checkout path exceed it, so the compiler reads the package
+// through a short directory junction at the drive root (a junction needs no privilege); the EXE content is identical.
+const alias=path.join(path.parse(packageDir).root,'nipt-pkg-'+version+(production?'':'-test'));
+rmSync(alias,{recursive:true,force:true});
+symlinkSync(packageDir,alias,'junction');
 log('compiling '+path.basename(iscc)+' (this takes several minutes: the payload is about 1.4 GB)');
 const t0=Date.now();
-execFileSync(iscc,['/Q',`/DPackageDir=${packageDir}`,`/DKeyFile=${keyFile}`,`/DAppVersion=${version}`,`/DOutDir=${out}`,...(production?['/DProduction=1']:[]),`/DMessagesInc=${messagesInc}`,...(arg('fast')?['/DCompressionFast=1']:[]),path.resolve('tools/win-installer/setup/NIPT-CBH-Setup.iss')],{stdio:['ignore','inherit','inherit']});
+execFileSync(iscc,['/Q',`/DPackageDir=${alias}`,`/DKeyFile=${keyFile}`,`/DAppVersion=${version}`,`/DOutDir=${out}`,...(production?['/DProduction=1']:[]),`/DMessagesInc=${messagesInc}`,...(arg('fast')?['/DCompressionFast=1']:[]),path.resolve('tools/win-installer/setup/NIPT-CBH-Setup.iss')],{stdio:['ignore','inherit','inherit']});
+rmSync(alias,{recursive:true,force:true});
 const exe=path.join(out,`NIPT-CBH-Setup-${version}.exe`);
 const bytes=await readFile(exe);
 const record={
