@@ -440,6 +440,8 @@ async function restore(){
  if(r.status!==0){psql(L,c,`DROP DATABASE IF EXISTS ${database}`,{db:'postgres'});await startServices(L,c);fail('RESTORE_FAILED',(r.stderr||r.stdout).slice(-2000));}
  const receipt=JSON.parse(r.stdout.trim().split('\n').pop());
  const result={restored:true,database,destination,receipt:{restoreVerified:receipt.restoreVerified,quarantined:receipt.quarantined,tableCount:receipt.tableCount,fileCount:receipt.fileCount,tableDigest:receipt.tableDigest}};
+ // a fresh installation has an empty file store, which the backup does not carry as a directory; the restored tree must still have one
+ mkdirSync(path.join(destination,'files'),{recursive:true});
  if(!args.activate){await startServices(L,c);await waitHealthy(L,c);return {...result,activated:false,note:'restored database is quarantined and not in use; inspect then rerun with --activate --confirm-source-fenced yes'};}
  if(args['confirm-source-fenced']!=='yes'){await startServices(L,c);fail('SOURCE_FENCE_CONFIRMATION_REQUIRED');}
  const releaseNow=await readJson(path.join(releaseDir(L,st.current.version),'release.json'));
