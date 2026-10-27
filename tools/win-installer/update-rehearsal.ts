@@ -30,7 +30,8 @@ const cli=(cmd:string,extra:string[]=[],allowFail=false):Record<string,any>=>{ /
 };
 const sql=(q:string)=>{const cfg=JSON.parse(readFileSync(path.join(currentRoot,'config','nipt.json'),'utf8'));const r=spawnSync(path.join(currentRoot,'runtime','pg','bin','psql.exe'),['-h','127.0.0.1','-p',String(cfg.ports.postgres),'-U','nipt_migrator','-d',cfg.database,'-X','-A','-t','-c',q],{encoding:'utf8',env:{...process.env,PGPASSWORD:readFileSync(path.join(currentRoot,'secrets','db-password'),'utf8').trim()}});if(r.status!==0)throw Error('SQL_FAILED:'+r.stderr.slice(-200));return r.stdout.trim();};
 const state=()=>JSON.parse(readFileSync(path.join(currentRoot,'install-state.json'),'utf8'));
-const runExe=(exe:string,args:string[],timeout=50*60*1000)=>spawnSync(exe,['/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER',...args],{encoding:'utf8',windowsHide:true,timeout});
+const logFile=path.join(base,'upd-'+tag+'.setup.log');
+const runExe=(exe:string,args:string[],timeout=50*60*1000)=>spawnSync(exe,['/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/LOG='+logFile,...args],{encoding:'utf8',windowsHide:true,timeout});
 const uninstall=()=>{const u=path.join(process.env.LOCALAPPDATA??'','Programs','NIPT-CBH','unins000.exe');return existsSync(u)?spawnSync(u,['/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/DELETEDATA=1'],{encoding:'utf8',timeout:20*60*1000}).status:null;};
 async function step(id:string,fn:()=>Promise<unknown>|unknown){try{steps.push({id,ok:true,detail:await fn()});}catch(e){steps.push({id,ok:false,detail:(e as Error).message});throw e;}}
 const tree=(dir:string):Record<string,string>=>Object.fromEntries(readdirSync(dir,{recursive:true,withFileTypes:true}).filter(e=>e.isFile()).map(e=>{const f=path.join(e.parentPath,e.name);return [path.relative(dir,f),sha(f)];}));
@@ -60,7 +61,7 @@ try{
  });
  const activeBefore=settingsOf();const backupsBefore=(cli('backups').count as number)??0;
  await step('U4 apply the real Update EXE on top (no root given: it finds the installation itself)',()=>{
-  const r=runExe(updateExe,[]);assert.equal(r.status,0,'update EXE exit '+r.status);
+  const r=runExe(updateExe,[]);assert.equal(r.status,0,'update EXE exit '+r.status+' '+(existsSync(logFile)?readFileSync(logFile,'utf8').split(/\r?\n/).filter(l=>/Initializ|Setup|Exception|Abort|Error|NIPT/i.test(l)).slice(-12).join(' | '):''));
   const s=state();assert.equal(s.current.version,opt('expect-version')??'1.2.2');assert.equal(s.previous.version,'1.2.0');assert.equal(s.status.startsWith('INSTALLED'),true);
   return {from:s.previous.version,to:s.current.version,toRevision:s.current.revision,history:s.history.slice(-2).map((h:{event:string})=>h.event)};
  });
