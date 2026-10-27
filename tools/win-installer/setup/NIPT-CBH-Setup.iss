@@ -502,6 +502,8 @@ begin
   Pkg := ExpandConstant('{tmp}\nipt-package');
   Node := Pkg + '\payload\runtime\node\node.exe';
   Root := GetEngineRoot('');
+  { an update carries no runtime: the installed Node runs the verified update package, the installed database and runtime stay as they are }
+  if IsUpdateOnly then Node := Root + '\runtime\node\node.exe';
   Tmp := ExpandConstant('{tmp}');
   ResultFile := Tmp + '\nipt-setup-result.txt';
   ProgFile := Tmp + '\nipt-setup-progress.txt';
