@@ -19,6 +19,12 @@ const second=path.join(base,'upd-rehearsal-'+tag,'other');
 const pwFile=path.join(base,'upd-rehearsal-'+tag+'.passwords.json');
 const names=['/ADMINUSER=site.admin','/ADMINNAME=Site Administrator','/CHECKERUSER=site.checker','/CHECKERNAME=Site Clinical Approver'];
 const steps:{id:string;ok:boolean;detail?:unknown}[]=[];
+const registered=()=>{const r=spawnSync('reg.exe',['query','HKCU\\SOFTWARE\\NIPT-CBH','/v','InstallRoot'],{encoding:'utf8'});return r.status===0?(r.stdout.match(/REG_SZ\s+(.+)/)?.[1]??'').trim():null;};
+const otherSetupRunning=()=>spawnSync('powershell.exe',['-NoProfile','-Command',"(Get-Process | Where-Object {$_.Name -like 'NIPT-CBH-Setup*' -or $_.Name -like 'NIPT-CBH-Update*' -or $_.Name -like 'unins*'} | Measure-Object).Count"],{encoding:'utf8'}).stdout.trim()!=='0';
+// this rehearsal owns the per-user NIPT-CBH registration while it runs; it refuses to start next to anyone else's and only ever uninstalls its own root
+if(registered()!==null||otherSetupRunning()){process.stderr.write('REFUSED: another NIPT-CBH installation or Setup exists on this machine; run this rehearsal in an isolated environment. Nothing was changed.\n');process.exit(3);}
+const norm=(v:string|null|undefined)=>(v??'').toLowerCase().replace(/\\+$/,'');
+const uninstallOwn=()=>norm(registered())===norm(root)?uninstall():null;
 const tsx=(...a:string[])=>execFileSync(process.execPath,['node_modules/tsx/dist/cli.mjs',...a],{encoding:'utf8',stdio:['ignore','pipe','inherit'],maxBuffer:64*1024*1024});
 const sha=(f:string)=>createHash('sha256').update(readFileSync(f)).digest('hex');
 let currentRoot=root;
@@ -62,7 +68,7 @@ try{
  const activeBefore=settingsOf();const backupsBefore=(cli('backups').count as number)??0;
  await step('U4 apply the real Update EXE on top (no root given: it finds the installation itself)',()=>{
   const r=runExe(updateExe,[]);assert.equal(r.status,0,'update EXE exit '+r.status+' '+(existsSync(logFile)?readFileSync(logFile,'utf8').split(/\r?\n/).filter(l=>/Initializ|Setup|Exception|Abort|Error|NIPT/i.test(l)).slice(-12).join(' | '):''));
-  const s=state();assert.equal(s.current.version,opt('expect-version')??'1.2.2');assert.equal(s.previous.version,'1.2.0');assert.equal(s.status.startsWith('INSTALLED'),true);
+  const s=state();assert.equal(s.current.version,opt('expect-version')??'1.1.1');assert.equal(s.previous.version,opt('expect-previous')??'1.1.0');assert.equal(s.status.startsWith('INSTALLED'),true);
   return {from:s.previous.version,to:s.current.version,toRevision:s.current.revision,history:s.history.slice(-2).map((h:{event:string})=>h.event)};
  });
  await step('U5 nothing was lost: data, accounts and passwords, HIS folders and PET/RES files, settings, migration ledger, health',()=>{
@@ -90,6 +96,16 @@ try{
   assert.equal(cli('health').ok,true);
   return {rollback:rb.error,preUpdateBackup:path.basename(pre?.path??''),restoreVerified:restore.receipt.restoreVerified,quarantined:restore.receipt.quarantined};
  });
+ await step('U7b a tampered update package is refused by the engine and the installation is untouched',()=>{
+  const pkg=path.join(base,'setup-packages','nipt-cbh-'+(opt('expect-version')??'1.1.1')+'-update'),bad=path.join(base,'upd-rehearsal-'+tag,'tampered');mkdirSync(bad,{recursive:true});
+  for(const e of readdirSync(pkg,{withFileTypes:true}))if(e.isFile())writeFileSync(path.join(bad,e.name),readFileSync(path.join(pkg,e.name)));
+  const mf=path.join(bad,'package-manifest.json');assert.ok(existsSync(mf),'manifest present');writeFileSync(mf,readFileSync(mf,'utf8').replace(/"version":\s*"[^"]+"/,'"version": "9.9.9"'));
+  const before=JSON.stringify({s:state().current,set:settingsOf(),u:sql('SELECT count(*) FROM app_user')});
+  const r=cli('upgrade',['--package',bad,'--public-key',path.join(base,'keys','package-signing-public.pem')],true);
+  assert.notEqual(r._status,0,'tampered package must be refused');
+  assert.equal(JSON.stringify({s:state().current,set:settingsOf(),u:sql('SELECT count(*) FROM app_user')}),before);assert.equal(cli('health').ok,true);
+  return {refused:r.error??'non-zero exit',unchanged:true,healthy:true};
+ });
  await step('U8 running the same Update EXE again changes nothing',()=>{
   const before=JSON.stringify({s:state().current,b:cli('backups').count,set:settingsOf()});
   const r=runExe(updateExe,[]);assert.equal(r.status,0);
@@ -97,7 +113,7 @@ try{
   return 'no change';
  });
  await step('U9 uninstall the updated rehearsal system with the product uninstaller',()=>{
-  const code=uninstall();for(let i=0;i<30&&existsSync(root);i++)spawnSync('powershell.exe',['-NoProfile','-Command','Start-Sleep 1']);
+  const code=uninstallOwn();for(let i=0;i<30&&existsSync(root);i++)spawnSync('powershell.exe',['-NoProfile','-Command','Start-Sleep 1']);
   assert.equal(code,0);assert.ok(!existsSync(root));return {exitCode:code};
  });
  await step('U10 a system built from a DIFFERENT source refuses the update and stays exactly as it was',()=>{
@@ -113,7 +129,7 @@ try{
  });
 }catch(e){process.stderr.write('FAILED: '+(e as Error).message+'\n');process.exitCode=1;}
 finally{
- try{if(existsSync(currentRoot))uninstall();}catch{/* best effort */}
+ try{if(existsSync(currentRoot)&&norm(registered())===norm(currentRoot))uninstall();}catch{/* best effort */}
  rmSync(pwFile,{force:true});
  const evidence={format:'NIPT_UPDATE_REHEARSAL_V1',tag,passed:steps.length>0&&steps.every(s=>s.ok),steps,notRun:['hospital server (never touched)','real HIS (never contacted)','real reboot / unattended Office']};
  writeFileSync(out,JSON.stringify(evidence,null,2));

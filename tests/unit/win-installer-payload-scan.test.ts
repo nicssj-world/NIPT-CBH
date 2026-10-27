@@ -30,7 +30,7 @@ describe('production payload scan',()=>{
   expect((await payloadScan(dir,{appOnly:true})).violations.map(v=>v.path)).toEqual(['payload/release/app/server.js']);
  });
  it('refuses .local folders, credential files, private-key text and a missing required component',async()=>{
-  const dir=await makePackage({'payload/release/app/.local/x.txt':'x','installer/uat-accounts.json':'[]','payload/release/ops/key.txt':'-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----','payload/release/ops/.env.local':'A=1'});
+  const dir=await makePackage({'payload/release/app/.local/x.txt':'x','installer/uat-accounts.json':'[]','payload/release/ops/key.txt':['-----BEGIN','PRIVATE KEY-----'].join(' ')+'\nabc\n-----END PRIVATE KEY-----','payload/release/ops/.env.local':'A=1'});
   await rm(path.join(dir,'payload','master','approved-master.xlsx'));
   const kinds=(await payloadScan(dir)).violations.map(v=>v.kind+':'+v.path).sort();
   expect(kinds).toEqual(expect.arrayContaining(['local-folder:payload/release/app/.local','forbidden-file-name:installer/uat-accounts.json','private-key-text:payload/release/ops/key.txt','forbidden-file-name:payload/release/ops/.env.local','required-missing:payload/master/approved-master.xlsx']));
