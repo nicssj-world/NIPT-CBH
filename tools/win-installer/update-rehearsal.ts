@@ -2,7 +2,7 @@
  *  that nothing of the installation was lost, and that an installation of a different source refuses the update. No real HIS, no hospital share.
  *    tsx tools/win-installer/update-rehearsal.ts --old-exe <installed Setup EXE> --update-exe <Update EXE> --other-exe <Setup EXE of a different source> --out <evidence.json>
  *  Everything runs as the current user (/CURRENTUSER) and is removed with the product's own uninstaller. */
-import {spawnSync,execFileSync} from 'node:child_process';
+import {spawnSync} from 'node:child_process';
 import {existsSync,readFileSync,writeFileSync,mkdirSync,rmSync,readdirSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import path from 'node:path';
