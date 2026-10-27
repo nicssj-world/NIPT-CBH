@@ -25,7 +25,7 @@ const otherSetupRunning=()=>spawnSync('powershell.exe',['-NoProfile','-Command',
 if(registered()!==null||otherSetupRunning()){process.stderr.write('REFUSED: another NIPT-CBH installation or Setup exists on this machine; run this rehearsal in an isolated environment. Nothing was changed.\n');process.exit(3);}
 const norm=(v:string|null|undefined)=>(v??'').toLowerCase().replace(/\\+$/,'');
 const uninstallOwn=()=>norm(registered())===norm(root)?uninstall():null;
-const tsx=(...a:string[])=>execFileSync(process.execPath,['node_modules/tsx/dist/cli.mjs',...a],{encoding:'utf8',stdio:['ignore','pipe','inherit'],maxBuffer:64*1024*1024});
+const tsx=(...a:string[])=>{const r=spawnSync(process.execPath,['node_modules/tsx/dist/cli.mjs',...a],{encoding:'utf8',maxBuffer:64*1024*1024});if(r.status!==0)throw Error('tsx '+a[0]+' exit '+r.status+' stdout: '+(r.stdout??'').slice(-2500)+' stderr: '+(r.stderr??'').slice(-1500));return r.stdout;};
 const sha=(f:string)=>createHash('sha256').update(readFileSync(f)).digest('hex');
 let currentRoot=root;
 const cli=(cmd:string,extra:string[]=[],allowFail=false):Record<string,any>=>{ // eslint-disable-line @typescript-eslint/no-explicit-any
