@@ -14,7 +14,7 @@ export function HisSettingsStatus({settingKey,activeId,canTest,canRetry,onValida
  async function showHistory(id:string){try{const r=await fetch('/api/settings/his?history='+encodeURIComponent(id));if(!r.ok)throw Error('โหลดประวัติไม่สำเร็จ');setHistory(await r.json());}catch(e){setError(e instanceof Error?e.message:'โหลดประวัติไม่สำเร็จ');}}
  const relevant=tests.filter(t=>t.revision_id===activeId||draftIds.includes(t.revision_id));
  return <section className="panel" aria-label="สถานะ HIS Integration"><h2>ทดสอบการเชื่อมต่อจาก Worker</h2>
-  <p className="help">บันทึกร่าง → ทดสอบร่าง → รอผล Worker → บันทึกผลทดสอบผ่าน → ผู้ตรวจอีกคนอนุมัติ → เปิดใช้ รุ่นที่เปิดใช้เท่านั้นมีผลกับ Worker</p>
+  <p className="help">การบันทึกการตั้งค่า HIS ใช้งานทันทีโดยไม่ต้องรอคิวทดสอบ ปุ่มด้านล่างเป็นการทดสอบการเชื่อมต่อจาก Worker ด้วยตนเอง (ไม่บังคับ) เพื่อดูว่า Worker เห็นโฟลเดอร์จริง</p>
   {canTest&&activeId&&<button type="button" className="button secondary" disabled={busy} onClick={()=>action('test_active',activeId)}>Test Connection — รุ่นที่ใช้งาน</button>}
   <div aria-live="polite">{message&&<p role="status">{message}</p>}{error&&<p role="alert">{error}</p>}</div>
   {settingKey==='his_inbound'&&inbound&&<div role="region" aria-label="Worker ขาเข้าที่กำลังทำงาน"><h3>Worker ขาเข้า</h3>

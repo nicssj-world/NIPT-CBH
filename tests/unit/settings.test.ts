@@ -38,13 +38,14 @@ describe("settings lifecycle and locked architecture",()=>{
   for(let n=1;n<=101;n++)await db.query("INSERT INTO settings_revision(setting_key,version,category,risk,value,state,created_by,reason) VALUES('notifications',$1,'Notifications/System/Audit','GENERAL',$2,'Archived',$3,'HISTORY_TEST')",[n,SETTINGS.notifications.default,admin.id]);
   const revisions=await readSettingRevisions(db);expect(revisions.some(r=>r.id===active&&r.state==='Active')).toBe(true);expect(revisions.length).toBeGreaterThan(100);
  });
- it("integration needs checker, direct DB activation fails without approval",async()=>{
-  const id=await proposeSetting(db,admin,"his_inbound",SETTINGS.his_inbound.default,"SYNTHETIC_INTEGRATION");
+ it("production authorisation of HIS outbound still needs a checker, direct DB activation fails without approval (other system configuration is the administrator's alone, see admin-direct-settings)",async()=>{
+  const production={...SETTINGS.his_outbound.default,productionAuthorized:true};
+  const id=await proposeSetting(db,admin,"his_outbound",production,"SYNTHETIC_INTEGRATION");
   await validateSetting(db,admin,id,async()=>true);
-  await expect(db.query("INSERT INTO setting_active(setting_key,revision_id) VALUES('his_inbound',$1)",[id])).rejects.toThrow(/APPROVAL/);
+  await expect(db.query("INSERT INTO setting_active(setting_key,revision_id) VALUES('his_outbound',$1)",[id])).rejects.toThrow(/APPROVAL/);
   await expect(approveSetting(db,{...approver,id:admin.id},id)).rejects.toThrow(/FORBIDDEN/);
   await approveSetting(db,approver,id);await activateSetting(db,approver,id);
-  expect((await readActiveSettings(db)).his_inbound).toEqual(SETTINGS.his_inbound.default);
+  expect((await readActiveSettings(db)).his_outbound).toEqual(production);
   await expect(db.query("UPDATE settings_revision SET value='{}' WHERE id=$1",[id])).rejects.toThrow(/IMMUTABLE/);
  });
 });

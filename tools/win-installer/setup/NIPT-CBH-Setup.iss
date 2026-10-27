@@ -15,10 +15,23 @@
 #ifndef OutDir
   #define OutDir "."
 #endif
+#ifdef UpdateOnly
+  #define OutputBase "NIPT-CBH-Update-"
+  #define WelcomeTitle "NIPT-CBH Update"
+  #define DiskExtra "2147483648"
+#else
+  #define OutputBase "NIPT-CBH-Setup-"
+  #define WelcomeTitle "NIPT-CBH Setup"
+  #define DiskExtra "8589934592"
+#endif
 #ifdef Production
   #define Publisher "NIPT-CBH โรงพยาบาลชลบุรี"
   #define VersionDescription "NIPT-CBH Setup (production profile)"
+#ifdef UpdateOnly
+  #define WelcomeNote "ตัวอัปเดตนี้ปรับปรุงโปรแกรม NIPT-CBH ที่ติดตั้งอยู่แล้ว โดยไม่ลบหรือเปลี่ยนฐานข้อมูล ข้อมูลผู้ป่วย บัญชีผู้ใช้ รหัสผ่าน หรือเส้นทาง HIS/NAS ระบบจะสำรองข้อมูลก่อนอัปเดต ตรวจความพร้อมหลังอัปเดต และกลับไปใช้เวอร์ชันเดิมให้เองถ้าเวอร์ชันใหม่ไม่ผ่านการตรวจ"
+#else
   #define WelcomeNote "ตัวติดตั้งจะสร้างบัญชีผู้ดูแลระบบและผู้อนุมัติทางคลินิกตามชื่อที่ท่านระบุ พร้อมรหัสผ่านครั้งเดียวที่ต้องเปลี่ยนเมื่อเข้าสู่ระบบครั้งแรก การใช้งานทางคลินิกต้องผ่านการรับรองของโรงพยาบาลก่อน"
+#endif
   #define CredentialsDescription "เปิดไฟล์รหัสผ่านครั้งเดียวของผู้ดูแลระบบ (เปิดได้เฉพาะผู้ติดตั้ง ลบไฟล์หลังส่งมอบ)"
 #else
   #define Publisher "NIPT-CBH โรงพยาบาลชลบุรี (รุ่นทดลอง)"
@@ -41,7 +54,7 @@ DisableReadyPage=yes
 DisableReadyMemo=yes
 DisableStartupPrompt=yes
 OutputDir={#OutDir}
-OutputBaseFilename=NIPT-CBH-Setup-{#AppVersion}
+OutputBaseFilename={#OutputBase}{#AppVersion}
 #ifdef CompressionFast
 Compression=lzma2/fast
 #else
@@ -66,13 +79,13 @@ UsePreviousLanguage=no
 WizardSizePercent=130,150
 VersionInfoVersion={#AppVersion}
 VersionInfoDescription={#VersionDescription}
-ExtraDiskSpaceRequired=8589934592
+ExtraDiskSpaceRequired={#DiskExtra}
 
 [Languages]
 Name: "thai"; MessagesFile: "compiler:Languages\Thai.isl"
 
 [Messages]
-WelcomeLabel1=NIPT-CBH Setup {#AppVersion}
+WelcomeLabel1={#WelcomeTitle} {#AppVersion}
 WelcomeLabel2=ติดตั้งระบบ NIPT-CBH สำหรับโรงพยาบาลชลบุรี%n%nกดปุ่ม "ติดตั้ง" เพียงครั้งเดียว ระบบจะติดตั้งและเริ่มทำงานเอง โดยไม่ต้องใช้อินเทอร์เน็ต ไม่ต้องติดตั้ง Node.js, PostgreSQL หรืออื่นๆ เพิ่ม%n%n{#WelcomeNote}
 ClickNext=กด "ติดตั้ง" เพื่อเริ่ม หรือกด "ยกเลิก" เพื่อออกจากตัวติดตั้ง
 SetupAppTitle=NIPT-CBH Setup
@@ -96,7 +109,9 @@ Name: "{autoprograms}\NIPT-CBH\ถอนการติดตั้ง NIPT-CBH"
 
 [Run]
 Filename: "{code:GetUrl}"; Description: "เปิด NIPT-CBH ตอนนี้"; Flags: postinstall shellexec skipifsilent; Check: UrlIsReady
+#ifndef UpdateOnly
 Filename: "{win}\notepad.exe"; Parameters: """{code:GetCredentialsFile}"""; Description: "{#CredentialsDescription}"; Flags: postinstall nowait skipifsilent unchecked; Check: CredentialsExist
+#endif
 
 [UninstallDelete]
 Type: files; Name: "{autodesktop}\NIPT-CBH.url"
@@ -133,6 +148,15 @@ end;
 function CmdParam(const Name, Default: String): String;
 begin
   Result := ExpandConstant('{param:' + Name + '|' + Default + '}');
+end;
+
+function IsUpdateOnly: Boolean;
+begin
+#ifdef UpdateOnly
+  Result := True;
+#else
+  Result := False;
+#endif
 end;
 
 function IsProductionBuild: Boolean;
@@ -294,10 +318,28 @@ begin
     if not Result then Log('PARITY_REHEARSAL_ARGUMENTS_INVALID');
     Exit;
   end;
-  if not RegQueryStringValue(HKA, 'SOFTWARE\NIPT-CBH', 'InstallRoot', Root) then Exit;
+  if not RegQueryStringValue(HKA, 'SOFTWARE\NIPT-CBH', 'InstallRoot', Root) then begin
+    if IsUpdateOnly then begin
+      SuppressibleMsgBox('ไม่พบ NIPT-CBH ที่ติดตั้งไว้ในเครื่องนี้ ตัวอัปเดตนี้ใช้ปรับปรุงโปรแกรมที่ติดตั้งแล้วเท่านั้น ไม่ได้ติดตั้งระบบใหม่ ไม่มีการเปลี่ยนแปลงใดๆ (ถ้าติดตั้งไว้ด้วยสิทธิ์ผู้ดูแลระบบให้เปิดตัวอัปเดตด้วยสิทธิ์เดียวกัน)', mbError, MB_OK, IDOK);
+      Result := False;
+    end;
+    Exit;
+  end;
   State := ReadFileText(Root + '\install-state.json');
-  if State = '' then Exit;
-  if Pos('UNINSTALLED_DATA_RETAINED', State) > 0 then Exit;       { data kept by an earlier uninstall: Setup reuses it }
+  if State = '' then begin
+    if IsUpdateOnly then begin
+      SuppressibleMsgBox('พบการลงทะเบียนของ NIPT-CBH แต่ไม่พบสถานะการติดตั้งในโฟลเดอร์ ' + Root + ' ตัวอัปเดตไม่ติดตั้งระบบใหม่ จึงไม่มีการเปลี่ยนแปลงใดๆ', mbError, MB_OK, IDOK);
+      Result := False;
+    end;
+    Exit;
+  end;
+  if Pos('UNINSTALLED_DATA_RETAINED', State) > 0 then begin
+    if IsUpdateOnly then begin
+      SuppressibleMsgBox('NIPT-CBH ถูกถอนการติดตั้งแล้ว (เหลือเฉพาะข้อมูล) ตัวอัปเดตไม่ติดตั้งระบบใหม่ กรุณาใช้ตัวติดตั้งเต็ม', mbError, MB_OK, IDOK);
+      Result := False;
+    end;
+    Exit;       { data kept by an earlier uninstall: the full Setup reuses it }
+  end;
   Installed := JsonString(Copy(State, Pos('"current"', State), 400), 'version');
   if Installed = '' then Exit;
   if CompareVersion(Installed, '{#AppVersion}') > 0 then begin
@@ -320,7 +362,7 @@ end;
 
 { ---------- wizard ---------- }
 procedure InitializeWizard;
-var Lbl: TNewStaticText;
+var Lbl: TNewStaticText; InstalledRoot: String;
 begin
   ResultKeys := TStringList.Create; ResultValues := TStringList.Create;
   WizardForm.NextButton.Caption := 'ติดตั้ง';
@@ -329,12 +371,14 @@ begin
   AdvancedCheck.Left := WizardForm.WelcomeLabel2.Left;
   AdvancedCheck.Top := WizardForm.WelcomeLabel2.Top + WizardForm.WelcomeLabel2.Height + ScaleY(12);
   AdvancedCheck.Width := WizardForm.WelcomeLabel2.Width;
+  AdvancedCheck.Visible := not IsUpdateOnly;
   AdvancedCheck.Caption := 'ตัวเลือกขั้นสูง (เปลี่ยนตำแหน่งติดตั้ง / ที่อยู่ LAN) — ไม่จำเป็นสำหรับการติดตั้งทั่วไป';
   AdvancedPage := CreateCustomPage(wpWelcome, 'ตัวเลือกขั้นสูง', 'ใช้ค่าเริ่มต้นได้เลยถ้าไม่แน่ใจ');
   Lbl := TNewStaticText.Create(AdvancedPage); Lbl.Parent := AdvancedPage.Surface; Lbl.Left := 0; Lbl.Top := 0;
   Lbl.Caption := 'โฟลเดอร์ติดตั้งข้อมูลและโปรแกรม (ต้องเป็นตัวอักษรอังกฤษ/ตัวเลขเท่านั้น):';
   RootEdit := TNewEdit.Create(AdvancedPage); RootEdit.Parent := AdvancedPage.Surface; RootEdit.Left := 0; RootEdit.Top := Lbl.Top + ScaleY(20); RootEdit.Width := AdvancedPage.SurfaceWidth;
   RootEdit.Text := CmdParam('ROOT', 'C:\NIPT-CBH');
+  if (CmdParam('ROOT', '') = '') and RegQueryStringValue(HKA, 'SOFTWARE\NIPT-CBH', 'InstallRoot', InstalledRoot) and (InstalledRoot <> '') then RootEdit.Text := InstalledRoot;
   Lbl := TNewStaticText.Create(AdvancedPage); Lbl.Parent := AdvancedPage.Surface; Lbl.Left := 0; Lbl.Top := RootEdit.Top + ScaleY(40);
   Lbl.Caption := 'ชื่อ DNS ภายในโรงพยาบาลที่ใช้เปิดระบบ (เว้นว่าง = ใช้ IP ของเครื่องนี้โดยอัตโนมัติ):';
   HostEdit := TNewEdit.Create(AdvancedPage); HostEdit.Parent := AdvancedPage.Surface; HostEdit.Left := 0; HostEdit.Top := Lbl.Top + ScaleY(20); HostEdit.Width := AdvancedPage.SurfaceWidth;
@@ -346,7 +390,8 @@ begin
   SystemCheck.Caption := 'เริ่มระบบตอนเปิดเครื่อง (SYSTEM) — ยังไม่ผ่านการทดสอบจริง ไม่แนะนำ';
   SystemCheck.Checked := CmdParam('TASKMODE', 'user') = 'system';
   AdminNeeded := True;
-  if IsProductionBuild then begin
+  if IsUpdateOnly then AdminNeeded := False;
+  if IsProductionBuild and not IsUpdateOnly then begin
     AdminPage := CreateInputQueryPage(AdvancedPage.ID, 'บัญชีเริ่มต้นของระบบ', 'ระบุผู้ดูแลระบบและผู้อนุมัติทางคลินิก (คนละคน) ระบบจะสร้างรหัสผ่านครั้งเดียวให้ ไม่มีบัญชีหรือรหัสผ่านที่กำหนดไว้ล่วงหน้า',
       'ชื่อผู้ใช้ใช้ตัวพิมพ์เล็กภาษาอังกฤษ ตัวเลข จุด ขีดกลาง หรือขีดล่าง (3-64 ตัวอักษร)');
     AdminPage.Add('ชื่อผู้ใช้ของผู้ดูแลระบบ (APP_ADMIN):', False);

@@ -38,12 +38,11 @@ export function HisPathsPanel({canWrite}:{canWrite:boolean}){
   return()=>{live=false;if(poll.current)clearTimeout(poll.current);};},[]);
  useEffect(()=>{if(!running)return;poll.current=setTimeout(()=>void load(),1500);return()=>{if(poll.current)clearTimeout(poll.current);};},[running,o,load]);
  const changed=Object.fromEntries(Object.entries(edit).filter(([n,v])=>{const f=FIELDS.find(x=>x.name===n)!;return v!==undefined&&v.trim()!==(o?.keys[f.key].paths[n as Name]??"");}));
- async function test(){setBusy(true);setError("");setNotice("");try{await call({operation:"propose",paths:changed,reason:reason.trim()||"แก้เส้นทางไฟล์ HIS"});await load();}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
- async function apply(){setBusy(true);setError("");setNotice("");try{const r=await call<{applied:{key:string;version:number}[]}>({operation:"apply",ids:pendings.map(p=>p.id)});setEdit({});setReason("");await load();setNotice(`บันทึกและใช้งานแล้ว (${r.applied.length} หมวด) — Worker ใช้เส้นทางใหม่ตั้งแต่งานถัดไป`);}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
+ // Owner 2026-10-27: one step. The folders are checked in this request; a usable change is Active at once, an unusable one is refused with the real reason.
+ async function save(){setBusy(true);setError("");setNotice("");try{const r=await call<{saved:{key:string;version:number}[]}>({operation:"save",paths:changed,reason:reason.trim()||undefined});setEdit({});setReason("");await load();setNotice(`บันทึกและใช้งานแล้ว (${r.saved.length} หมวด) — Worker ใช้เส้นทางใหม่ตั้งแต่งานถัดไป ไม่ต้องเริ่มระบบใหม่`);}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
  if(!o)return error?<p className="notice" role="alert">{error}</p>:<p role="status">กำลังโหลด…</p>;
- const allPassed=pendings.length>0&&pendings.every(p=>p.test.state==="PASSED");
  return <section className="his-paths" aria-labelledby="his-paths-title">
-  <header className="his-paths-head"><div><h2 id="his-paths-title">เส้นทางไฟล์ HIS</h2><p className="help">แก้เส้นทาง → ทดสอบโดย Worker → บันทึกและใช้งาน ระบบรับ PET และส่ง RES ด้วยเส้นทางใหม่ตั้งแต่งานถัดไป ไม่ต้องติดตั้งใหม่หรือเริ่มระบบใหม่</p></div></header>
+  <header className="his-paths-head"><div><h2 id="his-paths-title">เส้นทางไฟล์ HIS</h2><p className="help">แก้เส้นทาง → บันทึกและใช้งาน ระบบตรวจโฟลเดอร์ให้ทันที ถ้าใช้งานได้จะมีผลตั้งแต่งานถัดไป ถ้าใช้ไม่ได้จะแจ้งสาเหตุและยังไม่บันทึก ไม่ต้องติดตั้งใหม่หรือเริ่มระบบใหม่</p></div></header>
   <div aria-live="polite">{error&&<p className="notice" role="alert">{error}</p>}{notice&&<p className="notice success" role="status">{notice}</p>}</div>
   <div className="his-paths-list">{FIELDS.map(f=>{const k=o.keys[f.key],cur=k.paths[f.name]??"",pend=k.pending?.paths[f.name],test=k.pending?.test,changedHere=k.pending&&pend!==cur;
    return <div key={f.name} className="his-path-row">
@@ -55,9 +54,7 @@ export function HisPathsPanel({canWrite}:{canWrite:boolean}){
    </div>;})}</div>
   {pendings.some(p=>p.test.report?.workerAccount)&&<p className="help">ทดสอบโดยบัญชี Worker: <code>{pendings.find(p=>p.test.report?.workerAccount)?.test.report?.workerAccount}</code></p>}
   {canWrite&&<div className="his-paths-actions">
-   <div className="field"><label htmlFor="his-reason">เหตุผล</label><input id="his-reason" value={reason} maxLength={200} onChange={e=>setReason(e.target.value)} placeholder="เช่น แก้เส้นทางตามเครื่องแม่ข่ายโรงพยาบาล"/></div>
-   <button type="button" className="button secondary" disabled={busy||!Object.keys(changed).length} onClick={()=>void test()}><LabIcon name="refresh"/>ทดสอบเส้นทาง</button>
-   <button type="button" className="button" disabled={busy||!allPassed} onClick={()=>void apply()}><LabIcon name="save"/>บันทึกและใช้งาน</button>
+   <button type="button" className="button" disabled={busy||!Object.keys(changed).length} onClick={()=>void save()}><LabIcon name="save"/>{busy?"กำลังตรวจโฟลเดอร์และบันทึก…":"บันทึกและใช้งาน"}</button>
   </div>}
   <details className="his-paths-history"><summary>ประวัติการเปลี่ยน ({o.history.length})</summary><ul>{o.history.map(h=><li key={h.id}><span>{when(h.created_at)}</span><span>{h.setting_key} รุ่น {h.version}</span><span>{h.state==="Active"?"ใช้อยู่":"รุ่นก่อน"}</span><span>{h.actor}</span>{h.pathChange&&<span className="badge">เปลี่ยนเส้นทาง</span>}</li>)}</ul></details>
  </section>;

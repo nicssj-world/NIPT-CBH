@@ -24,6 +24,9 @@ const rehearsalOnly=arg('rehearsal-only')==='true';
 if(production&&(arg('extra-migration')||arg('test-fault'))&&!(rehearsalOnly&&arg('app-only')==='true'))throw Error('PRODUCTION_PACKAGE_REFUSES_TEST_INPUTS');
 if(git('status','--porcelain','--untracked-files=normal'))throw Error('CLEAN_COMMITTED_SOURCE_REQUIRED');
 const revision=git('rev-parse','HEAD'),appOnly=arg('app-only')==='true',skipBuild=arg('skip-build')==='true';
+// An update package is built on top of one exact installed source. The engine refuses it on any other installed revision, so it can never overwrite a lineage it was not built from.
+const requiresInstalledRevision=arg('requires-installed-revision')??null;
+if(requiresInstalledRevision!==null&&(!/^[a-f0-9]{40}$/.test(requiresInstalledRevision)||!appOnly))throw Error('REQUIRES_INSTALLED_REVISION_NEEDS_40_HEX_AND_APP_ONLY');
 const localRoot=path.resolve('.local/p8-win');
 const out=path.resolve(arg('out')??path.join(localRoot,'packages','nipt-cbh-'+version+(appOnly?'-app':'')));
 if(!out.startsWith(localRoot+path.sep))throw Error('PACKAGE_MUST_BE_UNDER_LOCAL_P8_WIN');
@@ -133,7 +136,7 @@ const privateKey=await readFile(keyFile,'utf8');
 const publicFile=keyFile.replace('private','public');
 if(!await exists(publicFile))await writeFile(publicFile,createPublicKey(privateKey).export({type:'spki',format:'pem'}));
 const files=await directoryHashes(out);
-const manifest={format:INSTALLER_FORMAT,version,revision,migrationsSha256:inventory.sha256,testEnvironmentOnly:!production,profile,rehearsalOnly,runtimeIncluded:!appOnly,runtime:runtime??null,minFromVersion:arg('min-from')??null,extraTestMigration:extra?path.basename(extra):null,testFault:testFault??null,files};
+const manifest={format:INSTALLER_FORMAT,version,revision,migrationsSha256:inventory.sha256,testEnvironmentOnly:!production,profile,rehearsalOnly,requiresInstalledRevision,runtimeIncluded:!appOnly,runtime:runtime??null,minFromVersion:arg('min-from')??null,extraTestMigration:extra?path.basename(extra):null,testFault:testFault??null,files};
 const raw=Buffer.from(JSON.stringify(manifest));
 await writeFile(path.join(out,'manifest.json'),raw);await writeFile(path.join(out,'manifest.sig'),sign(null,raw,privateKey));
 await rm(staging,{recursive:true,force:true});

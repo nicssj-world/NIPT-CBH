@@ -17,7 +17,7 @@ export function freeBytes(dir:string):Promise<number>;
 export function writeJson(file:string,value:unknown):Promise<void>;
 export function readJson(file:string,fallback?:unknown):Promise<Record<string,unknown>>;
 export function directoryHashes(dir:string,skip?:string[]):Promise<Record<string,string>>;
-export function verifyPackage(dir:string,publicKeyFile:string):Promise<{format:string;version:string;revision:string;migrationsSha256:string;testEnvironmentOnly:true;runtimeIncluded:boolean;runtime:Record<string,string>|null;minFromVersion:string|null;testFault?:string|null;files:Record<string,string>}>;
+export function verifyPackage(dir:string,publicKeyFile:string):Promise<{format:string;version:string;revision:string;migrationsSha256:string;testEnvironmentOnly:boolean;profile?:'test'|'production';rehearsalOnly?:boolean;requiresInstalledRevision?:string|null;extraTestMigration?:string|null;runtimeIncluded:boolean;runtime:Record<string,string>|null;minFromVersion:string|null;testFault?:string|null;files:Record<string,string>}>;
 export type LedgerRow={name:string;checksum:string};
 export function schemaCompatibility(a:{ledger:LedgerRow[];releaseMigrations:Record<string,string>}):{compatibleWithDatabase:boolean;unknown:string[];changed:string[];pending:string[]};
 export function canRollbackApplicationOnly(a:{ledger:LedgerRow[];targetMigrations:Record<string,string>}):{ok:boolean;reason:string|null;compatibleWithDatabase:boolean;unknown:string[];changed:string[];pending:string[]};

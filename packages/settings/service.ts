@@ -17,10 +17,12 @@ export async function proposeSetting(db: Queryable, user: Principal, key: string
   if(key==='laboratory'&&!previousId){const active=(await readActiveSettings(db)).laboratory??SETTINGS.laboratory.default;for(const field of ['templateVersion','formulaVersion'])if((validated as Record<string,unknown>)[field]!==((active as Record<string,unknown>)[field]??(SETTINGS.laboratory.default as Record<string,unknown>)[field]))throw Error('CONTROLLED_METADATA_READ_ONLY');}
   // Owner 2026-10-18: the result PDF folder is scanned on demand only; a timer can no longer be configured.
   if(key==='result_management'&&(validated as {scheduledScanMinutes?:number}).scheduledScanMinutes!==0)throw Error('SCHEDULED_SCAN_DISABLED_OWNER');
-  if (!reason.trim() || reason.length > 250) throw new Error("REASON_REQUIRED");
+  // Owner 2026-10-27: a reason is optional. The record still needs text (NOT NULL), so an empty reason is stored as a system-generated one.
+  const why = reason.trim() || "ผู้ดูแลระบบบันทึกการตั้งค่า";
+  if (why.length > 250) throw new Error("REASON_TOO_LONG");
   await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`settings:${key}`]);
   const result = await db.query<{ id: string }>(`INSERT INTO settings_revision(setting_key,version,category,risk,value,state,created_by,reason,previous_revision_id)
-    VALUES($1,(SELECT COALESCE(max(version),0)+1 FROM settings_revision WHERE setting_key=$1),$2,$3,$4,'Draft',$5,$6,$7) RETURNING id`, [key, d.category, d.risk, JSON.stringify(validated), user.id, reason.trim(), previousId ?? null]);
+    VALUES($1,(SELECT COALESCE(max(version),0)+1 FROM settings_revision WHERE setting_key=$1),$2,$3,$4,'Draft',$5,$6,$7) RETURNING id`, [key, d.category, d.risk, JSON.stringify(validated), user.id, why, previousId ?? null]);
   const id=result.rows[0].id;
   await appendAudit(db,{actorId:user.id,action:"SETTING_PROPOSED",resourceType:"SETTING",resourceId:id,details:{outcome:"DRAFT",synthetic:true}});
   return id;

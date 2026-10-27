@@ -15,7 +15,10 @@ import {openSandbox} from '../p6/sandbox';
 export async function runHisSettingsTest(db:Queryable,payload:unknown){
  const p=payload as {revisionId?:string;version?:number;active?:boolean};
  const row=(await db.query<ActiveHis&{state:string}>('SELECT id,setting_key,version,value,state FROM settings_revision WHERE id=$1',[p.revisionId])).rows[0];
- if(!row||row.version!==p.version||!['his_inbound','his_outbound'].includes(row.setting_key)||row.state!==(p.active?'Active':'Draft'))throw Error('HIS_CONFIGURATION_CHANGED');
+ if(!row||row.version!==p.version||!['his_inbound','his_outbound'].includes(row.setting_key))throw Error('HIS_CONFIGURATION_CHANGED');
+ // A queued test whose revision was superseded (activated, archived or replaced since) is finished with a plain result. Throwing here would leave a sticky
+ // worker error in the health report for a test nobody is waiting for any more (Owner 2026-10-27: settings no longer depend on this queue).
+ if(row.state!==(p.active?'Active':'Draft'))return {passed:false,errorCode:'HIS_CONFIGURATION_CHANGED',superseded:true,revisionId:row.id,version:row.version,workerAccount:null,syntheticOnly:!operationalDataEnabled()};
  let report:Record<string,unknown>;
  try{
   if(p.active)await assertHisVersion(db,row.setting_key,row.id);

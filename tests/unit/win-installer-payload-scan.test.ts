@@ -21,6 +21,14 @@ describe('production payload scan',()=>{
   const r=await payloadScan(await makePackage());
   expect(r.violations).toEqual([]);
  });
+ it('an application-only update needs no runtime or master workbook, but everything else is still required',async()=>{
+  const dir=await makePackage();
+  await rm(path.join(dir,'payload','runtime'),{recursive:true});await rm(path.join(dir,'payload','master'),{recursive:true});
+  expect((await payloadScan(dir)).violations.length).toBeGreaterThan(0);
+  expect((await payloadScan(dir,{appOnly:true})).violations).toEqual([]);
+  await rm(path.join(dir,'payload','release','app','server.js'));
+  expect((await payloadScan(dir,{appOnly:true})).violations.map(v=>v.path)).toEqual(['payload/release/app/server.js']);
+ });
  it('refuses .local folders, credential files, private-key text and a missing required component',async()=>{
   const dir=await makePackage({'payload/release/app/.local/x.txt':'x','installer/uat-accounts.json':'[]','payload/release/ops/key.txt':'-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----','payload/release/ops/.env.local':'A=1'});
   await rm(path.join(dir,'payload','master','approved-master.xlsx'));

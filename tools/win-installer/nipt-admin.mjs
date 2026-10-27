@@ -481,6 +481,8 @@ async function upgrade(){
  const packageDir=path.resolve(args.package??fail('PACKAGE_REQUIRED'));
  const m=await verifyPackage(packageDir,path.resolve(args['public-key']??fail('PUBLIC_KEY_REQUIRED')));
  if((m.testFault||m.rehearsalOnly)&&args['allow-test-fault']!=='yes')fail('PACKAGE_TEST_FAULT_NOT_ALLOWED');
+ // an update is built on one exact installed source; any other installed revision is refused before anything is touched
+ if(m.requiresInstalledRevision&&m.requiresInstalledRevision!==st.current.revision)fail('UPGRADE_BASE_REVISION_MISMATCH',{installedVersion:st.current.version,installedRevision:st.current.revision,requiredRevision:m.requiresInstalledRevision});
  // an installation never changes profile through an upgrade: a test package cannot be applied to production data, nor the reverse
  if((m.testEnvironmentOnly===false)!==(c.testEnvironmentOnly===false))fail('UPGRADE_PROFILE_MISMATCH',{installed:c.testEnvironmentOnly===false?'production':'test',package:m.testEnvironmentOnly===false?'production':'test'});
  if(!args['allow-same-version']&&compareVersions(m.version,st.current.version)<=0)fail('UPGRADE_VERSION_NOT_NEWER',{current:st.current.version,package:m.version});

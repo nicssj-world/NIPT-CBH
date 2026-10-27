@@ -3,6 +3,7 @@ import {appendAudit} from '../db/audit';
 import {requirePermission,type Principal} from '../security/policy';
 import {SETTINGS} from './catalog';
 import {validateSetting,readActiveSettings} from './service';
+import {saveSystemSetting} from './direct';
 import {requestHisTest,HIS_TEST_KIND} from './his';
 import {cancelObsoleteInboundScans} from '../jobs/obsolete-scans';
 
@@ -63,7 +64,7 @@ export async function hisPathOverview(db:Queryable,user:Principal){
 export async function proposeHisPaths(db:Queryable,user:Principal,raw:unknown,resultFolderValid:(path:string)=>Promise<boolean>){
  requirePermission(user,'integration.configure',{},'write');
  const input=(raw??{}) as {paths?:Partial<Record<HisPathName,unknown>>;reason?:unknown};
- const reason=String(input.reason??'').trim();if(!reason||reason.length>200)throw Error('REASON_REQUIRED');
+ const reason=String(input.reason??'').trim()||'ตั้งค่าโฟลเดอร์ HIS';if(reason.length>200)throw Error('REASON_TOO_LONG');
  const wanted=input.paths??{},created:{key:PathKey;id:string;version:number;jobId?:string}[]=[];
  for(const key of KEYS){
   const c=await current(db,key),next={...c.value};let changed=false;
@@ -107,4 +108,37 @@ export async function applyHisPaths(db:Queryable,user:Principal,raw:unknown){
   applied.push({key:row.setting_key,version:row.version});
  }
  return {applied,active:await readActiveSettings(db).then(a=>Object.fromEntries(KEYS.map(k=>[k,a[k]?pathsOf(k,a[k] as Record<string,unknown>):null])))};
+}
+
+/**
+ * Owner 2026-10-27: one step for the administrator. The folders are checked in this request (same share policy and service account as the worker),
+ * a folder that cannot be used refuses the save with its real error, and a usable change becomes Active at once. No draft, no worker test queue,
+ * no mandatory reason. HIS inbound/outbound go through the system-setting save; the external-PDF folder keeps its path-only rule in the database guard.
+ */
+export async function saveHisPaths(db:Queryable,user:Principal,raw:unknown,deps:{resultFolderValid:(path:string)=>Promise<boolean>;check:(key:'his_inbound'|'his_outbound',value:Record<string,unknown>)=>Promise<void>}){
+ requirePermission(user,'integration.configure',{},'write');
+ const input=(raw??{}) as {paths?:Partial<Record<HisPathName,unknown>>;reason?:unknown};
+ const reason=String(input.reason??'').trim()||'ตั้งค่าโฟลเดอร์ HIS';if(reason.length>200)throw Error('REASON_TOO_LONG');
+ const wanted=input.paths??{},saved:{key:PathKey;version:number}[]=[];
+ for(const key of KEYS){
+  const c=await current(db,key),next={...c.value};let changed=false;
+  for(const [field,name] of Object.entries(HIS_PATH_FIELDS[key])){const v=wanted[name as HisPathName];if(v===undefined)continue;const s=String(v).trim();if(s!==String(c.value[field]??'')){next[field]=s;changed=true;}}
+  if(!changed)continue;
+  if(key==='result_management'){
+   const value=SETTINGS[key].schema.parse(next) as Record<string,unknown>;
+   if(!(await deps.resultFolderValid(String(value.pdfSourcePath))))throw Error('RESULT_FOLDER_NOT_ACCESSIBLE');
+   await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`settings:${key}`]);
+   const row=(await db.query<{id:string;version:number}>(`INSERT INTO settings_revision(setting_key,version,category,risk,value,state,created_by,reason,previous_revision_id,test_passed)
+    VALUES($1,(SELECT COALESCE(max(version),0)+1 FROM settings_revision WHERE setting_key=$1),$2,$3,$4,'Validated',$5,$6,$7,true) RETURNING id,version`,[key,SETTINGS[key].category,SETTINGS[key].risk,JSON.stringify(value),user.id,REASON_PREFIX+reason,c.active?.id??null])).rows[0];
+   await db.query("UPDATE settings_revision SET state='Archived' WHERE setting_key=$1 AND state='Active'",[key]);
+   await db.query('INSERT INTO setting_active(setting_key,revision_id) VALUES($1,$2) ON CONFLICT(setting_key) DO UPDATE SET revision_id=excluded.revision_id',[key,row.id]);
+   await db.query("UPDATE settings_revision SET state='Active' WHERE id=$1",[row.id]);
+   await appendAudit(db,{actorId:user.id,action:'SETTING_SAVED_ACTIVE',resourceType:'SETTING',resourceId:row.id,details:{outcome:'ACTIVE',version:row.version,reasonCode:key,count:1}});
+   saved.push({key,version:row.version});continue;
+  }
+  const r=await saveSystemSetting(db,user,key,next,{reason:REASON_PREFIX+reason,check:deps.check});
+  saved.push({key,version:r.version});
+ }
+ if(!saved.length)throw Error('HIS_PATH_UNCHANGED');
+ return {saved,active:await readActiveSettings(db).then(a=>Object.fromEntries(KEYS.map(k=>[k,a[k]?pathsOf(k,a[k] as Record<string,unknown>):null])))};
 }

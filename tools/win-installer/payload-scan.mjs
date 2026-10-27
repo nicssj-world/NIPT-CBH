@@ -12,7 +12,7 @@ const REQUIRED=['payload/master/approved-master.xlsx','payload/runtime/node/node
  'payload/release/app/server.js','payload/release/ops/apps/worker/main.ts','payload/release/ops/apps/renderer/main.ts','payload/release/ops/packages/readygen/word-export.ps1','payload/release/ops/packages/workbook/native-export.ps1',
  'payload/release/ops/tools/win-installer/office-check.ts','installer/nipt-admin.mjs','installer/setup-run.mjs','manifest.json','manifest.sig'];
 
-export async function payloadScan(dir){
+export async function payloadScan(dir,options={}){
  const violations=[];let files=0;const testAccountCode=[];
  const walk=async(d,rel)=>{
   for(const e of await readdir(d,{withFileTypes:true})){
@@ -33,6 +33,8 @@ export async function payloadScan(dir){
   }
  };
  await walk(dir,'');
- for(const need of REQUIRED){try{await stat(path.join(dir,need));}catch{violations.push({kind:'required-missing',path:need});}}
+ // An application-only update carries no runtime and no master workbook (the installation keeps its own); everything else is still required.
+ const required=options.appOnly?REQUIRED.filter(f=>!f.startsWith('payload/runtime/')&&f!=='payload/master/approved-master.xlsx'):REQUIRED;
+ for(const need of required){try{await stat(path.join(dir,need));}catch{violations.push({kind:'required-missing',path:need});}}
  return {files,violations,testAccountCode};
 }

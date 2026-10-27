@@ -53,9 +53,11 @@ it('a failed worker test is never applied; non-admins cannot change paths; non-p
  }finally{await db.close();}
 });
 
-it('database guard: a "path change" revision that also switches on live I/O still needs the second approver',async()=>{
+// Owner 2026-10-27 (migration 157): an APP_ADMIN's validated HIS revision is system configuration and activates without a second person, so the
+// guard is now tied to WHO authored the revision (a current APP_ADMIN assignment), not to the wording of the reason. Anyone else still needs the checker.
+it('database guard: a "path change" revision that also switches on live I/O still needs the second approver unless an APP_ADMIN authored it',async()=>{
  const db=await testDatabase();try{
-  const admin=await addUser(db,'APP_ADMIN','synthetic.his.admin3');
+  const admin=await addUser(db,'LAB_STAFF','synthetic.his.admin3');
   const value={...SETTINGS.his_inbound.default,basePath:'D:\HIS-C',enabled:true};
   const id=(await db.query<{id:string}>(`INSERT INTO settings_revision(setting_key,version,category,risk,value,state,created_by,reason,test_passed)
    VALUES('his_inbound',1,'HIS Inbound','INTEGRATION',$1,'Validated',$2,'HIS path change: sneak',true) RETURNING id`,[JSON.stringify(value),admin.id])).rows[0].id;

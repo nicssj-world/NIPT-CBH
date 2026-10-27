@@ -1,4 +1,5 @@
 /** Build the one-click Windows Setup (NIPT-CBH-Setup-<version>.exe) from the clean committed source.
+ *    tsx tools/win-installer/build-setup.ts --update --version 1.2.2 --base-revision <40-hex of the installed source> [--skip-build]   (NIPT-CBH-Update-<version>.exe)
  *    tsx tools/win-installer/build-setup.ts --version 1.1.0 [--profile production|test] [--skip-build] [--master-workbook <file>] [--out <folder>] [--fast]
  *  The profile defaults to PRODUCTION and is always passed explicitly to the package builder; the manifest is checked afterwards, so a test package can never be
  *  wrapped as the production EXE (and the reverse).
@@ -27,7 +28,11 @@ const out=path.resolve(arg('out')??path.join(local,'setup'));
 const profile=arg('profile')??'production';
 if(profile!=='production'&&profile!=='test')throw Error('PROFILE_INVALID');
 const production=profile==='production';
-const packageDir=path.join(local,'setup-packages','nipt-cbh-'+version+(production?'':'-test'));
+// --update: an application-only production package that the installed system accepts only if it was built from exactly --base-revision.
+const update=arg('update')==='true',baseRevision=arg('base-revision')??'';
+if(update&&(!production||!/^[a-f0-9]{40}$/.test(baseRevision)))throw Error('UPDATE_REQUIRES_PRODUCTION_PROFILE_AND_BASE_REVISION');
+if(!update&&arg('base-revision'))throw Error('BASE_REVISION_ONLY_FOR_UPDATE');
+const packageDir=path.join(local,'setup-packages','nipt-cbh-'+version+(update?'-update':production?'':'-test'));
 const master=arg('master-workbook')??process.env.NIPT_TASK_MASTER_PATH??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx';
 const iscc=[process.env.ISCC,path.join(process.env.LOCALAPPDATA??'','Programs','Inno Setup 6','ISCC.exe'),'C:/Program Files (x86)/Inno Setup 6/ISCC.exe','C:/Program Files/Inno Setup 6/ISCC.exe'].find(p=>p&&existsSync(p));
 if(!iscc)throw Error('INNO_SETUP_COMPILER_NOT_FOUND (build host only: winget install JRSoftware.InnoSetup)');
@@ -36,7 +41,7 @@ await mkdir(out,{recursive:true});
 
 if(!existsSync(path.join(packageDir,'manifest.json'))){
  log('building the signed offline package with the master workbook');
- const a=['node_modules/tsx/dist/cli.mjs','tools/win-installer/build-package.ts','--version',version,'--profile',profile,'--out',packageDir,'--master-workbook',master];
+ const a=['node_modules/tsx/dist/cli.mjs','tools/win-installer/build-package.ts','--version',version,'--profile',profile,'--out',packageDir,...(update?['--app-only','--requires-installed-revision',baseRevision]:['--master-workbook',master])];
  if(arg('skip-build'))a.push('--skip-build');
  for(const name of ['anc-request-pdf','anc-consent-pdf'])if(arg(name))a.push('--'+name,arg(name)!);
  execFileSync(process.execPath,a,{stdio:['ignore','inherit','inherit']});
@@ -47,11 +52,13 @@ const manifest=JSON.parse(manifestBytes.toString());
 if(manifest.revision!==revision)throw Error('PACKAGE_REVISION_DIFFERS_FROM_HEAD (rebuild the package)');
 // The EXE wraps exactly the profile that was asked for. A production EXE never carries test inputs.
 if(manifest.profile!==profile||manifest.testEnvironmentOnly!==!production)throw Error('PACKAGE_PROFILE_MISMATCH:'+manifest.profile+'/'+manifest.testEnvironmentOnly);
-if(production&&(manifest.rehearsalOnly||manifest.extraTestMigration||manifest.testFault||manifest.runtimeIncluded!==true))throw Error('PRODUCTION_EXE_REFUSES_TEST_OR_PARTIAL_PACKAGE');
+if(production&&(manifest.rehearsalOnly||manifest.extraTestMigration||manifest.testFault||manifest.runtimeIncluded!==(update?false:true)))throw Error('PRODUCTION_EXE_REFUSES_TEST_OR_PARTIAL_PACKAGE');
+if(update&&manifest.requiresInstalledRevision!==baseRevision)throw Error('UPDATE_PACKAGE_BASE_REVISION_MISMATCH');
+if(!update&&manifest.requiresInstalledRevision)throw Error('FULL_SETUP_REFUSES_UPDATE_ONLY_PACKAGE');
 await verifyPackage(packageDir,keyFile); // signature and exact file set, with the public key that is embedded next to it
-const scan=await payloadScan(packageDir);
+const scan=await payloadScan(packageDir,{appOnly:update});
 if(production&&scan.violations.length)throw Error('PAYLOAD_SCAN_FAILED:'+JSON.stringify(scan.violations.slice(0,10)));
-if(!existsSync(path.join(packageDir,'payload','master','approved-master.xlsx')))throw Error('MASTER_WORKBOOK_NOT_EMBEDDED');
+if(!update&&!existsSync(path.join(packageDir,'payload','master','approved-master.xlsx')))throw Error('MASTER_WORKBOOK_NOT_EMBEDDED');
 verifyReleaseFormAssets(path.join(packageDir,'payload','release'),true);
 
 // the Thai sentences the wizard shows for step / warning / error codes (UTF-8 with BOM, included into the Pascal script)
@@ -65,9 +72,9 @@ try{rmdirSync(alias);}catch{/* no junction yet */}
 symlinkSync(packageDir,alias,'junction');
 log('compiling '+path.basename(iscc)+' (this takes several minutes: the payload is about 1.4 GB)');
 const t0=Date.now();
-execFileSync(iscc,['/Q',`/DPackageDir=${alias}`,`/DKeyFile=${keyFile}`,`/DAppVersion=${version}`,`/DOutDir=${out}`,...(production?['/DProduction=1']:[]),`/DMessagesInc=${messagesInc}`,...(arg('fast')?['/DCompressionFast=1']:[]),path.resolve('tools/win-installer/setup/NIPT-CBH-Setup.iss')],{stdio:['ignore','inherit','inherit']});
+execFileSync(iscc,['/Q',`/DPackageDir=${alias}`,`/DKeyFile=${keyFile}`,`/DAppVersion=${version}`,`/DOutDir=${out}`,...(production?['/DProduction=1']:[]),...(update?['/DUpdateOnly=1']:[]),`/DMessagesInc=${messagesInc}`,...(arg('fast')?['/DCompressionFast=1']:[]),path.resolve('tools/win-installer/setup/NIPT-CBH-Setup.iss')],{stdio:['ignore','inherit','inherit']});
 try{rmdirSync(alias);}catch{/* no junction yet */}
-const exe=path.join(out,`NIPT-CBH-Setup-${version}.exe`);
+const exe=path.join(out,`NIPT-CBH-${update?'Update':'Setup'}-${version}.exe`);
 const bytes=await readFile(exe);
 const record={
  format:'NIPT_SETUP_EXE_RECORD_V1',builtAt:new Date().toISOString(),compileSeconds:Math.round((Date.now()-t0)/1000),
@@ -75,9 +82,9 @@ const record={
   authenticode:'NOT SIGNED (no code-signing certificate is available on the build host; Ed25519 package signing is not Windows Authenticode, so SmartScreen may warn)'},
  innoSetup:path.basename(path.dirname(iscc)),
  profile,payloadScan:{files:scan.files,violations:scan.violations,codeMentionsOfTestAccounts:scan.testAccountCode},
- package:{path:packageDir,version:manifest.version,revision:manifest.revision,profile:manifest.profile,testEnvironmentOnly:manifest.testEnvironmentOnly,rehearsalOnly:manifest.rehearsalOnly===true,manifestSha256:createHash('sha256').update(manifestBytes).digest('hex'),runtime:manifest.runtime,migrationsSha256:manifest.migrationsSha256,masterWorkbookEmbedded:true},
+ package:{path:packageDir,version:manifest.version,revision:manifest.revision,profile:manifest.profile,testEnvironmentOnly:manifest.testEnvironmentOnly,rehearsalOnly:manifest.rehearsalOnly===true,manifestSha256:createHash('sha256').update(manifestBytes).digest('hex'),runtime:manifest.runtime,migrationsSha256:manifest.migrationsSha256,masterWorkbookEmbedded:!update,requiresInstalledRevision:manifest.requiresInstalledRevision??null,updateOnly:update},
  source:{head:revision,baselineTag:'baseline-pre-p8-win-20261019'},
  integrity:'The EXE carries the Ed25519-signed package and its public key; the engine verifies signature and the exact file set before it writes anything.'
 };
-await writeFile(path.join(out,`NIPT-CBH-Setup-${version}.record.json`),JSON.stringify(record,null,2));
+await writeFile(path.join(out,`NIPT-CBH-${update?'Update':'Setup'}-${version}.record.json`),JSON.stringify(record,null,2));
 process.stdout.write(JSON.stringify({exe:record.exe,compileSeconds:record.compileSeconds,packageManifestSha256:record.package.manifestSha256})+'\n');

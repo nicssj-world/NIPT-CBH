@@ -2,7 +2,7 @@
  *  every protected API refuses until it has, the old password stops working, and the new password signs in with the assigned role.
  *    tsx tools/win-installer/installed-first-login.ts --root <install root>
  *  The new password is generated here and never printed or stored. Output is booleans and role names only. */
-import {readFile,mkdir} from 'node:fs/promises';
+import {readFile,mkdir,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {randomBytes} from 'node:crypto';
 import {layout} from './lib.mjs';
@@ -32,6 +32,7 @@ async function login(username:string,password:string){
  return {jar,status:res.status,csrf:res.json.csrf as string|undefined};
 }
 const results:Record<string,unknown>[]=[];
+const saved:{username:string;role:string;password:string}[]=[];
 let adminSession:{jar:Jar;csrf:string}|null=null;
 for(const account of accounts){
  const first=await login(account.Username,account.Password);
@@ -53,6 +54,7 @@ for(const account of accounts){
  if(fresh.status!==200)throw Error('NEW_PASSWORD_REJECTED');
  const after=await call(fresh.jar,'GET','/api/me');
  if(after.status!==200)throw Error('SESSION_AFTER_CHANGE_FAILED');
+ saved.push({username:account.Username,role:account.Role,password:next});
  if(account.Role==='APP_ADMIN')adminSession={jar:fresh.jar,csrf:fresh.csrf as string};
  const admin=account.Role==='APP_ADMIN'?await call(fresh.jar,'GET','/api/admin'):null;
  results.push({role:account.Role,oneTimePasswordAccepted:true,protectedApiBlockedBeforeChange:blocked.status,wrongCurrentRefused:wrong.status,changed:true,oldPasswordRefused:old.status,newPasswordSignsIn:true,...(admin?{adminApiAfterChange:admin.status}:{})});
@@ -83,5 +85,7 @@ if(process.argv.includes('--his-paths')&&adminSession){
  for(const [k,v] of Object.entries(dirs))if(path.resolve(active[k]??'')!==path.resolve(v))throw Error('HIS_PATH_NOT_ACTIVE:'+k);
  paths={proposed:true,workerTested:true,applied:(applied.json.applied as unknown[]).length,activePathsMatch:true,restartRequired:false};
 }
+// Rehearsal only (disposable root): keep the new passwords in a file the next check reads; the default run prints and stores nothing.
+const keep=arg('save-passwords');if(keep)await writeFile(path.resolve(keep),JSON.stringify(saved),{mode:0o600});
 const bad=await login(accounts[0].Username,'definitely-not-the-password-1');
 process.stdout.write(JSON.stringify({passed:bad.status===401,wrongPasswordStatus:bad.status,accounts:results,...(paths?{hisPaths:paths}:{})})+'\n');
