@@ -99,7 +99,7 @@ try{
  await step('U7b a tampered update package is refused by the engine and the installation is untouched',()=>{
   const pkg=path.join(base,'setup-packages','nipt-cbh-'+(opt('expect-version')??'1.1.1')+'-update'),bad=path.join(base,'upd-rehearsal-'+tag,'tampered');mkdirSync(bad,{recursive:true});
   for(const e of readdirSync(pkg,{withFileTypes:true}))if(e.isFile())writeFileSync(path.join(bad,e.name),readFileSync(path.join(pkg,e.name)));
-  const mf=path.join(bad,'package-manifest.json');assert.ok(existsSync(mf),'manifest present');writeFileSync(mf,readFileSync(mf,'utf8').replace(/"version":\s*"[^"]+"/,'"version": "9.9.9"'));
+  const mf=path.join(bad,'manifest.json');assert.ok(existsSync(mf),'manifest present');writeFileSync(mf,readFileSync(mf,'utf8').replace(/"version":\s*"[^"]+"/,'"version": "9.9.9"'));
   const before=JSON.stringify({s:state().current,set:settingsOf(),u:sql('SELECT count(*) FROM app_user')});
   const r=cli('upgrade',['--package',bad,'--public-key',path.join(base,'keys','package-signing-public.pem')],true);
   assert.notEqual(r._status,0,'tampered package must be refused');
