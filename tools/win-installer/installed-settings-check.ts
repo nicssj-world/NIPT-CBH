@@ -79,8 +79,11 @@ if(phase==='before'){
   const reload=(await activeOf()).his_inbound;eq(reload?.enabled,true,'enabled after reload');eq(reload?.basePath,inboundBefore.basePath,'PET path unchanged');
   const r=nipt('restart');ok(r.status===0,'restart failed: '+r.stdout.slice(-200)+r.stderr.slice(-200));
   for(let i=0;i<60;i++){const h=nipt('health');if(h.status===0)break;await sleep(2000);}
+  // the web server answers a moment after the supervisor reports healthy: wait for the real HTTPS endpoint, then sign in again
+  const t0=Date.now();let webUp=false;for(let i=0;i<60&&!webUp;i++){webUp=await fetch(`${base}/api/health`).then(x=>x.status===200).catch(()=>false);if(!webUp)await sleep(2000);}
+  ok(webUp,'web server did not answer after the restart');const webWaitMs=Date.now()-t0;
   const afterRestart=(await call((await login('APP_ADMIN')).jar,'GET','/api/settings')).json.active.his_inbound;eq(afterRestart.enabled,true,'enabled after restart');
-  return {version:saved.json.version,state:row,reloadEnabled:true,restartEnabled:true,petPath:reload?.basePath};
+  return {version:saved.json.version,state:row,reloadEnabled:true,restartEnabled:true,petPath:reload?.basePath,webAnsweredAfterMs:webWaitMs};
  });
  await step('A4 the worker uses the new setting (a scan runs by itself within the interval)',async()=>{
   const before=Number(sql("SELECT count(*) FROM his_inbound_scan_run"));
