@@ -34,6 +34,17 @@ if(update&&(!production||!/^[a-f0-9]{40}$/.test(baseRevision)))throw Error('UPDA
 if(!update&&arg('base-revision'))throw Error('BASE_REVISION_ONLY_FOR_UPDATE');
 const packageDir=path.join(local,'setup-packages','nipt-cbh-'+version+(update?'-update':production?'':'-test'));
 const master=arg('master-workbook')??process.env.NIPT_TASK_MASTER_PATH??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx';
+// For update-only builds, reuse the previously pinned Owner BM17 reference PDFs
+// when explicit build inputs are absent. Content remains SHA-256 checked by
+// stageFormAssets; these references are NOT implicitly DCC-approved.
+const knownFormSource=(kind:'request'|'consent')=>{
+ const names=kind==='request'
+  ? ['FM-WI-T-BM17_01 ใบขอส่งตรวจคัดกรอง CBH-NIPT.pdf']
+  : ['FM-WI-T-BM17_02 เอกสารยินยอมรับการตรวจคัดกรอง CBH-NIPT(1).pdf'];
+ const home=process.env.USERPROFILE??'';
+ const roots=[path.join(home,'OneDrive','Desktop','NIPT-Audit'),path.join(home,'Downloads')];
+ return roots.flatMap(root=>names.map(name=>path.join(root,name))).find(f=>existsSync(f));
+};
 const iscc=[process.env.ISCC,path.join(process.env.LOCALAPPDATA??'','Programs','Inno Setup 6','ISCC.exe'),'C:/Program Files (x86)/Inno Setup 6/ISCC.exe','C:/Program Files/Inno Setup 6/ISCC.exe'].find(p=>p&&existsSync(p));
 if(!iscc)throw Error('INNO_SETUP_COMPILER_NOT_FOUND (build host only: winget install JRSoftware.InnoSetup)');
 const log=(m:string)=>process.stderr.write('[setup] '+m+'\n');
@@ -43,7 +54,10 @@ if(!existsSync(path.join(packageDir,'manifest.json'))){
  log('building the signed offline package with the master workbook');
  const a=['node_modules/tsx/dist/cli.mjs','tools/win-installer/build-package.ts','--version',version,'--profile',profile,'--out',packageDir,...(update?['--app-only','--requires-installed-revision',baseRevision]:['--master-workbook',master])];
  if(arg('skip-build'))a.push('--skip-build');
- for(const name of ['anc-request-pdf','anc-consent-pdf'])if(arg(name))a.push('--'+name,arg(name)!);
+ for(const [flag,kind] of [['anc-request-pdf','request'],['anc-consent-pdf','consent']] as const){
+  const file=arg(flag)??(update?knownFormSource(kind):undefined);
+  if(file)a.push('--'+flag,file);
+ }
  execFileSync(process.execPath,a,{stdio:['ignore','inherit','inherit']});
 }else log('reusing the existing package '+packageDir);
 const keyFile=path.join(local,'keys','package-signing-public.pem');
