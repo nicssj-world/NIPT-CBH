@@ -24,6 +24,8 @@
     "renderer": "tsx apps/renderer/main.ts",
     "simulator": "tsx tools/his-simulator/main.ts",
     "guard": "tsx tools/source-guard.ts",
+    "release:update:112": "tsx tools/win-installer/build-setup.ts --update --version 1.1.2 --base-revision c237da440dd0e007b2a94bca6438c3dce5fdcc43",
+    "release:rehearsal:112": "tsx tools/win-installer/update-rehearsal.ts",
     "photos": "tsx tools/run-photos.ts"
   },
   "dependencies": {

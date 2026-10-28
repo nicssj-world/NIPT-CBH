@@ -147,3 +147,21 @@ GRANT SELECT,INSERT,UPDATE ON report_template_revision,report_template_active TO
 GRANT SELECT ON report_template_revision,report_template_active TO report_ro;
 -- ANC current-patient projection (inbound worker evidence on PET apply): only name/DOB through a definer function, never the draft.
 GRANT EXECUTE ON FUNCTION anc_workspace_patient(uuid) TO app_rw,worker_rw;
+-- PDF archive worker only: no clinical release or HIS mutation privileges.
+GRANT SELECT ON pdf_archive_config,pdf_archive_window,result_release_completed TO worker_rw;
+GRANT SELECT,INSERT,UPDATE ON pdf_archive_job TO worker_rw;
+GRANT SELECT(id,version_id,case_id,round_id,certified_at) ON result_release TO worker_rw;
+GRANT SELECT(id,case_id,round_id,sha256) ON result_report_version TO worker_rw;
+GRANT SELECT(id,registration_origin) ON nipt_case TO worker_rw;
+GRANT SELECT(sha256,byte_size,media_type) ON file_asset TO worker_rw;
+GRANT SELECT,INSERT,UPDATE ON pdf_archive_config,pdf_archive_window TO app_rw;
+REVOKE INSERT,UPDATE ON pdf_archive_probe FROM app_rw;
+REVOKE UPDATE ON pdf_archive_probe FROM worker_rw;
+GRANT SELECT ON pdf_archive_probe TO app_rw;
+GRANT INSERT(root_path,requested_by) ON pdf_archive_probe TO app_rw;
+GRANT UPDATE(used_at) ON pdf_archive_probe TO app_rw;
+GRANT SELECT ON pdf_archive_job TO app_rw;
+GRANT SELECT ON pdf_archive_probe TO worker_rw;
+GRANT UPDATE(state,error_code,worker_account,completed_at,claimed_until,claim_token) ON pdf_archive_probe TO worker_rw;
+-- Migration 160: an untrusted recovery hint, never permission to mutate job state.
+GRANT INSERT(retry_job_id) ON pdf_archive_probe TO app_rw;

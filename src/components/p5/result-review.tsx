@@ -6,6 +6,7 @@ import {labApi,failureText,bkk,LabFailure} from "../p4/lab-api";
 import {STATE_TEXT,STATE_TONE,KIND_TEXT,CONTAINER_TEXT,CROSS_TEXT,CMP_TEXT,CMP_TONE,GATE_NAME,TRI_TEXT,TRI_TONE,reasonText,bytes} from "./labels";
 import {ThaiDateInput} from "../shared/thai-date-input";
 import {Task3Panel,type Task3Detail} from "./task3-panel";
+import {ArchiveStatus} from './archive-status';
 
 type Field={value:string|number|null;raw:string|null;method:string};
 type Cross=Record<string,string>;
@@ -65,6 +66,7 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
   <header className="page-header"><div><h1>ตรวจทานผล</h1><p className="muted p5-file">{d.intake.member_name??d.intake.relative_path??d.intake.original_name}</p></div>
    <div className="p5-head-status"><Status tone={STATE_TONE[v.state]}>{STATE_TEXT[v.state]??v.state}</Status><span className="badge">{KIND_TEXT[v.templateKind]}</span>{p.abnormal&&<span className="badge danger">ผิดปกติ</span>}{v.supersedesId&&<span className="badge warning">ฉบับแก้ไข</span>}</div></header>
   <div aria-live="polite">{notice&&<p className={`notice ${noticeTone}`} role="status">{notice}</p>}{error&&<p className="notice" role="alert">{error}</p>}</div>
+  <ArchiveStatus versionId={v.id}/>
   <div className="p5-review">
    <section className="panel p5-original" aria-labelledby="orig-h">
     <h2 id="orig-h">ไฟล์ต้นฉบับ</h2>
