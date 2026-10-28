@@ -32,7 +32,7 @@ const production=profile==='production';
 const update=arg('update')==='true',baseRevision=arg('base-revision')??'';
 if(update&&(!production||!/^[a-f0-9]{40}$/.test(baseRevision)))throw Error('UPDATE_REQUIRES_PRODUCTION_PROFILE_AND_BASE_REVISION');
 if(!update&&arg('base-revision'))throw Error('BASE_REVISION_ONLY_FOR_UPDATE');
-const packageDir=path.join(local,'setup-packages','nipt-cbh-'+version+(update?'-update':production?'':'-test'));
+const packageDir=path.join(local,'setup-packages','nipt-cbh-'+version+(update?'-update':production?'':'-test')+'-'+revision.slice(0,12));
 const master=arg('master-workbook')??process.env.NIPT_TASK_MASTER_PATH??'C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Master_2026-10-15.xlsx';
 // For update-only builds, reuse the previously pinned Owner BM17 reference PDFs
 // when explicit build inputs are absent. Content remains SHA-256 checked by
@@ -81,13 +81,20 @@ await mkdir(path.dirname(messagesInc),{recursive:true});
 await writeFile(messagesInc,'﻿'+pascalTables()+'\r\n','utf8');
 // Inno Setup cannot open source paths beyond MAX_PATH. Deep node_modules paths under a long checkout path exceed it, so the compiler reads the package
 // through a short directory junction at the drive root (a junction needs no privilege); the EXE content is identical.
-const alias=path.join(path.parse(packageDir).root,'nipt-pkg-'+version+(production?'':'-test'));
-try{rmdirSync(alias);}catch{/* no junction yet */}
+// Use a unique alias for each invocation, never delete another build's junction.
+// The alias shortens file paths for Inno Setup and is always disposed after use.
+const alias=path.join(path.parse(packageDir).root,'nipt-pkg-'+version+'-'+revision.slice(0,7)+'-'+process.pid);
+if(existsSync(alias))throw Error('INSTALLER_TEMP_ALIAS_CONFLICT');
 symlinkSync(packageDir,alias,'junction');
-log('compiling '+path.basename(iscc)+' (this takes several minutes: the payload is about 1.4 GB)');
+log('compiling '+path.basename(iscc)+' with isolated package junction');
 const t0=Date.now();
-execFileSync(iscc,['/Q',`/DPackageDir=${alias}`,`/DKeyFile=${keyFile}`,`/DAppVersion=${version}`,`/DOutDir=${out}`,...(production?['/DProduction=1']:[]),...(update?['/DUpdateOnly=1']:[]),`/DMessagesInc=${messagesInc}`,...(arg('fast')?['/DCompressionFast=1']:[]),path.resolve('tools/win-installer/setup/NIPT-CBH-Setup.iss')],{stdio:['ignore','inherit','inherit']});
-try{rmdirSync(alias);}catch{/* no junction yet */}
+try{
+ execFileSync(iscc,['/Q',`/DPackageDir=${alias}`,`/DKeyFile=${keyFile}`,`/DAppVersion=${version}`,`/DOutDir=${out}`,...(production?['/DProduction=1']:[]),...(update?['/DUpdateOnly=1']:[]),`/DMessagesInc=${messagesInc}`,...(arg('fast')?['/DCompressionFast=1']:[]),path.resolve('tools/win-installer/setup/NIPT-CBH-Setup.iss')],{stdio:['ignore','inherit','inherit']});
+}finally{
+ // Only this process can own this alias. Never remove the package itself.
+ try{rmdirSync(alias);}catch(error){log('temporary junction cleanup requires inspection: '+String(error));}
+}
+
 const exe=path.join(out,`NIPT-CBH-${update?'Update':'Setup'}-${version}.exe`);
 const bytes=await readFile(exe);
 const record={
