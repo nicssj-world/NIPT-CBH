@@ -1,6 +1,6 @@
 # คู่มือตรวจรับและติดตั้ง NIPT-CBH Update v1.1.2 (สำหรับผู้ดูแลระบบ)
 
-> **ยังไม่อนุญาตติดตั้งจริงจนกว่า Release Gate ผ่านและมี EXE ที่ตรวจสอบ Hash แล้ว** เอกสารนี้เป็นขั้นตอนส่งมอบ ไม่ใช่หลักฐานว่าติดตั้งหรือทดสอบ NAS โรงพยาบาลสำเร็จ
+> **ผ่าน Local Windows Update Rehearsal 13/13 แล้ว และตรวจ SHA-256 ของ EXE จริงแล้ว** แต่การติดตั้งบน Server โรงพยาบาลยังต้องได้รับการอนุมัติจาก Owner ตามขั้นตอน Change Control และทำ NAS/HIS/Clinical Acceptance หน้างานก่อน Go-live. เอกสารนี้ไม่ใช่หลักฐานว่า NAS โรงพยาบาลผ่านแล้ว
 
 ## ขอบเขต
 - อัปเดตเท่านั้นจาก NIPT-CBH v1.1.1 revision `c237da440dd0e007b2a94bca6438c3dce5fdcc43`
@@ -40,3 +40,12 @@
 - รายงาน Unit/Native PostgreSQL/Chromium E2E, Security/Source Guard, Windows Upgrade Rehearsal
 - Backup/Restore Receipt ที่กักกัน, ผล Test NAS Worker Identity/ACL/SMB จริงหลังติดตั้ง
 - Version/Revision ต้นทาง-ปลายทาง และการรักษา Migration 157 กับข้อมูลเดิม
+
+## หลักฐานการทดสอบตัวอัปเดต Windows (PASS)
+- ชุด EXE ที่ใช้: Setup 1.1.0 → Update 1.1.1 → Update 1.1.2 พร้อมตรวจ SHA-256 ทั้งสามไฟล์
+- Evidence: `.local/p8-win/evidence/update-112-real-chain-rehearsal.json` — **13/13 PASS, passed:true**
+- SHA-256 v1.1.2: `9533eb2695f50625e5a010f96f7dd9eb298bfcfddadc1d5fa3a521784c842a13`
+- Build Record: `.local/p8-win/setup-d914a0a/NIPT-CBH-Update-1.1.2.record.json`
+- อัปเดตจริงในเครื่องทดสอบเก็บ User, Password Hashes, Active Settings, PET/RES, HIS Paths, Migration 157–160 ครบ; verified backup/quarantined restore PASS
+- ทดสอบอัปเดตซ้ำและแก้ไข Manifest ถูกปฏิเสธตามข้อกำหนด รวมถึงข้าม Revision 1.1.0 → 1.1.2 ถูกปฏิเสธด้วย `UPGRADE_BASE_REVISION_MISMATCH`
+- คงข้อจำกัด: EXE ไม่ได้ Authenticode sign; ต้องทดสอบ SMB/Worker Windows account/ACL, Clinical/NAS และ HIS บน Server โรงพยาบาลก่อนรับรองใช้งาน
