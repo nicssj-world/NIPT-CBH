@@ -65,7 +65,7 @@ describe('P3 least-privilege DB roles (worker_rw / app_rw) and LD-04 guard',()=>
   const issue=(await rows<{id:string}>(f.db,'SELECT id FROM his_intake_issue'))[0].id;
   await expect(f.db.query('DELETE FROM his_intake_issue_event')).rejects.toThrow('append-only');
   await expect(f.db.query('DELETE FROM his_intake_issue')).rejects.toThrow('append-only');
-  await expect(f.db.query('DELETE FROM his_inbound_scan_run')).rejects.toThrow('append-only');
+  await expect(f.db.query('DELETE FROM his_inbound_scan_run')).rejects.toThrow('SCAN_RECORD_IMMUTABLE');
   await expect(f.db.query("UPDATE his_intake_issue SET kind='UNLINKED' WHERE id=$1",[issue])).rejects.toThrow('immutable intake issue lineage');
   await expect(f.db.query('UPDATE his_intake_issue SET case_id=NULL WHERE id=$1',[issue])).rejects.toThrow('immutable intake issue lineage');
   await f.db.query("UPDATE his_intake_issue SET state='Resolved',closed_at=now() WHERE id=$1",[issue]);

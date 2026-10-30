@@ -11,7 +11,7 @@ export const GATE_RULE_VERSION = "P4-BG-SYNTHETIC-v1";
 export type CommonFacts = {
   labOperationalRoute?: boolean;
   isCurrentRound: boolean; roundNumber: number; roundState: string; receivedSource: string | null; analysisStarted: boolean; isRepeatChild: boolean; previouslyFinalized: boolean;
-  openIdentityIssues: number; lnVerifiedByPet: boolean; receiptIdentityAndLabel: boolean;
+  openIdentityIssues: number; lnVerifiedByPet: boolean; receiptIdentityAndLabel: boolean; roundPetOrEqaOk?:boolean; eqaVerified?:boolean;
   consentRevoked: boolean; consentRoundEvidence: "GRANTED" | "DECLINED" | "PAPER_SELECTED" | "NONE";
   requestRoundEvidence: "VERIFIED" | "NONE";
   clinicalState: string | null; collectionDates: string[];specimenAccepted?:boolean;
@@ -22,19 +22,19 @@ export type FinalizeFacts = CommonFacts & { attemptState: string; activeSlotsInT
 const p = (code: GateCode, status: Tri, reason: string, governance?: Predicate["governance"]): Predicate => ({ code, status, reason, ...(governance ? { governance } : {}) });
 
 export function commonPredicates(f: CommonFacts): Predicate[] {
-  const channelOk = (f.receivedSource === "HIS_PET_RECEIPT" && f.roundState === "ReceivedInHIS") || (f.roundNumber >= 2 && f.receivedSource === "NIPT_LOCAL_RECEIPT" && f.roundState === "ReceivedInNIPT");
-  const bg01 = !f.isCurrentRound ? p("BG-01", "FAIL", "NOT_CURRENT_ROUND") : !channelOk ? p("BG-01", "FAIL", f.roundState === "RedrawRequested" ? "REDRAW_REQUESTED" : "NOT_RECEIVED")
+  const channelOk = (f.receivedSource === "HIS_PET_RECEIPT" && f.roundState === "ReceivedInHIS") || (f.roundNumber >= 2 && f.receivedSource === "NIPT_LOCAL_RECEIPT" && f.roundState === "ReceivedInNIPT") || (f.eqaVerified === true && f.roundPetOrEqaOk === true && f.receivedSource === "NIPT_LOCAL_RECEIPT" && f.roundState === "ReceivedInNIPT");
+  const bg01 = !f.roundPetOrEqaOk ? p("BG-01","FAIL","CURRENT_ROUND_PET_OR_EQA_VERIFICATION_REQUIRED") : !f.isCurrentRound ? p("BG-01", "FAIL", "NOT_CURRENT_ROUND") : !channelOk ? p("BG-01", "FAIL", f.roundState === "RedrawRequested" ? "REDRAW_REQUESTED" : "NOT_RECEIVED")
     : f.analysisStarted && !f.isRepeatChild && !f.previouslyFinalized ? p("BG-01", "FAIL", "ANALYSIS_STARTED_REQUIRES_REPEAT_LINEAGE") : p("BG-01", "PASS", "RECEIVED_CURRENT_ROUND");
-  const bg03 = f.openIdentityIssues > 0 ? p("BG-03", "FAIL", "IDENTITY_ISSUE_OPEN") : f.receivedSource==='HIS_PET_RECEIPT' ? (f.lnVerifiedByPet ? p("BG-03", "PASS", "LN_VERIFIED_BY_PET") : p("BG-03", "FAIL", "LN_NOT_VERIFIED"))
+  const bg03 = !f.roundPetOrEqaOk ? p("BG-03","FAIL","CURRENT_ROUND_PET_OR_EQA_VERIFICATION_REQUIRED") : f.openIdentityIssues > 0 ? p("BG-03", "FAIL", "IDENTITY_ISSUE_OPEN") : f.eqaVerified ? (f.receiptIdentityAndLabel ? p("BG-03","PASS","EQA_ORGANIZER_IDENTITY_VERIFIED") : p("BG-03","FAIL","EQA_RECEIPT_CHECK_INCOMPLETE")) : f.receivedSource==='HIS_PET_RECEIPT' ? (f.lnVerifiedByPet ? p("BG-03", "PASS", "LN_VERIFIED_BY_PET") : p("BG-03", "FAIL", "LN_NOT_VERIFIED"))
     : f.receiptIdentityAndLabel ? p("BG-03", "PASS", "RECEIPT_IDENTITY_AND_LABEL_CHECKED") : p("BG-03", "FAIL", "RECEIPT_CHECK_INCOMPLETE");
-  const bg04 = f.consentRevoked ? p("BG-04", "FAIL", "CONSENT_REVOKED") : f.consentRoundEvidence === "GRANTED" ? p("BG-04", "PASS", "CONSENT_GRANTED")
+  const bg04 = f.consentRevoked ? p("BG-04", "FAIL", "CONSENT_REVOKED") : f.eqaVerified && f.roundPetOrEqaOk ? p("BG-04","PASS","EQA_ORGANIZER_PROTOCOL_NOT_PATIENT_CONSENT") : f.consentRoundEvidence === "GRANTED" ? p("BG-04", "PASS", "CONSENT_GRANTED")
     : f.consentRoundEvidence === "PAPER_SELECTED" ? p("BG-04", "PASS", "PAPER_CONSENT_SELECTED")
     : f.consentRoundEvidence === "DECLINED" ? p("BG-04", "FAIL", "CONSENT_DECLINED") : f.labOperationalRoute ? p("BG-04", "PASS", "LAB_PAPER_CONSENT_PRESENT") : f.roundNumber >= 2 ? p("BG-04", "PENDING", "REDRAW_CONSENT_APPLICABILITY", "OD-16") : p("BG-04", "FAIL", "CONSENT_NOT_GRANTED");
-  const bg05 = f.labOperationalRoute ? p("BG-05","PASS","LAB_PAPER_REQUEST_PRESENT") : f.requestRoundEvidence === "VERIFIED" ? p("BG-05", "PASS", "REQUEST_VERIFIED") : f.roundNumber >= 2 ? p("BG-05", "PENDING", "REDRAW_REQUEST_APPLICABILITY", "OD-16") : p("BG-05", "FAIL", "REQUEST_NOT_VERIFIED");
-  const bg06 = f.labOperationalRoute&&!f.clinicalState ? p("BG-06","PASS","OWNER_LAB_DIRECT_PAPER_ROUTE") : f.clinicalState==='ClinicalPassed'?p('BG-06','PASS','CURRENT_CLINICAL_REVIEW_ACCEPTED'):f.clinicalState === "PendingClinicalReview" ? p("BG-06", "PENDING", "CLINICAL_RULES_NOT_APPROVED", "OD-08") : f.clinicalState ? p("BG-06", "FAIL", `CLINICAL_${f.clinicalState.replace(/[^A-Za-z]/g, "_").toUpperCase()}`) : p("BG-06", "FAIL", "CLINICAL_NOT_ASSESSED");
+  const bg05 = f.eqaVerified && f.roundPetOrEqaOk ? p("BG-05","PASS","EQA_ORGANIZER_ORDER_VERIFIED") : f.labOperationalRoute ? p("BG-05","PASS","LAB_PAPER_REQUEST_PRESENT") : f.requestRoundEvidence === "VERIFIED" ? p("BG-05", "PASS", "REQUEST_VERIFIED") : f.roundNumber >= 2 ? p("BG-05", "PENDING", "REDRAW_REQUEST_APPLICABILITY", "OD-16") : p("BG-05", "FAIL", "REQUEST_NOT_VERIFIED");
+  const bg06 = f.eqaVerified && f.roundPetOrEqaOk && !f.clinicalState ? p("BG-06","PASS","EQA_ORGANIZER_PROTOCOL") : f.labOperationalRoute&&!f.clinicalState ? p("BG-06","PASS","OWNER_LAB_DIRECT_PAPER_ROUTE") : f.clinicalState==='ClinicalPassed'?p('BG-06','PASS','CURRENT_CLINICAL_REVIEW_ACCEPTED'):f.clinicalState === "PendingClinicalReview" ? p("BG-06", "PENDING", "CLINICAL_RULES_NOT_APPROVED", "OD-08") : f.clinicalState ? p("BG-06", "FAIL", `CLINICAL_${f.clinicalState.replace(/[^A-Za-z]/g, "_").toUpperCase()}`) : p("BG-06", "FAIL", "CLINICAL_NOT_ASSESSED");
   const dates = new Set(f.collectionDates);
   const bg07 = dates.size === 1 ? p("BG-07", "PASS", "COLLECTION_DATE_CONSISTENT") : dates.size === 0 ? p("BG-07", "FAIL", "COLLECTION_DATE_MISSING") : p("BG-07", "FAIL", "COLLECTION_DATE_CONFLICT");
-  return [bg01, f.labOperationalRoute?p('BG-02','PASS','LAB_SPECIMEN_PRESENT'):f.specimenAccepted?p('BG-02','PASS','SPECIMEN_ACCEPTED'):p("BG-02", "PENDING", "SPECIMEN_ACCEPTANCE_POLICY", "OD-01"), bg03, bg04, bg05, bg06, bg07];
+  return [bg01, f.eqaVerified&&f.roundPetOrEqaOk?p('BG-02','PASS','EQA_ORGANIZER_RECEIPT'):f.labOperationalRoute?p('BG-02','PASS','LAB_SPECIMEN_PRESENT'):f.specimenAccepted?p('BG-02','PASS','SPECIMEN_ACCEPTED'):p("BG-02", "PENDING", "SPECIMEN_ACCEPTANCE_POLICY", "OD-01"), bg03, bg04, bg05, bg06, bg07];
 }
 
 export function assignmentPredicates(f: AssignmentFacts): Predicate[] {

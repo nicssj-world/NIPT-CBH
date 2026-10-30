@@ -7,7 +7,16 @@ import type {RegistrationPet} from '../../../packages/p2/pet-registration';
 
 export function LabRegistration({units,onClose}:{units:Unit[];onClose:()=>void}){
  const router=useRouter(),key=useRef(crypto.randomUUID());
- const [mode,setMode]=useState<'CHOOSE'|'OPERATIONAL'>('CHOOSE'),[ln,setLn]=useState(''),[hn,setHn]=useState(''),[rows,setRows]=useState<RegistrationPet[]|null>(null),[selected,setSelected]=useState(''),[consent,setConsent]=useState<''|'Paper'|'Electronic'>(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const [mode,setMode]=useState<'CHOOSE'|'OPERATIONAL'|'EQA'>('CHOOSE'),[ln,setLn]=useState(''),[hn,setHn]=useState(''),[rows,setRows]=useState<RegistrationPet[]|null>(null),[selected,setSelected]=useState(''),[consent,setConsent]=useState<''|'Paper'|'Electronic'>(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const [eqaOrganizer,setEqaOrganizer]=useState(''),[eqaSample,setEqaSample]=useState(''),[eqaName,setEqaName]=useState(''),[eqaYear,setEqaYear]=useState(''),[eqaEvidence,setEqaEvidence]=useState(''),[eqaCollection,setEqaCollection]=useState(''),[eqaDob,setEqaDob]=useState(''),[eqaSex,setEqaSex]=useState<'F'|'M'|'U'|''>(''),[eqaCollectionAt,setEqaCollectionAt]=useState(''),[eqaEdd,setEqaEdd]=useState(''),[eqaPregnancy,setEqaPregnancy]=useState<'Singleton'|'Twins'|''>(''),[eqaSource,setEqaSource]=useState<'TUBE_LABEL'|'REQUEST_FORM'|''>(''),[eqaUnit,setEqaUnit]=useState('');
+ async function registerEqa(){
+  setBusy(true);setError('');
+  try{
+   const data={ln:ln.replaceAll('-',''),hn:hn.trim(),unitId:eqaUnit||units[0]?.id,identifierSource:eqaSource,idempotencyKey:key.current,collectionDate:eqaCollection,eqa:{organizer:eqaOrganizer,organizerSampleId:eqaSample,patientName:eqaName,programYear:Number(eqaYear),evidenceReference:eqaEvidence,...(eqaDob?{patientDob:eqaDob}:{}),...(eqaSex?{patientSex:eqaSex}:{}),...(eqaCollectionAt?{collectionAt:eqaCollectionAt+':00+07:00'}:{}),...(eqaEdd?{edd:eqaEdd}:{}),...(eqaPregnancy?{pregnancyType:eqaPregnancy}:{})}};
+   const result=await api<{caseId:string}>('/api/eqa/register',data);
+   router.push('/cases/'+result.caseId);router.refresh();
+  }catch(e){setError(message(e));}finally{setBusy(false);}
+ }
  const pet=rows?.find(p=>p.fileId===selected),identifiers={...(ln.trim()?{ln:ln.trim().replaceAll('-','')}:{}),...(hn.trim()?{hn:hn.trim()}:{})};
  function changed(){setRows(null);setSelected('');setError('');key.current=crypto.randomUUID();}
  async function lookup(){
@@ -22,7 +31,30 @@ export function LabRegistration({units,onClose}:{units:Unit[];onClose:()=>void})
   catch(e){setError(message(e));}finally{setBusy(false);}
  }
  return <Dialog title="ลงทะเบียนโดย Lab" onClose={onClose} dirty={!!ln||!!hn}>
-  {mode==='CHOOSE'?<div className="stack"><p>เลือกตามงานที่เกิดขึ้นจริง ข้อมูลผู้ป่วยใช้ทะเบียนกลางร่วมกัน</p><Link className="button secondary" href="/historical">ตรวจ Manual เสร็จแล้ว มี PDF</Link><button className="button" type="button" onClick={()=>setMode('OPERATIONAL')}>ลงทะเบียนตัวอย่างเพื่อตรวจตามระบบ</button></div>:<div className="stack">
+  {mode==='CHOOSE'?<div className="stack"><p>เลือกตามงานที่เกิดขึ้นจริง ข้อมูลผู้ป่วยใช้ทะเบียนกลางร่วมกัน</p><Link className="button secondary" href="/historical">ตรวจ Manual เสร็จแล้ว มี PDF</Link><button className="button" type="button" onClick={()=>setMode('OPERATIONAL')}>ลงทะเบียนตัวอย่างเพื่อตรวจตามระบบ</button><button className="button secondary" type="button" onClick={()=>setMode('EQA')}>ลงทะเบียนตัวอย่าง EQA (ไม่มี PET)</button></div>:mode==='EQA'?<div className="stack">
+   <p className="help">สำหรับตัวอย่างจากผู้จัด EQA เท่านั้น ข้อมูลผู้ป่วยสมมติต้องตรงกับเอกสารและฉลากของผู้จัด ระบบจะไม่สร้าง PET และไม่ส่งผลไป HIS</p>
+   <form className="stack" onSubmit={e=>{e.preventDefault();void registerEqa();}}>
+    <div className="form-grid">
+     <Field label="LN สำหรับตัวอย่าง (10 หลัก)">{id=><input id={id} inputMode="numeric" required pattern="[0-9]{10}" value={ln} disabled={busy} onChange={e=>{setLn(e.target.value);changed();}}/>}</Field>
+     <Field label="HN ตามข้อมูลผู้จัด">{id=><input id={id} required value={hn} disabled={busy} onChange={e=>{setHn(e.target.value);changed();}}/>}</Field>
+     <Field label="ผู้จัด EQA">{id=><input id={id} required value={eqaOrganizer} disabled={busy} onChange={e=>setEqaOrganizer(e.target.value)}/>}</Field>
+     <Field label="รหัสตัวอย่างจากผู้จัด">{id=><input id={id} required value={eqaSample} disabled={busy} onChange={e=>setEqaSample(e.target.value)}/>}</Field>
+     <Field label="ชื่อผู้ป่วยสมมติจากผู้จัด">{id=><input id={id} required value={eqaName} disabled={busy} onChange={e=>setEqaName(e.target.value)}/>}</Field>
+     <Field label="ปีโครงการ EQA">{id=><input id={id} required type="number" min="2000" max="2200" value={eqaYear} disabled={busy} onChange={e=>setEqaYear(e.target.value)}/>}</Field>
+     <Field label="อ้างอิงเอกสารผู้จัด">{id=><input id={id} required value={eqaEvidence} disabled={busy} onChange={e=>setEqaEvidence(e.target.value)}/>}</Field>
+     <Field label="วันที่เก็บตัวอย่างตามเอกสาร">{id=><input id={id} required type="date" value={eqaCollection} disabled={busy} onChange={e=>setEqaCollection(e.target.value)}/>}</Field>
+     <Field label="วันเกิด (กรอกเฉพาะที่ผู้จัดให้)">{id=><input id={id} type="date" value={eqaDob} disabled={busy} onChange={e=>setEqaDob(e.target.value)}/>}</Field>
+     <Field label="วันที่และเวลาเก็บตัวอย่างจากผู้จัด (จำเป็นสำหรับส่ง NIFTY)">{id=><input id={id} type="datetime-local" disabled={busy} value={eqaCollectionAt} onChange={e=>setEqaCollectionAt(e.target.value)}/>}</Field>
+     <Field label="EDD จากผู้จัด (ถ้ามี)">{id=><input id={id} type="date" disabled={busy} value={eqaEdd} onChange={e=>setEqaEdd(e.target.value)}/>}</Field>
+     <Field label="ชนิดครรภ์จากผู้จัด (ถ้ามี)">{id=><select id={id} disabled={busy} value={eqaPregnancy} onChange={e=>setEqaPregnancy(e.target.value as typeof eqaPregnancy)}><option value="">ไม่ได้ระบุ</option><option value="Singleton">ครรภ์เดี่ยว</option><option value="Twins">ครรภ์แฝด</option></select>}</Field>
+     <Field label="เพศ (กรอกเฉพาะที่ผู้จัดให้)">{id=><select id={id} value={eqaSex} disabled={busy} onChange={e=>setEqaSex(e.target.value as typeof eqaSex)}><option value="">ไม่ได้ระบุ</option><option value="F">หญิง</option><option value="M">ชาย</option><option value="U">ไม่ระบุเพศ</option></select>}</Field>
+     <Field label="แหล่งตรวจสอบตัวระบุ">{id=><select id={id} required value={eqaSource} disabled={busy} onChange={e=>setEqaSource(e.target.value as typeof eqaSource)}><option value="">เลือกหลักฐาน</option><option value="TUBE_LABEL">ฉลากหลอดจากผู้จัด</option><option value="REQUEST_FORM">ใบข้อมูลผู้จัด</option></select>}</Field>
+     <Field label="หน่วยงานรับตัวอย่าง">{id=><select id={id} required value={eqaUnit} disabled={busy} onChange={e=>setEqaUnit(e.target.value)}><option value="">เลือกหน่วยงาน</option>{units.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select>}</Field>
+    </div>
+    <button type="submit" className="button" disabled={busy||!eqaSource||!eqaUnit}>{busy?'กำลังรับตัวอย่าง EQA…':'ยืนยันข้อมูลและรับตัวอย่าง EQA'}</button>
+   </form>
+   <ErrorNotice error={error}/><button className="button secondary" type="button" disabled={busy} onClick={()=>setMode('CHOOSE')}>กลับไปเลือกประเภทงาน</button>
+  </div>:<div className="stack">
    <p>กรอก LN หรือ HN อย่างใดอย่างหนึ่ง ระบบใช้ข้อมูล PET ที่พร้อมและตรวจสอบได้จาก HIS</p>
    <form className="stack" onSubmit={e=>{e.preventDefault();void lookup();}}><div className="form-grid">
     <Field label="LN HIS" help="กรอก LN หรือ HN อย่างใดอย่างหนึ่ง">{id=><input id={id} autoFocus autoComplete="off" inputMode="numeric" value={ln} disabled={busy} onChange={e=>{setLn(e.target.value);changed();}}/>}</Field>

@@ -88,6 +88,11 @@ export function summary(p:Parsed){
 
 export type RoundRequest={dob:string|null;edd:string|null;pregnancy:'Singleton'|'Twins'|null;fetalSex:string|null;dates:string[]};
 export async function roundRequest(db:Queryable,roundId:string):Promise<RoundRequest>{
+ // EQA uses the immutable organizer-provided identity, never an invented PET
+ // or a fictional patient consent/request. Missing organizer fields remain null.
+ const eqa=(await db.query<{dob:string|null;edd:string|null;pregnancy:'Singleton'|'Twins'|null;collection_date:string|null}>(`SELECT e.patient_dob::text dob,e.edd::text edd,e.pregnancy_type pregnancy,r.collection_date::text collection_date
+  FROM specimen_round_current r JOIN eqa_case e ON e.case_id=r.case_id WHERE r.id=$1`,[roundId])).rows[0];
+ if(eqa)return {dob:eqa.dob,edd:eqa.edd,pregnancy:eqa.pregnancy,fetalSex:null,dates:eqa.collection_date?[eqa.collection_date]:[]};
  const r=(await db.query<{request_mode:string|null;draft:{patient?:{dob?:string|null};pregnancy?:{edd?:string|null;type?:string|null;fetalSex?:string|null}}|null;panel:{dob?:string|null;edd?:string|null;pregnancyType?:string;fetalSex?:string}|null;round_date:string|null;dates:string[]}>(
   `SELECT (SELECT request_mode FROM p2_workspace WHERE round_id=$1) request_mode,(SELECT d.payload->'draft' FROM p2_document_revision d WHERE d.round_id=$1 AND d.kind='REQUEST' ORDER BY d.version DESC LIMIT 1) draft,
    (SELECT p.panel FROM p2_paper_review p WHERE p.round_id=$1 AND p.kind='REQUEST' AND p.status='Verified' ORDER BY p.created_at DESC LIMIT 1) panel,
@@ -377,7 +382,7 @@ async function gateFor(db:Queryable,v:VersionRow,purpose:Purpose,certifierId?:st
   ...(v.origin==='INTERNAL_GENERATED'?{internal:{current:(await db.query<{ok:boolean}>('SELECT task3_internal_version_current($1) ok',[v.id])).rows[0].ok}}:{}),
   attemptState:a.attempt_state,attemptIsLatest:latestAttempt,hold:a.hold,qc1Accepted:y.qc1_accepted,nonMeasuredQc1:y.non_measured,batchCancelled:y.batch_cancelled||a.attempt_state==='BatchCancelled',activeSlot:a.slot_batch_id!==null,
   upstreamCurrent:evidence.current,upstreamReason:evidence.reason,analysisAccepted:evidence.analysisAccepted,finalQcAccepted:evidence.finalQcAccepted,
-  isCurrentRound:cf.isCurrentRound,roundState:cf.roundState,roundNumber:cf.roundNumber,openRepeat:y.open_repeat,openIdentityIssues:cf.openIdentityIssues,clinicalState:operational?((await db.query<{ready:boolean}>('SELECT p2_clinical_ready($1) OR lab_owner_paper_ready($1) ready',[v.round_id])).rows[0]?.ready?'Pass':'PendingClinicalReview'):cf.clinicalState,consentRevoked:cf.consentRevoked,consent:cf.consentRoundEvidence,
+  isCurrentRound:cf.isCurrentRound,roundState:cf.roundState,roundNumber:cf.roundNumber,openRepeat:y.open_repeat,openIdentityIssues:cf.openIdentityIssues,eqaVerified:cf.eqaVerified&&cf.roundPetOrEqaOk,clinicalState:operational?((await db.query<{ready:boolean}>('SELECT p2_clinical_ready($1) OR lab_owner_paper_ready($1) ready',[v.round_id])).rows[0]?.ready?'Pass':'PendingClinicalReview'):cf.clinicalState,consentRevoked:cf.consentRevoked,consent:cf.consentRoundEvidence,
   pregnancy:req.pregnancy,sexPreference:req.fetalSex,sexShown:v.parsed.results.fetalSex.value!==null,versionState:v.state,latestInSeries:x.latest,activeReleaseInSeries:x.active_release,reviewedCurrent:reviewed,certifierRoleActive:x.certifier,operationalReviewed},purpose),'RG');
 }
 async function recordGate(db:Queryable,v:VersionRow,g:GateDecision,purpose:Purpose,outcome:'BLOCKED'|'PENDING_CERTIFICATION'|'RELEASE_HOLD'|'CERTIFIED_RELEASED',actor:string|null,key:string|null){
@@ -473,7 +478,9 @@ export async function certifyAttempt(db:Queryable,user:Staff,input:unknown){
   await db.query("INSERT INTO result_release_completed(release_id,version_id,actor_id) VALUES($1,$2,$3)",[release.id,v.id,user.id]);
   // Task 3: an authorised "มีผลใน HIS แล้ว" attestation means HIS already holds this result: the release stays visible in NIPT/ANC
   // but no outbound delivery is queued (the P6 insert guard refuses one as well). Withdrawing the attestation queues it later.
-  if((await db.query<{attested:boolean}>('SELECT task3_his_presence_attested($1) attested',[v.id])).rows[0].attested)await audit(db,user,'RESULT_OUTBOUND_SUPPRESSED','RESULT_RELEASE',release.id,{reasonCode:'HIS_PRESENCE_ATTESTED'});
+  const eqa=(await db.query<{eqa:boolean}>('SELECT EXISTS(SELECT 1 FROM eqa_case WHERE case_id=$1) eqa',[v.case_id])).rows[0].eqa;
+  if(eqa)await audit(db,user,'RESULT_OUTBOUND_SUPPRESSED','RESULT_RELEASE',release.id,{reasonCode:'EQA_NO_HIS'});
+  else if((await db.query<{attested:boolean}>('SELECT task3_his_presence_attested($1) attested',[v.id])).rows[0].attested)await audit(db,user,'RESULT_OUTBOUND_SUPPRESSED','RESULT_RELEASE',release.id,{reasonCode:'HIS_PRESENCE_ATTESTED'});
   else await db.query("INSERT INTO job_outbox(kind,payload,idempotency_key) VALUES('result_release_completed',$1,$2)",[JSON.stringify({releaseId:release.id}),'release:'+release.id]);
  }
  await audit(db,user,'RESULT_CERTIFY_ATTEMPT','RESULT_VERSION',v.id,{outcome});
@@ -586,9 +593,10 @@ export async function withdrawHisAttestation(db:Queryable,user:Staff,input:unkno
  await db.query('UPDATE result_his_attestation SET withdrawn_at=clock_timestamp(),withdrawn_by=$2,withdraw_reason=$3 WHERE id=$1',[a.id,user.id,d.reason]);
  // A released result that was never sent is now queued once (the P6 unique transfer per release keeps delivery exactly-once).
  const release=(await db.query<{id:string}>("SELECT r.id FROM result_release r WHERE r.version_id=$1 AND r.state='Active' AND NOT EXISTS(SELECT 1 FROM p6_transfer t WHERE t.clinical_release_id=r.id)",[v.id])).rows[0];
- if(release)await db.query("INSERT INTO job_outbox(kind,payload,idempotency_key) VALUES('result_release_completed',$1,$2) ON CONFLICT(idempotency_key) DO NOTHING",[JSON.stringify({releaseId:release.id}),`release:${release.id}:attestation-withdrawn:${a.id}`]);
- await audit(db,user,'RESULT_HIS_ATTESTATION_WITHDRAWN','RESULT_VERSION',v.id,{outcome:release?'DELIVERY_QUEUED':'WITHDRAWN'});
- return {id:a.id,deliveryQueued:!!release};
+ const eqa=(await db.query<{eqa:boolean}>('SELECT EXISTS(SELECT 1 FROM eqa_case WHERE case_id=$1) eqa',[v.case_id])).rows[0].eqa;
+ if(release&&!eqa)await db.query("INSERT INTO job_outbox(kind,payload,idempotency_key) VALUES('result_release_completed',$1,$2) ON CONFLICT(idempotency_key) DO NOTHING",[JSON.stringify({releaseId:release.id}),`release:${release.id}:attestation-withdrawn:${a.id}`]);
+ await audit(db,user,'RESULT_HIS_ATTESTATION_WITHDRAWN','RESULT_VERSION',v.id,{outcome:release&&!eqa?'DELIVERY_QUEUED':eqa?'EQA_NO_HIS':'WITHDRAWN'});
+ return {id:a.id,deliveryQueued:!!release&&!eqa};
 }
 /** Outage provenance for an external ReadyGen PDF imported after NIPT-CBH was unavailable. Optional; never required to import. */
 export async function recordExternalFallback(db:Queryable,user:Staff,input:unknown){

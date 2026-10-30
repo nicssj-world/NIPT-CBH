@@ -165,3 +165,38 @@ GRANT SELECT ON pdf_archive_probe TO worker_rw;
 GRANT UPDATE(state,error_code,worker_account,completed_at,claimed_until,claim_token) ON pdf_archive_probe TO worker_rw;
 -- Migration 160: an untrusted recovery hint, never permission to mutate job state.
 GRANT INSERT(retry_job_id) ON pdf_archive_probe TO app_rw;
+
+-- v1.1.3: this role bootstrap is also executed against *older migration prefixes*
+-- in upgrade compatibility tests. Only apply versioned grants after the exact
+-- corresponding schema/function exists. This preserves 099/100 upgrades.
+DO $v113_roles$
+BEGIN
+ IF to_regclass('public.eqa_case') IS NOT NULL THEN
+  GRANT SELECT ON public.eqa_case TO worker_rw;
+  GRANT SELECT,INSERT ON public.eqa_case TO app_rw;
+ END IF;
+ IF to_regclass('public.worker_queue_clear_event') IS NOT NULL THEN
+  GRANT SELECT ON public.worker_queue_clear_event TO worker_rw;
+  GRANT SELECT,INSERT ON public.worker_queue_clear_event TO app_rw;
+ END IF;
+ IF to_regprocedure('public.request_archive_queue_clear(uuid,uuid)') IS NOT NULL THEN
+  REVOKE UPDATE(state,cancellation_requested_at,updated_at) ON public.pdf_archive_job FROM app_rw;
+  GRANT EXECUTE ON FUNCTION public.request_archive_queue_clear(uuid,uuid) TO app_rw;
+ END IF;
+ IF to_regprocedure('public.lock_archive_queue_for_clear(uuid,uuid[])') IS NOT NULL THEN
+  GRANT EXECUTE ON FUNCTION public.lock_archive_queue_for_clear(uuid,uuid[]) TO app_rw;
+ END IF;
+ IF to_regprocedure('public.nipt_round_pet_or_eqa_ok(uuid)') IS NOT NULL THEN
+  GRANT EXECUTE ON FUNCTION public.nipt_round_pet_or_eqa_ok(uuid) TO app_rw,worker_rw;
+ END IF;
+ IF to_regprocedure('public.compact_pet_empty_scans(integer)') IS NOT NULL THEN
+  GRANT EXECUTE ON FUNCTION public.compact_pet_empty_scans(integer) TO worker_rw;
+ END IF;
+ IF to_regclass('public.pet_scan_daily_empty_summary') IS NOT NULL THEN
+  GRANT SELECT ON public.pet_scan_daily_empty_summary TO app_rw;
+ END IF;
+ IF to_regprocedure('public.nipt_pg_boss_counts()') IS NOT NULL THEN
+  GRANT EXECUTE ON FUNCTION public.nipt_pg_boss_counts() TO app_rw;
+  GRANT EXECUTE ON FUNCTION public.nipt_pg_boss_recent(integer) TO app_rw;
+ END IF;
+END $v113_roles$;

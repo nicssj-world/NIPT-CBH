@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1",
     "build": "next build",
+    "deps:install:113": "npm ci --no-audit --no-fund",
     "start": "next start --hostname 0.0.0.0",
     "typecheck": "next typegen && tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
@@ -18,6 +19,7 @@
     "test:db": "vitest run tests/db",
     "test:contracts": "vitest run tests/contracts",
     "test:e2e": "playwright test",
+    "test:e2e:p0:113": "tsx tools/p0/e2e-113.ts",
     "db:migrate": "tsx tools/migrate.ts",
     "db:seed": "tsx tools/seed.ts",
     "worker": "tsx apps/worker/main.ts",

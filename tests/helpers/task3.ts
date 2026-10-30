@@ -13,6 +13,7 @@ import {configureOperational} from '../../tools/configure-operational';
 import {parsePet} from '../../packages/integrations/pet';
 import {buildSyntheticPet} from '../../packages/inbound/wire';
 import {applyS1} from '../../packages/inbound/process';
+import {receiveEqaSpecimen} from '../../packages/eqa/service';
 import * as batch from '../../packages/lab/batch';
 import {benchWorkspace,benchExport} from '../../packages/lab/bench';
 import {saveWorkbookDraft} from '../../packages/workbook/service';
@@ -28,7 +29,7 @@ export const masters=()=>({SINGLETON:readFileSync(path.join(T3_SOURCES,'singleto
 export {halosWorkbook,type HalosSpec} from '../../tools/task3-uat/halos-fixture';
 
 
-type CaseSpec={ln:string;hn:string;pregnancy:'Singleton'|'Twins';sheet:1|2|3;priorFailures?:boolean;pet?:{specimenAt?:string;receivedAt?:string;ward?:string;identity?:string}};
+type CaseSpec={ln:string;hn:string;pregnancy:'Singleton'|'Twins';sheet:1|2|3;priorFailures?:boolean;eqa?:boolean;pet?:{specimenAt?:string;receivedAt?:string;ward?:string;identity?:string}};
 /** Operational LAB_DIRECT cases through PET receipt, one Owner batch, real Master worksheet, actual pooling and the dual HALOS/NIFTY export. */
 type Provided={db:Queryable;root:string;store:import('../../packages/storage').FileStore;lookupKey:Buffer;close():Promise<void>};
 export async function task3Fixture(cases:CaseSpec[]=[{ln:'9900099511',hn:'9900099951',pregnancy:'Singleton',sheet:1},{ln:'9900099512',hn:'9900099952',pregnancy:'Singleton',sheet:2},{ln:'9900099513',hn:'9900099953',pregnancy:'Twins',sheet:3}],provided?:Provided){
@@ -41,9 +42,14 @@ export async function task3Fixture(cases:CaseSpec[]=[{ln:'9900099511',hn:'990009
  const b=await run(t=>batch.createBatch(t,u.staff)),batchId=b.batchId,version=async()=>(await f.db.query<{version:number}>('SELECT version FROM lab_batch WHERE id=$1',[batchId])).rows[0].version;
  const made:{ln:string;hn:string;caseId:string;roundId:string;attemptId:string;printed:string;pregnancy:'Singleton'|'Twins'}[]=[];
  for(const c of cases){
-  const r=await run(t=>registerP2(t,u.staff,{ln:c.ln,hn:c.hn,unitId:u.unit,origin:'LAB_DIRECT',idempotencyKey:'task3_fixture_'+randomUUID().replaceAll('-',''),labOperational:{gaWeeks:17,gaDays:6,edd:'2027-03-24',pregnancy:c.pregnancy,paperRequest:true,paperConsent:true,doctorVersionId:doctor.id}},f.lookupKey,{store:f.store}));
+  const r=await run(t=>registerP2(t,u.staff,{ln:c.ln,hn:c.hn,unitId:u.unit,origin:'LAB_DIRECT',identifierSource:c.eqa?'TUBE_LABEL':undefined,idempotencyKey:'task3_fixture_'+randomUUID().replaceAll('-',''),
+   ...(c.eqa?{eqa:{organizer:'SYNTHETIC EQA SCHEME',organizerSampleId:c.ln,patientName:'SYNTHETIC ORGANIZER PATIENT',patientDob:'1990-01-01',collectionAt:'2026-10-20T08:00:00+07:00',pregnancyType:c.pregnancy,edd:'2027-03-24',programYear:2026,evidenceReference:'SYNTHETIC ORGANIZER FROZEN DOCUMENT'}}
+   :{labOperational:{gaWeeks:17,gaDays:6,edd:'2027-03-24',pregnancy:c.pregnancy,paperRequest:true,paperConsent:true,doctorVersionId:doctor.id}})},f.lookupKey,{store:f.store}));
+  if(c.eqa)await run(t=>receiveEqaSpecimen(t,u.staff,r.caseId!,'2026-10-20'));
+  else{
   const wire=buildSyntheticPet({ln:c.ln,hn:c.hn,dob:'19900101',orderAt:'20261020070000',specimenAt:'20261020080000',receivedAt:'20261020090000',...c.pet}),pet=parsePet(wire.bytes,wire.filename);await f.store.put(wire.bytes);
   await run(async t=>{const file=(await t.query<{id:string}>("INSERT INTO his_inbound_file(sha256,state,filename,ln,parsed) VALUES($1,'Ready',$2,$3,$4) RETURNING id",[pet.hash,pet.filename,c.ln,JSON.stringify(pet)])).rows[0],target=(await t.query<{case_ln_id:string;case_id:string;origin:'LAB_DIRECT'}>('SELECT l.id case_ln_id,l.case_id,c.registration_origin origin FROM case_ln l JOIN nipt_case c ON c.id=l.case_id WHERE l.case_id=$1',[r.caseId])).rows[0];await applyS1(t,file,pet,target,'AUTOMATIC');});
+  }
   let a=(await f.db.query<{id:string;round_id:string}>('SELECT id,round_id FROM analytical_attempt WHERE case_id=$1',[r.caseId])).rows[0];
   // Owner-locked lineage before the batched attempt: -1 and -2 fail (S1), Re-Sampling S2 receipt via a newer HIS PET, R-1 fails; R-2 is
   // the 4th attempt and goes through the real batch below. Failures of the earlier attempts are disposable state fixtures (as task1-lineage).

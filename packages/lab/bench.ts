@@ -73,14 +73,22 @@ export async function benchExport(db:Queryable,user:Staff,input:unknown,deps:Wor
      OR EXISTS(SELECT 1 FROM p4c_sequencing_attempt q JOIN p4c_dnb_attempt d ON d.id=q.dnb_id WHERE d.batch_id=p.batch_id)
     )) previous_seq FROM analytical_attempt a WHERE a.id=$1`,[slot.attemptId,d.batchId])).rows[0];
    if(!lineage||!niftyPatientEligible({attemptNumber:lineage.attempt_number,repeatOrderId:lineage.repeat_order_id,previousSeqOnSameRound:lineage.previous_seq}))throw new LabError('VENDOR_ATTEMPT_PROVENANCE_REQUIRED',409,{slot:slot.slot});
-   const source=(await db.query<{ln:string;hn:string;sha256:string;filename:string;draft:RequestDraft|null;doctor:string|null;edd:string|null;pregnancy:'Singleton'|'Twins'|null}>(`SELECT l.ln,i.hn,f.sha256,f.filename,w.draft,COALESCE(d.name,ld.name) doctor,COALESCE(w.draft#>>'{pregnancy,edd}',lr.edd::text) edd,COALESCE(w.draft#>>'{pregnancy,type}',lr.pregnancy) pregnancy
-    FROM specimen_round r JOIN case_ln l ON l.id=r.case_ln_id JOIN p2_case_identity i ON i.case_id=r.case_id JOIN his_order o ON o.round_id=r.id JOIN his_inbound_file f ON f.id=o.inbound_file_id
+   const source=(await db.query<{ln:string;hn:string;sha256:string|null;filename:string|null;draft:RequestDraft|null;doctor:string|null;edd:string|null;pregnancy:'Singleton'|'Twins'|null;eqa_name:string|null;eqa_dob:string|null;eqa_collection_at:Date|null;eqa_received_at:Date|null;eqa_ready:boolean}>(`SELECT l.ln,i.hn,f.sha256,f.filename,w.draft,COALESCE(d.name,ld.name) doctor,COALESCE(w.draft#>>'{pregnancy,edd}',lr.edd::text,e.edd::text) edd,COALESCE(w.draft#>>'{pregnancy,type}',lr.pregnancy,e.pregnancy_type) pregnancy,
+     e.patient_name eqa_name,e.patient_dob::text eqa_dob,e.collection_at eqa_collection_at,r.received_at eqa_received_at,(e.case_id IS NOT NULL AND nipt_round_pet_or_eqa_ok(r.id)) eqa_ready
+    FROM specimen_round r JOIN case_ln l ON l.id=r.case_ln_id JOIN p2_case_identity i ON i.case_id=r.case_id LEFT JOIN his_order o ON o.round_id=r.id LEFT JOIN his_inbound_file f ON f.id=o.inbound_file_id LEFT JOIN eqa_case e ON e.case_id=r.case_id
     LEFT JOIN p2_workspace w ON w.round_id=r.id LEFT JOIN p2_doctor_version d ON d.id=(w.draft#>>'{ordering,doctorVersionId}')::uuid
     LEFT JOIN LATERAL (SELECT * FROM lab_operational_registration x WHERE x.case_id=r.case_id ORDER BY (x.round_id=r.id) DESC,x.created_at DESC LIMIT 1) lr ON true LEFT JOIN p2_doctor_version ld ON ld.id=lr.doctor_version_id WHERE r.id=$1 AND r.case_id=$2`,[slot.roundId,slot.caseId])).rows[0];
    if(!source||!source.edd||!['Singleton','Twins'].includes(source.pregnancy??''))throw new LabError('VENDOR_REQUEST_PROVENANCE_REQUIRED',409,{slot:slot.slot});
-   const pet=await readPet(deps.store,source);
-   if(pet.ln!==source.ln||pet.hn!==source.hn||source.draft?.patient.syntheticName&&petDisplayName(source.draft?.patient.syntheticName)!==petDisplayName(pet.name)||source.draft?.patient.dob&&source.draft?.patient.dob!==pet.dob.slice(0,10))throw new LabError('VENDOR_IDENTITY_MISMATCH',409,{slot:slot.slot});
-   rows.push({attemptId:slot.attemptId!,roundId:slot.roundId!,caseId:slot.caseId!,overallOrdinal:lineage.overall_ordinal,slot:slot.slot,kind:'PATIENT',sampleId:slot.printedSampleId!,ln:pet.ln,hn:pet.hn,name:pet.name,identity:pet.identity,dob:pet.dob.slice(0,10),collectionAt:pet.specimenAt,receivedAt:pet.receivedAt,edd:source.edd,pregnancy:source.pregnancy as 'Singleton'|'Twins',doctor:source.doctor??''});
+   if(source.eqa_name!==null){
+    if(!source.eqa_ready||!source.hn||!source.eqa_dob||!source.eqa_collection_at||!source.eqa_received_at)throw new LabError('EQA_ORGANIZER_REQUEST_FIELDS_REQUIRED',409,{slot:slot.slot});
+    const receivedAt=source.eqa_received_at.toISOString(),collectionAt=source.eqa_collection_at.toISOString();
+    rows.push({attemptId:slot.attemptId!,roundId:slot.roundId!,caseId:slot.caseId!,overallOrdinal:lineage.overall_ordinal,slot:slot.slot,kind:'PATIENT',sampleId:slot.printedSampleId!,ln:source.ln,hn:source.hn,name:source.eqa_name,identity:'',dob:source.eqa_dob,collectionAt,receivedAt,edd:source.edd,pregnancy:source.pregnancy!,doctor:source.doctor??''});
+   }else{
+    if(!source.sha256||!source.filename)throw new LabError('VENDOR_PET_PROVENANCE_REQUIRED',409,{slot:slot.slot});
+    const pet=await readPet(deps.store,{sha256:source.sha256,filename:source.filename,ln:source.ln});
+    if(pet.ln!==source.ln||pet.hn!==source.hn||source.draft?.patient.syntheticName&&petDisplayName(source.draft?.patient.syntheticName)!==petDisplayName(pet.name)||source.draft?.patient.dob&&source.draft?.patient.dob!==pet.dob.slice(0,10))throw new LabError('VENDOR_IDENTITY_MISMATCH',409,{slot:slot.slot});
+    rows.push({attemptId:slot.attemptId!,roundId:slot.roundId!,caseId:slot.caseId!,overallOrdinal:lineage.overall_ordinal,slot:slot.slot,kind:'PATIENT',sampleId:slot.printedSampleId!,ln:pet.ln,hn:pet.hn,name:pet.name,identity:pet.identity,dob:pet.dob.slice(0,10),collectionAt:pet.specimenAt,receivedAt:pet.receivedAt,edd:source.edd,pregnancy:source.pregnancy!,doctor:source.doctor??''});
+   }
   }
   const exported=exportOwnerNifty(await readFile(template),rows);bytes=exported.bytes;mapping=exported.mapping;sourceHash=digest({revision:s.workbook.draft!.id,rows});
   await recordPhiAccess(db,user.id,s.slots.flatMap(slot=>slot.caseId?[slot.caseId]:[]),'CASE_DETAIL_VIEW');

@@ -59,7 +59,7 @@ export async function registerP2(db:Queryable,user:Staff,input:unknown,key:Buffe
  if(key.length!==32)throw new P2Error('IDENTITY_LOOKUP_KEY_INVALID',500);
  await assertStaff(db,user);
  // LAB_DIRECT blind entry records where the identifiers were read (Plan §4.7 L3, D-40); ANC may record it too.
- const d=z.strictObject({ln:p2Ln,hn:z.string().trim().max(32).refine(v=>operationalDataEnabled()?/^[A-Za-z0-9][A-Za-z0-9./-]{0,31}$/.test(v):/^0*990[0-9]{3,17}$/.test(v)),unitId:uuid,origin:z.enum(['ANC','LAB_DIRECT']),idempotencyKey:z.string(),identifierSource:z.enum(IDENTIFIER_SOURCES).optional(),labOperational:labOperationalSchema.optional()}).refine(v=>(!v.labOperational||v.origin==='LAB_DIRECT')&&(v.origin!=='LAB_DIRECT'||v.identifierSource!==undefined||!!v.labOperational),{path:['identifierSource'],message:'IDENTIFIER_SOURCE_REQUIRED'}).parse(input);
+ const d=z.strictObject({ln:p2Ln,hn:z.string().trim().max(32).refine(v=>operationalDataEnabled()?/^[A-Za-z0-9][A-Za-z0-9./-]{0,31}$/.test(v):/^0*990[0-9]{3,17}$/.test(v)),unitId:uuid,origin:z.enum(['ANC','LAB_DIRECT']),idempotencyKey:z.string(),identifierSource:z.enum(IDENTIFIER_SOURCES).optional(),labOperational:labOperationalSchema.optional(),eqa:z.strictObject({organizer:z.string().trim().min(2).max(200),organizerSampleId:z.string().trim().min(1).max(120),patientName:z.string().trim().min(2).max(200),patientDob:z.iso.date().nullable().optional(),patientSex:z.enum(['M','F','U']).nullable().optional(),pregnancyType:z.enum(['Singleton','Twins']).nullable().optional(),edd:z.iso.date().nullable().optional(),collectionAt:z.iso.datetime({offset:true}).nullable().optional(),programYear:z.number().int().min(2000).max(2200),evidenceReference:z.string().trim().min(3).max(300)}).optional()}).refine(v=>(!v.eqa||v.origin==='LAB_DIRECT')&&(!v.labOperational||v.origin==='LAB_DIRECT')&&(v.origin!=='LAB_DIRECT'||v.identifierSource!==undefined||!!v.labOperational),{path:['identifierSource'],message:'IDENTIFIER_SOURCE_REQUIRED'}).parse(input);
  const ln=d.ln.replaceAll('-','');requirePermission(user,d.origin==='ANC'?'case.register.anc':'case.register.lab',{unitId:d.unitId,origin:d.origin});
  if(!(await db.query('SELECT id FROM unit WHERE id=$1',[d.unitId])).rows[0])throw new P2Error('UNIT_REQUIRED');
  // Match BOTH identifiers under a keyed HMAC; generic P1 normalization remains unchanged.
@@ -82,6 +82,15 @@ export async function registerP2(db:Queryable,user:Staff,input:unknown,key:Buffe
    await db.query("UPDATE p2_workspace SET draft=$2,request_mode='Paper',consent_mode=$4,version=version+1,updated_by=$3,updated_at=clock_timestamp() WHERE round_id=$1",[c.current_round_id,draft,user.id,metadata.paperConsent?'Paper':'Electronic']);
    await event(db,user,c.id,'LAB_OPERATIONAL_REGISTERED',{paperRequest:true,paperConsent:metadata.paperConsent,clinicalAcceptance:false});
   }
+ }
+ // v1.1.3: only a *new*, LN-locked Lab registration can become EQA.
+ // The organizer-supplied patient identity remains the ordinary registered identity;
+ // EQA classification is immutable and never invents a PET/HIS order.
+ if(d.eqa){
+  if(result.outcome!=='CREATED')throw new P2Error('EQA_REQUIRES_NEW_LAB_REGISTRATION',409);
+  await db.query('INSERT INTO eqa_case(case_id,organizer,organizer_sample_id,patient_name,patient_dob,patient_sex,pregnancy_type,edd,collection_at,program_year,evidence_reference,verified_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',[result.caseId,d.eqa.organizer,d.eqa.organizerSampleId,d.eqa.patientName,d.eqa.patientDob??null,d.eqa.patientSex??null,d.eqa.pregnancyType??null,d.eqa.edd??null,d.eqa.collectionAt??null,d.eqa.programYear,d.eqa.evidenceReference,user.id]);
+  await appendAudit(db,{actorId:user.id,action:'EQA_CASE_REGISTERED',resourceType:'nipt_case',resourceId:result.caseId,details:{version:d.eqa.programYear,origin:'EQA',synthetic:!operationalDataEnabled()}});
+  return {...result,intake:{outcome:'EQA_NO_HIS_PET',fields:[]}};
  }
  // D-49: link any waiting HIS intake in this same transaction under the LN lock already held; rolls back with registration.
  const linked=await linkIntakeAtRegistration(db,user,{caseId:result.caseId,ln,hn:d.hn,identifierSource:d.identifierSource??null},{lookupKey:key,store:intake.store});

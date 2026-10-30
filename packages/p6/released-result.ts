@@ -34,7 +34,10 @@ export async function reserveReleasedResult(db:Queryable,releaseId:string,store:
  if(!operationalDataEnabled())throw Error('OPERATIONAL_MODE_REQUIRED');z.uuid().parse(releaseId);
  return transaction(db,async()=>{
   const head=(await db.query<{ln:string}>('SELECT l.ln FROM result_release r JOIN specimen_round s ON s.id=r.round_id JOIN case_ln l ON l.id=s.case_ln_id WHERE r.id=$1',[releaseId])).rows[0];
-  if(!head)throw Error('RELEASE_NOT_FOUND');await lockLn(db,head.ln);
+  if(!head)throw Error('RELEASE_NOT_FOUND');
+  const eqa=(await db.query<{exists:boolean}>(`SELECT EXISTS(SELECT 1 FROM result_release r JOIN eqa_case e ON e.case_id=r.case_id WHERE r.id=$1) exists`,[releaseId])).rows[0].exists;
+  if(eqa)throw Error('EQA_HIS_OUTBOUND_PROHIBITED');
+  await lockLn(db,head.ln);
   // The LN transaction lock serializes reservation with P5 changes; Worker only needs release SELECT permission here.
   const r=(await db.query<{id:string;epoch:number;version_id:string;round_id:string;attempt_id:string;certified_by:string;certified_at:Date;sha256:string;parsed:Parsed;registration_origin:'ANC'|'LAB_DIRECT';round_number:number;version:number;case_ln_id:string}>(`SELECT r.id,r.epoch,r.version_id,r.round_id,r.certified_by,r.certified_at,v.attempt_id,v.sha256,v.parsed,c.registration_origin,s.round_number,s.case_ln_id,l.version
    FROM result_release r JOIN result_report_version v ON v.id=r.version_id JOIN nipt_case c ON c.id=r.case_id JOIN specimen_round s ON s.id=r.round_id JOIN case_ln l ON l.id=s.case_ln_id WHERE r.id=$1`,[releaseId])).rows[0];

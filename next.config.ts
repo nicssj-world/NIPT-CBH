@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 const config: NextConfig = {
   output: "standalone",
+  // Isolated E2E build avoids Windows ACL conflicts with the delivery build directory.
+  ...(process.env.NIPT_E2E_DIST_DIR ? {distDir:process.env.NIPT_E2E_DIST_DIR} : {}),
   poweredByHeader: false,
   // PDF.js resolves its Node fake-worker module beside pdf.mjs; bundling relocates that relative import.
   serverExternalPackages: ["argon2", "pg", "pg-boss", "pdfjs-dist"],

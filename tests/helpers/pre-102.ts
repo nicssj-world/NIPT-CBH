@@ -16,5 +16,10 @@ CREATE VIEW specimen_round_current AS SELECT * FROM specimen_round;
 CREATE VIEW his_order_current AS SELECT * FROM his_order;
 CREATE VIEW his_inbound_file_current AS SELECT * FROM his_inbound_file;
 CREATE TABLE lab_operational_registration(round_id uuid,case_id uuid,paper_request boolean,paper_consent boolean,created_at timestamptz,edd date,pregnancy text);
+-- v1.1.3 read-port additions: the migration 099/100 compatibility fixture is
+-- intentionally pinned before EQA existed. Provide neutral empty projections
+-- ONLY in this disposable test fixture; never modify historical migrations.
+CREATE TABLE eqa_case(case_id uuid PRIMARY KEY,patient_name text,patient_dob date,pregnancy_type text,edd date,collection_at timestamptz);
+CREATE FUNCTION nipt_round_pet_or_eqa_ok(target uuid) RETURNS boolean LANGUAGE sql STABLE AS 'SELECT false';
 `);
 export const removePre102Stub=(db:PGlite)=>db.exec('DROP FUNCTION p2_consent_latest_decision(uuid)');

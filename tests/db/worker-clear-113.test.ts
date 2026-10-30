@@ -1,0 +1,40 @@
+import {beforeAll,afterAll,it,expect} from 'vitest';
+import type {PGlite} from '@electric-sql/pglite';
+import {testDatabase,addUser} from '../helpers/database';
+import {clearWorkerQueue} from '../../packages/jobs/admin-clear';
+import {readWorkerQueueOverview} from '../../packages/jobs/admin-center';
+let db:PGlite;
+beforeAll(async()=>{db=await testDatabase();});afterAll(async()=>{await db?.close();});
+const create=async(state:'Pending'|'Dispatched',receipt=false)=>{
+ const id=(await db.query<{id:string}>("INSERT INTO job_outbox(kind,payload,idempotency_key,state) VALUES('synthetic_scan',$1,gen_random_uuid()::text,$2) RETURNING id",[{patientName:'SYNTHETIC_PRIVATE'},state])).rows[0].id;
+ if(receipt)await db.query("INSERT INTO integration_job_receipt(outbox_id,result) VALUES($1,'{}')",[id]);
+ return id;
+};
+it('Admin Clear All cancels Pending, records uncertainty for dispatched in-flight, hides completed without deletion',async()=>{
+ const admin=await addUser(db,'APP_ADMIN','synthetic.clear113.admin');
+ const pending=await create('Pending'),running=await create('Dispatched'),finished=await create('Dispatched',true);
+ const result=await clearWorkerQueue(db,admin,{action:'CLEAR_ALL',scope:'OUTBOX'});
+ expect(result).toMatchObject({cancelled:1,uncertain:1,hidden:1});
+ const jobs=(await db.query<{id:string;state:string;cancel_epoch:number}>("SELECT id,state,cancel_epoch FROM job_outbox WHERE id=ANY($1::uuid[])",[[pending,running,finished]])).rows;
+ expect(jobs.find(x=>x.id===pending)).toMatchObject({state:'Cancelled',cancel_epoch:1});
+ expect(jobs.find(x=>x.id===running)).toMatchObject({state:'Dispatched',cancel_epoch:0});
+ expect(jobs.find(x=>x.id===finished)).toMatchObject({state:'Dispatched',cancel_epoch:0});
+ const evidence=(await db.query("SELECT * FROM integration_job_receipt WHERE outbox_id=$1",[finished])).rows;
+ expect(evidence).toHaveLength(1);
+ const visible=await readWorkerQueueOverview(db,admin);
+ expect(visible.items.some(x=>[pending,finished].includes(x.id))).toBe(false);
+ expect(visible.items.some(x=>x.id===running)).toBe(true);
+ expect(JSON.stringify(visible)).not.toContain('SYNTHETIC_PRIVATE');
+ expect(await clearWorkerQueue(db,admin,{action:'CLEAR_ALL',scope:'OUTBOX'})).toMatchObject({cancelled:0,uncertain:0,hidden:0});
+});
+it('Selected clear is scoped, cannot be called by LAB, and leaves others intact',async()=>{
+ const admin=(await db.query<{id:string}>("SELECT id FROM app_user WHERE username='synthetic.clear113.admin'")).rows[0];
+ const staff=await addUser(db,'LAB_STAFF','synthetic.clear113.lab');
+ const a=await create('Pending'),b=await create('Pending');
+ await expect(clearWorkerQueue(db,staff,{action:'CLEAR_ALL',scope:'ALL'})).rejects.toThrow('FORBIDDEN');
+ await expect(clearWorkerQueue(db,{id:admin.id,roles:['APP_ADMIN'],unitIds:[],permissions:[]},{action:'CLEAR_SELECTED',scope:'ALL',ids:[a]})).rejects.toThrow('JOB_SELECTION_REQUIRED');
+ const result=await clearWorkerQueue(db,{id:admin.id,roles:['APP_ADMIN'],unitIds:[],permissions:[]},{action:'CLEAR_SELECTED',scope:'OUTBOX',ids:[a]});
+ expect(result.cancelled).toBe(1);
+ expect((await db.query<{state:string}>('SELECT state FROM job_outbox WHERE id=$1',[b])).rows[0].state).toBe('Pending');
+ await expect(db.query('DELETE FROM worker_queue_clear_event')).rejects.toThrow(/append-only|IMMUTABLE/i);
+});

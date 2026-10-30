@@ -54,16 +54,23 @@ export async function inboundQueuePage(db:Queryable,user:Principal,raw:unknown={
  };
  const fileWhere=`source_path IS NOT NULL${q?' AND strpos(lower(ln),$1)>0':''}`,fileValues=q?[q]:[];
  const fileTotal=Number((await db.query<{n:string}>(`SELECT count(*)::text n FROM his_inbound_file WHERE ${fileWhere}`,fileValues)).rows[0].n),fileMeta=clampPage(f.filesPage,fileTotal,f.pageSize);
- // OWNER-LAB-019: scan history is paged (25/50/100) with a stable order instead of a fixed last-10 list.
- const runTotal=Number((await db.query<{n:string}>('SELECT count(*)::text n FROM his_inbound_scan_run')).rows[0].n),runMeta=clampPage(f.runsPage,runTotal,f.pageSize);
+ // Hide only rows proven eligible for compaction. Missing or unknown evidence
+ // stays visible, including future count fields and anomalous error codes.
+ const meaningfulRuns=`NOT COALESCE((trigger='INTERVAL' AND outcome='SUCCESS'
+   AND finished_at < clock_timestamp() - interval '24 hours' AND error_code IS NULL
+   AND jsonb_typeof(counts)='object' AND counts @> '{"stored":0,"parseError":0}'::jsonb
+   AND NOT EXISTS(SELECT 1 FROM jsonb_each(CASE WHEN jsonb_typeof(counts)='object' THEN counts ELSE '{}'::jsonb END) c WHERE c.value <> '0'::jsonb)),false)`;
+ const runTotal=Number((await db.query<{n:string}>(`SELECT count(*)::text n FROM his_inbound_scan_run WHERE ${meaningfulRuns}`)).rows[0].n),runMeta=clampPage(f.runsPage,runTotal,f.pageSize);
  const [review,unlinked,files,runs,waiting,waitingTotal]=await Promise.all([
   issueGroup('review',f.issuesPage),issueGroup('unlinked',f.unlinkedPage),
   db.query<{id:string;ln:string|null;state:string;error_code:string|null;source_path:string|null;path_version:number|null;discovered_at:Date;processed_at:Date|null;linked:boolean}>(
    `SELECT id,ln,state,error_code,source_path,path_version,discovered_at,processed_at,case_id IS NOT NULL AS linked FROM his_inbound_file WHERE ${fileWhere} ORDER BY discovered_at DESC,id DESC LIMIT ${fileMeta.size} OFFSET ${offsetOf(fileMeta)}`,fileValues),
-  db.query<{id:string;trigger:string;outcome:string;started_at:Date;finished_at:Date;counts:Record<string,number>;error_code:string|null}>(`SELECT id,trigger,outcome,started_at,finished_at,counts,error_code FROM his_inbound_scan_run ORDER BY finished_at DESC,id DESC LIMIT ${runMeta.size} OFFSET ${offsetOf(runMeta)}`),
+  db.query<{id:string;trigger:string;outcome:string;started_at:Date;finished_at:Date;counts:Record<string,number>;error_code:string|null}>(`SELECT id,trigger,outcome,started_at,finished_at,counts,error_code FROM his_inbound_scan_run WHERE ${meaningfulRuns} ORDER BY finished_at DESC,id DESC LIMIT ${runMeta.size} OFFSET ${offsetOf(runMeta)}`),
   db.query<{source_path:string;first_seen_at:Date}>(`SELECT source_path,first_seen_at FROM his_inbound_waiting WHERE ok_seen_at IS NULL ORDER BY first_seen_at,source_path LIMIT ${WAITING_SHOWN}`),
   db.query<{n:string}>('SELECT count(*)::text n FROM his_inbound_waiting WHERE ok_seen_at IS NULL')]);
+ const dailySummary=(await db.query<{bangkok_date:string;empty_success_runs:string}>(`SELECT bangkok_date::text,empty_success_runs::text FROM pet_scan_daily_empty_summary ORDER BY bangkok_date DESC LIMIT 31`)).rows;
  return {
+  dailySummary:dailySummary.map(r=>({day:r.bangkok_date,count:Number(r.empty_success_runs)})),
   review,unlinked,
   files:{rows:files.rows.map(x=>({id:x.id,ln:ln(x.ln),state:x.state,errorCode:x.error_code,dayFolder:x.source_path?.split('/')[1]??null,pathVersion:x.path_version,discoveredAt:x.discovered_at,processedAt:x.processed_at,linked:x.linked})),page:fileMeta},
   runs:{rows:runs.rows.map(r=>({id:r.id,trigger:r.trigger,outcome:r.outcome,startedAt:r.started_at,finishedAt:r.finished_at,counts:r.counts,errorCode:r.error_code})),page:runMeta},

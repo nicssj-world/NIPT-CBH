@@ -226,6 +226,19 @@ export async function moveSlot(db:Queryable,user:Staff,input:unknown){
  for(const n of sheets){const s=await sheetOf(db,b.id,n);if(!placementEditable(s))throw new LabError('PLACEMENT_LOCKED',409);if(s.state==='PlanChecked'&&!d.reason)throw new LabError('REASON_REQUIRED_AFTER_PLAN_CHECK',422);}
  const from=await liveAssignment(db,b.id,d.fromSlot);if(!from)throw new LabError('SLOT_EMPTY',409);
  const to=await liveAssignment(db,b.id,d.toSlot);
+ // Re-evaluate the full assignment gate immediately before changing either slot,
+ // including a late identity conflict or superseded PET/current round.
+ const movedIds=[from.attempt_id,...(to?[to.attempt_id]:[])];
+ await db.query('SELECT id FROM analytical_attempt WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE',[movedIds]);
+ const {policy}=await pendingPolicy(db);
+ const moving=await attemptFacts(db,'a.id=ANY($1::uuid[])',[movedIds]);
+ for(const item of moving){
+  const decision=assignmentDecision(item,policy);
+  // A move changes the slot, not the Assigned attempt state; verify the
+  // common patient/EQA safety predicates without wrongly requiring Ready.
+  const unsafe=decision.predicates.filter(x=>['BG-01','BG-03','BG-04','BG-05','BG-06','BG-07'].includes(x.code)&&x.status==='FAIL');
+  if(unsafe.length)throw new LabError('MOVE_GATE_FAILED',409,{failed:unsafe.map(x=>x.reason)});
+ }
  for(const x of [from,to].filter(Boolean))await db.query("UPDATE lab_slot_assignment SET removed_at=now(),removed_by=$2,removed_reason='MOVED' WHERE id=$1",[x!.id,user.id]);
  await db.query('INSERT INTO lab_slot_assignment(batch_id,slot_number,attempt_id,assigned_by) VALUES($1,$2,$3,$4)',[b.id,d.toSlot,from.attempt_id,user.id]);
  if(to)await db.query('INSERT INTO lab_slot_assignment(batch_id,slot_number,attempt_id,assigned_by) VALUES($1,$2,$3,$4)',[b.id,d.fromSlot,to.attempt_id,user.id]);

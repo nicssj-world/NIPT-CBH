@@ -11,6 +11,7 @@ import path from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
 import {FileStore} from '../../packages/storage';
 import {enableArchive,queueArchiveProbe,retryFailedArchive} from '../../packages/results/archive-settings';
+import {clearWorkerQueue} from '../../packages/jobs/admin-clear';
 
 const url=process.env.NIPT_ARCHIVE_TEST_DATABASE_URL;
 let client:Client;
@@ -51,6 +52,20 @@ it.skipIf(!url)('native worker archives only the post-cutoff synthetic fixture w
   const hisBefore=(await client.query<{n:string}>('SELECT count(*)::text n FROM job_outbox')).rows[0].n;
   await runArchiveCycle(client,store,async()=>({state:'FAILED',sha256:sha,reason:'ARCHIVE_IO_FAILED'}));
   expect((await client.query<{state:string;attempts:number}>('SELECT state,attempts FROM pdf_archive_job')).rows).toEqual([{state:'PENDING',attempts:1}]);
+  await client.query('SAVEPOINT publication_race');
+  await client.query("UPDATE pdf_archive_job SET next_attempt_at=clock_timestamp()-interval '1 second'");
+  await runArchiveCycle(client,store,async()=>{
+   const id=(await client.query<{id:string}>('SELECT id FROM pdf_archive_job')).rows[0].id;
+   await client.query('SET LOCAL ROLE app_rw');
+   await clearWorkerQueue(client,{id:actor,roles:['APP_ADMIN'],unitIds:[],permissions:[]},{action:'CLEAR_SELECTED',scope:'ARCHIVE',ids:[id]});
+   await client.query('SET LOCAL ROLE worker_rw');
+   return {state:'FAILED',sha256:sha,reason:'ARCHIVE_IO_FAILED'};
+  });
+  expect((await client.query<{state:string;last_error:string}>('SELECT state,last_error FROM pdf_archive_job')).rows[0]).toEqual({state:'FAILED',last_error:'ARCHIVE_RECONCILIATION_REQUIRED'});
+  const uncertainId=(await client.query<{id:string}>('SELECT id FROM pdf_archive_job')).rows[0].id;
+  await client.query('SET LOCAL ROLE app_rw');
+  await expect(retryFailedArchive(client,{id:actor,roles:['APP_ADMIN'],unitIds:[],permissions:[]},uncertainId)).rejects.toThrow('ARCHIVE_RETRY_UNAVAILABLE');
+  await client.query('ROLLBACK TO SAVEPOINT publication_race');
   await client.query("UPDATE pdf_archive_job SET state='FAILED',attempts=5,claim_token=NULL,claimed_until=NULL");
   const jobId=(await client.query<{id:string}>('SELECT id FROM pdf_archive_job')).rows[0].id;
   await client.query('SET LOCAL ROLE app_rw');
@@ -61,6 +76,13 @@ it.skipIf(!url)('native worker archives only the post-cutoff synthetic fixture w
   await client.query('SAVEPOINT deny_direct_retry');
   await expect(client.query("UPDATE pdf_archive_job SET state='PENDING' WHERE id=$1",[jobId])).rejects.toThrow(/permission denied/);
   await client.query('ROLLBACK TO SAVEPOINT deny_direct_retry');
+  await client.query('SAVEPOINT deny_clear_non_admin');
+  await expect(client.query('SELECT request_archive_queue_clear($1,$2)',[jobId,randomUUID()])).rejects.toThrow('FORBIDDEN');
+  await client.query('ROLLBACK TO SAVEPOINT deny_clear_non_admin');
+  await client.query('SAVEPOINT valid_clear');
+  await clearWorkerQueue(client,{id:actor,roles:['APP_ADMIN'],unitIds:[],permissions:[]},{action:'CLEAR_SELECTED',scope:'ARCHIVE',ids:[jobId]});
+  expect((await client.query<{state:string}>('SELECT state FROM pdf_archive_job WHERE id=$1',[jobId])).rows[0].state).toBe('CANCELLED');
+  await client.query('ROLLBACK TO SAVEPOINT valid_clear');
   const retry=await retryFailedArchive(client,{id:actor,roles:['APP_ADMIN'],unitIds:[],permissions:[]},jobId);
   expect(retry).toMatchObject({state:'PENDING_PROBE'});
   expect((await client.query<{state:string}>('SELECT state FROM pdf_archive_job WHERE id=$1',[jobId])).rows[0].state).toBe('FAILED');

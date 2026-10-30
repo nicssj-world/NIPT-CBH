@@ -18,7 +18,7 @@ export type ResultFacts={
  attemptState:string|null;attemptIsLatest:boolean;hold:boolean;qc1Accepted:boolean;nonMeasuredQc1:boolean;batchCancelled:boolean;activeSlot:boolean;
  upstreamCurrent:boolean;upstreamReason:string|null;analysisAccepted:boolean;finalQcAccepted:boolean;
  isCurrentRound:boolean;roundState:string;roundNumber:number;openRepeat:boolean;
- openIdentityIssues:number;clinicalState:string|null;consentRevoked:boolean;consent:'GRANTED'|'DECLINED'|'PAPER_SELECTED'|'NONE';
+ openIdentityIssues:number;clinicalState:string|null;consentRevoked:boolean;eqaVerified?:boolean;consent:'GRANTED'|'DECLINED'|'PAPER_SELECTED'|'NONE';
  pregnancy:'Singleton'|'Twins'|null;sexPreference:string|null;sexShown:boolean;
  versionState:string;latestInSeries:boolean;activeReleaseInSeries:boolean;reviewedCurrent:boolean;
  certifierRoleActive:boolean;
@@ -61,10 +61,10 @@ export function resultPredicates(f:ResultFacts,purpose:Purpose):GatePredicate[]{
  out.push(f.hold?p('RG-07','FAIL','QC_HOLD_OPEN'):noCall?p('RG-07','PASS','EXTERNAL_NO_CALL_REVIEWED_QC_REMAINS_FAILED'):f.nonMeasuredQc1?p('RG-07','FAIL','QC1_SLOT_NOT_MEASURED'):f.upstreamReason?p('RG-07','FAIL',f.upstreamReason,{dependency:'P4b'}):f.attemptState==='FinalQcAccepted'?(!f.upstreamCurrent?p('RG-07','FAIL','UPSTREAM_EVIDENCE_MISSING',{dependency:'P4b'}):!f.finalQcAccepted?p('RG-07','FAIL','CLINICAL_FINAL_QC_ADAPTER_PENDING',{dependency:'P4b'}):p('RG-07','PASS','FINAL_QC_ACCEPTED'))
   :f.qc1Accepted?p('RG-07','FAIL','QC1_ONLY_NOT_FINAL_QC_ACCEPTED',{dependency:'P4b'}):p('RG-07','FAIL','FINAL_QC_NOT_ACCEPTED',{dependency:'P4b'}));
  out.push(f.openIdentityIssues>0?p('RG-08','FAIL','IDENTITY_ISSUE_OPEN'):p('RG-08','PASS','NO_IDENTITY_CONFLICT'));
- out.push(['Pass','AcknowledgedConditions'].includes(f.clinicalState??'')?p('RG-09','PASS','CLINICAL_GATE_PASS'):f.clinicalState==='PendingClinicalReview'?p('RG-09','PENDING','CLINICAL_RULES_NOT_APPROVED',{governance:'OD-08'}):p('RG-09','FAIL',f.clinicalState?`CLINICAL_${f.clinicalState.replace(/[^A-Za-z]/g,'_').toUpperCase()}`:'CLINICAL_NOT_ASSESSED'));
- out.push(f.consentRevoked?p('RG-10','FAIL','CONSENT_REVOKED'):f.consent==='GRANTED'?p('RG-10','PASS','CONSENT_GRANTED'):f.consent==='PAPER_SELECTED'?p('RG-10','PASS','PAPER_CONSENT_SELECTED'):f.consent==='DECLINED'?p('RG-10','FAIL','CONSENT_DECLINED'):f.roundNumber>=2?p('RG-10','PENDING','REDRAW_CONSENT_APPLICABILITY',{governance:'OD-16'}):p('RG-10','FAIL','CONSENT_NOT_GRANTED'));
+ out.push(f.eqaVerified?p('RG-09','PASS','EQA_ORGANIZER_IDENTITY_PROTOCOL_VERIFIED'):['Pass','AcknowledgedConditions'].includes(f.clinicalState??'')?p('RG-09','PASS','CLINICAL_GATE_PASS'):f.clinicalState==='PendingClinicalReview'?p('RG-09','PENDING','CLINICAL_RULES_NOT_APPROVED',{governance:'OD-08'}):p('RG-09','FAIL',f.clinicalState?`CLINICAL_${f.clinicalState.replace(/[^A-Za-z]/g,'_').toUpperCase()}`:'CLINICAL_NOT_ASSESSED'));
+ out.push(f.consentRevoked?p('RG-10','FAIL','CONSENT_REVOKED'):f.eqaVerified?p('RG-10','PASS','EQA_ORGANIZER_PROTOCOL_NOT_PATIENT_CONSENT'):f.consent==='GRANTED'?p('RG-10','PASS','CONSENT_GRANTED'):f.consent==='PAPER_SELECTED'?p('RG-10','PASS','PAPER_CONSENT_SELECTED'):f.consent==='DECLINED'?p('RG-10','FAIL','CONSENT_DECLINED'):f.roundNumber>=2?p('RG-10','PENDING','REDRAW_CONSENT_APPLICABILITY',{governance:'OD-16'}):p('RG-10','FAIL','CONSENT_NOT_GRANTED'));
  // RG-11 proposed OD-09 rule: a singleton report that shows fetal sex is blocked unless the recorded wish is "Want".
- out.push(f.templateKind==='TWIN'&&f.operationalReviewed?p('RG-11','PASS','TWIN_DISCLOSURE_REVIEWED'):f.templateKind==='TWIN'?p('RG-11','PENDING','TWIN_Y_CHROMOSOME_DISCLOSURE_RULE',{governance:'OD-09'})
+ out.push(f.eqaVerified&&f.operationalReviewed?p('RG-11','PASS','EQA_REPORT_CONTENT_REVIEWED'):f.templateKind==='TWIN'&&f.operationalReviewed?p('RG-11','PASS','TWIN_DISCLOSURE_REVIEWED'):f.templateKind==='TWIN'?p('RG-11','PENDING','TWIN_Y_CHROMOSOME_DISCLOSURE_RULE',{governance:'OD-09'})
   :!f.sexShown?p('RG-11','PASS','SEX_NOT_SHOWN'):f.sexPreference==='Want'&&f.operationalReviewed?p('RG-11','PASS','DISCLOSURE_REVIEWED'):f.sexPreference==='Want'?p('RG-11','PENDING','DISCLOSURE_RULE_PROPOSED_ONLY',{governance:'OD-09'})
   :f.sexPreference==='DoNotWant'?p('RG-11','FAIL','SEX_SHOWN_BUT_NOT_WANTED'):p('RG-11','FAIL','SEX_PREFERENCE_NOT_RECORDED'));
  out.push(!f.latestInSeries?p('RG-12','FAIL','NOT_LATEST_VERSION'):f.activeReleaseInSeries?p('RG-12','FAIL','ACTIVE_RELEASE_EXISTS'):!f.reviewedCurrent?p('RG-12','FAIL','REVIEW_NOT_RECORDED')

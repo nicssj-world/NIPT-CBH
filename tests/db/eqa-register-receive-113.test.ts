@@ -1,0 +1,35 @@
+import {afterAll,beforeAll,expect,it} from 'vitest';
+import type {PGlite} from '@electric-sql/pglite';
+import {testDatabase,addUser} from '../helpers/database';
+import {registerP2} from '../../packages/p2/service';
+import {receiveEqaSpecimen,listAnnualEqa,listActualIqc} from '../../packages/eqa/service';
+import {attemptFacts,assignmentDecision} from '../../packages/lab/core';
+import {roundRequest} from '../../packages/results/service';
+let db:PGlite;
+beforeAll(async()=>{db=await testDatabase();});afterAll(async()=>{await db?.close();});
+it('EQA registration uses organizer identity and no PET; local first specimen triggers real LN Halos',async()=>{
+ const staff=await addUser(db,'LAB_STAFF','synthetic.eqa.staff113');
+ const unit=(await db.query<{id:string}>("INSERT INTO unit(code,name) VALUES('EQA113','EQA 113 Lab') RETURNING id")).rows[0].id;
+ const data={ln:'990004001111',hn:'9900040111',unitId:unit,origin:'LAB_DIRECT',identifierSource:'TUBE_LABEL',idempotencyKey:'eqa-register-113',eqa:{organizer:'SYNTHETIC SCHEME',organizerSampleId:'SC-001',patientName:'SYNTHETIC PERSON',patientDob:'1990-01-01',pregnancyType:'Singleton',edd:'2027-03-24',programYear:2026,evidenceReference:'Organizer worksheet 2026'}};
+ const created=await registerP2(db,staff,data,Buffer.alloc(32,5));
+ expect(created.outcome).toBe('CREATED');
+ const id=created.caseId!;
+ expect((await db.query("SELECT * FROM his_order")).rows).toHaveLength(0);
+ const rec=await receiveEqaSpecimen(db,staff,id,'2026-10-29');
+ expect(rec).toMatchObject({caseId:id,state:'ReceivedInNIPT',hisOutboundAllowed:false});
+ expect(rec.lnHalos).toMatch(/^[0-9]{2}B[0-9]{9}$/);
+ expect((await db.query("SELECT * FROM analytical_attempt WHERE case_id=$1",[id])).rows).toHaveLength(1);
+ const round=(await db.query<{id:string}>('SELECT current_round_id id FROM nipt_case WHERE id=$1',[id])).rows[0].id;
+ expect((await db.query<{eligible:boolean}>('SELECT nipt_round_pet_or_eqa_ok($1) eligible',[round])).rows[0].eligible).toBe(true);
+ const facts=(await attemptFacts(db,'a.case_id=$1',[id]))[0];
+ expect(facts.pregnancy).toBe('Singleton');
+ expect(facts.eqa_verified).toBe(true);
+ expect(assignmentDecision(facts,'HOLD').eligible).toBe(true);
+ const request=await roundRequest(db,round);
+ expect(request).toMatchObject({dob:'1990-01-01',edd:'2027-03-24',pregnancy:'Singleton'});
+ const annual=await listAnnualEqa(db,staff,2026);
+ expect(annual.find(row=>row.case_id===id)).toMatchObject({organizer_sample_id:'SC-001',patient_name:'SYNTHETIC PERSON'});
+ expect(await listActualIqc(db,staff,2026)).toEqual([]);
+
+ await expect(db.query("INSERT INTO job_outbox(kind,payload,idempotency_key) VALUES('result_release_completed',$1,'bad')",[JSON.stringify({releaseId:'00000000-0000-4000-8000-000000000001'})])).resolves.toBeDefined();
+});

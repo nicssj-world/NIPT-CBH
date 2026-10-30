@@ -52,14 +52,15 @@ async function downloadTemplate(db:Queryable){const s=await readActiveSettings(d
 
 type SourceRow={row_id:string;import_id:string;import_state:string;classification:string;reason:string;sample_key:string;raw:Record<string,string>;attempt_id:string;round_id:string;case_id:string;export_id:string;export_kind:string;
  info_raw:Record<string,string>|null;attempt_state:string;attempt_number:number;printed_sample_id:string|null;no_call:boolean;on_hold:boolean;ln:string;ln_halos:string|null;hn:string|null;registration_origin:string;current_round_id:string;unit_id:string|null;
- pet_sha:string|null;pet_filename:string|null;pet_parsed:{specimenAt?:string;receivedAt?:string}|null;doctor:string|null;edd:string|null;pregnancy:string|null;revoked:boolean;clinical_ready:boolean;newer_row:boolean;
+ pet_sha:string|null;pet_filename:string|null;pet_parsed:{specimenAt?:string;receivedAt?:string}|null;
+ eqa_verified:boolean;eqa_name:string|null;eqa_dob:string|null;eqa_pregnancy:'Singleton'|'Twins'|null;eqa_edd:string|null;eqa_received_at:Date|null;eqa_collection_date:string|null;doctor:string|null;edd:string|null;pregnancy:string|null;revoked:boolean;clinical_ready:boolean;newer_row:boolean;
  internal_final:string|null;internal_version_state:string|null;open_series:boolean;active_release:boolean};
 const SOURCE_SQL=`SELECT h.id row_id,h.import_id,i.state import_state,h.classification,h.reason,h.sample_key,h.raw,h.attempt_id,h.round_id,h.case_id,h.export_id,h.export_kind,si.raw info_raw,
  a.state attempt_state,a.attempt_number,a.printed_sample_id,EXISTS(SELECT 1 FROM attempt_event e WHERE e.attempt_id=a.id AND e.event_type='NO_CALL_SELECTED') no_call,
  COALESCE((SELECT x.event_type='HOLD_SET' FROM attempt_event x WHERE x.attempt_id=a.id AND x.event_type IN ('HOLD_SET','HOLD_RELEASED') ORDER BY x.sequence DESC LIMIT 1),false) on_hold,
  l.ln,n.ln_halos,ci.hn,c.registration_origin,c.current_round_id,(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=c.id ORDER BY s.unit_id LIMIT 1) unit_id,
- f.sha256 pet_sha,f.filename pet_filename,f.parsed pet_parsed,COALESCE(d.name,ld.name) doctor,COALESCE(w.draft#>>'{pregnancy,edd}',lr.edd::text) edd,COALESCE(w.draft#>>'{pregnancy,type}',lr.pregnancy) pregnancy,
- EXISTS(SELECT 1 FROM p2_revocation v WHERE v.case_id=c.id) revoked,(p2_clinical_ready(r.id) OR lab_owner_paper_ready(r.id)) clinical_ready,
+ f.sha256 pet_sha,f.filename pet_filename,f.parsed pet_parsed,eq.case_id IS NOT NULL eqa_verified,eq.patient_name eqa_name,eq.patient_dob::text eqa_dob,eq.pregnancy_type eqa_pregnancy,eq.edd::text eqa_edd,r.received_at eqa_received_at,r.collection_date::text eqa_collection_date,COALESCE(d.name,ld.name) doctor,COALESCE(w.draft#>>'{pregnancy,edd}',lr.edd::text) edd,COALESCE(w.draft#>>'{pregnancy,type}',lr.pregnancy) pregnancy,
+ EXISTS(SELECT 1 FROM p2_revocation v WHERE v.case_id=c.id) revoked,(p2_clinical_ready(r.id) OR lab_owner_paper_ready(r.id) OR (eq.case_id IS NOT NULL AND nipt_round_pet_or_eqa_ok(r.id))) clinical_ready,
  EXISTS(SELECT 1 FROM halos_import_row h2 JOIN halos_import i2 ON i2.id=h2.import_id WHERE h2.attempt_id=h.attempt_id AND h2.sheet='result' AND h2.classification='PATIENT' AND i2.state='Confirmed' AND i2.uploaded_at>i.uploaded_at) newer_row,
  (SELECT ir.id FROM internal_report ir WHERE ir.attempt_id=h.attempt_id AND ir.state='Final') internal_final,
  (SELECT v.state FROM internal_report ir JOIN result_report_version v ON v.id=ir.version_id WHERE ir.attempt_id=h.attempt_id AND ir.state='Final') internal_version_state,
@@ -67,7 +68,7 @@ const SOURCE_SQL=`SELECT h.id row_id,h.import_id,i.state import_state,h.classifi
  EXISTS(SELECT 1 FROM result_release x WHERE x.round_id=r.id AND x.kind='RESULT' AND x.state='Active') active_release
  FROM halos_import_row h JOIN halos_import i ON i.id=h.import_id LEFT JOIN halos_import_row si ON si.id=h.sampleinfo_row_id
  JOIN analytical_attempt a ON a.id=h.attempt_id JOIN specimen_round_current r ON r.id=h.round_id JOIN case_ln l ON l.id=r.case_ln_id LEFT JOIN specimen_lab_number n ON n.round_id=r.id
- LEFT JOIN p2_case_identity ci ON ci.case_id=r.case_id JOIN nipt_case c ON c.id=r.case_id
+ LEFT JOIN p2_case_identity ci ON ci.case_id=r.case_id JOIN nipt_case c ON c.id=r.case_id LEFT JOIN eqa_case eq ON eq.case_id=c.id
  LEFT JOIN his_order_current o ON o.round_id=r.id LEFT JOIN his_inbound_file_current f ON f.id=o.inbound_file_id
  LEFT JOIN p2_workspace w ON w.round_id=r.id LEFT JOIN p2_doctor_version d ON d.id=(w.draft#>>'{ordering,doctorVersionId}')::uuid
  LEFT JOIN LATERAL (SELECT * FROM lab_operational_registration x WHERE x.case_id=r.case_id ORDER BY (x.round_id=r.id) DESC,x.created_at DESC LIMIT 1) lr ON true LEFT JOIN p2_doctor_version ld ON ld.id=lr.doctor_version_id`;
@@ -104,12 +105,19 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  if(!reissue&&s.active_release)h('ACTIVE_RELEASE_EXISTS_FOR_ROUND');
  // Identity: printed values come from the verified HIS PET of the round and the case identity; a disagreement is never resolved here.
  let pet:Awaited<ReturnType<typeof readPet>>|null=null;
- if(!s.pet_sha||!s.pet_filename)h('PET_EVIDENCE_REQUIRED');
- else{try{pet=await readPet(deps.store,{sha256:s.pet_sha,filename:s.pet_filename,ln:s.ln});}catch{h('PET_EVIDENCE_UNVERIFIED');}}
+ if(!s.eqa_verified&&(!s.pet_sha||!s.pet_filename))h('PET_EVIDENCE_REQUIRED');
+ else if(!s.eqa_verified){try{pet=await readPet(deps.store,{sha256:s.pet_sha!,filename:s.pet_filename!,ln:s.ln});}catch{h('PET_EVIDENCE_UNVERIFIED');}}
  if(pet&&(!s.hn||pet.hn.replace(/^0+/,'')!==s.hn.replace(/^0+/,'')))h('HN_SOURCES_DISAGREE');
- const specimenAt=s.pet_parsed?.specimenAt??pet?.specimenAt,receivedAt=s.pet_parsed?.receivedAt??pet?.receivedAt;
+ const specimenAt=s.eqa_verified?s.eqa_collection_date:s.pet_parsed?.specimenAt??pet?.specimenAt,receivedAt=s.eqa_verified?s.eqa_received_at?.toISOString():s.pet_parsed?.receivedAt??pet?.receivedAt;
  if(!specimenAt||!receivedAt)h('PET_CLOCKS_REQUIRED');
- const req=await roundRequest(db,s.round_id),collectionDay=specimenAt?bangkokDay(specimenAt):null;
+ const req=await roundRequest(db,s.round_id);
+ if(s.eqa_verified){
+  if(req.dob&&s.eqa_dob&&req.dob!==s.eqa_dob)h('EQA_DOB_SOURCES_DISAGREE');
+  if(req.edd&&s.eqa_edd&&req.edd!==s.eqa_edd)h('EQA_EDD_SOURCES_DISAGREE');
+  if(req.pregnancy&&s.eqa_pregnancy&&req.pregnancy!==s.eqa_pregnancy)h('EQA_PREGNANCY_SOURCES_DISAGREE');
+  req.dob=req.dob??s.eqa_dob;req.edd=req.edd??s.eqa_edd;req.pregnancy=req.pregnancy??s.eqa_pregnancy;
+ }
+ const collectionDay=specimenAt?(s.eqa_verified?s.eqa_collection_date:bangkokDay(specimenAt)):null;
  if(collectionDay&&(req.dates.length!==1||req.dates[0]!==collectionDay))h('COLLECTION_DATE_SOURCES_DISAGREE',{raw:req.dates.join(',')});
  if(pet&&req.dob&&req.dob!==pet.dob.slice(0,10))h('DOB_SOURCES_DISAGREE');
  // The existing identity cross-check of the registered PDF needs the round's Request DOB and EDD; hold here instead of failing after rendering.
@@ -135,8 +143,8 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  if(noCall&&!noCallQc)h('NO_CALL_QC_STATUS_UNREADABLE',{raw:`${analysis.sampleQc??''}/${analysis.operationAdvice??''}/${analysis.physicianAdvice??''}`});
  if(!noCall)holds.push(...interpretation.holds);
  // Disclosure follows the recorded wish (RG-11 / OD-09 proposal): the Singleton master always prints Fetal Gender.
- if(!noCall&&template==='SINGLETON'&&req.fetalSex!=='Want')h('FETAL_SEX_DISCLOSURE_NOT_PERMITTED',{raw:req.fetalSex??'NOT_RECORDED'});
- if(!noCall&&template==='TWIN'&&req.fetalSex==='DoNotWant')h('Y_CHROMOSOME_DISCLOSURE_NOT_PERMITTED');
+ if(!s.eqa_verified&&!noCall&&template==='SINGLETON'&&req.fetalSex!=='Want')h('FETAL_SEX_DISCLOSURE_NOT_PERMITTED',{raw:req.fetalSex??'NOT_RECORDED'});
+ if(!s.eqa_verified&&!noCall&&template==='TWIN'&&req.fetalSex==='DoNotWant')h('Y_CHROMOSOME_DISCLOSURE_NOT_PERMITTED');
  let ga:number|null=null;
  if(!req.edd&&!s.edd)h('EDD_REQUIRED_FOR_GA');
  else if(collectionDay){const edd=(req.edd??s.edd)!;ga=280-Math.round((Date.parse(edd+'T00:00:00Z')-Date.parse(collectionDay+'T00:00:00Z'))/86400000);
@@ -148,17 +156,17 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  if(noCall&&(!approval.approvedRevision||!approval.value.noCallRenderingApproved))h('NO_CALL_RENDERING_NOT_APPROVED');
  if(productCode&&(!approval.approvedRevision||approvedProduct!==productCode))h('PRODUCT_TEMPLATE_COMBINATION_NOT_APPROVED',{raw:`${productCode}/${TEMPLATES[template].code}`});
  if(!await masterBytes(db,deps,template))h('REPORT_MASTER_NOT_INSTALLED');
- const v=interpretation.values,identityBound=pet&&specimenAt&&receivedAt&&ga!==null;
+ const v=interpretation.values,identityBound=(pet||s.eqa_verified&&!!s.eqa_name&&!!s.eqa_dob&&!!s.hn)&&specimenAt&&receivedAt&&ga!==null;
  const canBind=identityBound&&(noCall?!!noCallQc:v.qc&&v.t21&&v.t18&&v.t13&&v.probability.t21&&v.probability.t18&&v.probability.t13);
  // No Call (proposal shown in Settings for approval): every result cell reads "No Call", probabilities "-" (the master's own not-applicable mark).
  const NC=NO_CALL_RESULT;
  const results=noCall?{qc:noCallQc!,trisomy21_ra:NC,trisomy18_ra:NC,trisomy13_ra:NC,risk21:'-',risk18:'-',risk13:'-',gender:NC,gender_cbh:NC,XO_NEW:NC,XXX_NEW:NC,XXY_NEW:NC,XYY_NEW:NC,fetalFaction_2:NC,remarks:`Result = ${NC}`}
   :{qc:v.qc!,trisomy21_ra:v.t21!,trisomy18_ra:v.t18!,trisomy13_ra:v.t13!,risk21:v.probability.t21!,risk18:v.probability.t18!,risk13:v.probability.t13!,
    gender:v.fetalGender??'',gender_cbh:v.yChromosome??'',XO_NEW:v.xo??'',XXX_NEW:v.xxx??'',XXY_NEW:v.xxy??'',XYY_NEW:v.xyy??'',fetalFaction_2:v.fetalFraction??'',remarks:''};
- const values:ReportValues|null=canBind?{patientName:petDisplayName(pet!.name),ga:`${Math.floor(ga!/7)}W ${ga!%7}D`,sampleID:s.sample_key,hn:pet!.hn,collectDate_cbh:reportDate(collectionDay!),
-  patientIDCard:pet!.identity||'-',dob_cbh:reportDate(pet!.dob),receivedDate_cbh:reportDate(bangkokDay(receivedAt!)),referringPhysician:s.doctor?.trim()||'-',hospitalName:'Chonburi hospital',sampleType:'Peripheral Blood',...results}:null;
+ const values:ReportValues|null=canBind?{patientName:s.eqa_verified?s.eqa_name!:petDisplayName(pet!.name),ga:`${Math.floor(ga!/7)}W ${ga!%7}D`,sampleID:s.sample_key,hn:s.eqa_verified?s.hn!:pet!.hn,collectDate_cbh:reportDate(collectionDay!),
+  patientIDCard:s.eqa_verified?'-':pet!.identity||'-',dob_cbh:reportDate(s.eqa_verified?s.eqa_dob!:pet!.dob),receivedDate_cbh:reportDate(bangkokDay(receivedAt!)),referringPhysician:s.doctor?.trim()||'-',hospitalName:'Chonburi hospital',sampleType:'Peripheral Blood',...results}:null;
  return {rowId:s.row_id,caseId:s.case_id,roundId:s.round_id,attemptId:s.attempt_id,template,noCall,pregnancySource,overrideReason,holds,interpretation,values,productCode,hisLn:s.ln,lnHalos:s.ln_halos,hn:s.hn,sampleId:s.sample_key,approval,reissue,
-  sources:{halosRowId:s.row_id,halosImportId:s.import_id,exportId:s.export_id,exportKind:s.export_kind,petSha256:s.pet_sha,pregnancy:{recorded,used:pregnancy,source:pregnancySource,halos:halosFetus??null},
+  sources:{halosRowId:s.row_id,halosImportId:s.import_id,exportId:s.export_id,exportKind:s.export_kind,petSha256:s.pet_sha,eqaVerified:s.eqa_verified,pregnancy:{recorded,used:pregnancy,source:pregnancySource,halos:halosFetus??null},
    fetalSexPreference:req.fetalSex,edd:req.edd??s.edd,collectionDay,gaDays:ga,halosGa:info?.gestationalWeeks??null,productCode,productName:info?.productName??null,doctor:s.doctor??null}};
 }
 

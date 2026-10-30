@@ -9,6 +9,7 @@ import {createBatch} from '../../packages/lab/batch';
 import {FileStore} from '../../packages/storage';
 import {workbookWorkspace,saveWorkbookDraft,exportWorkbook,downloadWorkbookExport} from '../../packages/workbook/service';
 import {sha256,readArchive} from '../../packages/workbook/archive';
+import {listActualIqc} from '../../packages/eqa/service';
 const masterPath=process.env.NIPT_TASK_MASTER_PATH??'.local/lab-owner-evidence/lab-combined-master.xlsx';
 it.skipIf(!existsSync(masterPath))('native workbook drafts resume, reject stale revisions, export/readback and immutable audit history',async()=>{
   const db=await testDatabase(),u=await labUsers(db),temp=await mkdtemp(path.join(tmpdir(),'nipt-workbook-db-'));
@@ -33,4 +34,17 @@ it.skipIf(!existsSync(masterPath))('native workbook drafts resume, reject stale 
     const second=await tx(db,t=>saveWorkbookDraft(t,u.staff,{batchId:batch.id,expectedVersion:initial.version,expectedRevision:1,values:{}},deps));expect(second.values).toEqual({});
     await expect(tx(db,t=>exportWorkbook(t,u.staff,{batchId:batch.id,revision:1,format:'XLSX'},deps))).rejects.toThrow('TASK_CURRENT_DRAFT_REQUIRED');
   } finally {await db.close();await rm(temp,{recursive:true,force:true});}
+},120000);
+it.skipIf(!existsSync(masterPath))('IQC reads actual control measurements from the latest workbook revision and enforces role permissions',async()=>{
+ const db=await testDatabase(),u=await labUsers(db),temp=await mkdtemp(path.join(tmpdir(),'nipt-iqc-db-'));
+ const deps={master:readFileSync(masterPath),store:new FileStore(temp),render:async()=>{throw Error('NO_RENDER');}};
+ try{
+  const b=await tx(db,t=>createBatch(t,u.staff));
+  const initial=await tx(db,t=>workbookWorkspace(t,u.staff,b.batchId,deps));
+  const year=(await db.query<{run_year:number}>('SELECT run_year FROM lab_batch WHERE id=$1',[b.batchId])).rows[0].run_year;
+  await tx(db,t=>saveWorkbookDraft(t,u.staff,{batchId:b.batchId,expectedVersion:initial.version,expectedRevision:0,values:{'slot.1.libraryQc':2.5,'slot.25.libraryQc':0.8}},deps));
+  const rows=(await listActualIqc(db,u.staff,year)).filter(x=>x.batch_id===b.batchId);
+  expect(rows.map(x=>[x.control_type,x.slot_number,x.measurement,x.revision])).toEqual([['positive',1,'2.5',1],['negative',25,'0.8',1]]);
+  await expect(listActualIqc(db,u.anc,year)).rejects.toThrow('FORBIDDEN');
+ }finally{await db.close();await rm(temp,{recursive:true,force:true});}
 },120000);

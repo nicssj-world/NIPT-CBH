@@ -36,7 +36,7 @@ export async function runArchiveProbeCycle(db:Queryable){
    JOIN pdf_archive_window w ON w.root_path=p.root_path
    JOIN pdf_archive_config cfg ON cfg.singleton AND cfg.enabled AND cfg.root_path=p.root_path
    WHERE p.state='PASSED' AND p.retry_job_id=j.id AND w.id=j.window_id
-    AND j.state='FAILED' AND j.claim_token IS NULL AND j.claimed_until IS NULL
+    AND j.state='FAILED' AND j.cancellation_requested_at IS NULL AND j.claim_token IS NULL AND j.claimed_until IS NULL
    RETURNING j.id
  ) SELECT (SELECT count(*)::int FROM completed) completed_count,
           (SELECT count(*)::int FROM recovered) recovered_count`,
@@ -59,7 +59,7 @@ export async function runArchiveCycle(db:Queryable,store:Pick<FileStore,'get'>,p
   UPDATE pdf_archive_job SET state='FAILED',last_error='ARCHIVE_CLAIM_EXPIRED',claim_token=NULL,claimed_until=NULL,updated_at=clock_timestamp()
   WHERE state='PENDING' AND attempts>=5 AND claimed_until<clock_timestamp() RETURNING id
  ), candidate AS (
-  SELECT j.id FROM pdf_archive_job j WHERE j.state='PENDING' AND j.attempts<5 AND j.next_attempt_at<=clock_timestamp()
+  SELECT j.id FROM pdf_archive_job j WHERE j.state='PENDING' AND j.cancellation_requested_at IS NULL AND j.attempts<5 AND j.next_attempt_at<=clock_timestamp()
    AND (j.claimed_until IS NULL OR j.claimed_until<clock_timestamp())
    AND EXISTS(SELECT 1 FROM pdf_archive_config WHERE singleton AND enabled)
   ORDER BY j.next_attempt_at,j.created_at FOR UPDATE SKIP LOCKED LIMIT 1
@@ -67,16 +67,32 @@ export async function runArchiveCycle(db:Queryable,store:Pick<FileStore,'get'>,p
  FROM candidate,pdf_archive_window w WHERE j.id=candidate.id AND w.id=j.window_id
  RETURNING j.id,j.claim_token,j.release_id,j.case_id,j.version_id,j.source_sha256,j.attempts,w.root_path`);
  const job=result.rows[0];if(!job)return;
+ let publicationStarted=false;
  try{
+  // An Admin can clear a claimed job while the source is being resolved. Stop
+  // before the external NAS write if the durable cancellation request is visible.
+  const status=await db.query<{cancelled:boolean}>(`SELECT cancellation_requested_at IS NOT NULL cancelled
+   FROM pdf_archive_job WHERE id=$1 AND claim_token=$2`,[job.id,job.claim_token]);
+  if(!status.rows[0]||status.rows[0].cancelled){
+   await db.query("UPDATE pdf_archive_job SET state='CANCELLED',claim_token=NULL,claimed_until=NULL,updated_at=clock_timestamp() WHERE id=$1 AND claim_token=$2",[job.id,job.claim_token]);
+   return;
+  }
   const source=await resolveArchiveSource(db,store,job.release_id);
   if(source.caseId!==job.case_id||source.versionId!==job.version_id||source.sha256!==job.source_sha256)throw Error('ARCHIVE_IDENTITY_MISMATCH');
+  const afterResolve=await db.query<{cancelled:boolean}>(`SELECT cancellation_requested_at IS NOT NULL cancelled
+   FROM pdf_archive_job WHERE id=$1 AND claim_token=$2`,[job.id,job.claim_token]);
+  if(!afterResolve.rows[0]||afterResolve.rows[0].cancelled){
+   await db.query("UPDATE pdf_archive_job SET state='CANCELLED',claim_token=NULL,claimed_until=NULL,updated_at=clock_timestamp() WHERE id=$1 AND claim_token=$2",[job.id,job.claim_token]);
+   return;
+  }
+  publicationStarted=true;
   const outcome=await publish(job.root_path,source);
   if(outcome.state!=='ARCHIVED'||outcome.sha256!==job.source_sha256)throw Error(outcome.reason??'ARCHIVE_PUBLICATION_FAILED');
   await db.query("UPDATE pdf_archive_job SET state='ARCHIVED',archived_at=clock_timestamp(),updated_at=clock_timestamp(),last_error=NULL,claim_token=NULL,claimed_until=NULL WHERE id=$1 AND claim_token=$2",[job.id,job.claim_token]);
  }catch(error){
   const reason=error instanceof Error&&/^ARCHIVE_[A-Z0-9_]+$/.test(error.message)?error.message:'ARCHIVE_IO_FAILED';
-  await db.query(`UPDATE pdf_archive_job SET state=CASE WHEN attempts >= $3 THEN 'FAILED' ELSE 'PENDING' END,
-   last_error=$4,next_attempt_at=clock_timestamp()+interval '1 minute' * LEAST(attempts*attempts,30),
-   updated_at=clock_timestamp(),claim_token=NULL,claimed_until=NULL WHERE id=$1 AND claim_token=$2`,[job.id,job.claim_token,maxAttempts,reason]);
+  await db.query(`UPDATE pdf_archive_job SET state=CASE WHEN cancellation_requested_at IS NOT NULL AND $5 THEN 'FAILED' WHEN cancellation_requested_at IS NOT NULL THEN 'CANCELLED' WHEN attempts >= $3 THEN 'FAILED' ELSE 'PENDING' END,
+   last_error=CASE WHEN cancellation_requested_at IS NOT NULL AND $5 THEN 'ARCHIVE_RECONCILIATION_REQUIRED' ELSE $4 END,next_attempt_at=clock_timestamp()+interval '1 minute' * LEAST(attempts*attempts,30),
+   updated_at=clock_timestamp(),claim_token=NULL,claimed_until=NULL WHERE id=$1 AND claim_token=$2`,[job.id,job.claim_token,maxAttempts,reason,publicationStarted]);
  }
 }

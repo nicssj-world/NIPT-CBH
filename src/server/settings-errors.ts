@@ -21,11 +21,23 @@ export const SETTINGS_MESSAGES:Record<string,string>={
  CONTROLLED_METADATA_READ_ONLY:"Template/สูตรที่ควบคุมโดย DCC แก้ในหน้านี้ไม่ได้",
  SHARE_CHECK_TIMEOUT:"ตรวจโฟลเดอร์ไม่ทัน (เกิน 20 วินาที) จึงยังไม่บันทึก ตรวจเครือข่ายและสิทธิ์ของบัญชีที่รันระบบ แล้วลองใหม่",
  SHARE_PATH_NOT_FOUND:"ไม่พบโฟลเดอร์ที่ระบุ จึงยังไม่บันทึก ตรวจชื่อ Path และการเชื่อมต่อเครือข่าย",
+ SHARE_NOT_DIRECTORY:"เส้นทางที่ระบุไม่ใช่โฟลเดอร์ กรุณาตรวจสอบ Path",
+ SHARE_LINK_PROHIBITED:"ไม่อนุญาตให้ใช้เส้นทางผ่าน Shortcut หรือ Junction",
+ SHARE_SYSTEM_PATH_PROHIBITED:"ห้ามใช้โฟลเดอร์ระบบหรือโฟลเดอร์ข้อมูลของโปรแกรม",
+ SHARE_SERVICE_ACCOUNT_MISMATCH:"บัญชี Windows ที่รันระบบไม่ตรงกับบัญชีที่อนุญาตให้เข้าถึง Share",
+ SHARE_POLICY_REQUIRED:"ยังไม่มีการกำหนดนโยบาย Share ที่จำเป็น",
+ SHARE_POLICY_INVALID:"นโยบาย Share ใช้งานไม่ได้ กรุณาติดต่อผู้ดูแลระบบ",
+ SHARE_MODE_NOT_ALLOWED:"เส้นทางนี้ไม่อนุญาตในโหมดการทำงานปัจจุบัน",
+ SHARE_CREDENTIAL_REFERENCE_MISMATCH:"สิทธิ์หรือข้อมูลอ้างอิงสำหรับ Share ไม่ตรงกับนโยบายที่กำหนด",
+ UNSAFE_SHARE_PATH:"รูปแบบเส้นทางไม่ถูกต้อง กรุณาระบุโฟลเดอร์แบบเต็ม (เช่น UNC Path)",
+ INVALID_HIS_PATH_FIELD:"รายการเส้นทางที่ขอเปลี่ยนไม่ถูกต้อง",
+
  SHARE_PERMISSION_DENIED:"บัญชีที่รันระบบไม่มีสิทธิ์เข้าถึงโฟลเดอร์นี้ จึงยังไม่บันทึก",
  SHARE_ROOT_NOT_ALLOWED:"โฟลเดอร์นี้อยู่นอกพื้นที่ที่ติดตั้งอนุญาตไว้ จึงยังไม่บันทึก",
  SHARE_FILE_ACCESS_FAILED:"อ่านหรือเขียนไฟล์ในโฟลเดอร์นี้ไม่ได้ จึงยังไม่บันทึก",
  SHARE_READBACK_MISMATCH:"เขียนไฟล์ทดสอบแล้วอ่านกลับไม่ตรงกัน จึงยังไม่บันทึก ตรวจ Share ปลายทาง",
  HIS_PATH_NOT_ACCESSIBLE:"โฟลเดอร์ HIS นี้ใช้งานไม่ได้ จึงยังไม่บันทึก",
+ RESULT_FOLDER_NOT_ACCESSIBLE:"โฟลเดอร์ PDF ผลจากภายนอกเปิดอ่านรายการไฟล์ไม่ได้ จึงยังไม่บันทึก ตรวจ Path และสิทธิ์บัญชีที่รันระบบ",
  SETTING_DRAFT_REQUIRED:"ทดสอบได้เฉพาะร่างที่คุณบันทึกเองและยังเป็นร่างอยู่",
  SETTING_NOT_VALIDATED:"ต้องทดสอบร่างให้ผ่านก่อนจึงจะอนุมัติได้",
  SETTING_APPROVAL_REQUIRED:"ยังเปิดใช้ไม่ได้: ต้องทดสอบผ่าน และหมวดคลินิก/Integration ต้องได้รับอนุมัติจากผู้ตรวจอีกคนก่อน",
@@ -47,10 +59,19 @@ export function settingsErrorMessage(error:unknown,key?:string):string|null{
   const fields=[...new Set(error.issues.map(i=>{const name=String(i.path[0]??"");return form?.fields.find(f=>f.name===name)?.label??name;}))].filter(Boolean);
   return `ค่าที่กรอกไม่ถูกต้อง: ${fields.length?fields.join(", "):"รูปแบบข้อมูล"} — ตรวจช่วงค่าและรูปแบบที่ระบุใต้ช่อง แล้วบันทึกร่างใหม่`;
  }
- const code=error instanceof Error?error.message:"";return SETTINGS_MESSAGES[code]??null;
+ const code=error instanceof Error?error.message:"";
+ const message=SETTINGS_MESSAGES[code]??null;
+ if(!message)return null;
+ const pathType=(error as {pathType?:unknown}|null)?.pathType;
+ const names:Record<string,string>={PET:'PET',RES:'RES',CFS_PDF:'CFS PDF',BACKUP:'HIS Outbound Backup',EXTERNAL_PDF:'ReadyGen PDF'};
+ return typeof pathType==='string'&&pathType in names?'เส้นทาง '+names[pathType]+': '+message:message;
 }
 export function settingsError(error:unknown,key?:string){
  const message=settingsErrorMessage(error,key);
- if(message)return NextResponse.json({error:message,code:error instanceof ZodError?"INVALID_SETTING_VALUE":(error as Error).message},{status:400,headers:{"Cache-Control":"no-store"}});
+ if(message){
+  const raw=(error as {pathType?:unknown}|null)?.pathType;
+  const pathType=typeof raw==='string'&&['PET','RES','CFS_PDF','BACKUP','EXTERNAL_PDF'].includes(raw)?raw:undefined;
+  return NextResponse.json({error:message,code:error instanceof ZodError?"INVALID_SETTING_VALUE":(error as Error).message,...(pathType?{pathType}:{})},{status:400,headers:{"Cache-Control":"no-store"}});
+ }
  return apiError(error);
 }
