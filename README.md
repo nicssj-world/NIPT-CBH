@@ -1,5 +1,17 @@
 # NIPT CBH — P1 Foundation / P2 Synthetic
 
+## OWNER LOCK — Hospital installed baseline (confirmed 27 October 2026)
+
+**Current hospital server: NIPT-CBH v1.1.0, installed by NEW FULL INSTALL on the morning of 2026-10-27.** This is the sole installed baseline for the next Windows Update; older installations have been replaced. The Owner explicitly reconfirmed v1.1.0 after earlier contradictory version assumptions.
+
+- **Update base = v1.1.0 ONLY** (verify the actual installed `install-state.json` `current.version` AND `current.revision` read-only before packaging or installing; the exact server revision/hash has not yet been independently verified). Do not infer a base from EXE filenames, a developer worktree, or a later-numbered build.
+- **1.2.0 / 1.2.1 / 1.2.2 are NOT the installed hospital baseline.** Do not substitute, deploy, or run upgrade rehearsals for those versions unless the Owner later confirms a new full installation.
+- Build/test one targeted **Update.exe on top of the verified 1.1.0 Full Install**, not a new full install. Preserve hospital database, patient/case records, HIS PET/OK and RES/OK, NAS paths, credentials, audit history and file store; backup and pass isolated E2E update/restore rehearsal before any hospital installation.
+- **Admin Settings Owner requirement:** APP_ADMIN saves system settings including HIS Auto Scan directly; no second approver, no mandatory reason and no user-facing settings-test queue. Keep audit logs and clinical certification safeguards. Do not auto-enable live HIS scanning as a side effect of update.
+- The existing 1.1.1 Update package is only a **candidate**, not an installed or hospital-verified update; its E2E rehearsal must pass before use.
+
+See [Owner lock: hospital full-install baseline](docs/OWNER-LOCK-HOSPITAL-BASELINE-2026-10-27.md). Historical Synthetic/phase descriptions below are development documentation and do **not** override this installed-version decision.
+
 P4b continuation: [Pooling / QC2 / F4 synthetic delivery](docs/p4b-pooling-delivery.md) — immutable HOLD snapshots, no clinical acceptance or HALOS export.
 
 ระบบเดียวสำหรับโรงพยาบาล: Next.js Web, PostgreSQL, Node Worker และ PDF Renderer ภายในชุด Docker เดียวกัน ตาม Implementation Plan v6.2.1 และ AL-1 ที่ Owner อนุมัติ

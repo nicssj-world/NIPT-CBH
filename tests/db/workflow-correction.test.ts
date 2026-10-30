@@ -16,16 +16,17 @@ const operational=async<T>(fn:()=>Promise<T>)=>{vi.stubEnv('NIPT_MODE','operatio
 const requestEdd=(c:{caseId:string;roundId:string},edd:string)=>db.query("INSERT INTO p2_paper_review(case_id,round_id,kind,template_version,document_reference,panel,status,location,reason,verifier_id) VALUES($1,$2,'REQUEST','SYNTHETIC-FM01-v1','SYNTHETIC-DOC',$3,'Verified','SYNTHETIC-LOCATION','SYNTHETIC_REVIEW',$4)",
  [c.caseId,c.roundId,JSON.stringify({pregnancyType:'Singleton',edd,collectionDate:'2026-10-09'}),u.staff.id]);
 
-it('OD-R2 interim (Rev 3.4 §11A fix 8): operational mode refuses an S3+ redraw that HIS PET could never receive; S2 ordering is unchanged',async()=>{
+it('Owner early Re-Sampling: S3 does not require LAB4; local operational reception remains denied',async()=>{
  const c=await run(t=>syntheticCase(t,u));await run(t=>receiveS1(t,c));
  const s2=await operational(()=>run(t=>intake.orderRedraw(t,u.certifier,{caseId:c.caseId,reasonCode:'SPECIMEN_PROBLEM',note:'จำลอง หลอดมีปัญหา'})));
  expect(s2.newRoundNumber).toBe(2);
  // Operational S2 receipt is the new HIS PET only; the local receive path stays closed.
  await expect(operational(()=>run(t=>intake.receiveRedraw(t,u.staff,{roundId:s2.newRoundId,identityChecked:true,labelChecked:true,condition:'ACCEPTABLE',collectionDate:'2026-10-11'})))).rejects.toMatchObject({code:'REDRAW_REQUIRES_NEW_HIS_PET'});
  await run(t=>intake.receiveRedraw(t,u.staff,{roundId:s2.newRoundId,identityChecked:true,labelChecked:true,condition:'ACCEPTABLE',collectionDate:'2026-10-11'})); // synthetic stand-in for the S2 PET
- await expect(operational(()=>run(t=>intake.orderRedraw(t,u.certifier,{caseId:c.caseId,reasonCode:'SPECIMEN_PROBLEM',note:'จำลอง ขอเจาะครั้งที่สาม'})))).rejects.toMatchObject({code:'REDRAW_BEYOND_S2_PENDING_OD_R2',status:409});
- expect((await db.query<{n:number}>('SELECT count(*)::int n FROM specimen_round WHERE case_id=$1',[c.caseId])).rows[0].n).toBe(2);
- expect((await db.query<{state:string}>('SELECT state FROM specimen_round WHERE id=$1',[s2.newRoundId])).rows[0].state).toBe('ReceivedInNIPT'); // nothing changed
+ const s3=await operational(()=>run(t=>intake.orderRedraw(t,u.certifier,{caseId:c.caseId,reasonCode:'SPECIMEN_PROBLEM',note:'จำลอง ขอเจาะครั้งที่สาม'})));expect(s3.newRoundNumber).toBe(3);
+ await expect(operational(()=>run(t=>intake.receiveRedraw(t,u.staff,{roundId:s3.newRoundId,identityChecked:true,labelChecked:true,condition:'ACCEPTABLE',collectionDate:'2026-10-12'})))).rejects.toMatchObject({code:'REDRAW_REQUIRES_NEW_HIS_PET'});
+ expect((await db.query<{n:number}>('SELECT count(*)::int n FROM specimen_round WHERE case_id=$1',[c.caseId])).rows[0].n).toBe(3);
+ expect((await db.query<{state:string}>('SELECT state FROM specimen_round WHERE id=$1',[s2.newRoundId])).rows[0].state).toBe('RedrawRequested'); // new specimen remains Expected until a genuine PET
 });
 
 it('GA ≥ 22+0 is a warning only: shown on the worklist and slot, never changes gate, FIFO or the override rule',async()=>{

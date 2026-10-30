@@ -41,7 +41,7 @@ export async function receiveRedraw(db:Queryable,user:Staff,input:unknown){
  const r=await lockedRound(db,user,d.roundId);need(user,'round.receive','write',{unitId:r.unit_id??undefined,origin:r.registration_origin as 'ANC'});
  if(r.round_number<2)throw new LabError('S1_RECEIVED_IN_HIS_ONLY',409);
  if(r.received_at){const code=await lnHalosOf(db,r.id);await audit(db,user,'LAB_S2_RECEIPT_DUPLICATE','specimen_round',r.id,{outcome:'DUPLICATE'});return {duplicate:true,lnHalos:code,roundNumber:r.round_number};}
- if(process.env.NIPT_MODE==='operational')throw new LabError('REDRAW_REQUIRES_NEW_HIS_PET',409);
+ if(process.env.NIPT_MODE==='operational'||r.round_number>=3)throw new LabError('REDRAW_REQUIRES_NEW_HIS_PET',409);
  if(r.state!=='Expected'||r.current_round_id!==r.id)throw new LabError('ROUND_NOT_EXPECTED',409);
  if(d.collectionDate>bangkokToday())throw new LabError('COLLECTION_DATE_FUTURE',422);
  const previous=(await db.query<{d:string|null}>('SELECT max(collection_date)::text d FROM specimen_round WHERE case_id=$1 AND round_number<$2',[r.case_id,r.round_number])).rows[0]?.d;
@@ -73,11 +73,46 @@ async function lockedAttempt(db:Queryable,user:Staff,attemptId:string){
  return (await attemptFacts(db,'a.id=$1',[r.attempt_id]))[0];
 }
 
+/** Deliberate operator failure disposition; values alone never create a failure. */
+export async function confirmFailure(db:Queryable,user:Staff,input:unknown){
+ await assertSession(db,user);
+ const d=z.strictObject({attemptId:uuid,stage:z.enum(['QC1','QC2','QC3','QC4','SEQUENCING']),confirmed:z.literal(true),note:reasonText}).parse(input);
+ const a=await lockedAttempt(db,user,d.attemptId);need(user,'qc.record');
+ if(a.no_call_selected||a.current_round_id!==a.round_id||!a.previously_finalized||!a.slot_batch_id||!['Assigned','InProgress'].includes(a.attempt_state))throw new LabError('FAILURE_REQUIRES_LOCKED_EXECUTED_ATTEMPT',409);
+ const revision=(await db.query<{id:string;source_sha256:string;values:Record<string,unknown>}>('SELECT id,source_sha256,values FROM task_workbook_revision WHERE batch_id=$1 ORDER BY revision DESC LIMIT 1',[a.slot_batch_id])).rows[0];
+ const values=revision?.values??{};
+ const keys=d.stage==='QC1'?[`slot.${a.slot_number}.libraryQc`]:d.stage==='QC2'?['pool.concentration']:d.stage==='QC3'?['seq.dnbConcentration']:d.stage==='QC4'?['seq.q30','seq.loadedDnb','seq.bic','seq.fit']:['seq.date','seq.operator'];
+ const present=(k:string)=>values[k]!==undefined&&values[k]!==null&&values[k]!=='';
+ if(!revision||!(d.stage==='QC4'?keys.some(present):keys.every(present)))throw new LabError('FAILED_STAGE_EVIDENCE_REQUIRED',409);
+ if(a.attempt_state==='Assigned')await setAttemptState(db,user,{id:a.attempt_id,case_id:a.case_id,state:'Assigned'},'InProgress',{batchId:a.slot_batch_id,revisionId:revision.id});
+ await setAttemptState(db,user,{id:a.attempt_id,case_id:a.case_id,state:'InProgress'},'QcFailed',{stage:d.stage,reason:d.note,revisionId:revision.id},{qcFailedStage:d.stage});
+ await attemptEvent(db,user,{attemptId:a.attempt_id,caseId:a.case_id,type:'FAILURE_CONFIRMED',stage:d.stage,reason:d.note,details:{batchId:a.slot_batch_id,slot:a.slot_number,roundId:a.round_id,revisionId:revision.id,sourceSha256:revision.source_sha256}});
+ await audit(db,user,'LAB_FAILURE_CONFIRMED','analytical_attempt',a.attempt_id,{outcome:d.stage});
+ return {attemptId:a.attempt_id,status:a.overall_ordinal>=4?'รอพิจารณาหลังครบ 4 ครั้ง':'QcFailed'};
+}
+
+/** No clinical PDF, QC acceptance, release or outbound job is produced here. */
+export async function noCall(db:Queryable,user:Staff,input:unknown){
+ await assertSession(db,user);const d=z.strictObject({attemptId:uuid,note:reasonText.optional()}).parse(input);
+ const a=await lockedAttempt(db,user,d.attemptId);need(user,'attempt.noCall');
+ const latest=(await db.query<{id:string}>('SELECT id FROM analytical_attempt WHERE case_id=$1 ORDER BY overall_ordinal DESC LIMIT 1',[a.case_id])).rows[0];
+ if(a.current_round_id!==a.round_id||latest?.id!==a.attempt_id||a.overall_ordinal<4||a.attempt_state!=='QcFailed')throw new LabError('NO_CALL_REQUIRES_CONFIRMED_FAILURE_AFTER_FOUR',409);
+ if(!a.no_call_selected){
+  await attemptEvent(db,user,{attemptId:a.attempt_id,caseId:a.case_id,type:'NO_CALL_SELECTED',reason:d.note??'OWNER_TASK1_NO_CALL_SELECTED',details:{roundId:a.round_id,overallOrdinal:a.overall_ordinal}});
+  await caseEvent(db,user,a.case_id,'LAB_NO_CALL_AWAITING_EXTERNAL_PDF',{attemptId:a.attempt_id,roundId:a.round_id});
+  await audit(db,user,'LAB_NO_CALL_SELECTED','analytical_attempt',a.attempt_id,{outcome:'AWAITING_EXTERNAL_PDF'});
+ }
+ return {attemptId:a.attempt_id,status:'รอรับ PDF No Call'};
+}
+
 /** Repeat (LD-06, §4.3, §12.6.1): same specimen round; a child attempt with lineage, no new specimen, no HIS action. */
 export async function orderRepeat(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);const d=z.strictObject({attemptId:uuid,level:z.enum(REPEAT_LEVELS),reasonCode:z.enum(REPEAT_REASONS),note:reasonText}).parse(input);
  const a=await lockedAttempt(db,user,d.attemptId);need(user,'repeat.order','write',{unitId:a.unit_id??undefined,origin:a.registration_origin});
+ if(a.no_call_selected)throw new LabError('NO_CALL_AWAITING_EXTERNAL_PDF',409);
  if(!['QcFailed','Stopped','BatchCancelled'].includes(a.attempt_state))throw new LabError('REPEAT_REQUIRES_FAILED_OR_STOPPED_ATTEMPT',409);
+ if(a.overall_ordinal===4&&a.attempt_state!=='QcFailed')throw new LabError('FOURTH_ATTEMPT_FAILURE_NOT_CONFIRMED',409);
+ if(a.round_number===1&&a.attempt_number>=2)throw new LabError('RESAMPLING_REQUIRED_AFTER_S1_REPEAT',409);
  if(a.current_round_id!==a.round_id||!['ReceivedInHIS','ReceivedInNIPT'].includes(a.round_state))throw new LabError('REPEAT_REQUIRES_CURRENT_RECEIVED_ROUND',409);
  if(a.repeat_order_id&&a.repeat_state==='RepeatInProgress')await db.query("UPDATE repeat_work_order SET state='RepeatFailed',closed_by=$2,closed_at=now(),close_reason=$3 WHERE id=$1",[a.repeat_order_id,user.id,'CHILD_'+a.attempt_state.toUpperCase()]);
  const order=(await db.query<{id:string}>("INSERT INTO repeat_work_order(case_id,round_id,reason_code,state,parent_attempt_id,level,note,requested_by) VALUES($1,$2,$3,'RepeatPendingBatch',$4,$5,$6,$7) RETURNING id",[a.case_id,a.round_id,d.reasonCode,a.attempt_id,d.level,d.note,user.id])).rows[0].id;
@@ -97,9 +132,8 @@ export async function orderRedraw(db:Queryable,user:Staff,input:unknown){
  const head=(await db.query<{current_round_id:string}>('SELECT current_round_id FROM nipt_case WHERE id=$1',[d.caseId])).rows[0];if(!head)throw new LabError('NOT_FOUND',404);
  const r=await lockedRound(db,user,head.current_round_id);need(user,'redraw.order','write',{unitId:r.unit_id??undefined,origin:r.registration_origin as 'ANC'});
  if(r.current_round_id!==r.id||!['ReceivedInHIS','ReceivedInNIPT'].includes(r.state))throw new LabError('REDRAW_REQUIRES_RECEIVED_CURRENT_ROUND',409);
- // Rev 3.4 §11A fix 8 (interim until OD-R2): HIS PET receipt exists for S2 only, so an S3+ round could never be received.
- // Refuse to create it in operational mode instead of leaving a round that silently waits forever. Nothing existing changes.
- if(process.env.NIPT_MODE==='operational'&&r.round_number>=2)throw new LabError('REDRAW_BEYOND_S2_PENDING_OD_R2',409);
+ const latest=(await attemptFacts(db,'a.round_id=$1 ORDER BY a.attempt_number DESC LIMIT 1',[r.id]))[0];
+ if(latest?.no_call_selected)throw new LabError('NO_CALL_AWAITING_EXTERNAL_PDF',409);
  const request=(await db.query<{id:string}>("INSERT INTO redraw_request(case_id,source_round_id,reason_code,note,requested_by,prior_round_state) VALUES($1,$2,$3,$4,$5,$6) RETURNING id",[r.case_id,r.id,d.reasonCode,d.note,user.id,r.state])).rows[0].id;
  const live=await attemptFacts(db,"a.round_id=$1 AND a.state IN ('Ready','Assigned','InProgress')",[r.id]);
  for(const a of live){

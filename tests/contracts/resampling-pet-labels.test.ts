@@ -53,11 +53,10 @@ it('S2 labels/print audit/worklist show BASE[D]R while S1 keeps BASE; base, coun
  expect(list).not.toContain(`"labelCode":"${s1Code}"`);
 });
 
-it('characterization (OD-R2 pending): a redraw can be ordered from a PET-received S2; S3 stays Expected with no LN Halos or printed-ID rule',async()=>{
+it('Owner early Re-Sampling permits S3 before four attempts while requiring a new PET receipt',async()=>{
  const c=await redrawCase('990001009203','9900002003','Singleton');
- const {certifier}=await labUsers(f.db);
- const s3=await tx(f.db,()=>orderRedraw(f.db,certifier,{caseId:c.caseId,reasonCode:'OTHER',note:'SYNTHETIC third draw for characterization'}));
- expect(await rows(f.db,'SELECT round_number,state FROM specimen_round WHERE id=$1',[s3.newRoundId])).toEqual([{round_number:3,state:'Expected'}]);
- expect(await rows(f.db,'SELECT 1 FROM specimen_lab_number WHERE round_id=$1',[s3.newRoundId])).toEqual([]);
- expect(printedSampleId({base:c.base,pregnancy:'Singleton',attemptNumber:1,repeatLevel:null,earlierReLibraryCount:0,roundNumber:3,receivedSource:'HIS_PET_RECEIPT'})).toBeNull();
+ const {lab}=await registrar(f.db);
+ const s3=await tx(f.db,()=>orderRedraw(f.db,lab,{caseId:c.caseId,reasonCode:'OTHER',note:'SYNTHETIC Owner authorized early new specimen'}));expect(s3.newRoundNumber).toBe(3);
+ expect(await rows(f.db,'SELECT id,state,received_at FROM specimen_round WHERE case_id=$1 AND round_number=3',[c.caseId])).toEqual([{id:s3.newRoundId,state:'Expected',received_at:null}]);
+ expect(printedSampleId({base:c.base,pregnancy:'Singleton',attemptNumber:1,repeatLevel:null,earlierReLibraryCount:0,roundNumber:3,receivedSource:'HIS_PET_RECEIPT'})).toBe(c.base+'R-1');
 });

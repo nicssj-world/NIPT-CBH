@@ -264,21 +264,19 @@ describe('Pre-work → execution → reconciliation → Completed → QC1 (§12.
   const w=await run(t=>intake.labWorklist(t,u.staff));
   expect(w.attempts.find(a=>a.roundId===cases[0].roundId)).toMatchObject({category:'READY',attemptNumber:2,repeat:{level:'RE_LIBRARY',state:'RepeatPendingBatch'}});
  });
- it('controlled amendment stops use of the Pre-work, requires recall of working copies, and keeps every revision',async()=>{
+ it('Task1 metadata updates keep locked placements and issued Pre-work bytes without reopening or manual recall',async()=>{
   const {b}=await readyBatch(1);await finalize(b.batchId);const V=()=>version(q(db),b.batchId);
   const pre=await run(async t=>rec.issuePreWork(t,u.staff,{batchId:b.batchId,expectedVersion:await V(),sheetNumber:1},docs.deps));
   const copy=await run(t=>rec.printDocument(t,u.staff,{documentId:pre.id,kind:'WORKING_COPY'},docs.deps));
   await expect(run(async t=>batch.amendSheet(t,u.staff,{batchId:b.batchId,expectedVersion:await V(),sheetNumber:1,reason:'จำลอง แก้แผนก่อนเริ่ม'}))).rejects.toMatchObject({code:'FORBIDDEN'});
-  await run(async t=>batch.amendSheet(t,u.certifier,{batchId:b.batchId,expectedVersion:await V(),sheetNumber:1,reason:'จำลอง แก้แผนก่อนเริ่ม'}));
-  expect((await db.query('SELECT status FROM lab_document WHERE id=$1',[pre.id])).rows[0]).toEqual({status:'StopUse'});
-  await expect(run(t=>rec.printDocument(t,u.staff,{documentId:pre.id,kind:'WORKING_COPY'},docs.deps))).rejects.toMatchObject({code:'WORKING_COPY_ONLY_FROM_ISSUED_PRE_WORK'});
-  await run(t=>rec.printDocument(t,u.staff,{documentId:pre.id,kind:'STATUS_MARKED'},docs.deps));expect(docs.rendered.at(-1)!.copy).toMatchObject({kind:'STATUS_MARKED',status:'ระงับใช้'});
-  await finalize(b.batchId);
-  const rev2=await run(async t=>rec.issuePreWork(t,u.staff,{batchId:b.batchId,expectedVersion:await V(),sheetNumber:1},docs.deps));expect(rev2.revision).toBe(2);
-  expect((await db.query('SELECT status FROM lab_document WHERE id=$1',[pre.id])).rows[0]).toEqual({status:'Superseded'});
-  expect((await db.query('SELECT revision FROM lab_placement_snapshot WHERE batch_id=$1 ORDER BY revision',[b.batchId])).rows).toEqual([{revision:1},{revision:2}]);
-  await expect(run(async t=>batch.startExecution(t,u.staff,{batchId:b.batchId,expectedVersion:await V(),sheetNumber:1}))).rejects.toMatchObject({code:'RECALL_PENDING'});
-  await run(t=>rec.recallCopy(t,u.certifier,{copyId:copy.copyId,note:'จำลอง เก็บสำเนาคืนแล้ว'}));
+  await expect(run(async t=>batch.amendSheet(t,u.certifier,{batchId:b.batchId,expectedVersion:await V(),sheetNumber:1,reason:'จำลอง ห้ามเปิดตำแหน่งที่ล็อก'}))).rejects.toMatchObject({code:'PLACEMENT_LOCKED'});
+  const original=await run(t=>rec.readOriginal(t,u.staff,pre.id,docs.deps));
+  const frozen=(await db.query('SELECT * FROM lab_placement_snapshot WHERE batch_id=$1',[b.batchId])).rows;
+  await run(async t=>batch.updateSheetPlan(t,u.staff,{batchId:b.batchId,expectedVersion:await V(),sheetNumber:1,plannedWorkDate:'2026-10-24',plannedOperator:'จำลอง ผู้ปฏิบัติใหม่',plannedExtractionLot:'SYN-NEW',plannedExtractionExpiry:'2027-01-01',plannedLibraryLot:'SYN-LIB-NEW',plannedLibraryExpiry:'2027-02-01'}));
+  expect((await db.query('SELECT * FROM lab_placement_snapshot WHERE batch_id=$1',[b.batchId])).rows).toEqual(frozen);
+  expect((await db.query('SELECT status FROM lab_document WHERE id=$1',[pre.id])).rows[0]).toEqual({status:'Issued'});
+  expect((await run(t=>rec.readOriginal(t,u.staff,pre.id,docs.deps))).bytes).toEqual(original.bytes);
+  expect(copy.copyNumber).toBe(1);
   await run(async t=>batch.startExecution(t,u.staff,{batchId:b.batchId,expectedVersion:await V(),sheetNumber:1}));
   await expect(db.query("UPDATE lab_document SET file_sha256=repeat('0',64) WHERE id=$1",[pre.id])).rejects.toThrow(/ISSUED_ORIGINAL_IMMUTABLE/);
  });
@@ -300,8 +298,8 @@ describe('Pre-work → execution → reconciliation → Completed → QC1 (§12.
 describe('Redraw / S2+ receipt in NIPT (LD-01..05, §4.2, §12.6.2)',()=>{
  it('redraw keeps HIS LN, opens S2 Expected, stops work; S2 receipt in NIPT issues its own LN Halos once',async()=>{
   const c=await received();const s1=await lnHalos(c.roundId);
-  await expect(run(t=>intake.orderRedraw(t,u.staff,{caseId:c.caseId,reasonCode:'SPECIMEN_PROBLEM',note:'จำลอง หลอดมีปัญหา'}))).rejects.toMatchObject({code:'FORBIDDEN'});
-  const r=await run(t=>intake.orderRedraw(t,u.certifier,{caseId:c.caseId,reasonCode:'SPECIMEN_PROBLEM',note:'จำลอง หลอดมีปัญหา'}));
+  // Task1 explicitly authorizes LAB_STAFF redraw ordering; certification stays separate.
+  const r=await run(t=>intake.orderRedraw(t,u.staff,{caseId:c.caseId,reasonCode:'SPECIMEN_PROBLEM',note:'จำลอง หลอดมีปัญหา'}));
   expect(r).toMatchObject({newRoundNumber:2,stoppedAttempts:1});
   expect(await attemptOf(q(db),c.roundId)).toMatchObject({state:'Stopped'});
   const w=await run(t=>intake.labWorklist(t,u.staff));expect(w.expected).toEqual([expect.objectContaining({roundId:r.newRoundId,roundNumber:2,hisLn:c.ln,previousLnHalos:s1})]);

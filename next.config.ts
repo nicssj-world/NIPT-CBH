@@ -13,6 +13,9 @@ const config: NextConfig = {
       "./node_modules/@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff2",
       "./node_modules/@fontsource/noto-sans/files/noto-sans-latin-700-normal.woff2"
     ],
+    // The storage API shares p5hError with P4; tracing this nested route separately
+    // keeps Playwright's runtime registry in standalone output for error handling.
+    "/api/sample-storage": ["./node_modules/playwright-core/browsers.json"],
     "/api/p5/results/*/reparse": ["./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"],
     "/api/workbook/batches/*": ["./packages/workbook/native-export.ps1"],
     "/api/p4/batches/*/draft-pdf": ["./packages/workbook/native-export.ps1"]

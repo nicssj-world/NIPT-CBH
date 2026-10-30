@@ -54,12 +54,17 @@ test("Case page upload: a wrong patient's PDF is refused; the right one is check
  // Right patient: comparison and preview, then confirm.
  await panel.getByLabel("ไฟล์ PDF ผลตรวจ").setInputFiles(fileA);await panel.getByRole("button",{name:"อัปโหลด PDF ผลตรวจ"}).click();
  const checked=panel.getByRole("region",{name:"ตรวจ PDF กับรายการที่เลือก"});await expect(checked).toContainText("ตรงกับรายการที่เลือก");
- await expect(checked.getByRole("row").filter({hasText:"HN"})).toContainText("ตรงกัน");await expect(checked.locator("iframe[title='ตัวอย่าง PDF ที่อัปโหลด']")).toBeVisible();
- expect((await page.request.get(await checked.locator("iframe").getAttribute("src")??"")).headers()["content-type"]).toContain("application/pdf");
+ await expect(checked.getByRole("row").filter({hasText:"HN"})).toContainText("ตรงกัน");
+ const previewResponse=page.waitForResponse(r=>r.url().includes('/api/p5/intake/')&&r.url().endsWith('/file')&&r.request().method()==='GET');
+ await checked.getByRole('button',{name:'ตัวอย่าง PDF ที่อัปโหลด',exact:true}).click();const preview=page.getByRole('dialog',{name:'ตัวอย่าง PDF ที่อัปโหลด'}),response=await previewResponse;
+ expect(response.headers()['content-type']).toContain('application/pdf');const previewBytes=await page.request.get(response.url());expect(previewBytes.ok()).toBe(true);expect(await previewBytes.body()).toEqual(a.pdf);
+ await expect(preview.locator('canvas[data-pdf-page="1"]')).toBeVisible();await expect(preview).toContainText(a.hn);await preview.getByRole('button',{name:'ปิด',exact:true}).click();
  await new AxeBuilder({page}).withTags(AA).analyze().then(r=>expect(r.violations).toEqual([]));
  await checked.getByRole("button",{name:"ยืนยันแนบ PDF กับรายการนี้"}).click();
  const done=panel.getByRole("region",{name:"ผลการอัปโหลด"});await expect(done).toContainText("รอผู้รับรองคนที่สองยืนยันการเชื่อมโยง");
- await expect(done.locator("iframe[title='PDF ที่แนบแล้ว']")).toBeVisible();
+ const attachedResponse=page.waitForResponse(r=>r.url().includes('/api/p5/results/')&&r.url().endsWith('/file')&&r.request().method()==='GET');
+ await done.getByRole('button',{name:'PDF ที่แนบแล้ว',exact:true}).click();const attached=page.getByRole('dialog',{name:'PDF ที่แนบแล้ว'});const attachedBytes=await page.request.get((await attachedResponse).url());expect(attachedBytes.ok()).toBe(true);expect(await attachedBytes.body()).toEqual(a.pdf);
+ await expect(attached.locator('canvas[data-pdf-page="1"]')).toBeVisible();await expect(attached).toContainText(a.hn);await attached.getByRole('button',{name:'ปิด',exact:true}).click();
  const reviewUrl=await done.getByRole("link",{name:"เปิดหน้าตรวจรับผล"}).getAttribute("href");
  await expect(panel.getByRole("region",{name:"สถานะผล PDF แต่ละรอบ"})).toContainText("รอจับคู่");await expect(panel).toContainText("อัปโหลดจากหน้าผู้ป่วย");
  expect(await count("SELECT count(*)::int n FROM job_outbox")).toBe(jobs); // parsed in the web request, no Worker job

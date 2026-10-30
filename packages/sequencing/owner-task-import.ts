@@ -6,13 +6,15 @@ export function bangkokDnbId(clickedAt:Date){
  return 'DNB'+day.replaceAll('-','');
 }
 export function niftyPatientEligible(lineage:{attemptNumber:number;repeatOrderId:string|null;previousSeqOnSameRound:boolean}){
- return lineage.attemptNumber===1&&lineage.repeatOrderId===null&&!lineage.previousSeqOnSameRound;
+ // A repeat is a distinct authorized internal attempt; earlier sequencing of its specimen is not an exclusion.
+ return Number.isInteger(lineage.attemptNumber)&&lineage.attemptNumber>=1&&(lineage.attemptNumber===1||!!lineage.repeatOrderId);
 }
-export type ActualTaskMember={slot:number;sampleId:string};
+export type ActualTaskMember={slot:number;sampleId:string;attemptId?:string|null;roundId?:string|null;caseId?:string|null;overallOrdinal?:number|null};
 /** Members must already be verified against frozen actual-transfer evidence by the service. */
 export function exportOwnerTaskImport(template:Buffer,members:ActualTaskMember[],clickedAt:Date){
  if(sha256(template)!==TASK_IMPORT_TEMPLATE_SHA256)throw Error('TASK_IMPORT_TEMPLATE_SHA256_MISMATCH');
  if(new Set(members.map(m=>m.slot)).size!==members.length)throw Error('TASK_IMPORT_DUPLICATE_POSITION');
+ if(new Set(members.map(m=>m.sampleId)).size!==members.length)throw Error('TASK_IMPORT_DUPLICATE_SAMPLE_ID');
  if(members.some(m=>!Number.isInteger(m.slot)||m.slot<1||m.slot>48||!m.sampleId.trim()||/[\x00-\x1f\x7f]/.test(m.sampleId)))throw Error('TASK_IMPORT_MEMBER_INVALID');
  const parts=readArchive(template),name='xl/worksheets/sheet1.xml',sheet=parts.get(name)!.toString(),source=[...sheet.matchAll(/<row\b[^>]*\br="(\d+)"[^>]*>[\s\S]*?<\/row>/g)];
  if(source.length!==48||!parts.get('xl/workbook.xml')!.toString().includes('name="Sheet1"'))throw Error('TASK_IMPORT_SCHEMA_MISMATCH');
@@ -31,5 +33,5 @@ export function exportOwnerTaskImport(template:Buffer,members:ActualTaskMember[]
  });
  const xml=sheet.replace(/<sheetData>[\s\S]*?<\/sheetData>/,`<sheetData>${header}${rows.join('')}</sheetData>`).replace(/<dimension\b[^>]*\/>/,`<dimension ref="A1:E${ordered.length+1}"/>`);
  parts.set(name,Buffer.from(xml));const bytes=writeArchive(parts);
- return {bytes,sha256:sha256(bytes),dnbId,mapping:ordered.map((m,i)=>({exportRow:i+2,physicalSlot:m.slot,sampleId:m.sampleId})),count:ordered.length};
+ return {bytes,sha256:sha256(bytes),dnbId,mapping:ordered.map((m,i)=>({exportRow:i+2,physicalSlot:m.slot,sampleId:m.sampleId,attemptId:m.attemptId??null,roundId:m.roundId??null,caseId:m.caseId??null,overallOrdinal:m.overallOrdinal??null})),count:ordered.length};
 }

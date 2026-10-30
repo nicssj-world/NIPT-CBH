@@ -18,8 +18,17 @@ it('uses one actual Bangkok click date on either side of midnight; rejects dupli
  expect(()=>exportOwnerTaskImport(template,[all[0],all[0]],new Date())).toThrow('TASK_IMPORT_DUPLICATE_POSITION');
  expect(()=>exportOwnerTaskImport(Buffer.from('altered'),all,new Date())).toThrow('TASK_IMPORT_TEMPLATE_SHA256_MISMATCH');
 });
-it('NIFTY eligibility uses this specimen attempt and actual prior sequencing, not an earlier S1 or current re-export',()=>{
+it('NIFTY includes authorized repeat lineage regardless of earlier specimen sequencing',()=>{
  expect(niftyPatientEligible({attemptNumber:1,repeatOrderId:null,previousSeqOnSameRound:false})).toBe(true);
- expect(niftyPatientEligible({attemptNumber:2,repeatOrderId:'actual-repeat',previousSeqOnSameRound:false})).toBe(false);
- expect(niftyPatientEligible({attemptNumber:1,repeatOrderId:null,previousSeqOnSameRound:true})).toBe(false);
+ expect(niftyPatientEligible({attemptNumber:3,repeatOrderId:null,previousSeqOnSameRound:true})).toBe(false);
+ expect(niftyPatientEligible({attemptNumber:6,repeatOrderId:'exceptional-repeat',previousSeqOnSameRound:true})).toBe(true);
+ expect(niftyPatientEligible({attemptNumber:2,repeatOrderId:'actual-repeat',previousSeqOnSameRound:false})).toBe(true);
+ expect(niftyPatientEligible({attemptNumber:1,repeatOrderId:null,previousSeqOnSameRound:true})).toBe(true);
+});
+
+it('HALOS refuses repeated analytical text within a single vendor mapping and preserves internal provenance outside vendor columns',()=>{
+ expect(()=>exportOwnerTaskImport(template,[{slot:2,sampleId:'26B261023001R-1'},{slot:3,sampleId:'26B261023001R-1'}],new Date())).toThrow('TASK_IMPORT_DUPLICATE_SAMPLE_ID');
+ const out=exportOwnerTaskImport(template,[{slot:2,sampleId:'26B261023001R-1',attemptId:'unique-attempt-5',roundId:'S2',caseId:'case-1',overallOrdinal:5}],new Date('2026-10-23T08:00:00Z'));
+ expect(out.mapping[0]).toMatchObject({sampleId:'26B261023001R-1',attemptId:'unique-attempt-5',roundId:'S2',caseId:'case-1',overallOrdinal:5,physicalSlot:2});
+ const xml=readArchive(out.bytes).get('xl/worksheets/sheet1.xml')!.toString();expect(xml).toContain('26B261023001R-1');expect(xml).not.toContain('unique-attempt-5');
 });

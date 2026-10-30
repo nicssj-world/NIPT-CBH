@@ -42,7 +42,7 @@ export async function exportSeqPair(db:Queryable,user:Staff,input:unknown,deps:W
  const members=actual.members.filter(m=>m.pooled).map(m=>{
   const slot=s.slots.find(s=>s.slot===m.slot),sampleId=slot?.printedSampleId??slot?.printedControlId;
   if(!slot||sampleId!==m.sampleId||(slot.attemptId??null)!==m.attemptId)throw new LabError('ACTUAL_POOLING_MAPPING_STALE',409);
-  return {slot:m.slot,sampleId};
+  return {slot:m.slot,sampleId,attemptId:slot.attemptId,roundId:slot.roundId,caseId:slot.caseId,overallOrdinal:slot.overallOrdinal??null};
  });
  const template=process.env.NIPT_HALOS_TASK_TEMPLATE;if(!template)throw new LabError('TASK_IMPORT_TEMPLATE_REQUIRED',409);
  const halos=exportOwnerTaskImport(await readFile(template),members,clickedAt);

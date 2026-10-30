@@ -14,8 +14,8 @@ export function worklistRow(r:AttemptRow,policy:'HOLD'|'PROCEED_SYNTHETIC_LABELL
  const gate=r.attempt_state==='Ready'?assignmentDecision(r,policy):null;
  const category:QueueCategory=r.attempt_state==='Ready'?(gate!.eligible?'READY':'GATE_BLOCKED'):r.attempt_state==='Assigned'?'IN_BATCH':r.attempt_state==='InProgress'?'IN_PROGRESS':r.attempt_state==='QcFailed'?'QC_FAILED':['Stopped','BatchCancelled'].includes(r.attempt_state)?'NEEDS_DECISION':'OTHER';
  const code=r.ln_halos?specimenDisplayCode(r.ln_halos,r.pregnancy,r.ln_halos_resampling):r.ln_halos; // OD-R1a: BASE[D][R]
- return {kind:'ATTEMPT' as const,category,caseId:r.case_id,roundId:r.round_id,roundNumber:r.round_number,receivedSource:r.received_source,receivedAt:iso(r.received_at),hisLn:r.ln,lnHalos:r.ln_halos,labelCode:code,pregnancy:r.pregnancy,ga:gestationalAge(r),
-  attemptId:r.attempt_id,attemptNumber:r.attempt_number,attemptState:r.attempt_state,printedSampleId:candidatePrintedId(r).id,repeat:r.repeat_order_id?{level:r.repeat_level,state:r.repeat_state}:null,
+ return {kind:'ATTEMPT' as const,category,caseId:r.case_id,roundId:r.round_id,roundNumber:r.round_number,receivedSource:r.received_source,receivedAt:iso(r.received_at),hisLn:r.ln,hn:r.hn,lnHalos:r.ln_halos,labelCode:code,pregnancy:r.pregnancy,ga:gestationalAge(r),
+  attemptId:r.attempt_id,attemptNumber:r.attempt_number,overallOrdinal:r.overall_ordinal,exceptional:r.overall_ordinal>=5,outcomeStatus:r.no_call_selected?'รอรับ PDF No Call':r.overall_ordinal>=4&&r.attempt_state==='QcFailed'?'รอพิจารณาหลังครบ 4 ครั้ง':null,attemptState:r.attempt_state,printedSampleId:candidatePrintedId(r).id,repeat:r.repeat_order_id?{level:r.repeat_level,state:r.repeat_state}:null,
   urgent:r.urgent,urgentReason:r.urgent_reason,hold:r.hold?{stage:r.hold_stage}:null,resumeDecisionRequired:r.resume_decision_required,qcFailedStage:r.qc_failed_stage,
   gate:gate&&{eligible:gate.eligible,syntheticPendingAccepted:gate.syntheticPendingAccepted,failed:gate.failed,pending:gate.pending},
   placement:r.slot_batch_id?{batchId:r.slot_batch_id,runLabel:r.run_label,slot:r.slot_number,sheetState:r.sheet_state}:null,labels:{prints:r.label_prints,lastPrintedAt:iso(r.last_label_print)}};
@@ -75,7 +75,7 @@ async function factsOf(db:Queryable,ids:readonly string[],chunk=CHUNK){
  for(let i=0;i<ids.length;i+=chunk)out.push(...await attemptFacts(db,'a.id=ANY($1::uuid[])',[ids.slice(i,i+chunk)]));
  return out;
 }
-type Light={attemptId:string;hisLn:string;receivedAt:Date|null;category:QueueCategory;lnHalos:string|null;labelCode:string|null;printedSampleId:string|null;roundNumber:number;prints:number;urgent:boolean;runLabel:string|null};
+type Light={attemptId:string;hisLn:string;hn:string|null;receivedAt:Date|null;category:QueueCategory;lnHalos:string|null;labelCode:string|null;printedSampleId:string|null;roundNumber:number;prints:number;urgent:boolean;runLabel:string|null};
 const lowerIncludes=(q:string,...v:(string|null|undefined)[])=>!q||v.some(x=>x?.toLowerCase().includes(q));
 
 type Read={data:WorklistPage;caseIds:string[]};
@@ -98,7 +98,7 @@ async function readWorklist(db:Queryable,user:Staff,raw:unknown,tuning:ScanTunin
  const counts:Record<WorklistTab,number>={READY:0,GATE_BLOCKED:0,IN_BATCH:c.in_batch,DECISION:c.decision,REDRAW_EXPECTED:await cnt(expectedFrom),LN_HALOS_MISSING:await cnt(missingFrom)};
  // Ready/Gate: classify the Ready attempts (FIFO order) by the Owner-locked gate, in bounded chunks.
  let capped=false,scanned=0,readyTotal=0;const ready:Light[]=[];
- const rowMatches=(x:Light)=>x.category===f.tab&&lowerIncludes(q,x.hisLn,x.lnHalos,x.labelCode,x.printedSampleId,x.runLabel)&&(f.round==='ALL'||(f.round==='S1'?x.roundNumber===1:x.roundNumber>1))&&(!f.unprinted||x.prints===0)&&(!f.urgent||x.urgent);
+ const rowMatches=(x:Light)=>x.category===f.tab&&lowerIncludes(q,x.hisLn,x.hn,x.lnHalos,x.labelCode,x.printedSampleId,x.runLabel)&&(f.round==='ALL'||(f.round==='S1'?x.roundNumber===1:x.roundNumber>1))&&(!f.unprinted||x.prints===0)&&(!f.urgent||x.urgent);
  const classify=async()=>{
   const activeRG=f.tab==='READY'||f.tab==='GATE_BLOCKED';
   const readyIds=(await db.query<{id:string}>(`SELECT a.id ${ATTEMPT_IDS} AND a.state='Ready'`,[scope])).rows.map(r=>r.id);
@@ -107,7 +107,7 @@ async function readWorklist(db:Queryable,user:Staff,raw:unknown,tuning:ScanTunin
   const need=activeRG?(f.page-1)*f.pageSize+f.pageSize:0;let matched=0;
   for(let i=0;i<ids.length;i+=STEP){
    if(i>=SCAN&&(!activeRG||matched>=need))break; // past the exact window: only keep going to fill the requested page
-   for(const r of await factsOf(db,ids.slice(i,i+STEP),STEP)){const w=worklistRow(r,policy);const row:Light={attemptId:r.attempt_id,hisLn:r.ln,receivedAt:r.received_at,category:w.category,lnHalos:w.lnHalos,labelCode:w.labelCode,printedSampleId:w.printedSampleId,roundNumber:r.round_number,prints:r.label_prints,urgent:r.urgent,runLabel:r.run_label};ready.push(row);if(activeRG&&rowMatches(row))matched++;}
+   for(const r of await factsOf(db,ids.slice(i,i+STEP),STEP)){const w=worklistRow(r,policy);const row:Light={attemptId:r.attempt_id,hisLn:r.ln,hn:r.hn,receivedAt:r.received_at,category:w.category,lnHalos:w.lnHalos,labelCode:w.labelCode,printedSampleId:w.printedSampleId,roundNumber:r.round_number,prints:r.label_prints,urgent:r.urgent,runLabel:r.run_label};ready.push(row);if(activeRG&&rowMatches(row))matched++;}
    scanned=Math.min(i+STEP,ids.length);
   }
   readyTotal=ids.length;capped=hard||scanned<ids.length;

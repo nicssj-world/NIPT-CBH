@@ -1,4 +1,4 @@
-import {randomUUID} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {z} from 'zod';
 import type {Queryable} from '../db/connection';
 import {lockLn} from '../db/registration';
@@ -9,7 +9,7 @@ import {authorize} from '../security/policy';
 import {LabError,need,assertSession,audit,uuid,reasonText,attemptFacts,commonFacts,caseVisible,REDRAW_REASONS,type Staff} from '../lab/core';
 import {QuarantineError} from './extract';
 import {registerIntake,parseIntake} from './intake';
-import {missingRequired,type Parsed} from './parser';
+import {isNoCallReport,missingRequired,type Parsed} from './parser';
 import {resultPredicates,noticePredicates,decideGate,crossFailures,type Cmp,type CrossCheck,type Purpose,type GateDecision,type GatePredicate} from './gates';
 import {attemptEvidence} from './evidence';
 import {benchAttemptEvidence} from '../lab/bench-evidence';
@@ -80,7 +80,7 @@ export async function intakeRows(db:Queryable,user:Staff,jobId:string){
 }
 export function summary(p:Parsed){
  const v=(f:{value:unknown}|undefined)=>f?.value??null;
- return {labNumber:v(p.identifiers.labNumber),hn:v(p.identifiers.hn),patientName:v(p.identifiers.patientName),collectionDate:v(p.identifiers.collectionDate),reportedDate:v(p.identifiers.reportedDate),
+ return {result:v(p.results.result),labNumber:v(p.identifiers.labNumber),hn:v(p.identifiers.hn),patientName:v(p.identifiers.patientName),collectionDate:v(p.identifiers.collectionDate),reportedDate:v(p.identifiers.reportedDate),
   t21:v(p.results.t21),t18:v(p.results.t18),t13:v(p.results.t13),sca:p.templateKind==='SINGLETON'?[p.results.xo,p.results.xxx,p.results.xxy,p.results.xyy].map(f=>f.value??'อ่านไม่ได้'):null,yChromosome:v(p.results.yChromosome),
   fetalFraction:v(p.results.fetalFraction),qc:v(p.results.qc),needsManualReview:p.needsManualReview,abnormal:p.abnormal,unreadable:missingRequired(p),noticeCategory:p.noticeCategory};
 }
@@ -125,7 +125,7 @@ export async function linkCandidates(db:Queryable,user:Staff|null,p:Parsed,s:Res
    FROM analytical_attempt a JOIN specimen_round_current r ON r.id=a.round_id JOIN nipt_case c ON c.id=a.case_id JOIN case_ln l ON l.id=r.case_ln_id
    LEFT JOIN p2_case_identity i ON i.case_id=c.id LEFT JOIN specimen_lab_number n ON n.round_id=r.id
    WHERE c.registration_origin<>'HISTORICAL' AND (ltrim(i.hn,'0')=$1 OR a.printed_sample_id=$2 OR n.ln_halos=$2 OR l.ln=$2 OR n.ln_halos=substring($2 from 1 for 12))
-   ORDER BY c.id,r.round_number DESC,a.attempt_number DESC LIMIT 60`,[hn,lab])).rows.filter(r=>!user||caseVisible(user,r));
+   ORDER BY c.id,r.round_number DESC,a.attempt_number DESC`,[hn,lab])).rows.filter(r=>!user||caseVisible(user,r));
  const reqs=new Map<string,RoundRequest>();
  const out:Candidate[]=[];
  for(const r of rows){
@@ -345,7 +345,7 @@ export async function unlinkVersion(db:Queryable,user:Staff,input:unknown){
 // ---------- Gates ----------
 async function gateFor(db:Queryable,v:VersionRow,purpose:Purpose,certifierId?:string):Promise<GateDecision|null>{
  if(!v.round_id||v.kind==='UNKNOWN')return null;
- const s=await resultSettings(db),operational=await operationalWorkflow(db),qc5=operational?(await db.query<{id:string}>('SELECT id FROM result_qc5_review WHERE version_id=$1 AND report_sha256=$2',[v.id,v.sha256])).rows[0]:null,operationalReviewed=!!qc5;
+ const s=await resultSettings(db),operational=await operationalWorkflow(db),qc5=operational?(await db.query<{id:string;no_call_valid:boolean}>('SELECT id,task1_no_call_qc5_valid(q) no_call_valid FROM result_qc5_review q WHERE version_id=$1 AND report_sha256=$2',[v.id,v.sha256])).rows[0]:null,operationalReviewed=!!qc5;
  const templateApproved=operational?operationalReviewed:s.picVersion!=='unvalidated'&&!v.template_version.includes('UNAPPROVED');
  const x=(await db.query<{open_proposal:boolean;latest:boolean;active_release:boolean;reviewed:boolean;redraw_at:Date|null;certifier:boolean;unit_id:string|null}>(
   `SELECT EXISTS(SELECT 1 FROM result_link_event e WHERE e.version_id=$1 AND e.event='PROPOSED' AND NOT EXISTS(SELECT 1 FROM result_link_event y WHERE y.version_id=e.version_id AND y.event IN ('APPROVED','REJECTED','UNLINKED') AND y.sequence>e.sequence)) open_proposal,
@@ -371,7 +371,7 @@ async function gateFor(db:Queryable,v:VersionRow,purpose:Purpose,certifierId?:st
    EXISTS(SELECT 1 FROM lab_slot_assignment s WHERE s.attempt_id=$1 AND s.removed_reason='BATCH_CANCELLED') batch_cancelled`,[v.attempt_id,v.round_id])).rows[0];
  const latestAttempt=(await db.query<{n:number}>('SELECT max(attempt_number)::int n FROM analytical_attempt WHERE round_id=$1',[v.round_id])).rows[0].n===a.attempt_number;
  const evidence=await attemptEvidence(db,a.attempt_id);
- return decideGate(resultPredicates({templateKind:v.template_kind as 'SINGLETON'|'TWIN',templateApproved,missing:missingRequired(v.parsed),pdfQc:v.parsed.results.qc.value,
+ return decideGate(resultPredicates({templateKind:v.template_kind as 'SINGLETON'|'TWIN',templateApproved,missing:missingRequired(v.parsed),pdfQc:v.parsed.results.qc.value,noCall:isNoCallReport(v.parsed),noCallReviewed:qc5?.no_call_valid===true,
   linked:!!v.link_mode&&['Linked','ValidationBlocked','PendingCertification','CertifiedReleased'].includes(v.state),linkMode:v.link_mode as 'MANUAL_REVIEWED'|'AUTO_UNIQUE'|null,openProposal:x.open_proposal,cross,
   attemptState:a.attempt_state,attemptIsLatest:latestAttempt,hold:a.hold,qc1Accepted:y.qc1_accepted,nonMeasuredQc1:y.non_measured,batchCancelled:y.batch_cancelled||a.attempt_state==='BatchCancelled',activeSlot:a.slot_batch_id!==null,
   upstreamCurrent:evidence.current,upstreamReason:evidence.reason,analysisAccepted:evidence.analysisAccepted,finalQcAccepted:evidence.finalQcAccepted,
@@ -414,6 +414,17 @@ export async function recordQc5(db:Queryable,user:Staff,input:unknown){
  if(v.row_version!==d.expectedRowVersion)throw new LabError('VERSION_CONFLICT',409);
  if(!['Linked','ValidationBlocked','PendingCertification'].includes(v.state))throw new LabError('QC5_LINKED_RESULT_REQUIRED',409);
  if(v.parsed.abnormal&&!d.abnormalAcknowledged)throw new LabError('ABNORMAL_ACK_REQUIRED',422);
+ if(isNoCallReport(v.parsed)){
+  const event=(await db.query<{id:string|null}>('SELECT task1_no_call_source($1) id',[v.attempt_id])).rows[0]?.id;
+  if(!event)throw new LabError('NO_CALL_CURRENT_FAILED_ATTEMPT_AND_REVIEW_REQUIRED',409);
+  const reviewed=(await db.query<{id:string}>('SELECT id FROM result_review WHERE version_id=$1 ORDER BY created_at DESC LIMIT 1',[v.id])).rows[0];if(!reviewed)throw new LabError('REVIEW_NOT_RECORDED',409);
+  const sourceHash=createHash('sha256').update(event+':'+v.sha256).digest('hex');
+  const q=(await db.query<{id:string}>(`INSERT INTO result_qc5_review(version_id,attempt_id,report_sha256,source_sha256,review_id,criteria_reference,reason,reviewer_id,no_call_event_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,[v.id,v.attempt_id,v.sha256,sourceHash,reviewed.id,d.criteriaReference,d.reason,user.id,event])).rows[0];
+  const g=(await gateFor(db,v,'VALIDATION'))!;if(!g.eligible)throw new LabError('QC5_GATE_FAILED',409,{failed:g.failed,pending:g.pending});
+  v=await validate(db,user,v);
+  await audit(db,user,'RESULT_QC5_ACCEPTED','result_qc5_review',q.id,{outcome:'NO_CALL',ruleVersion:'OWNER_TASK1_EXTERNAL_NO_CALL_20261024'});
+  return {id:q.id,outcome:v.state};
+ }
  let upstream=await attemptEvidence(db,v.attempt_id!);
  if(!upstream.current||!upstream.analysisAccepted||upstream.benchReviewId){
   await reviewBenchForResult(db,user,v.attempt_id!,{revision:d.benchRevision,measurementsReviewed:d.benchMeasurementsReviewed,reason:d.reason});

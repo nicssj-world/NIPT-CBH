@@ -10,6 +10,15 @@ import {p4Error,noStore} from "./p4";
 export {noStore};
 const MESSAGES:Record<string,string>={
  STORAGE_POSITION_OCCUPIED:"ตำแหน่งนี้มีตัวอย่างอยู่แล้ว หรือตัวอย่างนี้จัดเก็บแล้ว กรุณาค้นหาและเลือกตำแหน่งว่าง",
+ STORAGE_BOX_TYPE_MISMATCH:"ประเภทกล่องไม่ตรงกับชนิดตัวอย่าง",
+ STORAGE_PLAN_STALE:"ข้อมูลหรือช่องว่างเปลี่ยนหลังแสดง Preview กรุณาสร้าง Preview ใหม่",
+ STORAGE_LEGACY_UNCLASSIFIED:"รายการจัดเก็บเดิมยังไม่ระบุประเภท จึงย้ายเข้ากล่องประเภทใหม่ไม่ได้",
+ STORAGE_SAMPLE_NOT_RECEIVED:"ตัวอย่างยังไม่มีข้อมูลรับเข้าห้องปฏิบัติการและ LN Halos ที่ยืนยันแล้ว",
+ STORAGE_MOVE_STALE:"ตำแหน่งต้นทางเปลี่ยนแล้ว กรุณาค้นหาและลองใหม่",
+ STORAGE_SELECTION_TYPE_INVALID:"การเลือกตัวอย่างต้องเป็นประเภทกล่องเดียวกัน",
+ STORAGE_SAMPLE_NOT_WAITING:"ไม่พบตัวอย่างที่เลือกในรายการรอจัดเก็บ",
+ STORAGE_BOX_NOT_FOUND:"ไม่พบกล่องจัดเก็บ",
+ STORAGE_ACTOR_INVALID:"บัญชีผู้ใช้ไม่พร้อมบันทึกรายการจัดเก็บ",
  MANUAL_PDF_IDENTITY_REQUIRED:"ยังทบทวน Manual ไม่ได้: ตรวจ LN, HN, ชื่อ และวันเกิดที่มีให้ตรงกับ Final PDF และแก้ข้อผิดพลาดในแถวก่อน ไม่ต้องสร้าง PET หรือ QC ใหม่",
  MANUAL_PDF_HASH_MISMATCH:"ไฟล์ PDF ไม่ตรงกับหลักฐานที่บันทึกไว้ กรุณาตรวจต้นฉบับก่อนทบทวน",
  FORBIDDEN:"ไม่มีสิทธิ์ทำรายการนี้",NOT_FOUND:"ไม่พบรายการ หรือไม่มีสิทธิ์เห็นรายการนี้",

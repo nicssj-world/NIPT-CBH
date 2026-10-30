@@ -110,7 +110,7 @@ export async function processInboundFile(db:Queryable,fileId:string,deps:Inbound
     FROM nipt_case c JOIN specimen_round r ON r.id=c.current_round_id JOIN redraw_request d ON d.id=r.redraw_request_id JOIN specimen_round_current s ON s.id=d.source_round_id
     WHERE c.id=$1 AND r.case_ln_id=$2 AND r.state='Expected' AND r.received_at IS NULL AND d.state='Requested' FOR UPDATE OF r`,[target.case_id,target.case_ln_id])).rows[0];
    // New receipt time, same immutable patient identity and an explicitly requested current round are all required.
-   if(round?.round_number===2 && diff.order.includes('receivedAt') && new Date(pet.receivedAt)>round.previous_received_at){
+   if(round && round.round_number>=2 && diff.order.includes('receivedAt') && new Date(pet.receivedAt)>round.previous_received_at){
     await db.query("UPDATE his_inbound_file SET state='Applied(Redraw)',case_id=$2,processed_at=now(),error_code=NULL WHERE id=$1",[file.id,target.case_id]);
     await db.query('INSERT INTO his_order(case_ln_id,inbound_file_id,his_received_at,round_id) VALUES($1,$2,$3,$4)',[target.case_ln_id,file.id,pet.receivedAt,round.id]);
     const received=await db.query("UPDATE specimen_round SET received_source='HIS_PET_RECEIPT',received_at=$2,state='ReceivedInHIS',collection_date=$3 WHERE id=$1 AND state='Expected' AND received_at IS NULL RETURNING id",[round.id,pet.receivedAt,pet.specimenAt.slice(0,10)]);

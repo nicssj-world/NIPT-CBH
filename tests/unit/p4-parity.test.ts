@@ -34,10 +34,10 @@ describe("Genomic-CBH identifier parity (vendored legacy oracle @44ce3f4)",()=>{
   expect(lab.printedSampleId({base,pregnancy:"Twins",attemptNumber:1,repeatLevel:null,earlierReLibraryCount:0})).toBe("26B260601005D-1");
   expect(lab.printedSampleId({base,pregnancy:"Singleton",attemptNumber:2,repeatLevel:"RE_LIBRARY",earlierReLibraryCount:0})).toBe("26B260601005-2");
  });
- it("never invents a Printed Sample ID the legacy system cannot produce (AT-IDPAR-09, OD-03 pending)",()=>{
+ it("Task1 replaces only approved repeat rule while retaining shared S1 repeat limit",()=>{
   const base="26B260601005";
   expect(lab.printedSampleId({base,pregnancy:"Singleton",attemptNumber:3,repeatLevel:"RE_LIBRARY",earlierReLibraryCount:1})).toBeNull();
-  expect(lab.printedSampleId({base,pregnancy:"Singleton",attemptNumber:2,repeatLevel:"RE_EXTRACTION",earlierReLibraryCount:0})).toBeNull();
+  expect(lab.printedSampleId({base,pregnancy:"Singleton",attemptNumber:2,repeatLevel:"RE_EXTRACTION",earlierReLibraryCount:0})).toBe(base+"-2");
  });
  it("control codes, printed control -1, PC1/NC25/Blank40, plate positions, sheets and run labels (AT-IDPAR-05/06)",()=>{
   for(const t of ["positive","negative","blank"] as const){expect(lab.formatControlCode(t,"2026-06-01")).toBe(legacy.formatControlCode(t,"2026-06-01"));expect(lab.formatControlCode(t,"bad")).toBe(legacy.formatControlCode(t,"bad"));}

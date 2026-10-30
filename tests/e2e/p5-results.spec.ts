@@ -77,7 +77,7 @@ test("P5 folder workflow: Test Path → Scan → Preview → import, then two-pe
   await expect(cert.page.getByText("ถูกบล็อกโดย Gate").first()).toBeVisible();
   const gate=cert.page.getByRole("heading",{name:/Final Result Release Gate/});await expect(gate).toBeVisible();
   await expect(cert.page.locator(".p5-gates")).toContainText("ยังไม่ใช่ FinalQcAccepted — รอ QC4/QC5 จาก P4b");
-  await cert.page.getByLabel("ตรวจแล้วว่าค่าทุกค่าตรงกับ PDF ต้นฉบับ").check();await cert.page.getByRole("button",{name:"บันทึกการตรวจทาน"}).click();await expect(cert.page.getByRole("status")).toContainText("บันทึกการตรวจทานแล้ว");
+  await cert.page.getByLabel("ตรวจแล้วว่าค่าทุกค่าตรงกับ PDF ต้นฉบับ").check();await cert.page.getByRole("button",{name:"บันทึกการตรวจทาน"}).click();await expect(cert.page.locator('[role="status"]:not([popover])').filter({hasText:'บันทึกการตรวจทานแล้ว'})).toBeVisible();
   await cert.page.getByRole("button",{name:"รับรองและส่งผล"}).click();
   await expect(cert.page.getByText("รับรองไม่ได้")).toBeVisible();await expect(cert.page.getByText(/RG-07/).first()).toBeVisible();
   await axe(cert.page);

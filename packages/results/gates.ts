@@ -8,7 +8,7 @@ export type RgCode='RG-01'|'RG-02'|'RG-03'|'RG-04'|'RG-05'|'RG-06'|'RG-07'|'RG-0
 export type RnCode='RN-01'|'RN-02'|'RN-03'|'RN-04'|'RN-05'|'RN-06'|'RN-07';
 export type Governance='OD-04'|'OD-05'|'OD-07'|'OD-08'|'OD-09'|'OD-16';
 export type GatePredicate={code:RgCode|RnCode;status:Tri;reason:string;governance?:Governance;dependency?:'P4b'};
-export const RG_RULE_VERSION='P7-RG-CLOSED-CLINICAL-v3',RN_RULE_VERSION='P5-RN-SYNTHETIC-v1';
+export const RG_RULE_VERSION='TASK1-OWNER-NO-CALL-20261024',RN_RULE_VERSION='P5-RN-SYNTHETIC-v1';
 export type Purpose='VALIDATION'|'CERTIFY_ATTEMPT';
 
 export type CrossCheck={hn:Cmp;dob:Cmp;pregnancy:Cmp;collectionDate:Cmp;gestationalAge:Cmp;labNumber:Cmp};
@@ -23,6 +23,7 @@ export type ResultFacts={
  versionState:string;latestInSeries:boolean;activeReleaseInSeries:boolean;reviewedCurrent:boolean;
  certifierRoleActive:boolean;
  operationalReviewed?:boolean;
+ noCall?:boolean;noCallReviewed?:boolean;
 };
 export type NoticeFacts={
  templateApproved:boolean;linked:boolean;openProposal:boolean;cross:CrossCheck;redrawForRound:boolean;redrawRequestedAt:Date|null;importedAt:Date;
@@ -42,16 +43,19 @@ const crossPredicate=(code:'RG-04'|'RN-04',c:CrossCheck,kind:keyof typeof LINK_K
 
 export function resultPredicates(f:ResultFacts,purpose:Purpose):GatePredicate[]{
  const out:GatePredicate[]=[];
+ // An external No Call reports a confirmed failure, never successful analysis/QC.
+ // This evidence is bound to the exact PDF, review and selected current failed attempt in DB.
+ const noCall=f.noCall===true&&f.noCallReviewed===true&&f.attemptState==='QcFailed';
  out.push(f.templateApproved?p('RG-01','PASS','TEMPLATE_APPROVED'):p('RG-01','PENDING','TEMPLATE_AND_PIC_NOT_APPROVED',{governance:'OD-07'}));
- out.push(f.missing.length?p('RG-02','FAIL',`UNREADABLE_${f.missing.map(x=>x.toUpperCase()).join('_')}`):f.templateKind==='SINGLETON'&&f.pdfQc!=='PASS'?p('RG-02','FAIL','PDF_QC_NOT_PASS'):p('RG-02','PASS','REQUIRED_VALUES_READABLE'));
+ out.push(f.missing.length?p('RG-02','FAIL',`UNREADABLE_${f.missing.map(x=>x.toUpperCase()).join('_')}`):f.templateKind==='SINGLETON'&&f.pdfQc!=='PASS'&&!noCall?p('RG-02','FAIL','PDF_QC_NOT_PASS'):p('RG-02','PASS',noCall?'EXTERNAL_NO_CALL_READABLE':'REQUIRED_VALUES_READABLE'));
  out.push(!f.linked?p('RG-03','FAIL','NOT_LINKED'):f.openProposal?p('RG-03','FAIL','LINK_PROPOSAL_OPEN'):p('RG-03','PASS',`LINKED_${f.linkMode}`));
  out.push(crossPredicate('RG-04',f.cross,'RESULT',0));
  out.push(!f.isCurrentRound?p('RG-05','FAIL','NOT_CURRENT_ROUND'):f.roundState==='RedrawRequested'?p('RG-05','FAIL','REDRAW_REQUESTED'):f.openRepeat?p('RG-05','FAIL','REPEAT_ORDER_OPEN')
   :!f.attemptIsLatest||['Superseded','BatchCancelled','Stopped','Cancelled'].includes(f.attemptState??'')?p('RG-05','FAIL',`ATTEMPT_NOT_CURRENT_${String(f.attemptState).toUpperCase()}`):p('RG-05','PASS','CURRENT_ROUND_CURRENT_ATTEMPT'));
- out.push(f.batchCancelled?p('RG-06','FAIL','BATCH_CANCELLED'):f.upstreamReason?p('RG-06','FAIL',f.upstreamReason,{dependency:'P4b'}):!['AnalysisComplete','FinalQcAccepted','Final'].includes(f.attemptState??'')?p('RG-06','FAIL','ANALYSIS_COMPLETION_NOT_RECORDED',{dependency:'P4b'})
+ out.push(f.batchCancelled?p('RG-06','FAIL','BATCH_CANCELLED'):f.noCall?(noCall?p('RG-06','PASS','EXTERNAL_NO_CALL_CONFIRMED_FAILURE'):p('RG-06','FAIL','NO_CALL_CURRENT_FAILED_ATTEMPT_AND_REVIEW_REQUIRED')):f.upstreamReason?p('RG-06','FAIL',f.upstreamReason,{dependency:'P4b'}):!['AnalysisComplete','FinalQcAccepted','Final'].includes(f.attemptState??'')?p('RG-06','FAIL','ANALYSIS_COMPLETION_NOT_RECORDED',{dependency:'P4b'})
   :!f.activeSlot?p('RG-06','FAIL','NO_ACTIVE_SLOT'):!f.upstreamCurrent?p('RG-06','FAIL','UPSTREAM_EVIDENCE_MISSING',{dependency:'P4b'}):!f.analysisAccepted?p('RG-06','FAIL','CLINICAL_ANALYSIS_ADAPTER_PENDING',{dependency:'P4b'}):p('RG-06','PASS','ANALYSIS_COMPLETE'));
  // RG-07 (v6.2, AT-QC-EARLY-02): only FinalQcAccepted counts; QC1 Accepted alone is never read as "all QC passed".
- out.push(f.hold?p('RG-07','FAIL','QC_HOLD_OPEN'):f.nonMeasuredQc1?p('RG-07','FAIL','QC1_SLOT_NOT_MEASURED'):f.upstreamReason?p('RG-07','FAIL',f.upstreamReason,{dependency:'P4b'}):f.attemptState==='FinalQcAccepted'?(!f.upstreamCurrent?p('RG-07','FAIL','UPSTREAM_EVIDENCE_MISSING',{dependency:'P4b'}):!f.finalQcAccepted?p('RG-07','FAIL','CLINICAL_FINAL_QC_ADAPTER_PENDING',{dependency:'P4b'}):p('RG-07','PASS','FINAL_QC_ACCEPTED'))
+ out.push(f.hold?p('RG-07','FAIL','QC_HOLD_OPEN'):noCall?p('RG-07','PASS','EXTERNAL_NO_CALL_REVIEWED_QC_REMAINS_FAILED'):f.nonMeasuredQc1?p('RG-07','FAIL','QC1_SLOT_NOT_MEASURED'):f.upstreamReason?p('RG-07','FAIL',f.upstreamReason,{dependency:'P4b'}):f.attemptState==='FinalQcAccepted'?(!f.upstreamCurrent?p('RG-07','FAIL','UPSTREAM_EVIDENCE_MISSING',{dependency:'P4b'}):!f.finalQcAccepted?p('RG-07','FAIL','CLINICAL_FINAL_QC_ADAPTER_PENDING',{dependency:'P4b'}):p('RG-07','PASS','FINAL_QC_ACCEPTED'))
   :f.qc1Accepted?p('RG-07','FAIL','QC1_ONLY_NOT_FINAL_QC_ACCEPTED',{dependency:'P4b'}):p('RG-07','FAIL','FINAL_QC_NOT_ACCEPTED',{dependency:'P4b'}));
  out.push(f.openIdentityIssues>0?p('RG-08','FAIL','IDENTITY_ISSUE_OPEN'):p('RG-08','PASS','NO_IDENTITY_CONFLICT'));
  out.push(['Pass','AcknowledgedConditions'].includes(f.clinicalState??'')?p('RG-09','PASS','CLINICAL_GATE_PASS'):f.clinicalState==='PendingClinicalReview'?p('RG-09','PENDING','CLINICAL_RULES_NOT_APPROVED',{governance:'OD-08'}):p('RG-09','FAIL',f.clinicalState?`CLINICAL_${f.clinicalState.replace(/[^A-Za-z]/g,'_').toUpperCase()}`:'CLINICAL_NOT_ASSESSED'));

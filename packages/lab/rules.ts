@@ -89,19 +89,19 @@ export function stripLabels(runLabel: string, sheet: SheetNumber) {
 }
 
 /**
- * Printed Sample ID per analytical attempt. Only the legacy-supported paths are generated:
- * attempt 1 of a specimen round = Normal (`-1`), the first Re-Library repeat = `-2`.
- * Anything else (Re-extraction, a second Re-Library, …) has no Owner-approved format (OD-03 / AT-IDPAR-09):
- * return null so the attempt cannot be finalized with an invented identifier.
+ * Task 1 Owner lock 2026-10-23. Analytical IDs are deliberately nonunique;
+ * persisted case/round/attempt lineage, never this display text, identifies work.
  */
 export type RepeatLevel = "RE_LIBRARY" | "RE_EXTRACTION";
-export function printedSampleId(input: { base: string; pregnancy: "Singleton" | "Twins" | "Unknown" | null; attemptNumber: number; repeatLevel: RepeatLevel | null; earlierReLibraryCount: number; roundNumber?:number; receivedSource?:string|null }) {
-  const code = effectiveLnHalos(input.base, input.pregnancy);
-  if(input.receivedSource==='HIS_PET_RECEIPT'&&(input.roundNumber??1)>1){
-    if(input.roundNumber!==2||input.attemptNumber!==1||input.repeatLevel!==null)return null;
-    return specimenDisplayCode(input.base,input.pregnancy,true); // same text as before: BASE[D]R
-  }
-  if (input.attemptNumber === 1 && input.repeatLevel === null) return formatRunSampleId(code, "Normal");
-  if (input.attemptNumber > 1 && input.repeatLevel === "RE_LIBRARY" && input.earlierReLibraryCount === 0) return formatRunSampleId(code, "Re-Library");
+export function printedSampleId(input: { base: string; pregnancy: "Singleton" | "Twins" | "Unknown" | null; attemptNumber: number; repeatLevel: RepeatLevel | null; earlierReLibraryCount: number; roundNumber?:number; receivedSource?:string|null; overallOrdinal?:number }) {
+  const round=input.roundNumber??1;
+  if(!Number.isInteger(round)||round<1||!Number.isInteger(input.attemptNumber)||input.attemptNumber<1)return null;
+  if(round>1&&input.receivedSource!=='HIS_PET_RECEIPT')return null;
+  const code=specimenDisplayCode(input.base,input.pregnancy,round>1);
+  const ordinal=input.overallOrdinal??(round===1?input.attemptNumber:undefined);
+  if(ordinal!==undefined&&(!Number.isInteger(ordinal)||ordinal<1))return null;
+  if(ordinal!==undefined&&ordinal>=5)return `${specimenDisplayCode(input.base,input.pregnancy,true)}-1`;
+  if(input.attemptNumber===1&&input.repeatLevel===null)return `${code}-1`;
+  if((input.attemptNumber===2||round>1&&input.attemptNumber>2)&&(input.repeatLevel==='RE_LIBRARY'||input.repeatLevel==='RE_EXTRACTION'))return `${code}-2`;
   return null;
 }

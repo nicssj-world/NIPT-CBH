@@ -50,6 +50,17 @@ it('LAB-13 bench persists per-slot QC and 9 standards, uses the saved revision f
   const members=initial.slots.map(s=>({slot:s.slot,pooled:['PC','NC','PATIENT'].includes(s.kind)}));
   const actual=await tx(f.db,db=>recordActualPooling(db,u.lab,{batchId:id,revision:2,members,note:'LOCAL TEST actual physical transfer transcription'},deps));
   expect(actual.current).toBe(true);
+  // Task1: six post-lock metadata fields rebind printing only, preserving actual pooling, revision and frozen mapping.
+  const frozenBefore=(await f.db.query('SELECT id,content_hash,payload FROM lab_placement_snapshot WHERE batch_id=$1 ORDER BY sheet_id',[id])).rows;
+  const qcBefore=(await workbookWorkspace(f.db,u.lab,id,deps)).draft;
+  await tx(f.db,async db=>updateSheetPlan(db,u.lab,{batchId:id,expectedVersion:await version(),sheetNumber:1,plannedWorkDate:'2026-10-21',plannedOperator:'SYNTHETIC UPDATED OPERATOR',plannedExtractionLot:'EX-UPDATED',plannedExtractionExpiry:'2027-01-01',plannedLibraryLot:'LIB-UPDATED',plannedLibraryExpiry:'2027-02-01'}));
+  const metadataWorkspace=await tx(f.db,db=>workbookWorkspace(db,u.lab,id,deps));
+  expect(metadataWorkspace.values['task.1.operator']).toBe('SYNTHETIC UPDATED OPERATOR');expect(metadataWorkspace.values['task.1.date']).toBe('21/10/2569');
+  expect(metadataWorkspace.sourceStale).toBe(false);expect(metadataWorkspace.draft).toEqual(qcBefore);Object.assign(values,metadataWorkspace.automaticValues);
+  expect((await tx(f.db,db=>benchPooling(db,u.lab,id,deps))).sourceSha256).toBe(pool.sourceSha256);
+  expect((await tx(f.db,db=>benchWorkspace(db,u.lab,id,deps))).actualPooling).toMatchObject({id:actual.id,current:true});
+  expect((await f.db.query('SELECT id,content_hash,payload FROM lab_placement_snapshot WHERE batch_id=$1 ORDER BY sheet_id',[id])).rows).toEqual(frozenBefore);
+
   const key=crypto.randomUUID(),pair=await tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:2,idempotencyKey:key},deps));
   expect(pair.files).toHaveLength(2);expect(pair.halosPositions).toEqual([1,2,17,25,33]);
   const niftyXml=readArchive(await f.store.get(pair.files[0].sha256)).get('xl/worksheets/sheet1.xml')!.toString();
@@ -80,7 +91,7 @@ it('LAB-13 bench persists per-slot QC and 9 standards, uses the saved revision f
   await tx(f.db,db=>recordActualPooling(db,u.lab,{batchId:id,revision:4,members:verified,note:'LOCAL TEST explicit measured exception transcribed'},deps));
   expect((await tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:4,idempotencyKey:crypto.randomUUID()},deps))).halosPositions).toContain(2);
   expect((await workbookWorkspace(f.db,u.lab,id,deps)).draft?.revision).toBe(4);
-  await expect(tx(f.db,async db=>amendSheet(db,checker,{batchId:id,expectedVersion:await version(),sheetNumber:1,reason:'LOCAL TEST cannot rearrange after real QC entry'}))).rejects.toThrow('AMEND_ONLY_BEFORE_EXECUTION');
+  await expect(tx(f.db,async db=>amendSheet(db,checker,{batchId:id,expectedVersion:await version(),sheetNumber:1,reason:'LOCAL TEST cannot rearrange after real QC entry'}))).rejects.toThrow('PLACEMENT_LOCKED');
   await expect(tx(f.db,async db=>cancelBatch(db,checker,{batchId:id,expectedVersion:await version(),reason:'LOCAL TEST cannot cancel after real QC entry'}))).rejects.toThrow('CANCEL_ONLY_BEFORE_EXECUTION');
   await expect(f.db.query('DELETE FROM lab_bench_export')).rejects.toThrow();
  }finally{vi.unstubAllEnvs();await f.close();}

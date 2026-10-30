@@ -3,7 +3,7 @@
 // unapproved until OD-07 verifies them against the hospital's synthetic PDFs. The twin layout has no NIPTY evidence (SPEC: no twin
 // case seen); its anchors are a proposed synthetic contract. Every value keeps its raw text and method; unreadable is UNREADABLE —
 // never Normal, Low Risk, Not Detected or 0.
-export const PARSER_VERSION='P5-PARSER-1.0.1';
+export const PARSER_VERSION='P5-PARSER-1.0.2';
 export const TEMPLATE_VERSIONS={SINGLETON:'SYNTHETIC-BGI-SINGLETON-v1-UNAPPROVED-OD07',TWIN:'SYNTHETIC-TWIN-PROPOSED-v1-UNAPPROVED-OD07',REDRAW_NOTICE:'SYNTHETIC-REDRAW-NOTICE-v1-UNAPPROVED-OD07',UNKNOWN:'UNKNOWN'} as const;
 export type TemplateKind=keyof typeof TEMPLATE_VERSIONS;
 export type Method='ANCHORED'|'FALLBACK'|'UNREADABLE'|'NOT_APPLICABLE';
@@ -11,7 +11,7 @@ export type Field<T=string>={value:T|null;raw:string|null;method:Method};
 export type Parsed={templateKind:TemplateKind;templateVersion:string;parserVersion:string;needsManualReview:boolean;abnormal:boolean;
  noticeCategory:'GREY_AREA'|'LOW_FETAL_FRACTION'|'RESAMPLING'|'MULTIPLE_ANEUPLOIDIES'|'OTHER'|null;
  identifiers:{labNumber:Field;hn:Field;patientName:Field;dob:Field;collectionDate:Field;receivedDate:Field;reportedDate:Field;gestationalAgeDays:Field<number>};
- results:{t21:Field;t18:Field;t13:Field;fetalSex:Field;xo:Field;xxx:Field;xxy:Field;xyy:Field;yChromosome:Field;fetalFraction:Field<number>;qc:Field}};
+ results:{result?:Field;t21:Field;t18:Field;t13:Field;fetalSex:Field;xo:Field;xxx:Field;xxy:Field;xyy:Field;yChromosome:Field;fetalFraction:Field<number>;qc:Field}};
 
 const RISK='(Low Risk|High Risk)',DETECT='(Not Detected|Detected)';
 const RE={
@@ -21,6 +21,8 @@ const RE={
  dob:/DOB:\s*(\d{1,2}-[A-Za-z]{3}-\d{4})/,collection:/Sample Collection Date:\s*([\w-]+)/,received:/Sample Received Date:\s*([\w-]+)/,reported:/Reported Date:\s*([\w-]+)/,
  trisomy:new RegExp(`TRISOMY\\s*21\\s*TRISOMY\\s*18\\s*TRISOMY\\s*13\\s*Fetal\\s*Gender[\\s\\S]{0,80}?${RISK}\\s+${RISK}\\s+${RISK}(?:\\s+(Male|Female))?`),
  twin:new RegExp(`TRISOMY\\s*21\\s*TRISOMY\\s*18\\s*TRISOMY\\s*13\\s*Y\\s*CHROMOSOME[\\s\\S]{0,80}?${RISK}\\s+${RISK}\\s+${RISK}\\s+${DETECT}`,'i'),
+ singletonHeader:/TRISOMY\s*21\s*TRISOMY\s*18\s*TRISOMY\s*13\s*Fetal\s*Gender/i,
+ twinHeader:/TRISOMY\s*21\s*TRISOMY\s*18\s*TRISOMY\s*13\s*Y\s*CHROMOSOME/i,
  twinLabel:/\bTWIN(?:S| PREGNANCY)?\b/i,
  sca:new RegExp(`SEX CHROMOSOME ANEUPLOIDIES[\\s\\S]{0,80}?${DETECT}\\s+${DETECT}\\s+${DETECT}\\s+${DETECT}\\s+([\\d.]+)`),
  scaFallback:/Not Detected\s+Not Detected\s+Not Detected\s+Not Detected\s+([\d.]+)/,
@@ -53,7 +55,12 @@ export function parseReport(text:string,filename=''):Parsed{
  const gaM=RE.ga.exec(text);const ga:Field<number>=gaM?{value:Number(gaM[1])*7+Number(gaM[2]),raw:gaM[0],method:'ANCHORED'}:none();
  const identifiers={labNumber:ln,hn,patientName:field(RE.name.exec(text)),dob:dateField(RE.dob.exec(text)),collectionDate:dateField(RE.collection.exec(text)),
   receivedDate:dateField(RE.received.exec(text)),reportedDate:dateField(RE.reported.exec(text)),gestationalAgeDays:ga};
- const results:Parsed['results']={t21:none(),t18:none(),t13:none(),fetalSex:none(),xo:none(),xxx:none(),xxy:none(),xyy:none(),yChromosome:none('NOT_APPLICABLE'),fetalFraction:none(),qc:field(RE.qc.exec(text))};
+ // Owner Task1: the same normal external PDF may explicitly report Result = No Call.
+ // Retain the complete anchored result text; duplicate lines are unresolved, never picked silently.
+ const resultLines=[...text.matchAll(/^[ \t]*Result[ \t]*[:=][ \t]*([^\r\n]+?)[ \t]*$/gmi)];
+ const reportResult:Field=resultLines.length===1?field(resultLines[0]):resultLines.length>1?{value:null,raw:resultLines.map(m=>m[0]).join('\n'),method:'UNREADABLE'}:none();
+ const noCall=reportResult.method==='ANCHORED'&&reportResult.value==='No Call';
+ const results:Parsed['results']={result:reportResult,t21:none(),t18:none(),t13:none(),fetalSex:none(),xo:none(),xxx:none(),xxy:none(),xyy:none(),yChromosome:none('NOT_APPLICABLE'),fetalFraction:none(),qc:field(RE.qc.exec(text))};
  let review=false,kind:TemplateKind;
  const twin=RE.twin.exec(text),single=RE.trisomy.exec(text);
  if(twin&&RE.twinLabel.test(text)){
@@ -70,6 +77,12 @@ export function parseReport(text:string,filename=''):Parsed{
   else{const fb=RE.scaFallback.exec(text);if(fb){review=true;for(const k of ['xo','xxx','xxy','xyy'] as const)results[k]={value:'Not Detected',raw:fb[0],method:'FALLBACK'};results.fetalFraction={value:Number(fb[1]),raw:fb[0],method:'FALLBACK'};}}
   kind=results.t21.value&&results.t18.value&&results.t13.value?'SINGLETON':'UNKNOWN';
  }
+ // No new template: only existing normal report table headers can establish pregnancy layout.
+ // The explicit No Call value never supplies risk, fetal fraction or QC measurements.
+ if(noCall&&kind==='UNKNOWN'){
+  if(RE.twinHeader.test(text)&&RE.twinLabel.test(text))kind='TWIN';
+  else if(RE.singletonHeader.test(text))kind='SINGLETON';
+ }
  if(kind==='TWIN'){const ff=RE.ff.exec(text);if(ff)results.fetalFraction={value:Number(ff[1]),raw:ff[0],method:'ANCHORED'};}
  const notice=kind==='UNKNOWN'?classifyNotice(text,filename):null;
  if(notice)kind='REDRAW_NOTICE';
@@ -78,12 +91,18 @@ export function parseReport(text:string,filename=''):Parsed{
  if(results.fetalFraction.value!==null&&!(results.fetalFraction.value>0&&results.fetalFraction.value<100))results.fetalFraction={value:null,raw:results.fetalFraction.raw,method:'UNREADABLE'};
  const missing=missingRequired({templateKind:kind,results} as Parsed);
  const abnormal=[results.t21,results.t18,results.t13].some(f=>f.value==='High Risk')||(kind==='SINGLETON'&&[results.xo,results.xxx,results.xxy,results.xyy].some(f=>f.value==='Detected'));
- return {templateKind:kind,templateVersion:TEMPLATE_VERSIONS[kind],parserVersion:PARSER_VERSION,needsManualReview:review||missing.length>0||identifiers.hn.method!=='ANCHORED',abnormal,noticeCategory:notice,identifiers,results};
+ return {templateKind:kind,templateVersion:TEMPLATE_VERSIONS[kind],parserVersion:PARSER_VERSION,needsManualReview:noCall||review||missing.length>0||identifiers.hn.method!=='ANCHORED',abnormal,noticeCategory:notice,identifiers,results};
 }
 
 /** §11.4 required values per report type; NOT_APPLICABLE is never "missing" and UNREADABLE always is. */
 export const REQUIRED:Record<TemplateKind,readonly (keyof Parsed['results'])[]>={SINGLETON:['t21','t18','t13','xo','xxx','xxy','xyy','fetalFraction','qc'],TWIN:['t21','t18','t13','yChromosome'],REDRAW_NOTICE:[],UNKNOWN:[]};
 export const VOCABULARY:Partial<Record<keyof Parsed['results'],readonly string[]>>={t21:['Low Risk','High Risk'],t18:['Low Risk','High Risk'],t13:['Low Risk','High Risk'],xo:['Not Detected','Detected'],xxx:['Not Detected','Detected'],xxy:['Not Detected','Detected'],xyy:['Not Detected','Detected'],yChromosome:['Not Detected','Detected'],fetalSex:['Male','Female'],qc:['PASS','FAIL']};
+export function isNoCallReport(p:Pick<Parsed,'templateKind'|'results'>){
+ return (p.templateKind==='SINGLETON'||p.templateKind==='TWIN')&&p.results.result?.method==='ANCHORED'&&p.results.result.value==='No Call';
+}
 export function missingRequired(p:Pick<Parsed,'templateKind'|'results'>){
- return REQUIRED[p.templateKind].filter(k=>{const f=p.results[k];if(f.value===null)return true;const v=VOCABULARY[k];return v!==undefined&&!v.includes(String(f.value));});
+ // No Call means the analytical findings are unreportable; require actual external outcome and QC, never fake findings.
+ const ambiguous=p.results.result?.method==='UNREADABLE'&&p.results.result.raw!==null;
+ const required:readonly (keyof Parsed['results'])[]=isNoCallReport(p)?['result','qc']:ambiguous?['result',...REQUIRED[p.templateKind]]:REQUIRED[p.templateKind];
+ return required.filter(k=>{const f=p.results[k];if(!f)return true;if(f.value===null)return true;const v=VOCABULARY[k];return v!==undefined&&!v.includes(String(f.value));});
 }

@@ -1,3 +1,4 @@
+import {authorize} from '../security/policy';
 import {readFile} from 'node:fs/promises';
 import {z} from 'zod';
 import type {Queryable} from '../db/connection';
@@ -26,9 +27,9 @@ export async function benchSource(db:Queryable,user:Staff,batchId:string,deps:Wo
 export async function benchWorkspace(db:Queryable,user:Staff,batchId:string,deps:WorkbookDeps){
  const s=await benchSource(db,user,uuid.parse(batchId),deps);
  const actualPooling=(await db.query<{id:string;members:{slot:number;pooled:boolean;actualVolume?:number;reason?:string}[];note:string;current:boolean}>(`SELECT id,members,note,lab_actual_pooling_current(id) current FROM lab_actual_pooling WHERE batch_id=$1 ORDER BY recorded_at DESC,id DESC LIMIT 1`,[batchId])).rows[0]??null;
- return {batchId,runLabel:s.batch.batch.runLabel,version:s.workbook.version,revision:s.workbook.draft?.revision??0,values:s.workbook.values,automaticKeys:Object.keys(s.workbook.automaticValues),sourceStale:s.workbook.sourceStale,finalized:s.slots.length===48,
+ return {canNoCall:authorize(user,'attempt.noCall'),canRepeat:authorize(user,'repeat.order'),canRedraw:authorize(user,'redraw.order'),batchId,runLabel:s.batch.batch.runLabel,version:s.workbook.version,revision:s.workbook.draft?.revision??0,values:s.workbook.values,automaticKeys:Object.keys(s.workbook.automaticValues),sourceStale:s.workbook.sourceStale,finalized:s.slots.length===48,
   actualPooling,
-  slots:s.batch.slots.map(slot=>({slot:slot.slot,sheet:slot.sheet,kind:slot.controlLabel??(slot.assignment?'PATIENT':'EMPTY'),sampleId:slot.assignment?.printedSampleId??slot.controlCode??'',hisLn:slot.assignment?.hisLn??null,hn:slot.assignment?.hn??null,roundNumber:slot.assignment?.roundNumber??null})),
+  slots:s.batch.slots.map(slot=>({attemptId:slot.assignment?.attemptId??null,caseId:slot.assignment?.caseId??null,roundId:slot.assignment?.roundId??null,attemptState:slot.assignment?.attemptState??null,outcomeStatus:slot.assignment?.outcomeStatus??null,overallOrdinal:slot.assignment?.overallOrdinal??null,exceptional:slot.assignment?.exceptional??false,slot:slot.slot,sheet:slot.sheet,kind:slot.controlLabel??(slot.assignment?'PATIENT':'EMPTY'),sampleId:slot.assignment?.printedSampleId??slot.controlCode??'',hisLn:slot.assignment?.hisLn??null,hn:slot.assignment?.hn??null,roundNumber:slot.assignment?.roundNumber??null})),
   seqFields:s.workbook.matrix.bindings.filter(f=>f.sheet==='Seq Task-G50').map(f=>({key:f.key,type:f.dataType,label:s.workbook.matrix.cells.find(c=>c.sheet===f.sheet&&c.cell===f.cell)?.text.replaceAll('☐','').trim()||f.source})),
   exports:(await db.query<{id:string;kind:string;source_sha256:string}>('SELECT id,kind,source_sha256,file_sha256,created_at,workbook_revision_id FROM lab_bench_export WHERE batch_id=$1 ORDER BY created_at DESC',[batchId])).rows.map(e=>({...e,current:e.kind==='POOL_CSV'?e.source_sha256===qcSourceHash(s.slots,s.workbook.values)&&!s.workbook.sourceStale:null}))};
 }
@@ -62,13 +63,13 @@ export async function benchExport(db:Queryable,user:Staff,input:unknown,deps:Wor
   for(const slot of s.slots){
    if(slot.control==='blank'||!slot.control&&!slot.attemptId)continue;
    if(slot.control){rows.push({slot:slot.control==='positive'?1:25,kind:slot.control==='positive'?'PC':'NC',sampleId:slot.printedControlId!});continue;}
-   const lineage=(await db.query<{attempt_number:number;repeat_order_id:string|null;previous_seq:boolean}>(`SELECT a.attempt_number,a.repeat_order_id,EXISTS(
+   const lineage=(await db.query<{attempt_number:number;overall_ordinal:number;repeat_order_id:string|null;previous_seq:boolean}>(`SELECT a.attempt_number,a.overall_ordinal,a.repeat_order_id,EXISTS(
     SELECT 1 FROM analytical_attempt prior JOIN lab_slot_assignment p ON p.attempt_id=prior.id
     WHERE prior.round_id=a.round_id AND p.batch_id<>$2 AND (
      EXISTS(SELECT 1 FROM task_workbook_revision w WHERE w.batch_id=p.batch_id AND NULLIF(btrim(w.values->>'seq.date'),'') IS NOT NULL AND NULLIF(btrim(w.values->>'seq.operator'),'') IS NOT NULL)
      OR EXISTS(SELECT 1 FROM p4c_sequencing_attempt q JOIN p4c_dnb_attempt d ON d.id=q.dnb_id WHERE d.batch_id=p.batch_id)
     )) previous_seq FROM analytical_attempt a WHERE a.id=$1`,[slot.attemptId,d.batchId])).rows[0];
-   if(!lineage||!niftyPatientEligible({attemptNumber:lineage.attempt_number,repeatOrderId:lineage.repeat_order_id,previousSeqOnSameRound:lineage.previous_seq}))continue;
+   if(!lineage||!niftyPatientEligible({attemptNumber:lineage.attempt_number,repeatOrderId:lineage.repeat_order_id,previousSeqOnSameRound:lineage.previous_seq}))throw new LabError('VENDOR_ATTEMPT_PROVENANCE_REQUIRED',409,{slot:slot.slot});
    const source=(await db.query<{ln:string;hn:string;sha256:string;filename:string;draft:RequestDraft|null;doctor:string|null;edd:string|null;pregnancy:'Singleton'|'Twins'|null}>(`SELECT l.ln,i.hn,f.sha256,f.filename,w.draft,COALESCE(d.name,ld.name) doctor,COALESCE(w.draft#>>'{pregnancy,edd}',lr.edd::text) edd,COALESCE(w.draft#>>'{pregnancy,type}',lr.pregnancy) pregnancy
     FROM specimen_round r JOIN case_ln l ON l.id=r.case_ln_id JOIN p2_case_identity i ON i.case_id=r.case_id JOIN his_order o ON o.round_id=r.id JOIN his_inbound_file f ON f.id=o.inbound_file_id
     LEFT JOIN p2_workspace w ON w.round_id=r.id LEFT JOIN p2_doctor_version d ON d.id=(w.draft#>>'{ordering,doctorVersionId}')::uuid
@@ -76,7 +77,7 @@ export async function benchExport(db:Queryable,user:Staff,input:unknown,deps:Wor
    if(!source||!source.edd||!['Singleton','Twins'].includes(source.pregnancy??''))throw new LabError('VENDOR_REQUEST_PROVENANCE_REQUIRED',409,{slot:slot.slot});
    const pet=await readPet(deps.store,source);
    if(pet.ln!==source.ln||pet.hn!==source.hn||source.draft?.patient.syntheticName&&petDisplayName(source.draft?.patient.syntheticName)!==petDisplayName(pet.name)||source.draft?.patient.dob&&source.draft?.patient.dob!==pet.dob.slice(0,10))throw new LabError('VENDOR_IDENTITY_MISMATCH',409,{slot:slot.slot});
-   rows.push({slot:slot.slot,kind:'PATIENT',sampleId:slot.printedSampleId!,ln:pet.ln,hn:pet.hn,name:pet.name,identity:pet.identity,dob:pet.dob.slice(0,10),collectionAt:pet.specimenAt,receivedAt:pet.receivedAt,edd:source.edd,pregnancy:source.pregnancy as 'Singleton'|'Twins',doctor:source.doctor??''});
+   rows.push({attemptId:slot.attemptId!,roundId:slot.roundId!,caseId:slot.caseId!,overallOrdinal:lineage.overall_ordinal,slot:slot.slot,kind:'PATIENT',sampleId:slot.printedSampleId!,ln:pet.ln,hn:pet.hn,name:pet.name,identity:pet.identity,dob:pet.dob.slice(0,10),collectionAt:pet.specimenAt,receivedAt:pet.receivedAt,edd:source.edd,pregnancy:source.pregnancy as 'Singleton'|'Twins',doctor:source.doctor??''});
   }
   const exported=exportOwnerNifty(await readFile(template),rows);bytes=exported.bytes;mapping=exported.mapping;sourceHash=digest({revision:s.workbook.draft!.id,rows});
   await recordPhiAccess(db,user.id,s.slots.flatMap(slot=>slot.caseId?[slot.caseId]:[]),'CASE_DETAIL_VIEW');

@@ -46,7 +46,11 @@ export function verifyBindingFidelity(master:Buffer) {
     const baselineCells=cellMap(baseline.get(name)!.toString());
     const control=CONTROL_HIGHLIGHTS.find(c=>c.sheet===index+1);
     const isControl=(ref:string)=>!!control&&control.columns.split('').some(col=>ref===col+control.row);
-    const baseStyle=(style:string,ref:string)=>normalizeStyle(isControl(ref)?style.replace(/\s+applyFill="[^"]*"/g,'').replace(/\bfillId="\d+"/,'fillId="0"'):style);
+    const baseStyle=(style:string,ref:string)=>{
+      // Owner Task1 LOT/EXP output disables wrapping so native Excel actually shrinks the full value.
+      const metadata=index<3&&['B16','B17'].includes(ref)?style.replace(/\s+wrapText="[^"]*"/g,''):style;
+      return normalizeStyle(isControl(ref)?metadata.replace(/\s+applyFill="[^"]*"/g,'').replace(/\bfillId="\d+"/,'fillId="0"'):metadata);
+    };
     const merges=[...original.matchAll(/<mergeCell ref="([^"]+)"/g)].map(m=>m[1]);
     for(const b of defs) {
       const source=matrix.cells.find(c=>c.sheet===sheet&&c.cell===b.cell)!;

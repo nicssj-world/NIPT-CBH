@@ -17,6 +17,7 @@ async function access(db:Queryable,user:Staff,batchId:string,write=false) {await
 async function source(db:Queryable,batchId:string) {
   const placements=(await db.query<{id:string;revision:number;content_hash:string;payload:PlacementPayload}>(`SELECT DISTINCT ON(s.sheet_number) p.id,p.revision,p.content_hash,p.payload FROM lab_placement_snapshot p JOIN lab_task_sheet s ON s.id=p.sheet_id WHERE s.batch_id=$1 ORDER BY s.sheet_number,p.revision DESC`,[batchId])).rows;
   const observations=(await db.query<{id:string;sequence:number;sheet_number:number|null;slot_number:number|null;field_id:string;item:string;value:Record<string,unknown>;recorded_by:string}>(`SELECT o.id,o.sequence,s.sheet_number,o.slot_number,o.field_id,o.item,o.value,o.recorded_by FROM lab_observation o LEFT JOIN lab_task_sheet s ON s.id=o.sheet_id WHERE o.batch_id=$1 AND o.status<>'Superseded' ORDER BY o.sequence`,[batchId])).rows;
+  const metadata=(await db.query<{sheet_number:number;planned_work_date:string|null;planned_operator:string|null;planned_extraction_lot:string|null;planned_extraction_expiry:string|null;planned_library_lot:string|null;planned_library_expiry:string|null}>('SELECT sheet_number,planned_work_date::text,planned_operator,planned_extraction_lot,planned_extraction_expiry::text,planned_library_lot,planned_library_expiry::text FROM lab_task_sheet WHERE batch_id=$1 ORDER BY sheet_number',[batchId])).rows;
   const values:Record<string,unknown>={};
   for(const p of placements) {
     if(digest(p.payload)!==p.content_hash)throw new LabError('TASK_PLACEMENT_HASH_MISMATCH',409);
@@ -51,20 +52,25 @@ async function source(db:Queryable,batchId:string) {
   const pool=dnb?pools.find(p=>p.id===dnb.pool_snapshot_id):pools.length===1?pools[0]:undefined;
   const poolPayload=pool?.payload as {qc2?:PoolObservation[]}|undefined;
   for(const [field,key] of [['STD1','pool.standard1'],['STD2','pool.standard2'],['QC2','pool.concentration']] as const){const o=poolPayload?.qc2?.findLast(o=>o.field===field);if(o?.value.value!==undefined)values[key]=Number(o.value.value);}
-  const snapshot={placements,observations,pools,dnbs,sequencing,dnbObservations,dnbEvents};return {snapshot,sha256:digest(snapshot),values};
+  // Metadata is live, while the placement/clinical source remains the original frozen evidence.
+  // Reprinting after a metadata edit must not invalidate actual pooling or sequencing provenance.
+  for(const p of placements){
+    const n=p.payload.sheetNumber,m=metadata.find(m=>m.sheet_number===n);if(!m)throw new LabError('TASK_METADATA_SOURCE_REQUIRED',409);
+    values[`task.${n}.date`]=documentDate(m.planned_work_date??'');values[`task.${n}.operator`]=m.planned_operator??'';
+    values[`task.${n}.extractionLotExp`]=lotExpiry(m.planned_extraction_lot,m.planned_extraction_expiry);
+    values[`task.${n}.libraryLotExp`]=lotExpiry(m.planned_library_lot,m.planned_library_expiry);
+  }
+  const snapshot={placements,observations,pools,dnbs,sequencing,dnbObservations,dnbEvents};return {snapshot,sha256:digest(snapshot),values,metadata};
 }
 /** Task metadata (B4/B5/K5/B16/B17) belongs to the Lab source only: never typed in the workbook, never read from a draft. */
 const TASK_META=/^task\.\d+\.(?:date|run|operator|extractionLotExp|libraryLotExp)$/;
 export const isTaskMetaKey=(key:string)=>TASK_META.test(key);
 const withoutTaskMeta=(values:Record<string,unknown>)=>Object.fromEntries(Object.entries(values).filter(([k])=>!isTaskMetaKey(k)));
-/** Draft (or stale pre-fix revision) Task metadata that differs from the current Lab source, including keys the source does not have. */
-const staleTaskMeta=(draft:Record<string,unknown>,current:Record<string,unknown>)=>Object.keys(draft).filter(k=>isTaskMetaKey(k)&&JSON.stringify(draft[k])!==JSON.stringify(current[k]));
 async function latest(db:Queryable,batchId:string){return (await db.query<Revision>('SELECT * FROM task_workbook_revision WHERE batch_id=$1 ORDER BY revision DESC LIMIT 1',[batchId])).rows[0]??null;}
 export async function workbookWorkspace(db:Queryable,user:Staff,batchId:string,deps:WorkbookDeps) {
   const batch=await access(db,user,uuid.parse(batchId)),current=await source(db,batchId),draft=await latest(db,batchId);
   const exports=(await db.query(`SELECT e.id,e.format,e.sheet,e.file_sha256,e.manifest,e.created_by,e.created_at,r.revision FROM task_workbook_export e JOIN task_workbook_revision r ON r.id=e.revision_id WHERE r.batch_id=$1 ORDER BY e.created_at DESC`,[batchId])).rows;
-  const metadataStale=!!draft&&staleTaskMeta(draft.values,current.values).length>0;
-  return {batchId,version:batch.version,masterSha256:MASTER_SHA256,matrix:inspectTaskMaster(deps.master),draft,sourceSha256:current.sha256,sourceStale:!!draft&&(draft.source_sha256!==current.sha256||draft.master_sha256!==MASTER_SHA256||metadataStale),automaticValues:current.values,values:{...withoutTaskMeta(draft?.values??{}),...current.values},exports};
+  return {batchId,version:batch.version,masterSha256:MASTER_SHA256,matrix:inspectTaskMaster(deps.master),draft,sourceSha256:current.sha256,sourceStale:!!draft&&(draft.source_sha256!==current.sha256||draft.master_sha256!==MASTER_SHA256),automaticValues:current.values,values:{...withoutTaskMeta(draft?.values??{}),...current.values},exports};
 }
 export async function saveWorkbookDraft(db:Queryable,user:Staff,input:unknown,deps:WorkbookDeps) {
   const d=z.strictObject({batchId:uuid,expectedVersion:z.number().int().min(0),expectedRevision:z.number().int().min(0),values:z.record(z.string(),z.unknown())}).parse(input);
@@ -82,12 +88,13 @@ export async function exportWorkbook(db:Queryable,user:Staff,input:unknown,deps:
   const d=z.strictObject({batchId:uuid,revision:z.number().int().positive(),format:z.enum(['XLSX','PDF']),sheet:z.enum(SHEETS).optional()}).parse(input);
   await access(db,user,d.batchId,true);const draft=await latest(db,d.batchId);if(!draft||draft.revision!==d.revision)throw new LabError('TASK_CURRENT_DRAFT_REQUIRED',409);
   const current=await source(db,d.batchId);if(current.sha256!==draft.source_sha256||draft.master_sha256!==MASTER_SHA256)throw new LabError('TASK_SOURCE_CHANGED_REBIND_REQUIRED',409);
-  // A stale draft (e.g. saved before the source owned every metadata key) is never exported or issued; rebind first.
-  const stale=staleTaskMeta(draft.values,current.values);if(stale.length)throw new LabError('TASK_METADATA_SOURCE_MISMATCH',409,{keys:stale});
+  // The six mutable metadata fields bind at render time; frozen clinical source changes still fail above.
+  const renderValues={...withoutTaskMeta(draft.values),...current.values};
   const placementSource=draft.source_snapshot as {placements?:{payload:PlacementPayload}[]};
   const urgent40=placementSource.placements?.some(p=>p.payload.slots.some(s=>s.slot===40&&s.control===null&&s.attemptId!==null))??false;
-  const generated=generateTaskWorkbook(deps.master,draft.values,{urgent40});
-  let bytes=generated.bytes,manifest:Record<string,unknown>={masterSha256:MASTER_SHA256,sourceSha256:current.sha256,revision:d.revision,xlsxSha256:generated.sha256,formulaCount:149,calculation:'native Excel recalculation required'};
+  const exceptionalSlots=placementSource.placements?.flatMap(p=>p.payload.slots.filter(s=>(s.overallOrdinal??0)>=5).map(s=>s.slot))??[];
+  const generated=generateTaskWorkbook(deps.master,renderValues,{urgent40,exceptionalSlots});
+  let bytes=generated.bytes,manifest:Record<string,unknown>={masterSha256:MASTER_SHA256,sourceSha256:current.sha256,revision:d.revision,metadataSha256:digest(current.metadata),metadata:current.metadata,exceptionalSlots,xlsxSha256:generated.sha256,formulaCount:149,calculation:'native Excel recalculation required'};
   if(d.format==='PDF') {
     if(!d.sheet)throw new LabError('TASK_SHEET_REQUIRED',422);
     const pdfs=await deps.render(generated.bytes,[d.sheet]),pdf=pdfs.find(p=>p.sheet===d.sheet);if(!pdf)throw new LabError('TASK_NATIVE_PDF_MISSING',500);

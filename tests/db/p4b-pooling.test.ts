@@ -7,6 +7,7 @@ import {poolingFixture,POOL_SCENARIO} from '../helpers/pooling';
 import * as s from '../../packages/pooling/service';
 import * as d from '../../packages/pooling/documents';
 import * as rec from '../../packages/lab/records';
+import {updateSheetPlan} from '../../packages/lab/batch';
 import {digest} from '../../packages/pooling/calculation';
 import {f4Html,type F4Document} from '../../packages/pdf/f4';
 import type {Queryable} from '../../packages/db/connection';
@@ -27,6 +28,14 @@ it('copies immutable placement/QC1 provenance, excludes controls by explicit sce
  const p=(await db.query<s.PoolRow>('SELECT * FROM p4b_pool_attempt WHERE id=$1',[poolId])).rows[0];expect(digest(p.payload)).toBe(p.sha256);
  await expect(db.query("UPDATE p4b_pool_attempt SET reason='tampered evidence' WHERE id=$1",[poolId])).rejects.toThrow(/append-only/);
  await expect(call(s.operationalGate,{},u.certifier)).rejects.toThrow('OWNER_DECISIONS_HOLD');
+});
+it('Task1 metadata updates preserve a real legacy Pool without STOP_USE or changing its frozen provenance',async()=>{
+ const before=(await db.query('SELECT * FROM p4b_pool_attempt WHERE id=$1',[poolId])).rows[0];
+ const snapshots=(await db.query('SELECT * FROM lab_placement_snapshot WHERE batch_id=$1 ORDER BY id',[fixture.batchId])).rows;
+ await tx(db,async t=>updateSheetPlan(t,u.staff,{batchId:fixture.batchId,expectedVersion:await version(t,fixture.batchId),sheetNumber:1,plannedWorkDate:'2026-10-24',plannedOperator:'SYNTHETIC UPDATED',plannedExtractionLot:'SYN-EX-NEW',plannedExtractionExpiry:'2027-02-01',plannedLibraryLot:'SYN-LIB-NEW',plannedLibraryExpiry:'2027-03-01'}));
+ expect((await db.query('SELECT * FROM p4b_pool_attempt WHERE id=$1',[poolId])).rows[0]).toEqual(before);
+ expect((await db.query("SELECT * FROM p4b_pool_event WHERE pool_id=$1 AND event_type='STOP_USE'",[poolId])).rows).toHaveLength(0);
+ expect((await db.query('SELECT * FROM lab_placement_snapshot WHERE batch_id=$1 ORDER BY id',[fixture.batchId])).rows).toEqual(snapshots);
 });
 it('blocks unverified/QC1 Hold/QcFailed sheets and pending dispositions instead of silently accepting',async()=>{
  await tx(db,t=>rec.decideStageQc1(t,u.certifier,{attemptId:fixture.attempts[0].id,decision:'Hold',reason:'จำลอง ระงับค่า QC1'}));
