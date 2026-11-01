@@ -230,6 +230,23 @@ function Invoke-NiptValidation($Toolchain, [string]$Worktree, [ValidateSet('full
   $results
 }
 
+<# The approved clinical inputs, against the SHA-256 that the commit being deployed pins (its own master-manifest.json and form-assets.mjs).
+   Checked before any dependency install or build, so a missing or different file stops the deployment at once, by name. #>
+function Assert-NiptAssets([string]$Worktree, $EnvCfg) {
+  $master = (Get-Content -LiteralPath (Join-Path $Worktree 'packages\workbook\master-manifest.json') -Raw | ConvertFrom-Json).sha256
+  $forms = Get-Content -LiteralPath (Join-Path $Worktree 'tools\win-installer\form-assets.mjs') -Raw
+  $wanted = @(
+    @{ code = 'MASTER_WORKBOOK'; file = $EnvCfg.masterWorkbook; sha = $master },
+    @{ code = 'ANC_REQUEST_PDF'; file = $EnvCfg.ancRequestPdf; sha = [regex]::Match($forms, "\brequest\s*:\s*'([a-f0-9]{64})'").Groups[1].Value },
+    @{ code = 'ANC_CONSENT_PDF'; file = $EnvCfg.ancConsentPdf; sha = [regex]::Match($forms, "\bconsent\s*:\s*'([a-f0-9]{64})'").Groups[1].Value })
+  $problems = @(foreach ($w in $wanted) {
+      if ($w.sha -notmatch '^[a-f0-9]{64}$') { "$($w.code)_PIN_UNREADABLE"; continue }
+      if (-not (Test-Path -LiteralPath $w.file -PathType Leaf)) { "$($w.code)_MISSING: $($w.file) (pinned sha256 $($w.sha))"; continue }
+      $h = (Get-FileHash -LiteralPath $w.file -Algorithm SHA256).Hash.ToLowerInvariant()
+      if ($h -ne $w.sha) { "$($w.code)_SHA256_MISMATCH: $($w.file) is $h, pinned $($w.sha)" } else { Write-NiptLog "asset $($w.code) matches the pinned SHA-256" 'OK' } })
+  if ($problems.Count) { throw "APPROVED_ASSETS_NOT_READY: $($problems -join ' | ')" }
+}
+
 <# The signed Windows package for one environment, built by the repository's own tools\win-installer\build-package.ts. #>
 function New-NiptPackage($Toolchain, [string]$Worktree, [string]$ReleaseId, $EnvCfg, [switch]$AppOnly, [switch]$SkipBuild) {
   $out = Join-Path $Worktree ".local\p8-win\packages\$ReleaseId-$($EnvCfg.profile)"

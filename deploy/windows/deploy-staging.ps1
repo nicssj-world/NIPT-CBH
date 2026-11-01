@@ -45,6 +45,7 @@ try {
 
   $wt = Get-NiptBuildWorktree $tc $commit
   $detail.worktree = $wt
+  Assert-NiptAssets $wt $cfg
   $detail.validation = @(Invoke-NiptValidation $tc $wt $Validation)
 
   $public = Initialize-NiptSigningKey $tc $cfg

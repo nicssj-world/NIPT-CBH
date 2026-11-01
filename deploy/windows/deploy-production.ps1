@@ -50,6 +50,7 @@ try {
 
   # the Production package is built from the SAME worktree and the SAME Next build that Staging verified (no rebuild)
   $wt = Get-NiptBuildWorktree $tc $Commit
+  Assert-NiptAssets $wt $cfg
   if (-not (Test-Path -LiteralPath (Join-Path $wt '.next\BUILD_ID'))) { throw 'VERIFIED_BUILD_MISSING: the Staging build worktree no longer holds its build; redeploy the commit to Staging' }
   if ((Get-Content -LiteralPath (Join-Path $wt '.next\BUILD_ID') -Raw).Trim() -ne $verified.buildId) { throw 'VERIFIED_BUILD_REPLACED: the worktree build is not the one Staging verified; redeploy the commit to Staging' }
   $public = Initialize-NiptSigningKey $tc $cfg
