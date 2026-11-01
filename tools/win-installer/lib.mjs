@@ -12,6 +12,8 @@ export const MIN_FREE_BYTES=8*1024**3;
 export const DEFAULT_PORTS={postgres:5432,web:3000,https:443,renderer:3001};
 export const DATABASE_NAME=/^nipt_(operational|synthetic)_[a-z0-9_]{1,40}$/;
 export const INSTANCE_NAME=/^[a-z0-9][a-z0-9-]{2,40}$/;
+// must equal STAMP_FORMAT in tools/environment-boundary.mjs (the installed admin folder cannot import tools/; a test pins both)
+export const ENVIRONMENT_STAMP_FORMAT='NIPT_ENVIRONMENT_STAMP_V1';
 
 /** Semantic-version ordering, strict: x.y.z with an optional -label that sorts before the plain release. */
 export function parseVersion(text){
@@ -71,7 +73,30 @@ export function validateConfig(c){
  // Excel automation is unsupported in session 0, so a SYSTEM task can only reach Excel through the bridge running in a user session.
  need(!(c.taskMode==='system'&&(c.excelMode??'bridge')==='direct'),'CONFIG_SYSTEM_TASK_REQUIRES_EXCEL_BRIDGE');
  need(typeof c.origin==='string'&&/^https:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(c.origin)||/^https:\/\/[a-z0-9.-]+(:\d+)?$/.test(c.origin??''),'CONFIG_ORIGIN_INVALID');
+ // Dual-environment layout: absent = a single installation made before it (unchanged). Staging is always the test profile, Production never.
+ need(c.environment===undefined||['staging','production'].includes(c.environment),'CONFIG_ENVIRONMENT_INVALID');
+ if(c.environment!==undefined){
+  need(c.testEnvironmentOnly===(c.environment==='staging'),'CONFIG_ENVIRONMENT_PROFILE_MISMATCH');
+  need(Array.isArray(c.protectedRoots)&&c.protectedRoots.length>0&&c.protectedRoots.every(p=>typeof p==='string'&&path.win32.isAbsolute(p)),'CONFIG_PROTECTED_ROOTS_REQUIRED');
+ }
  return c;
+}
+
+/** A root stamped by a dual-environment install must still be configured as that environment: removing `environment` from the
+ *  configuration must never silently turn Staging back into an unrestricted legacy installation. Returns null when consistent. */
+export function environmentStampProblem(stampText,c){
+ if(stampText===null)return c.environment===undefined?null:'ENVIRONMENT_STAMP_MISSING';
+ let s;try{s=JSON.parse(stampText);}catch{return 'ENVIRONMENT_STAMP_INVALID';}
+ if(s?.format!==ENVIRONMENT_STAMP_FORMAT)return 'ENVIRONMENT_STAMP_INVALID';
+ return s.environment===c.environment?null:'ENVIRONMENT_STAMP_CONFIG_MISMATCH';
+}
+
+/** Environment the supervisor and the admin tools give every application process of a dual-environment installation (tools/environment-boundary.mjs). */
+export function environmentVariables(c,root){
+ if(c.environment===undefined)return {};
+ return {NIPT_ENVIRONMENT:c.environment,NIPT_ENVIRONMENT_ROOT:path.resolve(root),NIPT_PROTECTED_ROOTS:c.protectedRoots.join(';'),NIPT_EXPECTED_PG_PORT:String(c.ports.postgres),
+  // Staging never trusts HIS folders typed into Settings: only the policy file's grants (its own simulator folders) are usable.
+  ...(c.environment==='staging'?{NIPT_HIS_SHARE_POLICY_ENFORCE:'1'}:{})};
 }
 
 export function assertSafeRoot(root,packageDir){

@@ -4,14 +4,15 @@
 // Profile follows the signed package: `test` (six UAT accounts, test banner) or `production` (admin bootstrap, no test account, acceptance never set). Nothing here connects to a HIS, touches a hospital share, applies a Production migration or accepts clinical use.
 import {execFileSync,spawnSync} from 'node:child_process';
 import {randomBytes,randomUUID,generateKeyPairSync} from 'node:crypto';
-import {existsSync,readFileSync,writeFileSync,mkdirSync,rmSync,cpSync,readdirSync,copyFileSync,appendFileSync,statSync} from 'node:fs';
+import {existsSync,readFileSync,writeFileSync,mkdirSync,rmSync,cpSync,readdirSync,copyFileSync,appendFileSync,statSync,renameSync} from 'node:fs';
 import https from 'node:https';
 import path from 'node:path';
 import os from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {
  layout,validateConfig,assertSafeRoot,portFree,freeBytes,MIN_FREE_BYTES,verifyPackage,sha256File,readJson,writeJson,compareVersions,
- schemaCompatibility,canRollbackApplicationOnly,healthVerdict,classifyUpgradeHealthOutcome,recordedProcessState,parseLedgerOutput,isValidHost,isIPv4,originFor,sanEntries,sanText,normalizeLanAllow,normalizeLanProfiles,pickLanAddress
+ schemaCompatibility,canRollbackApplicationOnly,healthVerdict,classifyUpgradeHealthOutcome,recordedProcessState,parseLedgerOutput,isValidHost,isIPv4,originFor,sanEntries,sanText,normalizeLanAllow,normalizeLanProfiles,pickLanAddress,
+ environmentVariables,ENVIRONMENT_STAMP_FORMAT
 } from './lib.mjs';
 import {releaseFormEnvironment} from './form-assets.mjs';
 
@@ -164,6 +165,12 @@ function psql(L,c,sql,{db=c.database}={}){
 }
 
 
+// Dual-environment layout: the database itself names its environment, so a Staging-only operation can verify it is not looking at Production data.
+// Database names are validated by validateConfig ([a-z0-9_]), so they are safe as SQL identifiers here.
+const DATABASE_MARKER=c=>`NIPT_ENVIRONMENT=${c.environment}`;
+function markDatabase(L,c){if(c.environment!==undefined)psql(L,c,`COMMENT ON DATABASE ${c.database} IS '${DATABASE_MARKER(c)}'`,{db:'postgres'});}
+function databaseEnvironment(L,c){try{return psql(L,c,`SELECT coalesce(shobj_description(oid,'pg_database'),'') FROM pg_database WHERE datname='${c.database}'`,{db:'postgres'});}catch{return null;}}
+
 // psql on Windows terminates lines with CRLF: parse tolerantly so a trailing CR can never turn a matching checksum into a mismatch.
 function ledgerOf(L,c,db=c.database){
  return parseLedgerOutput(psql(L,c,"SELECT name||'|'||checksum FROM schema_migration ORDER BY name",{db}));
@@ -179,6 +186,7 @@ function appEnv(L,c,st,extra={}){
   IDENTITY_LOOKUP_KEY_FILE:secretFile(L,'identity-lookup.key'),NIPT_HIS_SHARE_POLICY_FILE:path.join(L.config,'share-policy.json'),NIPT_BACKUP_POLICY_FILE:path.join(L.config,'backup-policy.json'),
   PLAYWRIGHT_BROWSERS_PATH:L.browsers,PG_BIN:L.pgBin,...(existsSync(path.join(L.runtime,'pwsh','pwsh.exe'))?{NIPT_NATIVE_POWERSHELL:path.join(L.runtime,'pwsh','pwsh.exe')}:{}),...(bridgeMode(c)?{NIPT_NATIVE_EXCEL_SPOOL:L.excelSpool}:{}),BACKUP_KEY_FILE:secretFile(L,'backup.key'),NIPT_SOURCE_SHA:st.current.revision,
   ...(master?{NIPT_TASK_MASTER_PATH:master}:{}),
+  ...environmentVariables(c,L.root),
   ...extra
  };
 }
@@ -269,6 +277,10 @@ async function install(){
  const keptConfig=retained?cfgOf(L):null;
  const ports=keptConfig?keptConfig.ports:await resolvePorts(),instance=keptConfig?keptConfig.instance:String(args.instance??'nipt-cbh');
  const lanWanted=args.lan==='yes';
+ // dual-environment layout (deploy\windows): the environment is fixed at first install and survives a reinstall on retained data
+ const environment=args.environment===undefined?keptConfig?.environment:String(args.environment);
+ if(keptConfig&&keptConfig.environment!==environment)fail('ENVIRONMENT_CHANGE_NOT_ALLOWED',{retained:keptConfig.environment??null,requested:environment??null});
+ const protectedRoots=args['protected-roots']===undefined?keptConfig?.protectedRoots:String(args['protected-roots']).split(';').map(s=>s.trim()).filter(Boolean);
  const detectedLan=lanWanted&&!args.host?detectLan():null;
  const hostChosen=String(args.host??(lanWanted?(detectedLan?.ipv4??fail('LAN_ADDRESS_NOT_FOUND')):'localhost'));
  const config=validateConfig({
@@ -277,12 +289,15 @@ async function install(){
   masterWorkbook:true,
   excelMode:args['excel-mode']==='bridge'?'bridge':args['excel-mode']==='direct'?'direct':(args['task-mode']==='system'?'bridge':'direct'),
   ...(args['excel-user']?{excelUser:String(args['excel-user'])}:{}),
+  ...(environment!==undefined?{environment,protectedRoots}:{}),
   ...(lanWanted?{httpsHost:String(args['https-host']??'0.0.0.0'),lanAllow:normalizeLanAllow(args['lan-allow']),lanProfiles:normalizeLanProfiles(args['lan-profiles'])}:(args['https-host']?{httpsHost:String(args['https-host'])}:{}))
  });
  if(config.taskMode==='system'&&!isAdmin())fail('ADMINISTRATOR_REQUIRED_FOR_SYSTEM_TASK');
  say('creating layout');
  for(const d of [L.releases,L.runtime,L.data,L.files,L.inbound,L.outbound,L.master,L.secrets,L.config,L.tls,L.logs,L.run,L.backups,L.restores,L.excelSpool,path.join(L.root,'admin'),path.join(L.outbound,'res'),path.join(L.outbound,'pdf'),path.join(L.outbound,'backup'),path.join(L.data,'integration','results')])mkdirSync(d,{recursive:true});
  secureDirectory(L.secrets);
+ // every service refuses to start unless this stamp names the same environment as its configuration (tools/environment-boundary.mjs)
+ if(config.environment!==undefined&&!retained)await writeJson(path.join(L.root,'environment.json'),{format:ENVIRONMENT_STAMP_FORMAT,environment:config.environment,instance,createdAt:new Date().toISOString()});
  say('copying runtime and release (offline)');
  cpSync(path.join(packageDir,'payload','runtime'),L.runtime,{recursive:true});
  const target=releaseDir(L,m.version);
@@ -306,6 +321,7 @@ async function install(){
   say(retained?'applying forward migrations to the retained database':'migrating the database and creating accounts');
   const r=nodeIn(L,path.join(target,'ops'),['--import','tsx','tools/win-installer/provision.ts','--root',L.root,'--phase',retained?'migrate':'install','--profile',production?'production':'test'],appEnv(L,config,state));
   if(r.status!==0)fail('PROVISION_FAILED',(r.stderr||r.stdout).slice(-2000));
+  markDatabase(L,config);
  }finally{pgStop(L);}
  if(credentials){writeFileSync(L.credentials,credentials,{mode:0o600});secureFile(L.credentials);}
  history(L,state,retained?'REINSTALLED_ON_RETAINED_DATA':'INSTALLED',{version:m.version});
@@ -471,6 +487,7 @@ async function restore(){
  // a backup older than the running release is brought forward with the release's own forward-only migrations
  const mig=nodeIn(L,ops,['--import','tsx','tools/win-installer/provision.ts','--root',L.root,'--phase','migrate'],appEnv(L,c,st));
  if(mig.status!==0)fail('RESTORE_FORWARD_MIGRATION_FAILED',(mig.stderr||mig.stdout).slice(-1500));
+ markDatabase(L,c);
  const s2=stateOf(L);history(L,s2,'RESTORE_ACTIVATED',{database,previous});
  await startServices(L,c);const health=await waitHealthy(L,c);
  return {...result,activated:true,previous,forwardMigrationsApplied:restoredCompat.pending,health:{ok:health.ok}};
@@ -589,7 +606,8 @@ async function status(){
  const services=Object.fromEntries(Object.entries(recorded.services??{}).map(([name,service])=>[name,{...service,liveProcess:processEvidence(L,service.pid,serviceMarkers[name]??'').state}]));
  let databaseReachable=false;try{databaseReachable=psql(L,c,'SELECT 1')==='1';}catch{/* report unavailable separately from the process probe */}
  const supervisor=supervisorEvidence(L),postgresRunning=pgRunning(L);
- return {instance:c.instance,status:st.status,acceptance:st.acceptance??'NOT_ACCEPTED',healthCheck:st.healthCheck??{status:'UNKNOWN'},release:st.current,previous:st.previous,supervisorPid:supervisor.pid,supervisorProcess:supervisor.state,task:taskInfo(c),postgresRunning,postgresProcess:postgresRunning?'RUNNING':'NOT_RUNNING',databaseReachable,services,lastBackup:c.lastBackupPath??null};
+ const databaseMarker=c.environment===undefined?undefined:(databaseReachable?databaseEnvironment(L,c):null);
+ return {instance:c.instance,environment:c.environment??null,...(databaseMarker===undefined?{}:{databaseMarker,databaseMarkerOk:databaseMarker===DATABASE_MARKER(c)}),status:st.status,acceptance:st.acceptance??'NOT_ACCEPTED',healthCheck:st.healthCheck??{status:'UNKNOWN'},release:st.current,previous:st.previous,supervisorPid:supervisor.pid,supervisorProcess:supervisor.state,task:taskInfo(c),postgresRunning,postgresProcess:postgresRunning?'RUNNING':'NOT_RUNNING',databaseReachable,services,lastBackup:c.lastBackupPath??null};
 }
 
 
@@ -799,6 +817,41 @@ function hostCheck(){
  try{return JSON.parse(r.stdout.trim().split('\n').pop());}catch{return {ok:false,error:'HOST_CHECK_FAILED',stderr:r.stderr.slice(-500)};}
 }
 
+/** Schema version of the running database against the active release (read-only; PostgreSQL must be running). */
+async function schemaReport(){
+ const L=layout(args.root),c=cfgOf(L),st=stateOf(L);
+ const release=await readJson(path.join(releaseDir(L,st.current.version),'release.json'));
+ let ledger;try{ledger=ledgerOf(L,c);}catch{return {ok:false,error:'DATABASE_UNREACHABLE',environment:c.environment??null,release:st.current.version};}
+ const compat=schemaCompatibility({ledger,releaseMigrations:release.migrations});
+ return {ok:compat.compatibleWithDatabase&&compat.pending.length===0,environment:c.environment??null,database:c.database,release:st.current.version,revision:st.current.revision,
+  releaseMigrationsSha256:release.migrationsSha256,releaseMigrationCount:release.migrationCount,applied:ledger.length,last:ledger.at(-1)?.name??null,ledger,...compat};
+}
+
+/** Staging only: replace the database with a freshly provisioned one (same UAT accounts) and set the synthetic file folders aside.
+ *  Refuses unless configuration, stamp, profile AND the database's own marker all say Staging. Never deletes the old folders. */
+async function resetStaging(){
+ const L=layout(args.root),c=cfgOf(L),st=stateOf(L);
+ if(c.environment!=='staging'||c.testEnvironmentOnly!==true||st.profile!=='test')fail('RESET_STAGING_ONLY');
+ const stamp=await readJson(path.join(L.root,'environment.json'),null);
+ if(stamp?.format!==ENVIRONMENT_STAMP_FORMAT||stamp.environment!=='staging')fail('RESET_STAGING_STAMP_REQUIRED');
+ if(args.confirm!=='RESET STAGING')fail('RESET_CONFIRMATION_REQUIRED');
+ await stopServices(L,{keepDatabase:true});pgStart(L,c);
+ const marker=databaseEnvironment(L,c);
+ if(marker!==DATABASE_MARKER(c)){await startServices(L,c);fail('RESET_DATABASE_NOT_MARKED_STAGING',{marker});}
+ const aside=path.join(L.backups,'reset-'+new Date().toISOString().replace(/[:.]/g,'-'));
+ psql(L,c,`DROP DATABASE IF EXISTS ${c.database} WITH (FORCE)`,{db:'postgres'});
+ mkdirSync(aside,{recursive:true});
+ const files=c.filesRoot??L.files;
+ for(const d of [files,path.join(L.data,'integration')])if(existsSync(d))renameSync(d,path.join(aside,path.basename(d)));
+ for(const d of [files,L.inbound,path.join(L.outbound,'res'),path.join(L.outbound,'pdf'),path.join(L.outbound,'backup'),path.join(L.data,'integration','results')])mkdirSync(d,{recursive:true});
+ const r=nodeIn(L,path.join(releaseDir(L,st.current.version),'ops'),['--import','tsx','tools/win-installer/provision.ts','--root',L.root,'--phase','install','--profile','test'],appEnv(L,c,st));
+ if(r.status!==0){history(L,st,'STAGING_RESET_FAILED',{aside});fail('RESET_PROVISION_FAILED',(r.stderr||r.stdout).slice(-2000));}
+ markDatabase(L,c);
+ history(L,st,'STAGING_RESET',{database:c.database,aside});
+ await startServices(L,c);const health=await waitHealthy(L,c);
+ return {reset:true,database:c.database,setAside:aside,provision:JSON.parse(r.stdout.trim().split('\n').pop()),health:{ok:health.ok}};
+}
+
 const commands={
  'verify-package':async()=>{const m=await verifyPackage(path.resolve(args.package),path.resolve(args['public-key']));return {ok:true,version:m.version,revision:m.revision,files:Object.keys(m.files).length};},
  preflight,install,
@@ -807,7 +860,7 @@ const commands={
  restart:async()=>{const L=layout(args.root),c=cfgOf(L);await stopServices(L);await startServices(L,c);await waitHealthy(L,c);return {restarted:true};},
  status,
  health:async()=>{const L=layout(args.root);return healthReport(L,cfgOf(L));},
- backup,restore,upgrade,rollback,uninstall,
+ backup,restore,upgrade,rollback,uninstall,schema:schemaReport,'reset-staging':resetStaging,
  'set-lan':setLan,'lan-status':lanStatus,'set-backup-root':setBackupRoot,'schedule-backup':scheduleBackup,'unschedule-backup':unscheduleBackup,'backups':backupsList,'dr-drill':drDrill,photos,'host-check':hostCheck,'office-check':officeCheck
 };
 if(!commands[command]){process.stderr.write(`usage: nipt-admin <${Object.keys(commands).join('|')}> --root <dir> [options]\n`);process.exit(2);}

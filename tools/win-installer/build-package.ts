@@ -71,7 +71,7 @@ log('staging app');
 await cp(standalone,app,{recursive:true,dereference:true,filter:s=>!/^\.local([\\/]|$)/.test(path.relative(standalone,s))});
 await cp('.next/static',path.join(app,'.next','static'),{recursive:true});
 await cp('public',path.join(app,'public'),{recursive:true});
-await mkdir(path.join(app,'tools'),{recursive:true});await cp('tools/runtime-env.mjs',path.join(app,'tools','runtime-env.mjs'));
+await mkdir(path.join(app,'tools'),{recursive:true});for(const f of ['runtime-env.mjs','environment-boundary.mjs'])await cp(path.join('tools',f),path.join(app,'tools',f));
 await rm(path.join(app,'db','migrations'),{recursive:true,force:true});await mkdir(path.join(app,'db'),{recursive:true});await cp(migrationsDir,path.join(app,'db','migrations'),{recursive:true});
 await writeFile(path.join(app,'build-provenance.json'),JSON.stringify(provenance));
 const testFault=arg('test-fault');
@@ -81,7 +81,7 @@ for(const d of ['apps','packages']){await cp(d,path.join(ops,d),{recursive:true}
 await mkdir(path.join(ops,'db'),{recursive:true});await cp(migrationsDir,path.join(ops,'db','migrations'),{recursive:true});
 await mkdir(path.join(ops,'deploy'),{recursive:true});await cp('deploy/scripts',path.join(ops,'deploy','scripts'),{recursive:true});
 await mkdir(path.join(ops,'tools'),{recursive:true});
-for(const f of ['migrate.ts','migration-checksums.ts','configure-operational.ts','runtime-env.mjs','run-photos.ts'])await cp(path.join('tools',f),path.join(ops,'tools',f));
+for(const f of ['migrate.ts','migration-checksums.ts','configure-operational.ts','runtime-env.mjs','environment-boundary.mjs','run-photos.ts'])await cp(path.join('tools',f),path.join(ops,'tools',f));
 await mkdir(path.join(ops,'tools','operational'),{recursive:true});await cp('tools/operational/native-excel-bridge.ps1',path.join(ops,'tools','operational','native-excel-bridge.ps1'));
 await mkdir(path.join(ops,'tools','task3-uat'),{recursive:true});await cp('tools/task3-uat/signature.ts',path.join(ops,'tools','task3-uat','signature.ts'));
 for(const d of ['p8','win-installer'])await cp(path.join('tools',d),path.join(ops,'tools',d),{recursive:true,filter:s=>!/build-package\.ts$/.test(s)});

@@ -1,0 +1,16 @@
+{
+  "format": "NIPT_DEPLOY_ENVIRONMENT_V1",
+  "environment": "staging",
+  "root": "C:\\NIPT-CBH\\staging",
+  "instance": "nipt-staging",
+  "profile": "test",
+  "ports": { "postgres": 55442, "web": 3010, "https": 8443, "renderer": 3011 },
+  "taskMode": "user",
+  "excelMode": "bridge",
+  "serviceAccount": "nipt-stg-svc",
+  "lan": { "enabled": false },
+  "signingKey": "C:\\NIPT-CBH\\deploy\\keys\\staging\\package-signing-private.pem",
+  "masterWorkbook": "C:\\NIPT-CBH\\assets\\approved-master.xlsx",
+  "ancRequestPdf": "C:\\NIPT-CBH\\assets\\forms\\request.pdf",
+  "ancConsentPdf": "C:\\NIPT-CBH\\assets\\forms\\consent.pdf"
+}

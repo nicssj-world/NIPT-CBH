@@ -25,6 +25,7 @@ ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
 COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static
 COPY --from=build --chown=node:node /app/tools/runtime-env.mjs ./tools/runtime-env.mjs
+COPY --from=build --chown=node:node /app/tools/environment-boundary.mjs ./tools/environment-boundary.mjs
 COPY --from=build --chown=node:node /app/build-provenance.json ./build-provenance.json
 COPY --from=build --chown=node:node /app/db/migrations ./db/migrations
 USER node

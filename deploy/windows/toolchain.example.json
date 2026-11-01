@@ -1,0 +1,9 @@
+{
+  "format": "NIPT_DEPLOY_TOOLCHAIN_V1",
+  "nodeDir": "C:\\NIPT-CBH\\toolchain\\node",
+  "postgresHome": "C:\\Program Files\\PostgreSQL\\17",
+  "powershell7Home": "C:\\Program Files\\PowerShell\\7",
+  "playwrightBrowsers": "C:\\NIPT-CBH\\toolchain\\ms-playwright",
+  "source": "C:\\NIPT-CBH\\source\\NIPT-CBH",
+  "builds": "C:\\NIPT-CBH\\source\\builds"
+}

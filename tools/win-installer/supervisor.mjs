@@ -7,7 +7,7 @@ import {spawn,execFileSync} from 'node:child_process';
 import {openSync,closeSync,existsSync,mkdirSync,readFileSync,writeFileSync,unlinkSync,appendFileSync} from 'node:fs';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {layout,backoffMs,validateConfig} from './lib.mjs';
+import {layout,backoffMs,validateConfig,environmentVariables,environmentStampProblem} from './lib.mjs';
 import {releaseFormEnvironment} from './form-assets.mjs';
 
 const rootArg=process.argv[process.argv.indexOf('--root')+1];
@@ -15,6 +15,8 @@ if(!rootArg||process.argv.indexOf('--root')<0){process.stderr.write('SUPERVISOR_
 const L=layout(rootArg);
 const readJsonSync=f=>JSON.parse(readFileSync(f,'utf8'));
 const config=validateConfig(readJsonSync(L.configFile));
+{const stampFile=path.join(L.root,'environment.json');const problem=environmentStampProblem(existsSync(stampFile)?readFileSync(stampFile,'utf8'):null,config);
+ if(problem){mkdirSync(L.logs,{recursive:true});appendFileSync(path.join(L.logs,'supervisor.log'),JSON.stringify({at:new Date().toISOString(),event:'SUPERVISOR_REFUSED',code:problem})+'\n');process.stderr.write(problem+'\n');process.exit(4);}}
 const installState=readJsonSync(L.installState);
 const release=path.join(L.releases,installState.current.version);
 const appDir=path.join(release,'app'),opsDir=path.join(release,'ops');
@@ -69,7 +71,9 @@ const common={
  ...((config.excelMode??(config.taskMode==='system'?'bridge':'direct'))==='bridge'?{NIPT_NATIVE_EXCEL_SPOOL:L.excelSpool}:{}),
 
  ...(config.masterWorkbook?{NIPT_TASK_MASTER_PATH:config.masterPath??path.join(L.master,'approved-master.xlsx')}:{}),
- NIPT_SOURCE_SHA:installState.current.revision
+ NIPT_SOURCE_SHA:installState.current.revision,NIPT_RELEASE_VERSION:installState.current.version,
+ // last, so nothing inherited from the task environment can widen a Staging/Production boundary
+ ...environmentVariables(config,L.root)
 };
 const fileUrl=p=>pathToFileURL(p).href;
 const runtimeEnv=fileUrl(path.join(appDir,'tools','runtime-env.mjs')),opsRuntimeEnv=fileUrl(path.join(opsDir,'tools','runtime-env.mjs'));

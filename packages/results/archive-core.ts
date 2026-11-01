@@ -2,6 +2,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import {promises as fs} from 'node:fs';
 import path from 'node:path';
 import {moveNoReplaceWin32} from './win32-no-replace';
+import {assertArchiveRootAllowed} from '../../tools/environment-boundary.mjs';
 
 export type ArchiveIntent={caseId:string;versionId:string;sha256:string;bytes:Buffer};
 export type ArchiveResult={state:'ARCHIVED'|'PENDING'|'FAILED';sha256:string;reason?:string};
@@ -41,6 +42,7 @@ export function archiveRootFromEnvironment(env:NodeJS.ProcessEnv=process.env):st
  if(!root)throw Error('ARCHIVE_ROOT_REQUIRED');
  if(process.platform==='win32'&&!/^\\\\[^\\]+\\[^\\]+(?:\\.*)?$/.test(root))throw Error('ARCHIVE_UNC_ROOT_REQUIRED');
  if(process.platform!=='win32'&&(root.startsWith('\\\\')||root.startsWith('//')))throw Error('ARCHIVE_PLATFORM_UNSUPPORTED');
+ assertArchiveRootAllowed(root,env);
  return path.resolve(root);
 }
 

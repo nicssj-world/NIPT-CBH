@@ -1,0 +1,10 @@
+export declare const ENVIRONMENTS: readonly ['staging', 'production'];
+export declare const STAMP_FILE: string;
+export declare const STAMP_FORMAT: string;
+export type EnvironmentBoundary = { name: 'staging' | 'production'; root: string; protectedRoots: string[]; port: number };
+export declare function within(root: string, p: string): boolean;
+export declare function boundaryFromEnv(env?: NodeJS.ProcessEnv): EnvironmentBoundary | null;
+export declare function assertPathAllowed(p: string, env?: NodeJS.ProcessEnv): void;
+export declare function assertArchiveRootAllowed(root: string, env?: NodeJS.ProcessEnv): void;
+export declare function readStamp(root: string): { format: string; environment: 'staging' | 'production'; instance?: string; createdAt?: string };
+export declare function assertProcessBoundary(env?: NodeJS.ProcessEnv): EnvironmentBoundary | null;

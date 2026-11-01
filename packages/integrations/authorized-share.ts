@@ -3,6 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import {execFileSync} from 'node:child_process';
 import {z} from 'zod';
+import {assertPathAllowed} from '../../tools/environment-boundary.mjs';
 export type SharePurpose='INBOUND'|'OUTBOUND'|'RESULTS';
 const policySchema=z.strictObject({version:z.literal(1),grants:z.array(z.strictObject({root:z.string().min(1),purposes:z.array(z.enum(['INBOUND','OUTBOUND','RESULTS'])).min(1),serviceAccount:z.string().min(1),secretRef:z.uuid().nullable(),mode:z.enum(['synthetic','operational']).optional()})).min(1)});
 const canonical=(p:string)=>process.platform==='win32'?p.toLowerCase():p;
@@ -42,6 +43,8 @@ export async function openAuthorizedDirectory(input:string,purpose:SharePurpose,
  const base=absolute(input);
  const authorize=async()=>{
   if(!['synthetic','operational'].includes(process.env.NIPT_MODE??''))throw Error('HIS_SYNTHETIC_ONLY');
+  // Staging never reaches a remote share or a Production folder, whatever Settings or the policy file say (no-op without NIPT_ENVIRONMENT).
+  assertPathAllowed(base);
   if(process.env.NIPT_MODE==='operational'&&process.env.NIPT_HIS_SHARE_POLICY_ENFORCE!=='1'){
    if(systemDirectory(base))throw Error('SHARE_SYSTEM_PATH_PROHIBITED');
    await checked(base);return base;

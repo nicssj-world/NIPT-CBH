@@ -1,0 +1,4 @@
+{
+  "appVersion": "1.1.2",
+  "note": "Application version this commit declares for deployment release IDs (<appVersion>-d<UTC time>.<sha7>). package.json 0.1.0 is not the release version. Change only when an integrated, validated release changes the application version; branch names never set it."
+}
