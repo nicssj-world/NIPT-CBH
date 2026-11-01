@@ -29,7 +29,8 @@ type Context={workflowOnly?:boolean;anc?:boolean;patientStart?:number;localOutbo
 export async function positiveJourney(c:Context){
  const {db,base,inbound,policy,unit,lab,certifier,reviewer,users,api,waitFor,events,workflowOnly=false}=c;
  const patientStart=c.patientStart??7701;assert.ok(Number.isSafeInteger(patientStart)&&patientStart>0&&patientStart+44<=999999,'LOCAL_TEST_PATIENT_RANGE_REQUIRED');
- const patientIdentity=(index:number)=>({ln:'261015'+String(patientStart+index).padStart(6,'0'),hn:String(patientStart+index).padStart(8,'0')+'/69'});
+ // Operational LN contract (packages/p2/service.ts p2Ln): exactly 10 digits; synthetic LNs use the 990… range like the other operational tests.
+ const patientIdentity=(index:number)=>({ln:'990'+String(patientStart+index).padStart(7,'0'),hn:String(patientStart+index).padStart(8,'0')+'/69'});
  const bangkokTime=()=>new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Bangkok',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(new Date()).replace(/:/g,'');
  async function binary(url:string,body:Record<string,unknown>,name:string){const out=await lab.evaluate(async({url,body})=>{const token=document.cookie.split('; ').find(x=>x.startsWith('nipt_csrf='))?.split('=').slice(1).join('=')??'';const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json','x-csrf-token':token},body:JSON.stringify(body)});return {status:r.status,bytes:Array.from(new Uint8Array(await r.arrayBuffer()))};},{url,body});assert.equal(out.status,200,Buffer.from(out.bytes).toString());await fs.writeFile(path.join(base,name),Buffer.from(out.bytes));return Buffer.from(out.bytes);}
  async function pdfEvidence(bytes:Buffer,fileName:string,pageCount:number,draft:boolean){
