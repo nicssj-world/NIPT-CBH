@@ -101,6 +101,7 @@ on a failure. A missing firewall rule or service identity is reported as a secur
 | Workflow UAT cannot be bypassed by omission | **PASS** | required unless `requireStagingJourney: false` is set explicitly (tests) |
 | DNS for `nipt-cbh` | **BLOCKED (hospital IT)** | the configured hospital DNS server did not answer (timeout); the hotspot DNS has no record. The Wi-Fi address seen earlier was this server answering its own name from its hotspot adapter. Hospital DNS needs an A record `nipt-cbh` → the server's hospital LAN address only |
 | Network | **BLOCKED (hospital IT)** | the server is dual-homed: the hospital LAN plus a phone hotspot with its own default gateway. Both are profile **Public**, so the Production HTTPS rule (Domain/Private) would not admit LAN clients |
+| Backup destination | **BLOCKED (owner/IT decision)** | by default the engine backs up to `<root>\backups` on **C:**, the same disk as the database and file store. Choose a separate destination (this server has a separate data volume, D: "NIPT-DATA", or a hospital backup share), then run `C:\NIPT-CBH\production\nipt.cmd set-backup-root --path <folder>` and `schedule-backup` after installation. Staging may keep the default |
 | Trusted TLS | **BLOCKED (hospital IT)** | needs a certificate for `nipt-cbh` issued or trusted by hospital IT; the self-signed engine certificate is not acceptance |
 
 ## Clinical assets (Phase 4)

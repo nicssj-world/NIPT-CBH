@@ -156,7 +156,11 @@ if (-not $SkipNetwork -and $tc) {
     $origin = Invoke-NiptGit $tc $tc.Source @('remote', 'get-url', 'origin')
     $m = [regex]::Match($origin, 'github\.com[:/](?<o>[^/]+)/(?<r>[^/.]+)')
     if (-not $m.Success) { Add-Check 'security' 'repository-visibility' 'WARN' "not a GitHub origin: $origin"; return }
-    try { $r = Invoke-RestMethod -Uri "https://api.github.com/repos/$($m.Groups['o'].Value)/$($m.Groups['r'].Value)" -TimeoutSec 15 -UseBasicParsing; $public = -not $r.private } catch { $public = $false }
+    # only an answer counts: an anonymous 404 means "not publicly readable"; a rate limit or network error proves nothing
+    $public = $null
+    try { $r = Invoke-RestMethod -Uri "https://api.github.com/repos/$($m.Groups['o'].Value)/$($m.Groups['r'].Value)" -TimeoutSec 15 -UseBasicParsing; $public = -not $r.private }
+    catch { if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404) { $public = $false } }
+    if ($null -eq $public) { Add-Check 'security' 'repository-visibility' 'WARN' 'could not determine (GitHub API unreachable or rate-limited): check the repository visibility manually'; return }
     if ($public) { Add-Check 'security' 'repository-visibility' 'WARN' 'the GitHub repository is PUBLIC: keep environments\*.json, toolchain.json, keys and history on this host only; make the repository private before committing any internal deployment configuration' }
     else { Add-Check 'security' 'repository-visibility' 'PASS' 'not publicly readable' }
   }
