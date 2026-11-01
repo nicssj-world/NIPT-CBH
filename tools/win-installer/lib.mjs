@@ -233,6 +233,22 @@ export function parseLedgerOutput(text){
 // One canonical URL: the application accepts exactly one Origin (APP_ORIGIN, Secure cookies, CSRF), so the address users type must be the origin.
 const IPV4=/^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$/;
 export const isIPv4=v=>IPV4.test(String(v));
+/** A request, written by an administrator, to store ONE SMB credential in the service identity's own Credential Manager (for a HIS
+ *  share). The password travels only as a DPAPI machine-scope blob: this validates everything else. Fresh (15 minutes), this machine,
+ *  a real remote host name or IPv4 address (never loopback, never this installation), a plain account name. Returns the safe subset. */
+export function validateSmbCredentialRequest(req,{now=Date.now(),machine}={}){
+ const need=(ok,code)=>{if(!ok)throw Error(code);};
+ need(req&&typeof req==='object'&&req.version===1,'SMB_REQUEST_VERSION');
+ need(Array.isArray(req.targets)&&req.targets.length>=1&&req.targets.length<=4&&req.targets.every(isValidHost),'SMB_REQUEST_TARGETS');
+ need(!req.targets.some(t=>/^(localhost|127\.\d+\.\d+\.\d+)$/i.test(t)),'SMB_REQUEST_LOOPBACK');
+ need(typeof req.user==='string'&&/^[A-Za-z0-9._$@\\-]{1,100}$/.test(req.user),'SMB_REQUEST_USER');
+ need(typeof req.protected==='string'&&/^[A-Za-z0-9+/=]{16,6000}$/.test(req.protected),'SMB_REQUEST_BLOB');
+ need(typeof machine==='string'&&machine!==''&&String(req.machine).toLowerCase()===machine.toLowerCase(),'SMB_REQUEST_MACHINE');
+ const age=now-Date.parse(req.createdAt);
+ need(Number.isFinite(age)&&age>=-60000&&age<=15*60000,'SMB_REQUEST_STALE');
+ return {targets:[...req.targets],user:req.user};
+}
+
 /** A DNS name (letters, digits, hyphen, dots; each label 1-63 chars; <=253) or an IPv4 address. Never a URL, port or path. */
 export function isValidHost(v){
  const h=String(v??'');

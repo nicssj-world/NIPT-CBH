@@ -148,6 +148,28 @@ unhealthy. First-time sign-in passwords are in `C:\NIPT-CBH\production\credentia
 
 After the first Production install (*elevated*, once): `.\deploy\provision-identities.ps1 -Environment production`.
 
+### HIS share access for the service identity
+
+Production's web, worker and renderer run as `nipt-prd-svc`, a local account, so they have **no SMB session of their own** to the
+HIS server: the folder check that runs when an administrator saves a HIS path in Settings (in the web request) and the worker's
+scans both use that account's Windows Credential Manager. A path that works in File Explorer for the signed-in administrator
+fails for the service until that credential exists. Symptom in Settings: "can't read or write files in this folder, not saved".
+
+Nobody stores the service account's password (and resetting it would destroy its DPAPI-protected NAS credential), so the
+credential is handed over through the identity's own scheduled task instead of a sign-in as it. From an elevated prompt:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File C:\NIPT-CBH\deploy\history\elevated-his-smb.ps1 -InboundPath '\\<his>\<share>\<inbound folder>'
+# optional outbound check, named destinations only (temporary dot-file: write, read back, remove):
+#   ... -ResPath '\\<his>\...' -PdfPath '\\<his>\...' -BackupPath '\\<his>\...'
+```
+
+It asks once for the HIS account password (hidden). The password is protected with DPAPI (machine scope), left in
+`production\run\smb-credential.request`, stored by `nipt-prd-svc` itself with `CredWrite` (no command line) and the request is
+deleted at once. It then runs the application's own save-time check (`packages/settings/his-check.ts`) **as `nipt-prd-svc`**
+before and after storing the credential and after a Production restart, and writes the results (identity, counts, codes; no file
+names or secrets) to `deploy\history\his-smb\`. Inbound is read-only; the HIS password is never written to Git, logs or files in clear.
+
 ### Production NAS backup (owner decision 2026-11-01)
 
 `production.json` names the destination (not in Git):

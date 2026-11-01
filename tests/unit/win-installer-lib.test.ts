@@ -6,7 +6,7 @@ import {thaiError,thaiStep,thaiLanWarnings,thaiCheck,THAI_WARNING,STEP_TEXTS,ste
 import path from 'node:path';
 import {
  parseVersion,compareVersions,layout,validateConfig,assertSafeRoot,directoryHashes,verifyPackage,schemaCompatibility,canRollbackApplicationOnly,
- healthVerdict,classifyUpgradeHealthOutcome,recordedProcessState,backoffMs,parseLedgerOutput,isValidHost,isIPv4,originFor,sanEntries,sanText,normalizeLanAllow,normalizeLanProfiles,pickLanAddress,sha256Bytes,INSTALLER_FORMAT,writeJson,readJson,portFree
+ healthVerdict,classifyUpgradeHealthOutcome,recordedProcessState,backoffMs,parseLedgerOutput,isValidHost,isIPv4,originFor,sanEntries,sanText,normalizeLanAllow,normalizeLanProfiles,pickLanAddress,validateSmbCredentialRequest,sha256Bytes,INSTALLER_FORMAT,writeJson,readJson,portFree
 } from '../../tools/win-installer/lib.mjs';
 
 // The Windows installer's decisions that must never depend on a live machine: version order, configuration limits, package authenticity,
@@ -280,5 +280,34 @@ describe('Setup messages (Thai, actionable, no technical detail in the dialog)',
   // every generated assignment is a complete statement (a stray quote in a sentence would break the compile)
   expect(pas.split('\r\n').filter(l=>l.includes(' then Result := ')&&!l.endsWith(';'))).toEqual([]);
   expect(pas).toContain('function CheckText(const Id, Detail: String): String;');
+ });
+});
+
+// A HIS share credential for the service identity is handed over as a DPAPI blob in a request file; the request itself must be
+// fresh, for this machine, and name a real remote host (never this installation) before anything is stored.
+describe('SMB credential request for the service identity',()=>{
+ const now=Date.parse('2026-11-01T15:00:00Z');
+ const good={version:1,machine:'NIPT-CBH',createdAt:'2026-11-01T14:55:00Z',targets:['192.0.2.10'],user:'administrator',protected:'AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAA'+'x'.repeat(40)};
+ const refuse=(patch:Record<string,unknown>,code:string)=>expect(()=>validateSmbCredentialRequest({...good,...patch},{now,machine:'nipt-cbh'})).toThrow(code);
+ it('accepts a fresh request for this machine and returns only the safe subset',()=>{
+  expect(validateSmbCredentialRequest(good,{now,machine:'nipt-cbh'})).toEqual({targets:['192.0.2.10'],user:'administrator'});
+  expect(validateSmbCredentialRequest({...good,user:'HIS\\administrator',targets:['his-server.hospital.local']},{now,machine:'NIPT-CBH'}).user).toBe('HIS\\administrator');
+ });
+ it('refuses stale, future, other-machine, loopback, malformed and unknown-version requests',()=>{
+  refuse({createdAt:'2026-11-01T14:40:00Z'},'SMB_REQUEST_STALE');
+  refuse({createdAt:'2026-11-01T15:10:00Z'},'SMB_REQUEST_STALE');
+  refuse({createdAt:'not a date'},'SMB_REQUEST_STALE');
+  refuse({machine:'OTHER-PC'},'SMB_REQUEST_MACHINE');
+  refuse({targets:['localhost']},'SMB_REQUEST_LOOPBACK');
+  refuse({targets:['127.0.0.1']},'SMB_REQUEST_LOOPBACK');
+  refuse({targets:[]},'SMB_REQUEST_TARGETS');
+  refuse({targets:['\\\\server\\share']},'SMB_REQUEST_TARGETS');
+  refuse({targets:['300.1.1.1']},'SMB_REQUEST_TARGETS');
+  refuse({user:'a b'},'SMB_REQUEST_USER');
+  refuse({user:'x;calc'},'SMB_REQUEST_USER');
+  refuse({protected:'short'},'SMB_REQUEST_BLOB');
+  refuse({protected:'password with spaces!!'},'SMB_REQUEST_BLOB');
+  refuse({version:2},'SMB_REQUEST_VERSION');
+  expect(()=>validateSmbCredentialRequest(good,{now})).toThrow('SMB_REQUEST_MACHINE');
  });
 });

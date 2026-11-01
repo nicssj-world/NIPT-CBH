@@ -12,7 +12,7 @@ import {fileURLToPath} from 'node:url';
 import {
  layout,validateConfig,assertSafeRoot,portFree,freeBytes,MIN_FREE_BYTES,verifyPackage,sha256File,readJson,writeJson,compareVersions,
  schemaCompatibility,canRollbackApplicationOnly,healthVerdict,classifyUpgradeHealthOutcome,recordedProcessState,parseLedgerOutput,isValidHost,isIPv4,originFor,sanEntries,sanText,normalizeLanAllow,normalizeLanProfiles,pickLanAddress,
- environmentVariables,ENVIRONMENT_STAMP_FORMAT
+ validateSmbCredentialRequest,environmentVariables,ENVIRONMENT_STAMP_FORMAT
 } from './lib.mjs';
 import {releaseFormEnvironment} from './form-assets.mjs';
 
@@ -451,8 +451,42 @@ async function takeBackup(L,c){
  return out;
 }
 
+/** Requests an administrator leaves in <root>\run for the SERVICE IDENTITY to act on. Nobody stores that account's password, so an
+ *  operator cannot run code as it; its own scheduled task (the backup task) is the way in. run\ is writable only by Administrators,
+ *  SYSTEM and that identity. Results (never secrets) are written beside the requests.
+ *   smb-credential.request  store one HIS share credential in the identity's own Credential Manager (DPAPI blob; see
+ *                           service-smb-credential.ps1) -> smb-credential-result.json
+ *   smb-probe.request       run the application's HIS folder checks as the identity -> smb-probe-result.json  */
+async function serviceRequests(L,c){
+ const credRequest=path.join(L.run,'smb-credential.request'),probeRequest=path.join(L.run,'smb-probe.request');
+ if(!existsSync(credRequest)&&!existsSync(probeRequest))return null;
+ const handled={};
+ if(existsSync(credRequest)){
+  const resultFile=path.join(L.run,'smb-credential-result.json');rmSync(resultFile,{force:true});
+  try{
+   validateSmbCredentialRequest(JSON.parse(readFileSync(credRequest,'utf8')),{machine:process.env.COMPUTERNAME});
+   run(psExe,['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',path.join(L.root,'admin','service-smb-credential.ps1'),'-Request',credRequest,'-Result',resultFile],{env:psEnv()});
+  }catch(e){
+   rmSync(credRequest,{force:true}); // a refused request must not linger either
+   if(!existsSync(resultFile))writeFileSync(resultFile,JSON.stringify({at:new Date().toISOString(),ok:false,error:String(e.message??e).split('\n')[0].slice(0,200)},null,2));
+  }
+  handled.credential=JSON.parse(readFileSync(resultFile,'utf8'));
+ }
+ if(existsSync(probeRequest)){
+  const resultFile=path.join(L.run,'smb-probe-result.json');rmSync(resultFile,{force:true});
+  const st=stateOf(L),ops=path.join(releaseDir(L,st.current.version),'ops');
+  const r=nodeIn(L,ops,['--import','tsx',path.join(L.root,'admin','service-his-probe.mjs'),probeRequest,resultFile,ops],appEnv(L,c,st));
+  rmSync(probeRequest,{force:true});
+  if(r.status!==0)writeFileSync(resultFile,JSON.stringify({at:new Date().toISOString(),ok:false,error:(r.stderr||r.stdout||'PROBE_FAILED').slice(-600)},null,2));
+  handled.probe=true;
+ }
+ return handled;
+}
+
 async function backup(){
  const L=layout(args.root),c=cfgOf(L);
+ const requested=await serviceRequests(L,c);
+ if(requested)return {serviceRequests:Object.keys(requested)}; // handled as the service identity; no backup, no service stop
  const out=await takeBackup(L,c);
  // One-off restore verification requested by the operator (run\verify-restore.request): the backup and restore tools only run
  // as the policy's service identity, so the drill rides on the identity's own scheduled backup instead of an operator session.

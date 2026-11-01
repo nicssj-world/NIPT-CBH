@@ -32,6 +32,7 @@ export function originFor(host:string,port:number):string;
 export type SanEntry={type:'DNS'|'IP';value:string};
 export function sanEntries(host:string|undefined,computerName?:string):SanEntry[];
 export function sanText(entries:SanEntry[]):string;
+export function validateSmbCredentialRequest(req:unknown,options?:{now?:number;machine?:string}):{targets:string[];user:string};
 export function normalizeLanAllow(spec?:string):string;
 export function normalizeLanProfiles(spec?:string):string;
 export type Adapter={alias?:string;description?:string;ipv4?:string;gateway?:string|null;up?:boolean;metric?:number};
