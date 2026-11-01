@@ -29,6 +29,16 @@ included. Production has not been installed or touched.
 | Clinical Go-Live / HIS | **NOT AUTHORIZED** | HIS/NAS clinical processing not enabled |
 | Historical migration | **NOT STARTED** | |
 
+HIS share access (2026-11-01, after installation): **PASS for inbound**. Saving the HIS inbound path failed in Settings
+(`SHARE_FILE_ACCESS_FAILED`). Run as `nipt-prd-svc` the application's own save-time check was refused with Windows error
+`UNKNOWN (-4094)` on `lstat` (failed SMB logon: the local service account has no credential for the HIS server), while the same
+check passed as `Admin` under the same Production environment, so no application rule or write requirement was involved (inbound
+is read-only). Fix: the HIS credential was stored in `nipt-prd-svc`'s own Credential Manager through the identity's scheduled task
+(`elevated-his-smb.ps1`, DPAPI hand-over, no password change, no clear-text file, command line or log). Check as `nipt-prd-svc`
+after storing and after a Production restart: pass (7 day folders, PET+OK pairs found, sample parsed). Production stayed healthy,
+the NAS backup task and credential untouched, Staging stopped, `postgresql-x64-17` running. **Outbound (RES/OK, CFS PDF, backup):
+NOT RUN** until the owner names the three destination paths: nothing is written to the HIS server before that.
+
 Defects found and fixed during the installation (none in the clinical release payload): PowerShell 5.1 `Get-Content` strings
 exploded the gate payload (6.7 GB, `9e0f715`); the HTTPS health probe ignored the bound address (`c4bac51`); dr-drill refused
 in an operator session by design, so restore verification rides on the service identity's scheduled backup (`eaea212`). The
