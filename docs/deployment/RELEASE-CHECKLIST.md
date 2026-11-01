@@ -10,6 +10,33 @@ executed on this host or in GitHub Actions, or names what blocks it.
 Branch `feat/dual-environment-deploy` (draft PR #13). Basis: `main` @ `1ad1f340` (v1.1.2). v1.1.3 and Parity are not
 included. Production has not been installed or touched.
 
+## Staging installation round (2026-11-01, backup `E:\NIPT-CBH-HOME-BACKUP` attached)
+
+**Verdict: Staging is installed, healthy and isolated at the application layer. It is NOT ready**: the workflow UAT stops
+at Pooling (missing fonts), and the egress firewall rule and service identity need an elevated prompt.
+
+| Item | Status | Evidence |
+|---|---|---|
+| Combined Excel Master | **PASS** | `…PARITY-REMEDIATION\.local\claude-update-112\.local\lab-owner-evidence\lab-combined-master.xlsx`, 10,679,212 bytes, SHA-256 `4c5300f9…c7f1` = pin. It has two identical copies in `task3-readygen\.local\approved\master.xlsx` and `codex-migration-20261026\.local\lab-owner-evidence\`. Copied to `C:\NIPT-CBH\assets\approved-master.xlsx` and re-verified there |
+| Singleton DOCX / Twin DOCX | **PASS** | `…claude-update-112\.local\task3-sources\singleton.docx` (928,411 B, `a56be6e4…` = pin) and `twin.docx` (925,181 B, `0f731321…` = pin). Copied to `C:\NIPT-CBH\assets\templates\`, to be registered through the in-app template registry (upload → validate → second-person approve → activate). The installer does not consume them |
+| HALOS task / NIFTY / Pooling CSV templates | **not copied** | `…\.local\approved\halos-task.xlsx`, `nifty.xlsx`, `pooling.csv` exist, but nothing in the repository pins them, and only the developer UAT tools read them (`tools/task3-uat`, `tests/helpers/task3.ts`). The installed services do not |
+| ANC PDFs | **PASS** | unchanged; still match their pins |
+| Asset ACLs | **PASS** | `C:\NIPT-CBH\assets\**`: Administrators, SYSTEM, owner only. The backup was only read |
+| Staging preflight | **PASS** | 16 PASS, 4 WARN, **0 BLOCKED**. WARNs: no service identity yet, not elevated, the unrelated 0.0.0.0:5433 PostgreSQL, and repository visibility unknown (the preflight bug that reported "private" on a rate-limited 403 is fixed) |
+| Staging install (`deploy-staging.ps1`, full validation, `2ba5b82`) | **PASS** | all validation steps passed, then the signed package and the engine install: private PostgreSQL 17 cluster, 89 migrations, 6 UAT accounts, startup and Excel-bridge tasks, first verified backup |
+| Upgrade (`a7adc40`, `260e572`) | **PASS** | verified pre-upgrade backup, release switch, health; the previous release is kept. An earlier attempt was **refused safely** (`QUEUE_NOT_QUIESCENT`, nothing changed) because a worker crash had left one job active (see "Host memory") |
+| Compatible rollback (engine, on Staging) | **PASS** | `nipt-admin rollback`: `260e572 → a7adc40` in 31 s, schema gate passed (89 applied, compatible), HEALTHY. Rolled forward again afterwards |
+| Health check | **PASS** | `health-check.ps1 -Environment staging`: HEALTHY; stamp, config and database marker = staging; backup CHECKSUM_VERIFIED; listeners 127.0.0.1 only (55442, 3010, 3011, 8443) |
+| Live web service under the boundary | **PASS** | `GET /api/admin/deployment` as APP_ADMIN on the installed Staging: environment `staging`, release, commit, 89 migrations, checksums match |
+| Live isolation: Settings cannot point Staging at HIS/NAS/Production | **PASS** | an APP_ADMIN `POST /api/settings/his-paths` on the running service was **refused (400)** for a HIS UNC, a NAS UNC by IP, a Production folder, a mapped drive, the loopback `C$` share, and two **existing** folders outside Staging (`C:\Users\Public`, `C:\NIPT-CBH\deploy`). The positive control (Staging's own folder) was **accepted (200)**, then restored |
+| Installed-release boundary probe (`test-isolation.ps1`) | **PASS** | 10/10 refused (Production files/outbound, HIS/NAS UNC, outside folder, remote archive, `C$` admin share, mapped drive, `\\?\UNC`, Production database port); own folder allowed |
+| `test-isolation.ps1` verdict | **INCOMPLETE (security blocker)** | exit 2: no egress firewall rule and no dedicated identity (both need an elevated prompt). The Production-pair checks need Production, which is intentionally not installed |
+| Excel bridge end to end | **PASS** | 12 Task List exports through the installed bridge task (owner's interactive session, `data\excel-spool`): all COMPLETE, no Office process left, spool empty |
+| Word PDF with the approved Singleton master | **PASS** | `office-check --report-master`: real master filled with synthetic values and two signers → 1 page, 7 images, valid PDF |
+| Excel PDF with the approved Combined Master | **BLOCKED (IT: fonts)** | `TASK_PDF_ONE_PAGE_A4_REQUIRED`. Sheets 1–4 and 6 meet the page contract; **Pooling Table exports as 2 pages**. The workbook uses **宋体 / SimSun** (its default font, 7,358 cells, which sets every row height) and **TH Sarabun New** (330 cells), and neither is installed here. With substitute fonts the rows grow and the fixed 66% zoom spills onto a second page. Nothing in the master or the one-page check was changed. Install both fonts for all users: SimSun is the Windows optional feature "Chinese (Simplified) Supplemental Fonts" (elevated: `Add-WindowsCapability -Online -Name Language.Fonts.Hans~~~und-HANS~0.0.1.0`); TH Sarabun New is the Thai government national font package. Then rerun `office-check --excel-workbook` and `reset-staging.ps1 -Seed`. The cause will be confirmed by that rerun |
+| Synthetic workflow UAT (`reset-staging.ps1 -Seed`) | **PARTIAL** | guarded reset passed. The journey then passed: HTTPS login (secure cookies), **45** registrations + 45 HIS PET receipts by the worker + P2 clinical approvals + specimen gates, S2 resampling (new PET, new approval), label print/reprint audit, native pre-work execution + second-person QC1. It **stops at pool issuance** with `TASK_PDF_ONE_PAGE_A4_REQUIRED`, which is the font blocker above; the application correctly refuses a non-conforming document. Two stale journey inputs were fixed on the way (12-digit LNs → the 10-digit operational LN contract; a synthetic, runtime-check-digit citizen ID starting with 0 for the request contract); no application rule was changed |
+| Host memory | **BLOCKED (IT)** | 15.7 GB RAM with a system-managed 2.3 GB pagefile gives an 18 GB commit limit. When a build, a browser test run and Staging overlapped, Windows killed a Staging PostgreSQL backend with `0xC000012D STATUS_COMMITMENT_LIMIT`. PostgreSQL recovered on its own; the worker crashed and left one job active, which correctly blocked the next upgrade's backup until it expired. Increase the pagefile (or the RAM) before Production; avoid running builds on the server while it is in clinical use |
+
 ## Toolchain (Phase 2)
 
 | Item | Status | Evidence |
@@ -130,18 +157,27 @@ pinned originals (SHA-256). The owner may replace them from the backup, and pref
 | `deploy-staging.ps1` up to the asset gate | **PASS** | it resolved HEAD to `36ee288`, read app version 1.1.2 from that commit, produced release `1.1.2-d20261101040048.36ee288`, created the clean worktree, verified both ANC PDFs, then **stopped before building** with `MASTER_WORKBOOK_MISSING` and the pinned hash, recording the failure in `deploy\history\staging\…\record.json` |
 | Build pipeline (the deploy module's own steps, clean worktree `36ee288`) | **PASS** | npm ci 48 s, deploy contracts, typecheck, lint, test:unit, guard: all exit 0; `build-package.ts` test profile with the Staging key: **24,294 files**, runtime included (Node, PostgreSQL, Chromium, PowerShell 7), 89 migrations; `nipt-admin verify-package` with the Staging public key: **signature OK**. This was packaging proof only (master omitted), not installed |
 | Signing keys | **PASS** | Staging Ed25519 key created on first use; `deploy\keys\staging\` readable only by Administrators, SYSTEM and the owner |
-| Staging installation | **BLOCKED (owner)** | the engine refuses to install without the hash-pinned Combined Master; not bypassed |
+| Staging installation | **PASS** (superseded) | installed once the backup was attached; see "Staging installation round" above |
 | Production | **not started** | by design |
 
 ## Remaining blockers and owners
 
-1. **Owner:** attach `NIPT-CBH-HOME-BACKUP` (Combined Master, Singleton/Twin DOCX, task3 sources, lab-owner evidence).
-   Then: copy the master to `C:\NIPT-CBH\assets\approved-master.xlsx`, run `preflight.ps1`, `deploy-staging.ps1`,
-   `npm run test:owner-assets`, and `office-check` with `--report-master` / `--excel-workbook`.
-2. **Owner/IT, elevated prompt:** after the Staging install, `provision-identities.ps1 -Environment staging`, then
-   `test-isolation.ps1` until it reports PASS.
-3. **Owner:** real APP_ADMIN and CLINICAL_APPROVER identities in `production.json` (Production only).
-4. **Hospital IT:** a DNS A record for `nipt-cbh`; remove the hotspot route from the server; set the hospital network
+1. **IT, elevated:** install the fonts **SimSun** (Windows optional feature "Chinese (Simplified) Supplemental Fonts") and
+   **TH Sarabun New** for all users. Then run `office-check --excel-workbook C:\NIPT-CBH\assets\approved-master.xlsx`
+   (expect `excel_master_task_pdf` ok) and `.\deploy\reset-staging.ps1 -Seed` (expect the journey to pass Pooling and
+   finish). This blocks the workflow UAT and therefore any Production promotion.
+2. **Owner/IT, elevated prompt:** `.\deploy\provision-identities.ps1 -Environment staging` (local identity `nipt-stg-svc`,
+   NTFS boundary, supervisor at system startup, Staging egress block), then `.\deploy\test-isolation.ps1` from an elevated
+   prompt until its verdict is PASS. Until then the egress rule and identity are open security blockers.
+3. **IT:** raise the commit limit (pagefile and/or RAM), see "Host memory".
+4. **Owner:** register the verified Singleton/Twin masters in Staging's template registry (upload, validate, second-person
+   approve, activate) from `C:\NIPT-CBH\assets\templates\`.
+5. **Owner:** 39 of 109 Playwright E2E tests fail on drift between the v1.1.2 UI and older specs (for example the settings
+   category navigation "หมวดการตั้งค่า" and empty-state texts no longer rendered after the Settings rework `112abcd`).
+   Deciding whether the UI or the spec is correct is a product decision; neither was changed. The list is in the PR.
+6. **Owner:** real APP_ADMIN and CLINICAL_APPROVER identities in `production.json` (Production only).
+7. **Hospital IT:** a DNS A record for `nipt-cbh`; remove the hotspot route from the server; set the hospital network
    category to Domain/Private; a trusted certificate for `nipt-cbh`; confirm the KMS host and the default printer.
-5. **Owner/IT:** the unrelated PostgreSQL service on `0.0.0.0:5433` is still exposed on all interfaces (not changed here).
-6. **Owner:** the repository is public; make it private before committing any internal deployment configuration.
+8. **Owner/IT:** the unrelated PostgreSQL service on `0.0.0.0:5433` is still exposed on all interfaces (not changed here).
+9. **Owner:** confirm the repository visibility (it was public; the last automatic check could not tell because GitHub
+   rate-limited it) and make it private before committing any internal deployment configuration.
