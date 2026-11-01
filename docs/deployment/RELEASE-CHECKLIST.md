@@ -1,101 +1,143 @@
 # Dual-environment release checklist
 
-Status of the Staging/Production direct-deployment work on the dedicated server, as of 2026-11-01. Each item has a status:
+Status of Staging readiness on the dedicated NIPT-CBH server as of 2026-11-01. Every status below is backed by something
+executed on this host or in GitHub Actions, or names what blocks it.
 
-- **PASS**: executed, with the evidence named here.
-- **PARTIAL**: the mechanism is implemented and part of it was executed; the rest is listed.
-- **BLOCKED**: cannot be executed yet; the blocker is named.
+- **PASS**: executed, with the evidence named.
+- **PARTIAL**: implemented and partly executed; the rest is listed.
+- **BLOCKED**: cannot run yet; the blocker and the party responsible are named.
 
-No item is marked PASS from inspection alone.
+Branch `feat/dual-environment-deploy` (draft PR #13). Basis: `main` @ `1ad1f340` (v1.1.2). v1.1.3 and Parity are not
+included. Production has not been installed or touched.
 
-Basis: branch `feat/dual-environment-deploy` from `main` @ `1ad1f340` (v1.1.2 baseline). v1.1.3 and Parity are not included.
+## Toolchain (Phase 2)
 
-## Evidence executed on this host
-
-| # | Evidence | Result |
+| Item | Status | Evidence |
 |---|---|---|
-| E1 | `node --test tests/deploy/*.node.mjs`: environment boundary (11), deployment gates (11), existing deploy contracts (13) | 35/35 pass (Node v24.22.1; the host's only Node 24 binary, used as a test interpreter only) |
-| E2 | `Invoke-Pester tests/deploy/NiptDeploy.Tests.ps1`: every script parses, argument quoting round-trip through a real process, install arguments per environment | 6/6 pass (Pester 3.4.0) |
-| E3 | `node --check` on the changed engine files (`supervisor.mjs`, `nipt-admin.mjs`, `lib.mjs`, `environment-boundary.mjs`, `runtime-env.mjs`, `deploy-gates.mjs`) | all pass |
-| E4 | `node --import tools/runtime-env.mjs` with a Staging boundary and no stamp | process refused to start: `ENVIRONMENT_STAMP_MISSING`, exit 1. Without a boundary it starts unchanged |
-| E5 | `test-isolation.ps1` against a **rehearsal layout** (two real PostgreSQL 17.11 clusters created with the engine's `initdb` settings, scratch folder, not `C:\NIPT-CBH`) | 12 PASS, 1 NOT_RUN (egress firewall: needs elevation), 0 FAIL |
-| E6 | `preflight.ps1` on this host | 13 PASS, 9 WARN, 6 BLOCKED (listed under Blockers) |
-| E7 | Source-guard rules applied to all changed files | pass |
-| E8 | Office COM probe in the owner's interactive session (session 1, Windows PowerShell 5.1, synthetic text) | Excel 16.0: workbook → PDF exported (91 KB, `%PDF-`). Word 16: automation **did not complete**; a hidden Word instance stayed running after `Quit` and the next run hung inside Word (typical of a first-run, activation or privacy dialog). The three probe-started Office processes were stopped by PID |
+| Node.js 24 + npm | **PASS** | v24.22.2 / npm 11.19.1 in `C:\NIPT-CBH\toolchain\node`. The zip's SHA-256 matches nodejs.org `SHASUMS256.txt` |
+| PowerShell 7 | **PASS** | 7.6.9 in `C:\NIPT-CBH\toolchain\pwsh7`. The zip's SHA-256 matches both the release's `hashes.sha256` and GitHub's asset digest; `pwsh.exe` Authenticode: Valid, Microsoft Corporation |
+| Git / Git Credential Manager | **PASS** | git 2.56.0.windows.4, GCM 2.9.1; pushes to the PR used the stored login |
+| Chromium | **PASS** | `chromium_headless_shell-1248` via `npx playwright install chromium` into `C:\NIPT-CBH\toolchain\ms-playwright` |
+| PostgreSQL 17 command-line tools | **PASS** | 17.11 binaries in `C:\Program Files\PostgreSQL\17` (used as binaries only; the `postgresql-x64-17` service on 5433 was not touched) |
+| `npm ci` | **PASS** | 441 packages from the lockfile |
 
-CI evidence is recorded on the pull request (`foundation.yml`: typecheck, lint, vitest, Next build, deploy contracts).
+## Build and tests (Phase 2/3)
 
-## Isolation
+| Check | Local (CI-equivalent PostgreSQL 17 on port 56500) | GitHub Actions |
+|---|---|---|
+| `node --test tests/deploy/*.node.mjs` | **PASS** 36/36 | **PASS** from `180cee3` (it failed on `c10920c` and `934b2c1`: the boundary root was resolved with native path rules, which on Linux makes a Windows-shaped root relative; fixed and reproduced with `path.posix` emulation) |
+| `npm run typecheck` | **PASS** | **PASS** |
+| `npm run lint` | **PASS** | **PASS** |
+| `npm test` | see below | see PR #13 |
+| `npm run build` | **PASS** (standalone produced; 5 Turbopack warnings, all in files this PR does not change) | see PR #13 |
+| `npm run test:after-build` | **PASS** 2/2 | new CI step after the build |
+| `npm run guard` | **PASS** (1437 files) | **PASS** |
+| Pester `tests/deploy/NiptDeploy.Tests.ps1` | **PASS** 6/6 | not run by CI (Windows only) |
+
+Before this round, `npm test` locally gave 2560 passed, **39 failed**, 45 skipped. On `main` it has failed in CI since v1.1.2, and
+on this PR it was cancelled at the job's 25-minute limit. The causes, each from the actual error:
+- **25 files** read the owner's private clinical files (`.local\lab-owner-evidence`, `.local\task3-sources`, the owner's
+  `C:\Users\User\Downloads\…`). These files never enter Git, so the tests cannot run on CI. They are now listed in
+  `tests/test-groups.json` and run with `npm run test:owner-assets`, which **fails** (not skips) on a missing file.
+- **2 files** need `.next/standalone`, but CI builds after `npm test`. They now run in a new CI step after the build.
+- **`archive-admin-browser-native`** had a real fixture defect. It re-seeded the already-seeded shared test database with a
+  fresh lookup key and password, which caused an Idempotency conflict and then a failed sign-in. It also logged in with a
+  passwordless role, which scram-sha-256 refuses. It now uses the suite's key and password and a per-run role password, and
+  passed twice on the same database.
+- The job timeout was raised from 25 to 50 minutes, because `npm test` alone takes about 20 minutes.
+
+With those changes, local `npm test` gave **2565 passed, 0 failed**, 45 skipped. The 45 were skipped before as well. The next CI
+run (`c6c6b05`) showed three Linux-only failures, each now fixed:
+- **`win-installer-lib`:** `assertSafeRoot` used native path rules, so on Linux `C:\` was not a drive root. It now uses Windows
+  rules explicitly, which is identical on Windows, where the installer runs.
+- **`update-112-source-scope`:** this test compares migration 157 with its bytes at historical commit `c237da4`, but CI checked
+  out only one commit. CI now uses `fetch-depth: 0`.
+- **`archive-backup-restore-native`:** this already failed on `main`. It needs Windows `pg_dump.exe`/`pg_restore.exe`, so it now
+  runs as `npm run test:windows-native`, which **passes** on this server and fails rather than skips when the binaries are missing.
+
+`tests/unit/test-groups.test.ts` fails if a group lists a missing file or the groups overlap.
+
+## Microsoft Office (Phase 5)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Office activation | **PASS** | Office Standard 2019 Volume (x86), `OSPP.VBS /dstatus`: LICENSED, KMS client, 177 days remaining. Hospital IT should confirm the configured KMS host is theirs |
+| First-run state (Word) | **PASS** | `FirstRun=0`, `ShownFirstRunOptin=1`, no Word resiliency (disabled-item) entries |
+| Word PDF through the production renderer | **PASS** | `office-check.ts` → `word_synthetic_signers`: 1 page, 4 signature images, valid PDF, in 3–5 s; no Word process left |
+| Excel PDF through the production export script | **PASS** | `native-export.ps1` on a synthetic 6-sheet workbook: 6 valid PDFs in 6 s; its own Excel instance recorded and exited; printer paper set to A4 during export and restored |
+| Office instance cleanup | **PASS** | each export records the PID of the instance it starts and stops only that one if it does not exit; after a script timeout the caller stops exactly that recorded instance; `tests/unit/office-instance.test.ts` shows a non-Office PID is never stopped |
+| Approved masters through Word/Excel (`office-check --report-master/--excel-workbook`) | **BLOCKED** | Singleton DOCX and Combined Master missing (owner) |
+| Excel bridge end to end (Staging spool, interactive user task) | **BLOCKED** | needs an installed Staging |
+| Default printer | **PARTIAL** | the current user's default printer is "Adobe PDF" (Acrobat XI). The export depends on the default printer's driver for A4. Hospital IT should confirm a supported, licensed default printer for the bridge account |
+
+**Correction:** the previous round reported "Word hangs". That was caused by my own diagnostic probe: a failed PowerShell
+`[ref]` call left a hidden Word instance open with an unsaved document, and the next probe attached to it. Word itself
+works; see the PASS rows above.
+
+The supported execution model is unchanged. Excel/Word run only in the owner's **interactive** session, through the Excel
+bridge task (`excelMode: bridge`), never in session 0. Automatic logon is not configured and no Windows password is stored.
+
+## Isolation (Phase 6)
+
+`test-isolation.ps1` now exits 0 only when every check ran and passed, 2 (INCOMPLETE) when any check could not run, and 1
+on a failure. A missing firewall rule or service identity is reported as a security blocker.
 
 | Requirement | Status | Evidence / remaining |
 |---|---|---|
-| Staging cannot use its credentials on the Production database | **PARTIAL** | E5: migrator, web and worker credentials refused (`password authentication failed`); positive control connects to Staging; Production DB absent from the Staging cluster. Repeat on the installed environments: `test-isolation.ps1` |
-| Both clusters listen on loopback only | **PARTIAL** | E5 on rehearsal clusters; repeat on installed environments |
-| Staging cannot write Production folders | **PARTIAL** | Application layer: E1 + E5 refuse Production paths. NTFS deny for `nipt-stg-svc`: `provision-identities.ps1` not run (needs elevation and installed roots) |
-| Staging cannot send to real HIS/NAS | **PARTIAL** | E1 + E5: with **no** firewall rule present, UNC HIS/NAS paths (by name or IP), mapped drives and a remote archive are refused by the application itself, and an enforced share policy is required at start. The supervisor refuses to start a stamped Staging root whose configuration lost its environment (E1). Local-only identity and egress firewall not yet provisioned |
-| Production gate refuses a Staging that was never installed or never ran the workflow | **PASS** | E1: no verification record → `STAGING_VERIFICATION_MISSING`; installed but journey absent, failed or for another commit → `STAGING_WORKFLOW_UAT_NOT_PASSED`; the UAT requirement only lifts on an explicit `requireStagingJourney: false` |
-| Separate ports, accounts, signing keys, roots | **PASS** | E1: shared root, instance, port, signing key or service account refused; E5 for separate clusters and secrets. Accounts themselves not yet created |
-| Excel bridge / Word and Excel PDF in the interactive session | **PARTIAL** | E8: Excel PDF works interactively. Bridge itself not run (needs an installed environment and PowerShell 7). Word **BLOCKED** (see Blockers) |
-| Resetting Staging does not modify Production | **BLOCKED** | `test-isolation.ps1 -IncludeReset` fingerprints Production around a reset; needs both environments installed |
-| No shared secrets | **PARTIAL** | E5 compared all secrets by hash; repeat on installed environments |
+| Staging credentials refused by Production PostgreSQL; separate clusters; loopback listeners; no shared secret | **PARTIAL** | rehearsal on two real PostgreSQL 17 clusters: 12 PASS (migrator/web/worker refused with `password authentication failed`, positive controls connect). Repeat on the installed environments |
+| Staging cannot write Production folders, HIS/NAS paths, mapped drives, aliases | **PASS** (application layer) | 12/12 boundary tests: UNC by name or IP, `\\?\UNC\`, mapped/`subst` drives, real **junctions** into Production (resolved by Windows), a root that is an alias, loopback admin shares (`C$`, `ADMIN$`), any archive share not named `nipt-staging-*` |
+| Staging fails closed when its identity/configuration is missing | **PASS** | missing stamp → service exits; stamp/config mismatch → supervisor refuses; boundary half-configured → refused |
+| Staging outbound firewall block | **BLOCKED (security)** | `provision-identities.ps1 -Environment staging` needs an elevated prompt (owner / IT) |
+| Dedicated Windows identities and NTFS ACLs | **BLOCKED (security)** | same script, elevated; needs installed roots |
+| Staging cannot read Production secrets | **BLOCKED** | ACL deny for `nipt-stg-svc`, applied by the elevated script |
+| Reset Staging leaves Production unchanged | **BLOCKED** | `test-isolation.ps1 -IncludeReset` needs both environments installed |
 
-## Deployment
+## Configuration and network (Phase 7)
 
-| Requirement | Status | Evidence / remaining |
+| Item | Status | Evidence / required action |
 |---|---|---|
-| Staging builds and deploys | **BLOCKED** | npm, PowerShell 7, Chromium and the approved assets are missing (E6) |
-| Production build reproducible from the verified build | **PARTIAL** | Gate requires an equal release-payload digest (E1); not yet exercised on a real build |
-| One-command Production deploy, no EXE | **PARTIAL** | `deploy-production.ps1` implemented; gate logic tested (E1); not executed |
-| Failed deployment keeps the previous release | **PARTIAL** | Existing engine behaviour (auto-rollback on health failure, old release kept on migration failure), covered by the existing installer tests; not executed here |
-| Compatible application rollback | **PARTIAL** | `rollback-production.ps1` uses the engine's schema-compatibility gate; not executed |
-| Reboot restores services | **BLOCKED** | needs installed environments; supervisor task moves to system startup in `provision-identities.ps1` |
-| Deployment records (revision, release, time, outcome) | **PARTIAL** | `history\<env>\<run>\record.json` + `deployments.jsonl` written by every run; not yet produced by a real deployment |
+| Separate ports/roots/instances/keys/accounts | **PASS** | gate refuses any shared value (tests); preflight confirms the live definitions |
+| Production bootstrap identities | **BLOCKED (owner)** | the template ships empty; Production refuses empty or placeholder names (`PRODUCTION_BOOTSTRAP_IDENTITY_REQUIRED`). Staging is not affected |
+| Workflow UAT cannot be bypassed by omission | **PASS** | required unless `requireStagingJourney: false` is set explicitly (tests) |
+| DNS for `nipt-cbh` | **BLOCKED (hospital IT)** | the configured hospital DNS server did not answer (timeout); the hotspot DNS has no record. The Wi-Fi address seen earlier was this server answering its own name from its hotspot adapter. Hospital DNS needs an A record `nipt-cbh` → the server's hospital LAN address only |
+| Network | **BLOCKED (hospital IT)** | the server is dual-homed: the hospital LAN plus a phone hotspot with its own default gateway. Both are profile **Public**, so the Production HTTPS rule (Domain/Private) would not admit LAN clients |
+| Trusted TLS | **BLOCKED (hospital IT)** | needs a certificate for `nipt-cbh` issued or trusted by hospital IT; the self-signed engine certificate is not acceptance |
 
-## Application (on Staging)
+## Clinical assets (Phase 4)
 
-Login/RBAC, ANC and LAB registration, Task List, workbook generation, pooling, HALOS/NIFTY export, PDF generation,
-worker operations, HIS simulator and archive simulation are all **BLOCKED** until Staging is installed. They are then
-covered by `reset-staging.ps1 -Seed` (the existing 45-patient installed journey) plus staff browser UAT. The journey does
-not cover EQA, Twin, No Call/repeat or worker-failure recovery; those need separate staff UAT scenarios.
+`NIPT-CBH-HOME-BACKUP` is **not attached**. Only C: and D: exist, and a search of both found none of its folders
+(`lab-owner-evidence`, `task3-sources`, `approved`, `forms`, `Parity-Source`, `Migration-Source`). A SHA-256 search of every
+workbook (19) and document (16) on both drives found no pinned file.
 
-## Database
+| Asset | Pinned SHA-256 (repository) | Destination | Status |
+|---|---|---|---|
+| Combined Excel Master (includes the HALOS / NIFTY / Pooling sheets) | `4c5300f9…c7f1` (`packages/workbook/master-manifest.json`) | `C:\NIPT-CBH\assets\approved-master.xlsx` | **BLOCKED (owner)** |
+| Singleton DOCX FM-WI-T-BM-17-07 | `a56be6e4…9117` (`packages/readygen/interpretation.ts`) | application template registry | **BLOCKED (owner)** |
+| Twin DOCX FM-WI-T-BM-17-08 | `0f731321…ddd1bf3` (same file) | application template registry | **BLOCKED (owner)** |
+| ANC Request PDF (BM17) | `c5b2bfce…511b` (`tools/win-installer/form-assets.mjs`) | `C:\NIPT-CBH\assets\forms\request.pdf` | **PASS**: staged, hash re-verified, administrator-only ACL |
+| ANC Consent PDF (BM17) | `dc791bb8…3f0332` (same file) | `C:\NIPT-CBH\assets\forms\consent.pdf` | **PASS**: staged, hash re-verified, administrator-only ACL |
+| Forms registry | generated from the pinned hashes at build time (`bundledFormRegistry`) | inside each release | **PASS** (no file to supply) |
 
-| Requirement | Status | Evidence / remaining |
+The two ANC PDFs came from an earlier build folder on this host, not from the owner's backup. They are byte-identical to the
+pinned originals (SHA-256). The owner may replace them from the backup, and preflight re-verifies either way.
+
+## Preflight and Staging installation (Phase 8)
+
+| Item | Status | Evidence |
 |---|---|---|
-| Migration checksums | **PARTIAL** | Unchanged forward-only ledger; Production gate requires the same checksum to have run on Staging (E1); `nipt-admin schema` reports compatibility. Not executed on an installed database |
-| Role privileges | **BLOCKED** | engine `health` checks `rolesRestricted`; needs installation |
-| Destructive migrations never automatic | **PASS** | E1: destructive SQL detected and refused without `-AllowDestructiveMigration` |
-| Backup / restore rehearsal | **BLOCKED** | engine `dr-drill`; needs installation |
-| Failed-migration handling | **PARTIAL** | existing engine behaviour; not executed here |
+| `preflight.ps1` on this host | **PARTIAL** | 17 PASS, 11 WARN, 2 BLOCKED: Combined Master (blocks Staging), bootstrap identities (Production only) |
+| Staging installation | **BLOCKED (owner)** | the engine and `build-package` both refuse to run without the hash-pinned Combined Master; not bypassed |
+| Production | **not started** | by design |
 
-## Not verified on this host
+## Remaining blockers and owners
 
-`npm run typecheck`, `lint`, `test` (vitest) and `next build` could not run (no npm). The TypeScript changes are
-unverified by the compiler: the boundary import in `authorized-share.ts` and `archive-core.ts`, and the new route
-`src/app/api/admin/deployment/route.ts`. CI (`foundation.yml`) runs all of them, plus the new `tests/deploy/*.node.mjs`,
-on the next push.
-
-## Blockers (from E6)
-
-1. **Combined Excel Master** missing (pinned `4c5300f9…`, `packages/workbook/master-manifest.json`). Not found anywhere
-   on this machine. Supply it from `NIPT-CBH-HOME-BACKUP`. Install is refused without it.
-2. **ANC Request/Consent PDFs** are not yet in `C:\NIPT-CBH\assets\forms`. Hash-matching copies exist in an earlier
-   Codex work folder on this host, but should be copied from the owner's backup.
-3. **Node 24 + npm, PowerShell 7, Chromium headless shell** are not installed for builds (README §1).
-4. **Production bootstrap identities** are still placeholders in `production.json`.
-5. **Elevation** is needed for `provision-identities.ps1`, firewall rules and certificate trust.
-6. **Trusted TLS** for `https://nipt-cbh` needs a hospital certificate or IT trust deployment.
-7. **Word automation** does not complete when started hidden (E8). Sign in as the account that will run the Excel/Word
-   bridge, open Word once, clear any first-run, activation or privacy dialog, then run `nipt.cmd office-check` after
-   installation. Signed result PDFs depend on this.
-8. **DNS**: `nipt-cbh` currently also resolves to the Wi-Fi hotspot address on this host. Hospital DNS should map it to
-   the server's LAN address only.
-
-## Findings for the owner / IT
-
-- The GitHub repository is **public**. Templates contain no credentials, IP addresses or share paths; live configuration
-  stays on the server. Make the repository private before committing internal deployment configuration.
-- A PostgreSQL 17 Windows service outside NIPT-CBH listens on **all interfaces on port 5433**. NIPT environments do not
-  use it. Restrict it to loopback or retire it with IT. It was not changed.
-- Running Staging deploys/resets under dedicated identities requires an elevated prompt, because verifying another
-  account's processes needs it. The scripts refuse up front rather than failing half-way.
+1. **Owner:** attach `NIPT-CBH-HOME-BACKUP` (Combined Master, Singleton/Twin DOCX, task3 sources, lab-owner evidence).
+   Then: copy the master to `C:\NIPT-CBH\assets\approved-master.xlsx`, run `preflight.ps1`, `deploy-staging.ps1`,
+   `npm run test:owner-assets`, and `office-check` with `--report-master` / `--excel-workbook`.
+2. **Owner/IT, elevated prompt:** after the Staging install, `provision-identities.ps1 -Environment staging`, then
+   `test-isolation.ps1` until it reports PASS.
+3. **Owner:** real APP_ADMIN and CLINICAL_APPROVER identities in `production.json` (Production only).
+4. **Hospital IT:** a DNS A record for `nipt-cbh`; remove the hotspot route from the server; set the hospital network
+   category to Domain/Private; a trusted certificate for `nipt-cbh`; confirm the KMS host and the default printer.
+5. **Owner/IT:** the unrelated PostgreSQL service on `0.0.0.0:5433` is still exposed on all interfaces (not changed here).
+6. **Owner:** the repository is public; make it private before committing any internal deployment configuration.

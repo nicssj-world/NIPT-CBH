@@ -99,17 +99,19 @@ export function environmentVariables(c,root){
   ...(c.environment==='staging'?{NIPT_HIS_SHARE_POLICY_ENFORCE:'1'}:{})};
 }
 
+// Windows path rules explicitly (identical to `path` on Windows, where the installer runs), so the same decisions are tested on Linux CI.
 export function assertSafeRoot(root,packageDir){
- const r=path.resolve(root);
- need(path.parse(r).root!==r,'INSTALL_ROOT_IS_DRIVE_ROOT');
+ const w=path.win32;
+ const r=w.resolve(root);
+ need(w.parse(r).root!==r,'INSTALL_ROOT_IS_DRIVE_ROOT');
  need(r.length>=8,'INSTALL_ROOT_TOO_SHORT');
  // initdb/postgres.exe start child processes through ANSI Windows APIs: a root that the system code page cannot represent (e.g. Thai on a
  // Western code page) makes them look for a path full of '?'. Found by the rehearsal. Data folders handled by Node (photos, backups, shares) may be Thai.
  need(/^[ -~]+$/.test(r),'INSTALL_ROOT_MUST_BE_ASCII');
- const rel=path.relative(path.resolve(packageDir),r);
- need(rel.startsWith('..')||path.isAbsolute(rel),'INSTALL_ROOT_INSIDE_PACKAGE');
- const rel2=path.relative(r,path.resolve(packageDir));
- need(rel2.startsWith('..')||path.isAbsolute(rel2),'PACKAGE_INSIDE_INSTALL_ROOT');
+ const rel=w.relative(w.resolve(packageDir),r);
+ need(rel.startsWith('..')||w.isAbsolute(rel),'INSTALL_ROOT_INSIDE_PACKAGE');
+ const rel2=w.relative(r,w.resolve(packageDir));
+ need(rel2.startsWith('..')||w.isAbsolute(rel2),'PACKAGE_INSIDE_INSTALL_ROOT');
  return r;
  function need(ok,code){if(!ok)throw Error(code);}
 }

@@ -61,8 +61,8 @@ describe('configuration and install root',()=>{
   expect(()=>assertSafeRoot('D:\\pkg\\root','D:\\pkg')).toThrow('INSTALL_ROOT_INSIDE_PACKAGE');
   expect(()=>assertSafeRoot('D:\\install-root','D:\\install-root\\pkg')).toThrow('PACKAGE_INSIDE_INSTALL_ROOT');
   expect(()=>assertSafeRoot('D:\\โรงพยาบาล\\NIPT','D:\\media\\pkg')).toThrow('INSTALL_ROOT_MUST_BE_ASCII'); // PostgreSQL on Windows cannot start from it
-  expect(assertSafeRoot('D:\\NIPT-CBH','D:\\media\\pkg')).toBe(path.resolve('D:\\NIPT-CBH'));
-  expect(assertSafeRoot('D:\\Program Files\\NIPT CBH','D:\\media\\pkg')).toBe(path.resolve('D:\\Program Files\\NIPT CBH')); // spaces are fine
+  expect(assertSafeRoot('D:\\NIPT-CBH','D:\\media\\pkg')).toBe(path.win32.resolve('D:\\NIPT-CBH'));
+  expect(assertSafeRoot('D:\\Program Files\\NIPT CBH','D:\\media\\pkg')).toBe(path.win32.resolve('D:\\Program Files\\NIPT CBH')); // spaces are fine
  });
  it('derives every owned path from one root',()=>{
   const L=layout('D:\\NIPT-CBH');

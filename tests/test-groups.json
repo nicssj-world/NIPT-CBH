@@ -1,0 +1,49 @@
+{
+  "about": "Test files that cannot run in the default `npm test`, and the command for each group. Nothing is skipped silently: each group's command fails (not skips) when its prerequisite is missing. tests/unit/test-groups.test.ts keeps these lists exact (every entry exists, no overlap).",
+  "ownerAssets": {
+    "command": "npm run test:owner-assets",
+    "requires": "the owner's private clinical files (.local/lab-owner-evidence, .local/task3-sources and the owner's originals) from NIPT-CBH-HOME-BACKUP; they never enter Git",
+    "files": [
+      "tests/contracts/archive-clinical-native.test.ts",
+      "tests/contracts/lab-owner-nifty.test.ts",
+      "tests/contracts/lab-owner-pooling.test.ts",
+      "tests/contracts/lab-owner-task-import.test.ts",
+      "tests/contracts/owner-lab-054-signers-native.test.ts",
+      "tests/contracts/readygen-enrich-parity.test.ts",
+      "tests/contracts/task3-golden.test.ts",
+      "tests/contracts/task3-identity-sources.test.ts",
+      "tests/contracts/task3-native-concurrency.test.ts",
+      "tests/contracts/task3-native-no-call.test.ts",
+      "tests/contracts/task3-native-pathway.test.ts",
+      "tests/contracts/task3-native-pg.test.ts",
+      "tests/contracts/task3-negatives.test.ts",
+      "tests/contracts/task3-real-sources.test.ts",
+      "tests/contracts/task3-reconciliation.test.ts",
+      "tests/contracts/task3-template-registry-native.test.ts",
+      "tests/contracts/workbook-pooling-alerts.test.ts",
+      "tests/db/lab-owner-bench.test.ts",
+      "tests/db/lab-owner-qc-release.test.ts",
+      "tests/db/lab-repeat-export.test.ts",
+      "tests/db/owner-lab-report-templates.test.ts",
+      "tests/db/task1-failure-no-call.test.ts",
+      "tests/db/task3-fallback-package.test.ts",
+      "tests/db/task3-halos-import.test.ts",
+      "tests/unit/task1-exceptional-highlight.test.ts"
+    ]
+  },
+  "windowsNative": {
+    "command": "npm run test:windows-native",
+    "requires": "Windows with the PostgreSQL 17 client binaries (pg_dump.exe / pg_restore.exe) in C:/Program Files/PostgreSQL/17 or C:/Program Files/pgsql; it fails, never skips, when they are absent",
+    "files": [
+      "tests/contracts/archive-backup-restore-native.test.ts"
+    ]
+  },
+  "afterBuild": {
+    "command": "npm run build && npm run test:after-build",
+    "requires": "the Next standalone output (.next/standalone)",
+    "files": [
+      "tests/unit/standalone-safe-artifacts.test.ts",
+      "tests/contracts/archive-admin-browser-native.test.ts"
+    ]
+  }
+}

@@ -109,6 +109,15 @@ and health commands from an **elevated** prompt (the scripts refuse otherwise, b
 .\deploy\test-isolation.ps1
 ```
 
+`test-isolation.ps1` exits 0 only when every check ran and passed, 2 (INCOMPLETE) when a check could not run (for example
+no egress firewall rule or service identity yet: each is an open security blocker), and 1 on a failure.
+
+The owner-asset tests run only where the private clinical files are present (`.local\lab-owner-evidence`,
+`.local\task3-sources`, from `NIPT-CBH-HOME-BACKUP`): `npm run test:owner-assets` in the source checkout. A missing file
+fails the run. `npm test` excludes them, and CI never has them. On this Windows server also run
+`npm run test:windows-native` (native `pg_dump.exe`/`pg_restore.exe` disaster-recovery test). The groups are listed in
+`tests/test-groups.json`.
+
 `reset-staging` recreates only the Staging database, after checking configuration, stamp, profile and the database's own
 marker, and sets the previous synthetic files aside under `staging\backups\reset-<time>`. `-Seed` runs the existing
 installed synthetic journey: 45 test patients through simulated HIS PET files, Request/Consent, Lab Run, Pooling,
