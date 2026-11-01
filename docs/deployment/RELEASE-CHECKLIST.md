@@ -126,7 +126,10 @@ pinned originals (SHA-256). The owner may replace them from the backup, and pref
 | Item | Status | Evidence |
 |---|---|---|
 | `preflight.ps1` on this host | **PARTIAL** | 17 PASS, 11 WARN, 2 BLOCKED: Combined Master (blocks Staging), bootstrap identities (Production only) |
-| Staging installation | **BLOCKED (owner)** | the engine and `build-package` both refuse to run without the hash-pinned Combined Master; not bypassed |
+| `deploy-staging.ps1` up to the asset gate | **PASS** | it resolved HEAD to `36ee288`, read app version 1.1.2 from that commit, produced release `1.1.2-d20261101040048.36ee288`, created the clean worktree, verified both ANC PDFs, then **stopped before building** with `MASTER_WORKBOOK_MISSING` and the pinned hash, recording the failure in `deploy\history\staging\…\record.json` |
+| Build pipeline (the deploy module's own steps, clean worktree `36ee288`) | **PASS** | npm ci 48 s, deploy contracts, typecheck, lint, test:unit, guard: all exit 0; `build-package.ts` test profile with the Staging key: **24,294 files**, runtime included (Node, PostgreSQL, Chromium, PowerShell 7), 89 migrations; `nipt-admin verify-package` with the Staging public key: **signature OK**. This was packaging proof only (master omitted), not installed |
+| Signing keys | **PASS** | Staging Ed25519 key created on first use; `deploy\keys\staging\` readable only by Administrators, SYSTEM and the owner |
+| Staging installation | **BLOCKED (owner)** | the engine refuses to install without the hash-pinned Combined Master; not bypassed |
 | Production | **not started** | by design |
 
 ## Remaining blockers and owners
