@@ -10,6 +10,31 @@ executed on this host or in GitHub Actions, or names what blocks it.
 Branch `feat/dual-environment-deploy` (draft PR #13). Basis: `main` @ `1ad1f340` (v1.1.2). v1.1.3 and Parity are not
 included. Production has not been installed or touched.
 
+## Production installation (2026-11-01, commit `a45797f`)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Release identity | **PASS** | `1.1.2-d20261101141135.a45797f`, commit `a45797fbe038816f3f4b56ca21348e5c7ccb0e78` on `origin/main` (PR #13 merged 14:34 UTC) |
+| Staging evidence for the exact commit | **PASS** | `history\staging\verified\a45797f…json`: synthetic workflow passed, payload digest `c122a155…`; isolation 0 failed (3 need Production) |
+| Production gate | **PASS** | 90 migrations, all rehearsed on Staging; approver and change reference recorded; typed confirmation |
+| Install | **PASS** | `C:\NIPT-CBH\production`, status `INSTALLED_NOT_ACCEPTED` (not clinically accepted); private PostgreSQL 127.0.0.1:55432 |
+| Single APP_ADMIN | **PASS** | one account `admin` (one-time password, change at first sign-in); `POST /api/auth/login` over `https://192.168.72.194` → 200 with session |
+| Health | **PASS** | `ok=true, failed=[]`: supervisor (service identity), PostgreSQL, worker heartbeat, web, renderer, HTTPS, migrations, audit chain, roles, Excel bridge |
+| Service identity | **PASS** | services run as `nipt-prd-svc`, startup task at system startup; root ACL without Users/Everyone; Staging identity denied |
+| LAN / HTTPS | **PASS (local)** | HTTPS bound to 192.168.72.194:443 only; firewall inbound 443 from 192.168.0.0/16, Private profile (Ethernet Private, Wi-Fi Public). Self-signed certificate with the IP in its SAN: browsers warn until hospital IT issues a trusted one. Access from another LAN workstation: **pending (owner)** |
+| NAS backup | **PASS** | `\\<nas>\…\NIPT-CBH-system-backup`: credential only in the service identity's Credential Manager; write/read/remove as the service identity; daily 02:00, keep 30, as the service identity without logon; 2 backups, `CHECKSUM_VERIFIED` |
+| Restore | **PASS** | restore of the NAS backup by the service identity into a new database and folder: `restoreVerified=true`, 173 tables, 2 files (both removed afterwards) |
+| Windows restart recovery | **PENDING** | controlled restart (also activates the 16–32 GB pagefile), then verify Production starts without logon |
+| Excel bridge | **PASS (interactive)** | runs in the signed-in owner session; Task List PDFs need that session; no unattended 24/7 Excel claim |
+| Clinical Go-Live / HIS | **NOT AUTHORIZED** | HIS/NAS clinical processing not enabled |
+| Historical migration | **NOT STARTED** | |
+
+Defects found and fixed during the installation (none in the clinical release payload): PowerShell 5.1 `Get-Content` strings
+exploded the gate payload (6.7 GB, `9e0f715`); the HTTPS health probe ignored the bound address (`c4bac51`); dr-drill refused
+in an operator session by design, so restore verification rides on the service identity's scheduled backup (`eaea212`). The
+installed engine (`admin\nipt-admin.mjs`) carries these two engine fixes; the original is kept beside it and the change is
+logged in `history\production\engine-patches.log`.
+
 ## Single APP_ADMIN + Reported By / Approved By (owner decision 2026-11-01)
 
 Production starts with **one** application account, APP_ADMIN (`production.json` `bootstrap.adminUser`/`adminName`); the
