@@ -5,8 +5,8 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    # npm test alone takes ~20 minutes (measured 2026-11-01); 25 minutes cancelled the job before the build ran
-    timeout-minutes: 50
+    # measured 2026-11-01: npm test ~25 min, the Playwright E2E step ~28 min; 25 and then 50 minutes cancelled the job before it finished
+    timeout-minutes: 90
     services:
       postgres:
         image: postgres:17
