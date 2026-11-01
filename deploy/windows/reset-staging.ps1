@@ -26,6 +26,7 @@ try {
   $cfg = $envs.staging
   if (-not (Test-NiptInstalled $cfg)) { throw 'STAGING_NOT_INSTALLED' }
   Assert-NiptCanVerifyServices $cfg
+  Assert-NiptStagingStarted $cfg
   # belt and braces before the engine's own checks: never a path or port of Production
   if ($cfg.root -eq $envs.production.root -or $cfg.ports.postgres -eq $envs.production.ports.postgres) { throw 'STAGING_DEFINITION_POINTS_AT_PRODUCTION' }
   $status = Invoke-NiptAdmin $cfg 'status' -Quiet

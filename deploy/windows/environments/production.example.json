@@ -20,6 +20,5 @@
     "checkerName": ""
   },
   "releaseBranch": "origin/main",
-  "stagingVerifiedMaxAgeDays": 14,
-  "requireStagingJourney": true
+  "stagingVerifiedMaxAgeDays": 14
 }

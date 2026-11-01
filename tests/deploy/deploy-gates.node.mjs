@@ -41,6 +41,7 @@ test('profile, Excel and Production bootstrap rules are enforced per environment
  assert.equal(validateEnvironmentPair(staging,{...production,bootstrap:real},P).ok,true);
  assert.throws(()=>validateEnvironmentPair(staging,production,{purpose:'uat'}),code(/ENVIRONMENT_PURPOSE_INVALID/));
  assert.throws(()=>validateEnvironment({...staging,format:'x'},'staging'),code(/ENVIRONMENT_FORMAT_INVALID/));
+ assert.throws(()=>validateEnvironment({...production,requireStagingJourney:false},'production'),code(/PRODUCTION_STAGING_UAT_CANNOT_BE_DISABLED/));
  assert.equal(staging.format,ENVIRONMENT_FORMAT);
 });
 
@@ -115,9 +116,13 @@ test('Production stays blocked until Staging has been installed AND has passed t
  assert.ok(codes(gate({verified:{...verified,journey:null}})).includes('STAGING_WORKFLOW_UAT_NOT_PASSED'));
  // a journey recorded for a different commit does not count
  assert.ok(codes(gate({verified:{...verified,journey:{passed:true,commit:'b'.repeat(40)}}})).includes('STAGING_WORKFLOW_UAT_NOT_PASSED'));
- // the requirement cannot disappear by omission: only an explicit false opts out
+ // the requirement cannot be switched off: neither by omission nor by an explicit false
  assert.ok(codes(gate({verified:{...verified,journey:null},requireJourney:undefined})).includes('STAGING_WORKFLOW_UAT_NOT_PASSED'));
- assert.equal(gate({verified:{...verified,journey:null},requireJourney:false}).ok,true);
+ assert.ok(codes(gate({verified:{...verified,journey:null},requireJourney:false})).includes('STAGING_WORKFLOW_UAT_NOT_PASSED'));
+});
+
+test('a release verified on Staging stays promotable while Staging is stopped (live Staging state is not a gate input)',()=>{
+ for(const stagingState of ['STOPPED','RUNNING',undefined])assert.equal(gate({stagingState,stagingRunning:false}).ok,true,String(stagingState));
 });
 
 test('first Production install lists every migration as pending',()=>{

@@ -43,6 +43,8 @@ export function validateEnvironment(e,name,{purpose='staging'}={}){
   }
   need(typeof e.releaseBranch==='string'&&/^[A-Za-z0-9._/-]+$/.test(e.releaseBranch),'PRODUCTION_RELEASE_BRANCH_REQUIRED');
   need(Number.isInteger(e.stagingVerifiedMaxAgeDays)&&e.stagingVerifiedMaxAgeDays>=1&&e.stagingVerifiedMaxAgeDays<=90,'PRODUCTION_VERIFIED_AGE_INVALID');
+  // the Staging workflow UAT is not configurable; an old definition that tries to switch it off is refused, not ignored
+  need(e.requireStagingJourney===undefined||e.requireStagingJourney===true,'PRODUCTION_STAGING_UAT_CANNOT_BE_DISABLED');
  }
  for(const k of ['signingKey','masterWorkbook','ancRequestPdf','ancConsentPdf'])need(typeof e[k]==='string'&&path.win32.isAbsolute(e[k]),'ENVIRONMENT_'+k.toUpperCase()+'_PATH_REQUIRED');
  // build-package derives the public key by replacing the FIRST 'private' in the whole path: it must occur in the file name only
@@ -99,8 +101,9 @@ export function productionGate(i){
   add(v.schema?.ok===true,'STAGING_SCHEMA_NOT_CURRENT');
   const age=(Date.parse(i.now)-Date.parse(v.verifiedAt))/86400000;
   add(Number.isFinite(age)&&age>=0&&age<=i.maxAgeDays,'STAGING_VERIFICATION_TOO_OLD',{ageDays:Math.round(age*10)/10,maxAgeDays:i.maxAgeDays});
-  // workflow UAT is required unless the Production definition explicitly opts out (absent = required, never fail-open)
-  if(i.requireJourney!==false)add(v.journey?.passed===true&&v.journey?.commit===i.commit,'STAGING_WORKFLOW_UAT_NOT_PASSED');
+  // the synthetic clinical workflow UAT of this exact commit is mandatory: no configuration value can switch it off (owner decision)
+  add(v.journey?.passed===true&&v.journey?.commit===i.commit,'STAGING_WORKFLOW_UAT_NOT_PASSED');
+  // Staging's live state is never an input: a release verified earlier stays verified while Staging is stopped (on-demand Staging)
   add(v.payloadDigest===i.payloadDigest,'PRODUCTION_PAYLOAD_DIFFERS_FROM_STAGING_VERIFIED',{verified:v.payloadDigest,production:i.payloadDigest});
   add(v.migrationsSha256===i.release?.migrationsSha256,'PRODUCTION_MIGRATIONS_DIFFER_FROM_STAGING');
  }

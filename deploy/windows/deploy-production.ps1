@@ -73,7 +73,7 @@ try {
   }
   $gate = Invoke-NiptGate 'production-gate' $tc @{
     verified = $verified; commit = $Commit; now = (Get-Date).ToUniversalTime().ToString('o'); maxAgeDays = $cfg.stagingVerifiedMaxAgeDays
-    requireJourney = -not ($cfg.PSObject.Properties['requireStagingJourney'] -and $cfg.requireStagingJourney -eq $false); payloadDigest = $pkg.payloadDigest; release = @{ migrationsSha256 = $pkg.migrationsSha256; migrations = $pkg.migrations }
+    payloadDigest = $pkg.payloadDigest; release = @{ migrationsSha256 = $pkg.migrationsSha256; migrations = $pkg.migrations }
     onReleaseBranch = $onBranch; approvedBy = $ApprovedBy; changeReference = $ChangeReference; confirmation = $Confirmation
     productionLedger = $ledger; pendingSql = $pendingSql; allowDestructive = $AllowDestructiveMigration
   }

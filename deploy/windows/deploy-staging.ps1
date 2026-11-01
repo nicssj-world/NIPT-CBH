@@ -32,6 +32,7 @@ try {
   $envs = Read-NiptEnvironments $tc
   $cfg = $envs.staging; $other = $envs.production
   Assert-NiptCanVerifyServices $cfg
+  Assert-NiptStagingStarted $cfg
 
   $commit = Resolve-NiptCommit $tc $Ref
   $detail.ref = $Ref; $detail.commit = $commit

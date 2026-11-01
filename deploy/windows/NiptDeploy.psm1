@@ -332,4 +332,67 @@ function Get-NiptEnvironmentReport($EnvCfg, [switch]$Quiet) {
   [pscustomobject]@{ environment = $EnvCfg.environment; installed = $true; ok = ($failed.Count -eq 0); failed = $failed; status = $status; health = $health; schema = $schema; stamp = $stamp }
 }
 
+# ───────────── on-demand Staging lifecycle ─────────────
+<# The operator's intent for Staging (STOPPED / RUNNING), kept outside the engine root so an intentional stop is never an incident. #>
+function Get-NiptLifecycleFile { Join-Path (Get-NiptHistoryDir 'staging') 'lifecycle.json' }
+function Get-NiptStagingIntent {
+  $f = Get-NiptLifecycleFile
+  if (Test-Path -LiteralPath $f) { return Read-NiptJson $f }
+  [pscustomobject]@{ state = 'UNKNOWN'; at = $null; by = $null }
+}
+function Set-NiptStagingIntent([ValidateSet('RUNNING', 'STOPPED')][string]$State, [string]$Reason) {
+  $v = [ordered]@{ format = 'NIPT_STAGING_LIFECYCLE_V1'; state = $State; at = (Get-Date).ToString('o'); by = "$env:USERDOMAIN\$env:USERNAME"; reason = $Reason }
+  Write-NiptJson $v (Get-NiptLifecycleFile)
+  Add-NiptJsonLine $v (Join-Path (Get-NiptHistoryDir 'staging') 'lifecycle.jsonl')
+}
+
+<# Windows memory, measured: physical and commit (RAM + pagefile). Commit is what ran out when Staging's PostgreSQL was killed (0xC000012D). #>
+function Get-NiptMemory {
+  $os = Get-CimInstance Win32_OperatingSystem
+  $limit = $os.TotalVirtualMemorySize * 1KB; $free = $os.FreeVirtualMemory * 1KB
+  [pscustomobject]@{ physicalTotalGB = [math]::Round($os.TotalVisibleMemorySize * 1KB / 1GB, 2); physicalFreeGB = [math]::Round($os.FreePhysicalMemory * 1KB / 1GB, 2)
+    commitLimitGB = [math]::Round($limit / 1GB, 2); commitUsedGB = [math]::Round(($limit - $free) / 1GB, 2); commitFreeGB = [math]::Round($free / 1GB, 2)
+    pagefileMB = [int](@(Get-CimInstance Win32_PageFileUsage | ForEach-Object AllocatedBaseSize) | Measure-Object -Sum).Sum }
+}
+
+<# Processes that belong to one environment: started from its own runtime folder (node, postgres, pwsh of the bridge). Never anything else. #>
+function Get-NiptOwnedProcesses($EnvCfg) {
+  $runtime = (Join-Path $EnvCfg.root 'runtime').ToLowerInvariant() + '\'
+  @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.ToLowerInvariant().StartsWith($runtime) } | ForEach-Object {
+      $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
+      [pscustomobject]@{ pid = $_.ProcessId; name = $_.Name; privateMB = $(if ($p) { [int]($p.PrivateMemorySize64 / 1MB) } else { 0 }) } })
+}
+
+function Get-NiptTaskNames($EnvCfg) { [pscustomobject]@{ supervisor = "nipt-cbh-$($EnvCfg.instance)"; bridge = "nipt-cbh-$($EnvCfg.instance)-excel-bridge" } }
+function Get-NiptBridgeState($EnvCfg) {
+  $f = Join-Path $EnvCfg.root 'data\excel-spool\bridge-status.json'
+  try { $s = Read-NiptJson $f; $age = ((Get-Date).ToUniversalTime() - [datetime]::Parse($s.updatedAt).ToUniversalTime()).TotalSeconds
+    [pscustomobject]@{ state = $s.state; pid = $s.pid; ageSeconds = [int]$age; alive = (($s.state -eq 'idle' -and $age -lt 10) -or ($s.state -eq 'processing' -and $age -lt 240)) } }
+  catch { [pscustomobject]@{ state = 'NOT_RUNNING'; pid = $null; ageSeconds = $null; alive = $false } }
+}
+
+<# Jobs the Staging queue still holds (read-only; PostgreSQL must be running). #>
+function Get-NiptQueueBacklog($EnvCfg) {
+  $cfg = Read-NiptJson (Join-Path $EnvCfg.root 'config\nipt.json')
+  $sql = "SELECT state||'|'||count(*) FROM pgboss.job WHERE state IN ('created','retry','active') GROUP BY state"
+  $r = Invoke-NiptProcess -File (Join-Path $EnvCfg.root 'runtime\pg\bin\psql.exe') -Arguments @('-h', '127.0.0.1', '-p', "$($cfg.ports.postgres)", '-U', 'nipt_migrator', '-d', $cfg.database, '-X', '-A', '-t', '-w', '-c', $sql) -Environment @{ PGPASSWORD = (Get-Content -LiteralPath (Join-Path $EnvCfg.root 'secrets\db-password') -Raw).Trim(); PGCONNECT_TIMEOUT = '5' } -Quiet
+  if ($r.ExitCode -ne 0) { return $null }
+  $o = [ordered]@{ created = 0; retry = 0; active = 0 }
+  foreach ($line in ($r.StdOut -split "`r?`n" | Where-Object { $_ })) { $k, $n = $line.Split('|'); $o[$k] = [int]$n }
+  [pscustomobject]$o
+}
+
+<# Isolation layers that only an elevated provisioning creates: dedicated identity and the Staging egress block. #>
+function Get-NiptIsolationReadiness($EnvCfg) {
+  $identity = Test-Path -LiteralPath (Join-Path $EnvCfg.root 'config\service-identity.json')
+  $rules = @(Get-NetFirewallRule -DisplayName 'NIPT-CBH Staging egress block*' -ErrorAction SilentlyContinue | Where-Object { $_.Enabled -eq 'True' -and $_.Action -eq 'Block' -and $_.Direction -eq 'Outbound' })
+  $missing = @(); if (-not $identity) { $missing += 'SERVICE_IDENTITY' }; if (-not $rules.Count) { $missing += 'EGRESS_FIREWALL_RULE' }
+  [pscustomobject]@{ ready = ($missing.Count -eq 0); missing = $missing; egressRules = $rules.Count; serviceIdentity = $identity }
+}
+
+<# On-demand Staging: an operation that needs the running services refuses on a stopped Staging instead of silently starting it. #>
+function Assert-NiptStagingStarted($EnvCfg) {
+  if ((Test-NiptInstalled $EnvCfg) -and -not (Get-NiptOwnedProcesses $EnvCfg).Count) { throw 'STAGING_STOPPED: start it first with .\deploy\start-staging.ps1 (on-demand Staging is never started implicitly)' }
+}
+
 Export-ModuleMember -Function *-Nipt*

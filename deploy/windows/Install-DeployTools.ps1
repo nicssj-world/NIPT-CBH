@@ -23,7 +23,7 @@ foreach ($d in @($NiptHome, (Join-Path $NiptHome 'source'), (Join-Path $NiptHome
 & icacls.exe $deploy /inheritance:r /grant:r "$($env:USERDOMAIN)\$($env:USERNAME):(OI)(CI)F" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
 & icacls.exe (Join-Path $NiptHome 'assets') /inheritance:r /grant:r "$($env:USERDOMAIN)\$($env:USERNAME):(OI)(CI)F" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
 
-$tools = @('NiptDeploy.psm1', 'deploy-gates.mjs', 'deploy-staging.ps1', 'deploy-production.ps1', 'rollback-production.ps1', 'health-check.ps1', 'preflight.ps1', 'reset-staging.ps1', 'test-isolation.ps1', 'provision-identities.ps1')
+$tools = @('NiptDeploy.psm1', 'deploy-gates.mjs', 'deploy-staging.ps1', 'deploy-production.ps1', 'rollback-production.ps1', 'health-check.ps1', 'preflight.ps1', 'reset-staging.ps1', 'test-isolation.ps1', 'provision-identities.ps1', 'start-staging.ps1', 'stop-staging.ps1', 'staging-status.ps1')
 foreach ($f in $tools) { Copy-Item -LiteralPath (Join-Path $here $f) -Destination (Join-Path $deploy $f) -Force }
 foreach ($pair in @(@('environments\staging.example.json', 'environments\staging.json'), @('environments\production.example.json', 'environments\production.json'), @('toolchain.example.json', 'toolchain.json'))) {
   $target = Join-Path $deploy $pair[1]
