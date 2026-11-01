@@ -119,10 +119,13 @@ if ($envs -and $tc) {
       Test-Check $n 'tls' { Add-Check $n 'tls' 'WARN' 'the engine generates a self-signed certificate; trusted hospital TLS needs a certificate from hospital IT (see README-DEPLOYMENT.md)' }
       Test-Check $n 'lan-network-profile' {
         # the engine's inbound HTTPS rule is scoped to the Domain and Private profiles; on a Public network it does not apply
-        $lan = @(Get-NetIPConfiguration -ErrorAction SilentlyContinue | Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' })
-        $rows = @($lan | ForEach-Object { "$($_.InterfaceAlias)=$($_.IPv4Address.IPAddress) [$($_.NetProfile.NetworkCategory)]" })
+        # Get-NetIPConfiguration can hang indefinitely on this host (seen 2026-11-01); these three cmdlets answer in under a second
+        $routes = @(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue)
+        $profiles = @{}; foreach ($pr in @(Get-NetConnectionProfile -ErrorAction SilentlyContinue)) { $profiles[$pr.InterfaceAlias] = [string]$pr.NetworkCategory }
+        $lan = @($routes | ForEach-Object { $a = $_.InterfaceAlias; [pscustomobject]@{ InterfaceAlias = $a; ip = (@(Get-NetIPAddress -InterfaceAlias $a -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object IPAddress) -join ','); category = $profiles[$a] } })
+        $rows = @($lan | ForEach-Object { "$($_.InterfaceAlias)=$($_.ip) [$($_.category)]" })
         if ($lan.Count -gt 1) { Add-Check $n 'dual-homed' 'WARN' "more than one adapter has a default gateway: $($rows -join ', ') - a clinical server should leave the network only through the hospital LAN (hospital IT)" }
-        $public = @($lan | Where-Object { [string]$_.NetProfile.NetworkCategory -eq 'Public' })
+        $public = @($lan | Where-Object { $_.category -eq 'Public' })
         if ($public.Count) { Add-Check $n 'lan-network-profile' 'WARN' "network category Public on: $(@($public | ForEach-Object InterfaceAlias) -join ', ') - LAN clients cannot reach HTTPS until IT sets the hospital network to Domain/Private or approves --lan-profiles" }
         else { Add-Check $n 'lan-network-profile' 'PASS' ($rows -join ', ') }
       }
