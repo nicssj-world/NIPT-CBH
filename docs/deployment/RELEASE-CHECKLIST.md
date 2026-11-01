@@ -10,6 +10,55 @@ executed on this host or in GitHub Actions, or names what blocks it.
 Branch `feat/dual-environment-deploy` (draft PR #13). Basis: `main` @ `1ad1f340` (v1.1.2). v1.1.3 and Parity are not
 included. Production has not been installed or touched.
 
+## Production First assessment (2026-11-01, owner directive)
+
+**Production is not installed.** The owner authorised the installation once the mandatory release checks pass, and they do
+not pass yet. Each blocker below is a gate, an owner decision or an IT/elevation action. None was bypassed.
+
+| Item | Status | Evidence / required action |
+|---|---|---|
+| Production installed | **BLOCKED** | `deploy-production.ps1` would refuse at its gate (below); not attempted, nothing created under `C:\NIPT-CBH\production` |
+| Release SHA verification | **BLOCKED** | no commit has a **passed** Staging workflow UAT (`history\staging\verified\*`: `2ba5b82`, `a7adc40`, `260e572` stopped at Pooling before the fonts existed; `6d5b020` has no UAT). Candidate `dda47b5`: `C:\NIPT-CBH\deploy\history\elevated-staging-readiness.ps1 -Candidate <sha>`, run from an elevated prompt, provisions the Staging identity and egress block, deploys the candidate, runs the full journey and the isolation test, and stops Staging. The UAC request for it was declined |
+| Candidate on the release branch | **BLOCKED (owner)** | the gate requires the commit on `origin/main`. PR #13 is a Draft and must be reviewed and merged by the owner (or the owner must change `releaseBranch` in the live `production.json` explicitly) |
+| Automated checks for the exact commit | **BLOCKED (owner decision)** | CI passes deploy contracts, typecheck, lint, `npm test`, audit, build and after-build tests. The Playwright step still has the pre-existing failures: 2 are verified spec drift from owner-approved UI changes (`5d4e45d`, `258d83c`); the rest need per-test triage (see "Playwright review"). Owner: fix or explicitly accept before promotion |
+| Bootstrap identities | **BLOCKED (owner)** | live `production.json` has no real APP_ADMIN / CLINICAL_APPROVER usernames and names; they cannot be invented |
+| Clinical assets | **PASS** | Combined Master `4c5300f9…`, Singleton `a56be6e4…`, Twin `0f731321…`, ANC request/consent: all match their repository pins in `C:\NIPT-CBH\assets` |
+| Fonts / Pooling one-page PDF | **PASS** | SimSun (system, Windows optional feature) and TH Sarabun New are installed. `office-check --excel-workbook` with the approved master: all six sheets meet the page contract, **Pooling Table 1 page A4**, 149 formulas; master hash unchanged. TH Sarabun New is installed for the `Admin` user only, which is what the Excel bridge account uses; IT should install it for all users |
+| Word PDF | **PASS** | approved Singleton master filled with synthetic values and two signers → 1 page, signatures embedded |
+| Excel bridge | **PASS on Staging**, PENDING on Production | 12 exports through the installed Staging bridge. It runs in the **signed-in owner session**: Task List PDFs need that Windows user signed in. 24/7 unattended Excel is not supported and is not claimed |
+| Service identity, ACL, firewall | **BLOCKED (elevation)** | `provision-identities.ps1` needs an elevated prompt. A UAC prompt for the Staging run was raised on the console on 2026-11-01 at 15:20 and was **declined** ("The operation was canceled by the user"). It was not repeated. Production needs the same elevated step after its install |
+| Windows startup / crash recovery | **PENDING** | engine task + supervisor restart (bounded backoff) are implemented; startup at boot under the Production identity is set by `provision-identities.ps1` (elevated); a reboot test needs the installed Production |
+| Backup destination | **BLOCKED (IT)** | **C: and D: are partitions of the same NVMe disk (Disk 0)**, so D: is not separate storage (this corrects the earlier note). E: (WD Elements, the owner's backup) and F: (SanDisk) are removable USB disks. IT must provide a hospital backup share or a dedicated internal disk; then `nipt.cmd set-backup-root --path <folder>` and `schedule-backup` |
+| HTTPS / LAN access | **BLOCKED (hospital IT)** | the hospital DNS server (192.168.81.222 per the adapter configuration) did not answer for `nipt-cbh`; both adapters are profile **Public**, so the HTTPS rule (Domain/Private) would not admit clients; a phone-hotspot adapter with its own default gateway is active; a trusted certificate for `nipt-cbh` is needed |
+| Memory | **BLOCKED (IT)** | commit limit 18.9–19.3 GB, of which desktop applications use 10 GB or more; a Staging database process was killed at the limit. Fixed pagefile or more RAM before clinical use |
+| Staging independence | **PASS (Staging side)** | Staging stopped: 0 Staging processes, both tasks Disabled, about 1 GB commit released; Production root untouched; `postgresql-x64-17` unchanged. The cross-environment runtime check is PENDING until Production exists |
+| Clinical Go-Live | **NOT AUTHORIZED** | |
+| Historical migration | **NOT STARTED** | out of scope by owner directive |
+
+### On-demand Staging lifecycle (executed)
+
+| Test | Result |
+|---|---|
+| Stop a running Staging | **PASS**: 23 → 0 processes in 14 s, 561 MB private released, commit 18.64 → 17.66 GB; both tasks Disabled; 1 queued job kept in the database for the next start |
+| Repeated stop | **PASS**: idempotent, exit 0 |
+| Start without isolation | **PASS (refused)**: `STAGING_ISOLATION_INCOMPLETE: SERVICE_IDENTITY, EGRESS_FIREWALL_RULE`; nothing started |
+| Deploy / reset on a stopped Staging | **PASS (refused)**: `STAGING_STOPPED`; nothing started |
+| Status | **PASS**: `STOPPED (intentional)` with intent, memory, queue, isolation and UAT; exit 0 |
+| Data persistence across stop/start | **PENDING**: before the stop: 45 cases, 46 rounds, 1,556 audit-chain rows, 6 users, 89 migrations, database OID 34862, 60 files (69 MB) (`history\staging\fingerprint-before-stop.txt`); comparison after the next start |
+| Start, repeated start, reboot stays stopped | **PENDING**: start needs the elevated provisioning; reboot not performed (owner authorisation needed for a server restart); tasks are Disabled, so no trigger can fire |
+| Workflow UAT can be switched off | **PASS (cannot)**: `requireStagingJourney:false` is refused; a stopped Staging does not invalidate recorded evidence (tests) |
+
+### Playwright review (partial; deferred by the Production-first directive)
+
+Most strings the failing specs look for still exist in the v1.1.2 source, so most failures are not removed UI. Verified so far:
+- `foundation` responsive/Settings (4 tests): `settings.read` was narrowed to APP_ADMIN in `5d4e45d` (2026-10-23, locked LAB
+  UAT remediation), after the spec (2026-10-21) → spec drift.
+- `p7` CSV help text was reworded in `5d4e45d` with the same numbers → spec drift.
+- `p5` release-suspended notice was retired in `258d83c` (LAB owner UAT closure) → spec drift.
+- Draft corrections exist but were **not committed**: a local rerun still failed 5 of the rewritten foundation checks and one
+  p5 test (`same file name with different content`, disabled checkbox), so they need more work. Patch kept outside the
+  repository. The other groups (p2, p4, task1, timeouts) have not been triaged yet.
+
 ## Staging installation round (2026-11-01, backup `E:\NIPT-CBH-HOME-BACKUP` attached)
 
 **Verdict: Staging is installed, healthy and isolated at the application layer. It is NOT ready**: the workflow UAT stops

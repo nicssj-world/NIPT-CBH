@@ -5,6 +5,16 @@ existing Windows engine (`tools/win-installer/nipt-admin.mjs`). That engine alre
 secrets, TLS, startup task, file store and Excel spool per install root. The deployment layer (`deploy/windows/`) drives
 it from Git commits instead of from Setup/Update EXE files, and adds the environment boundary described below.
 
+## Operating model (owner decision, 2026-11-01): Production always on, Staging on demand
+
+- **Production** starts at Windows startup under its own identity and keeps running whatever Staging does. No Staging
+  command reads, restarts or changes anything under the Production root.
+- **Staging** stays installed and **stopped**. `start-staging.ps1` starts it on an explicit operator action, only when
+  isolation (identity and egress block) is complete and memory allows. `stop-staging.ps1` drains it, stops it and disables
+  both of its tasks, so neither a logon nor a reboot starts it again. Its database, files, keys and evidence stay on disk.
+- Production promotion uses the evidence recorded for one exact commit (Staging install, health, schema, workflow UAT,
+  payload digest). A stopped Staging does not invalidate it, and the workflow UAT cannot be switched off.
+
 ## Components and boundaries
 
 | | Staging | Production |

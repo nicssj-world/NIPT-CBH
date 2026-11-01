@@ -146,6 +146,55 @@ unhealthy. First-time sign-in passwords are in `C:\NIPT-CBH\production\credentia
 
 After the first Production install (*elevated*, once): `.\deploy\provision-identities.ps1 -Environment production`.
 
+## 3a. Staging is on demand (owner decision)
+
+Production is always on. Staging stays installed but **stopped**, and it does not start at logon or after a reboot. Start it
+only to test a release, then stop it again.
+
+| Task | Command (from `C:\NIPT-CBH`, elevated once identities are provisioned) |
+|---|---|
+| Is Staging running? | `.\deploy\staging-status.ps1` |
+| Start Staging | `.\deploy\start-staging.ps1 -Reason "<why>"` |
+| Open Staging | `https://localhost:8443` on the server (loopback only); UAT accounts in `C:\NIPT-CBH\staging\credentials.txt` |
+| Test a feature | commit it, then `.\deploy\deploy-staging.ps1 -Ref <branch or sha>` (Staging must be started) |
+| Reset synthetic data | `.\deploy\reset-staging.ps1` (Staging database only; old files kept under `staging\backups\reset-*`) |
+| Workflow UAT | `.\deploy\reset-staging.ps1 -Seed` (45 synthetic patients through the whole workflow); the result is recorded for the commit Staging runs |
+| Stop Staging | `.\deploy\stop-staging.ps1 -Reason "<why>"` |
+| Promote | see section 3 (`deploy-production.ps1 -Commit <the exact sha Staging verified>`); Staging may stay stopped |
+
+- **start-staging** refuses, changing nothing, when the environment identity is wrong, when the dedicated service identity
+  or the Staging egress firewall block is missing, or when free memory is below `staging.json` `startRequires`
+  (default 3 GB commit and 1.5 GB physical). Measured Staging footprint: 22–23 processes, about 0.55 GB private memory,
+  about 1 GB of commit. It starts only Staging's own processes and the Excel bridge in the signed-in owner's session.
+  Repeating it starts nothing twice.
+- **stop-staging** waits for active jobs (`-DrainSeconds`, default 120). Queued or unfinished jobs stay in the Staging
+  database and run again at the next start. It then stops the Worker gracefully, the apps, PostgreSQL (fast shutdown) and
+  the bridge, and disables both Staging tasks. It verifies that no process from `C:\NIPT-CBH\staging\runtime` remains and
+  that Production and the `postgresql-x64-17` service are unchanged. Repeating it is safe.
+- `deploy-staging` and `reset-staging` refuse a stopped Staging (`STAGING_STOPPED`) instead of starting it silently.
+- A release verified on Staging stays promotable while Staging is stopped: the gate reads the recorded evidence for that
+  exact commit, never Staging's live state.
+
+### Memory
+
+The server has 15.7 GB RAM and a system-managed pagefile, which gives a commit limit of 18–19 GB. Desktop applications
+alone (browser, editors) used 10 GB or more of it during commissioning. When the commit limit is reached, Windows kills
+processes: on 2026-11-01 a Staging PostgreSQL backend was killed with `0xC000012D STATUS_COMMITMENT_LIMIT`.
+
+- Check: `.\deploy\staging-status.ps1` (memory line), or Task Manager → Performance → Memory → "Committed".
+- Keep Staging stopped unless testing. Do not run builds or browser test suites on this server while Production is in
+  use; GitHub Actions runs the full suite.
+- Ask IT to set a fixed pagefile (for example 16 GB, per hospital policy) or add RAM before clinical use.
+
+### Staging does not stop
+
+1. `.\deploy\staging-status.ps1` shows what still runs.
+2. Run `.\deploy\stop-staging.ps1` again (it is idempotent).
+3. If processes from `C:\NIPT-CBH\staging\runtime` remain: as administrator,
+   `C:\NIPT-CBH\staging\nipt.cmd stop`, then stop **only** those PIDs (`Get-CimInstance Win32_Process | ? ExecutablePath -like 'C:\NIPT-CBH\staging\runtime\*'`).
+   Never stop Excel, Word or any process that is not under that folder.
+4. The data stays in `C:\NIPT-CBH\staging\data`. PostgreSQL recovers automatically at the next start.
+
 ## 4. Operate
 
 ```powershell
