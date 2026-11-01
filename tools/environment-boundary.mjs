@@ -37,8 +37,9 @@ export function boundaryFromEnv(env=process.env){
  }
  const port=Number(env.NIPT_EXPECTED_PG_PORT);
  if(!Number.isInteger(port)||port<1||port>65535)fail('ENVIRONMENT_PG_PORT_REQUIRED');
- // native resolution for file access (the stamp); every containment decision uses Windows rules through within()
- return {name,root:path.resolve(root),protectedRoots,port};
+ // root: the configured path, compared only under Windows rules (within()) so decisions are identical on every platform;
+ // fsRoot: the same path resolved natively, used only to touch the file system (stamp, realpath)
+ return {name,root,fsRoot:path.resolve(root),protectedRoots,port};
 }
 
 /** Where a local path really leads: its nearest existing ancestor resolved by the OS (junctions, symbolic links, 8.3 short names;
@@ -57,7 +58,7 @@ const lower=p=>String(p).replace(/[\\/]+$/,'').replace(/\//g,'\\').toLowerCase()
  *  link, short name or mapped drive cannot alias a Production folder or a remote share into an allowed-looking path. */
 export function assertPathAllowed(p,env=process.env){
  const b=boundaryFromEnv(env);if(!b)return;
- const rootAlias=b.name==='staging'?resolvedAlias(b.root):null;
+ const rootAlias=b.name==='staging'?resolvedAlias(b.fsRoot):null;
  assertLexical(p,b,rootAlias);
  const alias=resolvedAlias(p);
  if(alias)assertLexical(alias,b,rootAlias);
@@ -95,9 +96,9 @@ export function readStamp(root){
 export function assertProcessBoundary(env=process.env){
  const b=boundaryFromEnv(env);if(!b)return null;
  // the root itself must not be an alias (junction, link, mapped drive) of a protected root or of a share
- const rootAlias=resolvedAlias(b.root);
+ const rootAlias=resolvedAlias(b.fsRoot);
  if(rootAlias&&(isUnc(rootAlias)||b.protectedRoots.some(r=>!isUnc(r)&&within(r,rootAlias))))fail('ENVIRONMENT_ROOT_IS_AN_ALIAS');
- if(readStamp(b.root).environment!==b.name)fail('ENVIRONMENT_STAMP_MISMATCH');
+ if(readStamp(b.fsRoot).environment!==b.name)fail('ENVIRONMENT_STAMP_MISMATCH');
  if(env.DATABASE_URL){
   let u;try{u=new URL(env.DATABASE_URL);}catch{fail('ENVIRONMENT_DATABASE_URL_INVALID');}
   if(!LOOPBACK.has(u.hostname.toLowerCase()))fail('ENVIRONMENT_DATABASE_NOT_LOOPBACK');
