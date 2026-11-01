@@ -14,6 +14,6 @@ test("doctor registration waits for the authorized unit list before opening",asy
  const key="SYNTHETIC-RACE-"+Date.now();await page.getByLabel("รหัสแพทย์",{exact:false}).fill(key);await page.getByRole("textbox",{name:"ชื่อแพทย์ จำเป็น",exact:true}).fill("จำลอง: แพทย์ race");
  const unit=page.getByLabel("หน่วยงานแพทย์",{exact:false});await expect(unit.locator("option").filter({hasNotText:"เลือกหน่วยงาน"})).not.toHaveCount(0);await unit.selectOption({index:1});
  await page.getByLabel("วิธีนำเข้าลายเซ็นแพทย์",{exact:false}).selectOption("draw");await draw(page);
- await page.getByRole("button",{name:"บันทึกแพทย์",exact:true}).click();await expect(page.getByRole("dialog")).toHaveCount(0);await expect(page.getByRole("status").filter({hasText:"บันทึกแล้ว"})).toContainText("บันทึกแล้ว");
+ await page.getByRole("button",{name:"บันทึกแพทย์",exact:true}).click();await expect(page.getByRole("dialog")).toHaveCount(0);await expect(page.locator("[role=status]:not([popover])").filter({hasText:"บันทึกแล้ว"})).toContainText("บันทึกแล้ว");
  const registry=await page.request.get("/api/p2/doctors").then(r=>r.json());expect(registry.doctors.some((d:{doctor_key:string})=>d.doctor_key===key)).toBe(true);
 });

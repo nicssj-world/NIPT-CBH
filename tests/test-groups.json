@@ -43,6 +43,7 @@
     "specs": [
       { "file": "tests/e2e/sample-storage.spec.ts", "requiresEnv": "NIPT_SAMPLE_STORAGE_FIXTURE" },
       { "file": "tests/e2e/sample-storage-interactions.spec.ts", "requiresEnv": "NIPT_SAMPLE_STORAGE_FIXTURE" },
+      { "file": "tests/e2e/task15-registration.spec.ts", "requiresEnv": "NIPT_SAMPLE_STORAGE_FIXTURE" },
       { "file": "tests/e2e/task3-integrated-uat.spec.ts", "requiresFile": ".local/task3-uat/uat-fixture.json" }
     ]
   },

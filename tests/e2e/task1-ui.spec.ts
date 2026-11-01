@@ -75,6 +75,6 @@ test('Task1 QC patient actions are independent and external No Call waiting remo
  let submitted:Record<string,unknown>|null=null;
  await page.route('**/api/p4/worklist',async route=>{submitted=route.request().postDataJSON() as Record<string,unknown>;waiting=true;await route.fulfill({json:{status:'รอรับ PDF No Call'}});});
  await page.getByRole('button',{name:'No Call',exact:true}).click();await expect(page.getByRole('dialog').locator('textarea')).toHaveCount(0);await expect(page.getByRole('button',{name:'ยืนยัน',exact:true})).toBeEnabled();await page.getByRole('button',{name:'ยืนยัน',exact:true}).click();await expect(page.getByRole('dialog')).toHaveCount(0);expect(submitted).toEqual({action:'noCall',attemptId:'11111111-1111-4111-8111-111111111111'});
- await expect(page.getByRole('status').filter({hasText:'รอรับ PDF No Call'})).toBeVisible();
+ await expect(page.locator('[role=status]:not([popover])').filter({hasText:'รอรับ PDF No Call'})).toBeVisible();
  for(const name of ['Re-Library','Re-Extraction','Re-Sampling','No Call'])await expect(page.getByRole('button',{name,exact:true})).toHaveCount(0);
 });

@@ -196,12 +196,12 @@ test("T1-09: more than 50 authenticated Ready attempts paginate and remain searc
  await page.setViewportSize({width:1440,height:1000});await login(page,"synthetic.lab");await page.goto("/lab");
  // Keep exact 55-row/page-size assertions without modifying pre-existing integrated cases.
  await page.getByLabel("ค้นหา LN / HN / LN Halos / Sample ID / Run").fill(prefix);
- const summary=page.getByRole("status").filter({hasText:/แสดง 1–50 จาก 55 รายการ/});
+ const summary=page.locator("[role=status]:not([popover])").filter({hasText:/แสดง 1–50 จาก 55 รายการ/});
  await expect(summary).toContainText("หน้า 1 จาก 2");
  const rows=page.getByRole("region",{name:"รายการงาน Lab"}).getByRole("row");
  await expect(rows).toHaveCount(51); // header + the 50 server-returned candidates
  await page.getByRole("button",{name:"หน้าถัดไป",exact:true}).click();
- await expect(page.getByRole("status").filter({hasText:/แสดง 51–55 จาก 55 รายการ/})).toContainText("หน้า 2 จาก 2");
+ await expect(page.locator("[role=status]:not([popover])").filter({hasText:/แสดง 51–55 จาก 55 รายการ/})).toContainText("หน้า 2 จาก 2");
  await expect(rows).toHaveCount(6); // header + five candidates, all from page 2
  const candidate=page.getByRole("row",{name:new RegExp(cases[54].ln)});
  await expect(candidate).toBeVisible();await candidate.getByRole("checkbox").check();
@@ -277,7 +277,7 @@ test("T1-26: authenticated QC page maps all 48 positions and persists synthetic 
  const measurements:Record<string,number>={"slot.1.libraryQc":20,"slot.2.libraryQc":20,"slot.3.libraryQc":20,"slot.4.libraryQc":20,"slot.25.libraryQc":20,"slot.40.libraryQc":0.5};
  for(let strip=1;strip<=3;strip++)for(const field of ["Standard 1","Standard 2","Standard 2 Conc."])await page.getByLabel(`Strip ${strip}/3 ${field}`,{exact:true}).fill("20");
  for(const [key,value] of Object.entries(measurements))await page.getByLabel(`ตำแหน่ง ${key.split(".")[1]} Concentration ng/µL`,{exact:true}).fill(String(value));
- await page.getByRole("button",{name:"บันทึกใบงาน",exact:true}).click();await expect(page.locator("footer").getByRole("status")).toContainText("บันทึกแล้ว กลับมาเปิดและทำงานต่อได้");
+ await page.getByRole("button",{name:"บันทึกใบงาน",exact:true}).click();await expect(page.locator("footer").locator("[role=status]:not([popover])")).toContainText("บันทึกแล้ว กลับมาเปิดและทำงานต่อได้");
  await page.reload();
  const saved=await page.request.get(`/api/workbook/batches/${batchId}`).then(r=>r.json()) as {draft:{revision:number;values:Record<string,unknown>};values:Record<string,unknown>};
  for(const [key,value] of Object.entries(measurements))expect(saved.values[key],key).toBe(value);
@@ -298,15 +298,15 @@ test("T1-31: authenticated Seq Task-G50 save exports, downloads and reads back b
  const measurements:Record<string,number>={"slot.1.libraryQc":20,"slot.2.libraryQc":20,"slot.18.libraryQc":20,"slot.25.libraryQc":20,"slot.34.libraryQc":20,"slot.40.libraryQc":0.5};
  for(let strip=1;strip<=3;strip++)for(const field of ["Standard 1","Standard 2","Standard 2 Conc."])await page.getByLabel(`Strip ${strip}/3 ${field}`,{exact:true}).fill("20");
  for(const [key,value] of Object.entries(measurements))await page.getByLabel(`ตำแหน่ง ${key.split(".")[1]} Concentration ng/µL`,{exact:true}).fill(String(value));
- await page.getByRole("button",{name:"บันทึกใบงาน",exact:true}).click();await expect(page.locator("footer").getByRole("status")).toContainText("บันทึกแล้ว กลับมาเปิดและทำงานต่อได้");
+ await page.getByRole("button",{name:"บันทึกใบงาน",exact:true}).click();await expect(page.locator("footer").locator("[role=status]:not([popover])")).toContainText("บันทึกแล้ว กลับมาเปิดและทำงานต่อได้");
  const stageButtons=page.locator('[role="group"][aria-label="เลือกใบงาน"] button');await expect(stageButtons).toHaveCount(3,{timeout:5000});await stageButtons.nth(1).click({timeout:5000});
  const calculate=page.getByRole("button",{name:"คำนวณ / โหลดค่าที่บันทึก",exact:true});await expect(calculate).toBeVisible({timeout:5000});await expect(calculate).toBeEnabled({timeout:5000});await calculate.click({timeout:5000});await expect(page.getByRole("region",{name:"ปริมาตร Pooling"})).toBeVisible();
  await page.getByLabel("Ref.Std dsDNA Standard 1",{exact:true}).fill("20");await page.getByLabel("Ref.Std dsDNA Standard 2",{exact:true}).fill("20");
  await page.getByLabel("Standard 2 Conc.",{exact:true}).fill("20");await page.getByLabel("Pool Library concentration (ng/µL)",{exact:true}).fill("3.33");
  for(const slot of [1,2,18,25,34]){const checkbox=page.locator(`input[aria-label="Pooling จริง ตำแหน่ง ${slot}"]`);await expect(checkbox).toBeVisible({timeout:5000});await checkbox.check({timeout:5000});}
- await page.getByRole("button",{name:"บันทึก Pooling จริง",exact:true}).click();await expect(page.locator("footer").getByRole("status")).toContainText("บันทึก Pooling จริงแล้ว");
+ await page.getByRole("button",{name:"บันทึก Pooling จริง",exact:true}).click();await expect(page.locator("footer").locator("[role=status]:not([popover])")).toContainText("บันทึก Pooling จริงแล้ว");
  await stageButtons.nth(2).click();await expect(page.getByRole("heading",{name:"Seq Task-G50",exact:true})).toBeVisible();
- await page.getByLabel("ผู้ปฏิบัติงาน",{exact:true}).fill("SYNTHETIC T1-31 OPERATOR");await page.getByRole("button",{name:"บันทึกใบงาน",exact:true}).click();await expect(page.locator("footer").getByRole("status")).toContainText("บันทึกแล้ว กลับมาเปิดและทำงานต่อได้");
+ await page.getByLabel("ผู้ปฏิบัติงาน",{exact:true}).fill("SYNTHETIC T1-31 OPERATOR");await page.getByRole("button",{name:"บันทึกใบงาน",exact:true}).click();await expect(page.locator("footer").locator("[role=status]:not([popover])")).toContainText("บันทึกแล้ว กลับมาเปิดและทำงานต่อได้");
  const current=await page.request.get(bench).then(r=>r.json()) as {revision:number;values:Record<string,unknown>;slots:{slot:number;sampleId:string;hisLn:string|null;kind:string}[]};
  expect(current.values["seq.operator"]).toBe("SYNTHETIC T1-31 OPERATOR");
  const pairResponse=page.waitForResponse(r=>r.url()===new URL(bench,process.env.E2E_BASE_URL??"http://127.0.0.1:3000").href&&r.request().method()==="POST");

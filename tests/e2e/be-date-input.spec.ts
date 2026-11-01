@@ -39,7 +39,7 @@ test("BE date input on mobile (375 px): numeric keypad, no overflow, typed value
  await page.setViewportSize({width:375,height:812});await login(page);const field=await openPlanDate(page);
  await expect(field).toHaveAttribute("inputmode","numeric");
  await field.fill("31/12/2569");await field.blur();
- await page.getByRole("button",{name:"บันทึกข้อมูลแผน"}).click();await expect(page.getByRole("status")).toContainText("บันทึกข้อมูลแผนแล้ว");
+ await page.getByRole("button",{name:"บันทึกข้อมูลแผน"}).click();await expect(page.locator("[role=status]:not([popover])")).toContainText("บันทึกข้อมูลแผนแล้ว");
  await page.reload();await expect(page.getByLabel(/วันที่.*วางแผน/)).toHaveValue("31/12/2569");
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  await axe(page);

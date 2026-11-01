@@ -32,11 +32,11 @@ async function drop(folder:string,pet:ReturnType<typeof deidentifiedPet>){const 
 // newest untested draft row and retry until the request to start the Worker test was actually sent.
 async function testDraft(page:Page){await expect(async()=>{const button=page.getByRole("listitem").filter({hasText:"ยังไม่ผ่านการทดสอบ"}).first().getByRole("button",{name:"ทดสอบร่าง",exact:true});await expect(button).toBeVisible({timeout:5000});
  await Promise.all([page.waitForResponse(r=>r.url().includes("/api/settings")&&r.request().method()==="POST"&&r.ok(),{timeout:5000}),button.click({timeout:5000})]);}).toPass({timeout:30000});}
-async function saveDraft(page:Page,reason:string){await page.getByLabel("เหตุผลที่เปลี่ยน").fill(reason);await page.getByRole("button",{name:"บันทึกร่าง",exact:true}).click();await expect(page.getByRole("status").filter({hasText:"บันทึกร่างแล้ว"})).toBeVisible();}
+async function saveDraft(page:Page,reason:string){await page.getByLabel("เหตุผลที่เปลี่ยน").fill(reason);await page.getByRole("button",{name:"บันทึกร่าง",exact:true}).click();await expect(page.locator("[role=status]:not([popover])").filter({hasText:"บันทึกร่างแล้ว"})).toBeVisible();}
 /** Maker: Worker test of the newest draft, then record the pass. Checker: approve, then activate. */
 async function workerTestAndRecord(page:Page,report?:RegExp){
  await testDraft(page);
- await expect(page.getByRole("status").filter({hasText:"เข้าคิวทดสอบที่ Worker แล้ว"})).toBeVisible();
+ await expect(page.locator("[role=status]:not([popover])").filter({hasText:"เข้าคิวทดสอบที่ Worker แล้ว"})).toBeVisible();
  const record=page.getByRole("button",{name:"บันทึกผลทดสอบผ่านของร่างนี้"});await expect(record).toBeVisible({timeout:60000});
  if(report)await expect(page.getByText(report)).toBeVisible(); // the Worker's own report of what it read
  await record.click();
@@ -44,7 +44,7 @@ async function workerTestAndRecord(page:Page,report?:RegExp){
 }
 async function approveAndActivate(checker:Page,key:string){
  await checker.goto(`/settings?key=${key}`);await checker.getByRole("button",{name:"อนุมัติ (ผู้ตรวจอีกคน)"}).first().click();
- await checker.getByRole("button",{name:"เปิดใช้รุ่นที่อนุมัติแล้ว"}).first().click();await expect(checker.getByRole("status").filter({hasText:"บันทึกการเปลี่ยนแปลงแล้ว"})).toBeVisible();
+ await checker.getByRole("button",{name:"เปิดใช้รุ่นที่อนุมัติแล้ว"}).first().click();await expect(checker.locator("[role=status]:not([popover])").filter({hasText:"บันทึกการเปลี่ยนแปลงแล้ว"})).toBeVisible();
 }
 let unitId="";
 async function registerCase(context:BrowserContext,ln:string,hn:string){const r=await post(context,"/api/p2/register",{ln,hn,unitId,origin:"ANC",idempotencyKey:randomUUID()});expect(r.ok(),await r.text()).toBe(true);return (await r.json()).caseId as string;}
@@ -58,7 +58,7 @@ test("General: a name saved and activated in Settings is what every page shows a
  await page.goto("/settings?key=general");const name="NIPT CBH ทดสอบ "+String(Date.now()).slice(-5);
  await page.getByLabel("ชื่อระบบ").fill(name);await saveDraft(page,"Settings acceptance: system name");
  await testDraft(page);await page.getByRole("button",{name:"เปิดใช้",exact:true}).first().click();
- await expect(page.getByRole("status").filter({hasText:"บันทึกการเปลี่ยนแปลงแล้ว"})).toBeVisible();
+ await expect(page.locator("[role=status]:not([popover])").filter({hasText:"บันทึกการเปลี่ยนแปลงแล้ว"})).toBeVisible();
  await page.goto("/");await expect(page.getByText(name).first()).toBeVisible();await page.reload();await expect(page.getByText(name).first()).toBeVisible();
  // Out-of-range value (Notifications): the refusal names the field, it is not a generic failure.
  await page.goto("/settings?key=notifications");const stale=page.getByLabel(/ถือว่า Worker ขาดการติดต่อเมื่อเกิน/);

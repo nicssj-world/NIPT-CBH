@@ -62,7 +62,7 @@ test("P2-P3 Lab blind entry: presence only before entry, match links S1 at P[21]
  const open=async(ln:string)=>{await page.goto("/cases");await page.getByRole("button",{name:"ลงทะเบียนโดย Lab",exact:true}).click();const dialog=page.getByRole("dialog");await dialog.getByLabel("LN HIS จำลอง",{exact:false}).fill(ln);await dialog.getByLabel("LN HIS จำลอง",{exact:false}).blur();return dialog;};
  const fill=async(dialog:ReturnType<Page["getByRole"]>,hn:string,source:string)=>{await dialog.getByLabel("HN จำลอง",{exact:false}).fill(hn);const unit=dialog.getByLabel("หน่วยงานลงทะเบียน",{exact:false});await expect(unit.locator("option")).not.toHaveCount(1);await unit.selectOption({index:1});const s=dialog.getByLabel("แหล่งของตัวระบุ",{exact:false});await s.selectOption(source);await expect(s).toHaveValue(source);await dialog.getByRole("button",{name:"ตรวจข้อมูลก่อนลงทะเบียน",exact:true}).click();await dialog.getByRole("button",{name:"ยืนยันลงทะเบียน",exact:true}).click();};
  let dialog=await open(match.ln);
- await expect(dialog.getByRole("status")).toContainText("มีข้อมูลสั่งตรวจจาก HIS ของ LN นี้รอเชื่อมอยู่");
+ await expect(dialog.locator("[role=status]:not([popover])")).toContainText("มีข้อมูลสั่งตรวจจาก HIS ของ LN นี้รอเชื่อมอยู่");
  await expect(dialog).not.toContainText(match.hn);await expect(dialog).not.toContainText("ห้ามแสดง");
  expect((await new AxeBuilder({page}).withTags(AA_TAGS).analyze()).violations).toEqual([]);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  // Identifier source is required for Lab registration: native validation blocks the POST.
@@ -70,13 +70,13 @@ test("P2-P3 Lab blind entry: presence only before entry, match links S1 at P[21]
  await dialog.getByLabel("HN จำลอง",{exact:false}).fill(match.hn);const unit=dialog.getByLabel("หน่วยงานลงทะเบียน",{exact:false});await expect(unit.locator("option")).not.toHaveCount(1);await unit.selectOption({index:1});await dialog.getByRole("button",{name:"ตรวจข้อมูลก่อนลงทะเบียน",exact:true}).click();expect(posts).toBe(0);
  await fill(dialog,match.hn,"TUBE_LABEL");
  await expect(page).toHaveURL(/\/cases\/[a-f0-9-]+$/);await expect(page.getByText("รับจาก HIS (จำลอง)").first()).toBeVisible();
- dialog=await open(miss.ln);await expect(dialog.getByRole("status")).toContainText("มีข้อมูลสั่งตรวจจาก HIS ของ LN นี้รอเชื่อมอยู่");
+ dialog=await open(miss.ln);await expect(dialog.locator("[role=status]:not([popover])")).toContainText("มีข้อมูลสั่งตรวจจาก HIS ของ LN นี้รอเชื่อมอยู่");
  await fill(dialog,"00990"+n+"9","REQUEST_FORM");
  await expect(dialog.getByRole("alert")).toContainText("HN ไม่ตรงกับข้อมูลสั่งตรวจจาก HIS");await expect(dialog.getByRole("link",{name:"เปิดเคสที่ลงทะเบียน"})).toBeVisible();
  await expect(dialog).not.toContainText(miss.hn);await expect(dialog).not.toContainText("ห้ามแสดง");
  expect((await new AxeBuilder({page}).withTags(AA_TAGS).analyze()).violations).toEqual([]);
  await dialog.getByRole("link",{name:"เปิดเคสที่ลงทะเบียน"}).click();await expect(page.getByText("รอรับสิ่งส่งตรวจ").first()).toBeVisible();
- dialog=await open(fresh);await expect(dialog.getByRole("status")).toContainText("ยังไม่มีข้อมูลสั่งตรวจจาก HIS ที่รอเชื่อม");
+ dialog=await open(fresh);await expect(dialog.locator("[role=status]:not([popover])")).toContainText("ยังไม่มีข้อมูลสั่งตรวจจาก HIS ที่รอเชื่อม");
  const db=new Pool({connectionString:browserFixtureDatabaseUrl(),max:1});
  try{
   const q=async(ln:string)=>(await db.query("SELECT a.identifier_source,(SELECT count(*)::int FROM his_order o WHERE o.case_ln_id=l.id) AS orders,(SELECT string_agg(i.kind,',') FROM his_intake_issue i WHERE i.ln=l.ln AND i.state='Open') AS issues,(SELECT r.state FROM specimen_round r WHERE r.case_ln_id=l.id) AS round FROM case_ln l JOIN registration_attempt a ON a.case_id=l.case_id WHERE l.ln=$1",[ln])).rows;

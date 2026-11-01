@@ -92,7 +92,7 @@ test("desktop: upload several photos with a sample range, view the full original
  await expect(page.getByText(/Run นี้ยังแก้ตำแหน่งได้/)).toBeVisible();
  await shot(page,"01-desktop-upload-staged");
  await page.getByRole("button",{name:"อัปโหลด 3 ภาพ"}).click();
- await expect(page.getByRole("status").filter({hasText:"อัปโหลดแล้ว 3 ภาพ"})).toBeVisible({timeout:60000});
+ await expect(page.locator("[role=status]:not([popover])").filter({hasText:"อัปโหลดแล้ว 3 ภาพ"})).toBeVisible({timeout:60000});
  await expect(page.locator(".photo-grid > li")).toHaveCount(3);
  await expect(page.getByText(/คนที่ 1–10 · ตน\. 2–11/).first()).toBeVisible();
  const rows=await q<{id:string;byte_size:string;sha256:string;uploaded_by:string;thumb_sha256:string|null}>("SELECT p.id,p.byte_size::text,p.sha256,u.username uploaded_by,p.thumb_sha256 FROM run_photo p JOIN app_user u ON u.id=p.uploaded_by WHERE batch_id=$1 ORDER BY p.byte_size DESC",[run.batchId]);
@@ -117,7 +117,7 @@ test("desktop: upload several photos with a sample range, view the full original
  await dialog.getByLabel("คำอธิบายภาพ").fill("Task 1 ฉลากหลอด คนที่ 11-12");
  await dialog.getByLabel("ตั้งแต่คนที่").fill("11");await dialog.getByLabel("ถึงคนที่").fill("12");
  await dialog.getByRole("button",{name:"บันทึกการแก้ไข"}).click();
- await expect(page.getByRole("status").filter({hasText:"บันทึกการแก้ไขแล้ว"})).toBeVisible();
+ await expect(page.locator("[role=status]:not([popover])").filter({hasText:"บันทึกการแก้ไขแล้ว"})).toBeVisible();
  await expect(page.getByText("Task 1 ฉลากหลอด คนที่ 11-12")).toBeVisible();
  // The same bytes again in the same Run: refused with an explanation, nothing stored twice.
  await uploadInput(page).setInputFiles([files[0]]);
@@ -134,7 +134,7 @@ test("mobile: take a photo with the camera input, browse and open it on a phone-
  await expect(page.getByText("ถ่ายภาพด้วยกล้อง")).toBeVisible();
  await uploadInput(page,true).setInputFiles([await jpeg(page,"MOBILE CAMERA",{width:3024,height:4032})]);
  await page.getByRole("button",{name:"อัปโหลด 1 ภาพ"}).click();
- await expect(page.getByRole("status").filter({hasText:"อัปโหลดแล้ว 1 ภาพ"})).toBeVisible({timeout:60000});
+ await expect(page.locator("[role=status]:not([popover])").filter({hasText:"อัปโหลดแล้ว 1 ภาพ"})).toBeVisible({timeout:60000});
  await expect(page.locator(".photo-grid > li")).toHaveCount(4);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
  await shot(page,"04-mobile-gallery");
@@ -180,8 +180,8 @@ test("search by Run, date, LN Halos, LN HIS, sample order and caption; LN stays 
 
 async function anonymous(browser:Browser,url:string){const ctx=await browser.newContext();try{return (await ctx.request.get(url)).status();}finally{await ctx.close();}}
 test("photo reads require authentication and an authorized workspace role",async({page,browser})=>{
- expect(await anonymous(browser,`${process.env.E2E_BASE_URL}/api/run-photos/${firstPhotoId}/file`)).toBe(401);
- expect(await anonymous(browser,`${process.env.E2E_BASE_URL}/api/run-photos/${firstPhotoId}/file?variant=thumb`)).toBe(401);
+ expect(await anonymous(browser,`${process.env.E2E_BASE_URL??"http://127.0.0.1:3000"}/api/run-photos/${firstPhotoId}/file`)).toBe(401);
+ expect(await anonymous(browser,`${process.env.E2E_BASE_URL??"http://127.0.0.1:3000"}/api/run-photos/${firstPhotoId}/file?variant=thumb`)).toBe(401);
  await login(page,"synthetic.admin");
  expect((await page.request.get(`/api/run-photos/${firstPhotoId}/file`)).status()).toBe(200);
  expect((await page.request.get(`/api/run-photos/runs/${run.batchId}`)).status()).toBe(200);
@@ -196,7 +196,7 @@ test("photo reads require authentication and an authorized workspace role",async
  }
  // No static or public path exposes the files.
  const sha=(await q<{sha256:string}>("SELECT sha256 FROM run_photo WHERE id=$1",[firstPhotoId]))[0].sha256;
- for(const p of [`/run-photos/${sha}`,`/sha256/${sha.slice(0,2)}/${sha.slice(2,4)}/${sha}`,`/api/run-photos/../../${sha}`])expect(await anonymous(browser,`${process.env.E2E_BASE_URL}${p}`)).not.toBe(200);
+ for(const p of [`/run-photos/${sha}`,`/sha256/${sha.slice(0,2)}/${sha.slice(2,4)}/${sha}`,`/api/run-photos/../../${sha}`])expect(await anonymous(browser,`${process.env.E2E_BASE_URL??"http://127.0.0.1:3000"}${p}`)).not.toBe(200);
  await login(page,"synthetic.auditor");expect((await page.request.get(`/api/run-photos/${firstPhotoId}/file`)).status()).toBe(200);
 });
 
@@ -223,7 +223,7 @@ test("admin changes the Storage Path: tested as the storing account, new photos 
  // Lab uploads after the change: the file lands in the new folder; the earlier photos still open from the old folder.
  await page.context().clearCookies();await login(page,"synthetic.lab");await page.goto(`/lab/photos/${run.batchId}`);
  await uploadInput(page).setInputFiles([await jpeg(page,"AFTER PATH CHANGE")]);await page.getByRole("button",{name:"อัปโหลด 1 ภาพ"}).click();
- await expect(page.getByRole("status").filter({hasText:"อัปโหลดแล้ว 1 ภาพ"})).toBeVisible({timeout:60000});
+ await expect(page.locator("[role=status]:not([popover])").filter({hasText:"อัปโหลดแล้ว 1 ภาพ"})).toBeVisible({timeout:60000});
  const latest=(await q<{id:string;sha256:string}>("SELECT id,sha256 FROM run_photo WHERE batch_id=$1 ORDER BY uploaded_at DESC LIMIT 1",[run.batchId]))[0];
  expect(await readdir(path.join(photoRoot("nas-a"),"sha256",latest.sha256.slice(0,2),latest.sha256.slice(2,4)))).toContain(latest.sha256);
  expect((await page.request.get(`/api/run-photos/${firstPhotoId}/file`)).status()).toBe(200);
@@ -264,13 +264,13 @@ test("wrong-Run upload is moved with a reason and a bad photo is retracted, both
  const other=await runWithSamples(page,2);
  await page.goto(`/lab/photos/${other.batchId}`);
  await uploadInput(page).setInputFiles([await jpeg(page,"BELONGS TO FIRST RUN")]);await page.getByRole("button",{name:"อัปโหลด 1 ภาพ"}).click();
- await expect(page.getByRole("status").filter({hasText:"อัปโหลดแล้ว 1 ภาพ"})).toBeVisible({timeout:60000});
+ await expect(page.locator("[role=status]:not([popover])").filter({hasText:"อัปโหลดแล้ว 1 ภาพ"})).toBeVisible({timeout:60000});
  await page.locator(".photo-thumb").first().click();const dialog=page.getByRole("dialog");
  await dialog.getByText("อัปโหลดผิด Run หรือภาพใช้ไม่ได้").click();
  await dialog.getByLabel(/เหตุผล/).fill("อัปโหลดผิด Run ย้ายไป Run ที่ถูกต้อง");
  await dialog.getByLabel("ย้ายไป Run ที่ถูกต้อง").selectOption({label:run.runLabel});
  await dialog.getByRole("button",{name:"ย้ายภาพไป Run นี้"}).click();
- await expect(page.getByRole("status").filter({hasText:"ย้ายภาพไป Run ที่เลือกแล้ว"})).toBeVisible();
+ await expect(page.locator("[role=status]:not([popover])").filter({hasText:"ย้ายภาพไป Run ที่เลือกแล้ว"})).toBeVisible();
  await expect(page.getByText("ยังไม่มีภาพของ Run นี้")).toBeVisible();
  await page.getByText(/ประวัติการเปลี่ยนแปลงภาพ/).click();await expect(page.getByText(`${other.runLabel} → ${run.runLabel}`)).toBeVisible();
  await page.goto(`/lab/photos/${run.batchId}`);
@@ -278,7 +278,7 @@ test("wrong-Run upload is moved with a reason and a bad photo is retracted, both
  await page.getByRole("dialog").getByText("อัปโหลดผิด Run หรือภาพใช้ไม่ได้").click();
  await page.getByRole("dialog").getByLabel(/เหตุผล/).fill("ภาพเบลอ อ่านฉลากไม่ได้");
  await page.getByRole("dialog").getByRole("button",{name:"ถอนภาพนี้ออก"}).click();
- await expect(page.getByRole("status").filter({hasText:"ถอนภาพออกแล้ว"})).toBeVisible();
+ await expect(page.locator("[role=status]:not([popover])").filter({hasText:"ถอนภาพออกแล้ว"})).toBeVisible();
  await page.getByLabel(/แสดงภาพที่ถอนออก/).check();await expect(page.locator(".photo-card.retracted")).toHaveCount(1);
  await shot(page,"10-retracted");
  expect((await q<{event_type:string}>("SELECT event_type FROM run_photo_event ORDER BY sequence")).map(e=>e.event_type)).toEqual(expect.arrayContaining(["UPLOADED","EDITED","MOVED","RETRACTED"]));

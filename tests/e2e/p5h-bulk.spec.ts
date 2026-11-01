@@ -66,7 +66,10 @@ test("a lab user imports 47 historical cases in three steps; a second person con
  await expect(lab.page.getByText(/47\s*แถว/).first()).toBeVisible();
  const problemRow=lab.page.getByRole("row").filter({hasText:`2611${run}05`});
  await expect(problemRow).toContainText("รูปแบบวันที่ไม่ถูกต้อง");
- await expect(lab.page.getByRole("row")).toHaveCount(2+0);   // header + the one problem row (filter "only rows to fix" is on)
+ // 5d4e45d (locked LAB UAT remediation): the list opens with every row; the "only rows to fix" filter is turned on explicitly.
+ await expect(lab.page.getByRole("row")).toHaveCount(1+47);
+ await lab.page.getByRole("checkbox",{name:/แสดงเฉพาะแถวที่ต้องแก้ไข/}).check();
+ await expect(lab.page.getByRole("row")).toHaveCount(2+0);   // header + the one problem row
  await axe(lab.page);
  await problemRow.getByRole("button",{name:/แก้ไขแถว/}).click();
  await lab.page.getByLabel("วันที่รายงานผล").fill("2025-12-15");
@@ -90,7 +93,7 @@ test("a lab user imports 47 historical cases in three steps; a second person con
  await axe(reviewer.page);
  await confirm.click();
  await expect(reviewer.page.getByText("ผลการยืนยัน")).toBeVisible({timeout:60000});
- const outcomes=reviewer.page.getByRole("status").filter({hasText:"ผลการยืนยัน"}).getByRole("listitem");
+ const outcomes=reviewer.page.locator("[role=status]:not([popover])").filter({hasText:"ผลการยืนยัน"}).getByRole("listitem");
  await expect(outcomes).toHaveCount(47);
  await expect(outcomes.filter({hasText:/: นำเข้าแล้ว$/})).toHaveCount(47);
  await reviewer.close();

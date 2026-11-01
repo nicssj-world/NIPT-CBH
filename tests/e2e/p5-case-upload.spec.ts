@@ -70,7 +70,7 @@ test("Case page upload: a wrong patient's PDF is refused; the right one is check
  expect(await count("SELECT count(*)::int n FROM job_outbox")).toBe(jobs); // parsed in the web request, no Worker job
  // The same file again (as if the folder delivered it too) is not a second report.
  await panel.getByLabel("ไฟล์ PDF ผลตรวจ").setInputFiles(fileA);await panel.getByRole("button",{name:"อัปโหลด PDF ผลตรวจ"}).click();
- await expect(panel.getByRole("status").filter({hasText:"ไฟล์นี้มีในระบบแล้ว"})).toBeVisible();
+ await expect(panel.locator("[role=status]:not([popover])").filter({hasText:"ไฟล์นี้มีในระบบแล้ว"})).toBeVisible();
  expect(await count("SELECT count(*)::int n FROM result_report_version")).toBe(versions+1);
  // Second person approves the link on the result page; the round then waits for acceptance (nothing released).
  const cert=await as(browser,"synthetic.certifier");

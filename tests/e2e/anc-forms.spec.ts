@@ -81,13 +81,13 @@ test("Settings: the active template set chosen in Settings is the one the previe
  const cert=await as(browser,"synthetic.certifier"),approver=await as(browser,"synthetic.approver"),anc=await as(browser,"synthetic.anc");
  try{
   const choose=async(id:string)=>{await cert.page.goto("/settings?key=request_consent");await cert.page.getByLabel("ชุดแบบฟอร์มที่ใช้งาน (Request + Consent)").fill(id);
-   await cert.page.getByLabel("เหตุผลที่เปลี่ยน").fill("จำลอง: เปลี่ยนชุดแบบฟอร์ม");await cert.page.getByRole("button",{name:"บันทึกร่าง",exact:true}).click();await expect(cert.page.getByRole("status").filter({hasText:"บันทึกร่างแล้ว"})).toBeVisible();
+   await cert.page.getByLabel("เหตุผลที่เปลี่ยน").fill("จำลอง: เปลี่ยนชุดแบบฟอร์ม");await cert.page.getByRole("button",{name:"บันทึกร่าง",exact:true}).click();await expect(cert.page.locator("[role=status]:not([popover])").filter({hasText:"บันทึกร่างแล้ว"})).toBeVisible();
    // Drafts saved in the same second can list in either order: test the newest revision number, not the first row.
    const items=cert.page.locator("ul.timeline > li");const versions=await items.evaluateAll(els=>els.map(e=>Number(/รุ่น (\d+)/.exec(e.textContent??"")?.[1]??0)));
-   await items.nth(versions.indexOf(Math.max(...versions))).getByRole("button",{name:"ทดสอบร่าง",exact:true}).click();await expect(cert.page.getByRole("status").filter({hasText:"ทดสอบร่างแล้ว"})).toBeVisible();};
+   await items.nth(versions.indexOf(Math.max(...versions))).getByRole("button",{name:"ทดสอบร่าง",exact:true}).click();await expect(cert.page.locator("[role=status]:not([popover])").filter({hasText:"ทดสอบร่างแล้ว"})).toBeVisible();};
   await choose("CBH-BM17-SECOND-SET");
   await approver.page.goto("/settings?key=request_consent");await approver.page.getByRole("button",{name:"อนุมัติ (ผู้ตรวจอีกคน)"}).first().click();await approver.page.getByRole("button",{name:"เปิดใช้รุ่นที่อนุมัติแล้ว"}).first().click();
-  await expect(approver.page.getByRole("status").filter({hasText:"บันทึกการเปลี่ยนแปลงแล้ว"})).toBeVisible();
+  await expect(approver.page.locator("[role=status]:not([popover])").filter({hasText:"บันทึกการเปลี่ยนแปลงแล้ว"})).toBeVisible();
   const r=await anc.page.request.get(`/api/p2/cases/${caseId}/forms?kind=request`);expect(r.headers()["x-template-set"]).toBe("CBH-BM17-SECOND-SET");
   expect((await pdfLines(Buffer.from(await r.body())))[0].text).toContain(norm("CBH-BM17-SECOND-SET"));
   // A set that is not installed fails the test, so nothing can be approved.
@@ -95,7 +95,7 @@ test("Settings: the active template set chosen in Settings is the one the previe
   await approver.page.goto("/settings?key=request_consent");await expect(approver.page.getByRole("button",{name:"อนุมัติ (ผู้ตรวจอีกคน)"})).toHaveCount(0);
   // Back to the reference set.
   await choose("CBH-BM17-REF-2026-10-18");await approver.page.goto("/settings?key=request_consent");await approver.page.getByRole("button",{name:"อนุมัติ (ผู้ตรวจอีกคน)"}).first().click();await approver.page.getByRole("button",{name:"เปิดใช้รุ่นที่อนุมัติแล้ว"}).first().click();
-  await expect(approver.page.getByRole("status").filter({hasText:"บันทึกการเปลี่ยนแปลงแล้ว"})).toBeVisible();
+  await expect(approver.page.locator("[role=status]:not([popover])").filter({hasText:"บันทึกการเปลี่ยนแปลงแล้ว"})).toBeVisible();
   expect((await anc.page.request.get(`/api/p2/cases/${caseId}/forms?kind=request`)).headers()["x-template-set"]).toBe("CBH-BM17-REF-2026-10-18");
  }finally{await cert.c.close();await approver.c.close();await anc.c.close();}
 });

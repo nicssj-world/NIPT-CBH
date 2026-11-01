@@ -50,7 +50,8 @@ test("P5 folder workflow: Test Path → Scan → Preview → import, then two-pe
  await page.setViewportSize({width:1440,height:1000});await login(page,"synthetic.lab");
  if(await page.getByRole("button",{name:"เปิดเมนูหลัก",exact:true}).isVisible())await page.getByRole("button",{name:"เปิดเมนูหลัก",exact:true}).click();await page.getByRole("navigation",{name:"เมนูหลัก"}).getByRole("link",{name:"ผลตรวจ NIPT"}).click();
  await expect(page.getByRole("heading",{name:"ผลตรวจ NIPT",exact:true})).toBeVisible();
- await expect(page.getByText("ยังไม่ปล่อยผลจริง")).toBeVisible();
+ // 258d83c (LAB owner UAT closure) retired the "results not yet released" notice: release is enabled, so it must not be shown.
+ await expect(page.getByText("ยังไม่ปล่อยผลจริง")).toHaveCount(0);
  await page.getByRole("button",{name:"ทดสอบโฟลเดอร์"}).click();
  await expect(page.getByLabel("ผลทดสอบโฟลเดอร์")).toContainText("อ่านได้",{timeout:60000});
  await page.getByRole("button",{name:"สแกนไฟล์ PDF"}).click();
@@ -60,7 +61,7 @@ test("P5 folder workflow: Test Path → Scan → Preview → import, then two-pe
  await page.getByRole("button",{name:"Preview ไฟล์ที่เลือก"}).click();
  const preview=page.getByRole("region",{name:"ผล Preview"});await expect(preview).toContainText("ผลตรวจ ครรภ์เดี่ยว",{timeout:60000});
  await expect(preview).toContainText(f.hn);await expect(preview).toContainText("1 รอบ/Attempt");await expect(preview).toContainText("อ่านได้ — พร้อมนำเข้า");
- await page.getByRole("button",{name:"ยืนยันนำเข้า"}).click();await expect(page.getByRole("status").filter({hasText:"นำเข้าแล้ว 1 รายการ"})).toBeVisible();
+ await page.getByRole("button",{name:"ยืนยันนำเข้า"}).click();await expect(page.locator("[role=status]:not([popover])").filter({hasText:"นำเข้าแล้ว 1 รายการ"})).toBeVisible();
  const row=page.getByRole("region",{name:"รายการรายงาน"}).getByRole("row").filter({hasText:f.file});await expect(row).toContainText("รอเชื่อมโยงกับรอบ/Attempt");
  await row.getByRole("link",{name:"เปิด"}).click();
  await expect(page.getByRole("heading",{name:"ตรวจทานผล",exact:true})).toBeVisible();
@@ -120,7 +121,7 @@ test("A14: same file name with different content is flagged, must be acknowledge
  const confirm=page.getByRole("button",{name:"ยืนยันนำเข้า"});await expect(confirm).toBeDisabled();await expect(page.getByText("รอรับทราบชื่อซ้ำ 2 รายการ")).toBeVisible();
  for(const box of await page.getByLabel("รับทราบ นำเข้าเพื่อตรวจสอบ").all())await box.check();
  await axe(page);
- await confirm.click();await expect(page.getByRole("status").filter({hasText:"นำเข้าแล้ว 2 รายการ"})).toBeVisible();
+ await confirm.click();await expect(page.locator("[role=status]:not([popover])").filter({hasText:"นำเข้าแล้ว 2 รายการ"})).toBeVisible();
  await expect(page.getByRole("region",{name:"รายการรายงาน"}).getByRole("row").filter({hasText:name}).first()).toContainText("ชื่อไฟล์ซ้ำ");
 });
 
