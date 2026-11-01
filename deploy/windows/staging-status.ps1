@@ -17,7 +17,7 @@ $cfg = (Read-NiptEnvironments $tc).staging
 if (-not (Test-NiptInstalled $cfg)) { Write-Host 'STAGING NOT INSTALLED'; exit 1 }
 $intent = Get-NiptStagingIntent
 $state = Read-NiptJson (Join-Path $cfg.root 'install-state.json')
-$owned = Get-NiptOwnedProcesses $cfg
+$owned = @(Get-NiptOwnedProcesses $cfg)
 $byName = $owned | Group-Object name | ForEach-Object { "$($_.Name) x$($_.Count)" }
 $lockFile = Join-Path $cfg.root 'run\supervisor.lock'
 $supPid = if (Test-Path -LiteralPath $lockFile) { [int](Get-Content -LiteralPath $lockFile -Raw) } else { 0 }

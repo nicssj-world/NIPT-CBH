@@ -30,7 +30,7 @@ try {
   $pgService = (Get-Service postgresql-x64-17 -ErrorAction SilentlyContinue).Status
   $prodBefore = if (Test-NiptInstalled $prod) { (Get-Content -LiteralPath (Join-Path $prod.root 'run\supervisor.lock') -ErrorAction SilentlyContinue) } else { 'NOT_INSTALLED' }
   $detail.memoryBefore = Get-NiptMemory
-  $owned = Get-NiptOwnedProcesses $cfg
+  $owned = @(Get-NiptOwnedProcesses $cfg)
   $detail.ownedBefore = [ordered]@{ count = $owned.Count; privateMB = [int](($owned | Measure-Object privateMB -Sum).Sum) }
 
   # 1. drain
@@ -59,7 +59,7 @@ try {
 
   # 5. verify
   $deadline = (Get-Date).AddSeconds(30)
-  do { $left = Get-NiptOwnedProcesses $cfg; if ($left.Count) { Start-Sleep -Seconds 2 } } while ($left.Count -and (Get-Date) -lt $deadline)
+  do { $left = @(Get-NiptOwnedProcesses $cfg); if ($left.Count) { Start-Sleep -Seconds 2 } } while ($left.Count -and (Get-Date) -lt $deadline)
   $detail.ownedAfter = @($left | ForEach-Object { "$($_.name)#$($_.pid)" })
   if ($left.Count) { throw "STAGING_PROCESSES_STILL_RUNNING: $($detail.ownedAfter -join ', ') (see README-DEPLOYMENT.md, 'Staging does not stop')" }
   $taskStates = @(foreach ($t in $tasks.supervisor, $tasks.bridge) { (Get-ScheduledTask -TaskPath '\NIPT-CBH\' -TaskName $t).State })

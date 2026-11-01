@@ -40,7 +40,7 @@ try {
   if ($cfg.PSObject.Properties['startRequires'] -and $cfg.startRequires) { foreach ($k in @($need.Keys)) { if ($cfg.startRequires.PSObject.Properties[$k]) { $need[$k] = [double]$cfg.startRequires.$k } } }
   $mem = Get-NiptMemory
   $detail.memoryBefore = $mem; $detail.requires = $need
-  $already = (Get-NiptOwnedProcesses $cfg).Count -gt 0
+  $already = @(Get-NiptOwnedProcesses $cfg).Count -gt 0
   if (-not $already -and ($mem.commitFreeGB -lt $need.commitFreeGB -or $mem.physicalFreeGB -lt $need.physicalFreeGB)) {
     throw ("INSUFFICIENT_MEMORY_FOR_STAGING: commit free {0} GB (needs {1}), physical free {2} GB (needs {3}). Close desktop applications or raise the pagefile (README-DEPLOYMENT.md, 'Memory')" -f $mem.commitFreeGB, $need.commitFreeGB, $mem.physicalFreeGB, $need.physicalFreeGB)
   }
@@ -62,7 +62,7 @@ try {
   $deadline = (Get-Date).AddSeconds(180)
   do { $report = Get-NiptEnvironmentReport $cfg -Quiet; if (-not $report.ok) { Start-Sleep -Seconds 5 } } while (-not $report.ok -and (Get-Date) -lt $deadline)
   $detail.report = [ordered]@{ ok = $report.ok; failed = $report.failed; release = $report.status.release }
-  $owned = Get-NiptOwnedProcesses $cfg
+  $owned = @(Get-NiptOwnedProcesses $cfg)
   $detail.owned = [ordered]@{ count = $owned.Count; privateMB = [int](($owned | Measure-Object privateMB -Sum).Sum) }
   $detail.memoryAfter = Get-NiptMemory
   Set-NiptStagingIntent 'RUNNING' $Reason

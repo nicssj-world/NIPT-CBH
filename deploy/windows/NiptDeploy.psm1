@@ -392,7 +392,7 @@ function Get-NiptIsolationReadiness($EnvCfg) {
 
 <# On-demand Staging: an operation that needs the running services refuses on a stopped Staging instead of silently starting it. #>
 function Assert-NiptStagingStarted($EnvCfg) {
-  if ((Test-NiptInstalled $EnvCfg) -and -not (Get-NiptOwnedProcesses $EnvCfg).Count) { throw 'STAGING_STOPPED: start it first with .\deploy\start-staging.ps1 (on-demand Staging is never started implicitly)' }
+  if ((Test-NiptInstalled $EnvCfg) -and -not @(Get-NiptOwnedProcesses $EnvCfg).Count) { throw 'STAGING_STOPPED: start it first with .\deploy\start-staging.ps1 (on-demand Staging is never started implicitly)' }
 }
 
 Export-ModuleMember -Function *-Nipt*
