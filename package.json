@@ -17,6 +17,8 @@
     "test:permissions": "vitest run tests/permissions",
     "test:db": "vitest run tests/db",
     "test:contracts": "vitest run tests/contracts",
+    "test:after-build": "vitest run --config vitest.after-build.config.ts",
+    "test:owner-assets": "vitest run --config vitest.owner-assets.config.ts",
     "test:e2e": "playwright test",
     "db:migrate": "tsx tools/migrate.ts",
     "db:seed": "tsx tools/seed.ts",

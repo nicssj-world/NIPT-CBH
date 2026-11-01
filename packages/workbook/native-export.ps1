@@ -6,6 +6,7 @@ if(-not (Test-Path -LiteralPath $source -PathType Leaf)){throw 'TASK_WORKBOOK_NO
 if($source.StartsWith('\\') -or $destination.StartsWith('\\')){throw 'NETWORK_PATH_PROHIBITED'}
 [IO.Directory]::CreateDirectory($destination)|Out-Null
 $excel=$null
+$ownPid=$null
 $book=$null
 $printerName=$null
 $printerSnapshot=$null
@@ -25,6 +26,10 @@ try {
   Set-PrintConfiguration -PrinterName $printerName -PaperSize A4
   # A separate automation instance never attaches to a user's existing workbook session.
   $excel=New-Object -ComObject Excel.Application
+  # This instance's process, from its own window handle: the only Excel this script may ever force to exit.
+  if(-not ('NiptCbh.Win32Window' -as [type])){Add-Type -Namespace NiptCbh -Name Win32Window -MemberDefinition '[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);'}
+  $ownPidValue=[uint32]0;[void][NiptCbh.Win32Window]::GetWindowThreadProcessId([IntPtr]$excel.Hwnd,[ref]$ownPidValue)
+  if($ownPidValue -gt 0){$ownPid=[int]$ownPidValue;if($env:NIPT_OFFICE_PID_FILE){Set-Content -LiteralPath $env:NIPT_OFFICE_PID_FILE -Value $ownPid -Encoding ascii}}
   $excel.Visible=$false
   $excel.DisplayAlerts=$false
   $excel.EnableEvents=$false
@@ -57,7 +62,17 @@ try {
 } finally {
   try {
     try {if($null -ne $book){$book.Close($false);[Runtime.InteropServices.Marshal]::FinalReleaseComObject($book)|Out-Null}}
-    finally {if($null -ne $excel){$excel.Quit();[Runtime.InteropServices.Marshal]::FinalReleaseComObject($excel)|Out-Null}}
+    finally {
+      try {if($null -ne $excel){$excel.Quit();[Runtime.InteropServices.Marshal]::FinalReleaseComObject($excel)|Out-Null}}
+      finally {
+        # a Quit that does not end the process must not leave a hidden Excel behind for the next export
+        $excel=$null;[GC]::Collect();[GC]::WaitForPendingFinalizers()
+        if($ownPid -and (Get-Process -Id $ownPid -ErrorAction SilentlyContinue)){
+          Wait-Process -Id $ownPid -Timeout 15 -ErrorAction SilentlyContinue
+          if(Get-Process -Id $ownPid -ErrorAction SilentlyContinue){Stop-Process -Id $ownPid -Force -ErrorAction SilentlyContinue;[Console]::Error.WriteLine("TASK_EXCEL_INSTANCE_FORCED_EXIT pid=$ownPid")}
+        }
+      }
+    }
   } finally {
     try {if($null -ne $printerSnapshot){Set-PrintConfiguration -PrinterName $printerName -PrintTicketXml $printerSnapshot.PrintTicketXML}}
     finally {if($exportLock){$exportMutex.ReleaseMutex()};$exportMutex.Dispose()}

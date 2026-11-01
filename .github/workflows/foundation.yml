@@ -5,7 +5,8 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # npm test alone takes ~20 minutes (measured 2026-11-01); 25 minutes cancelled the job before the build ran
+    timeout-minutes: 50
     services:
       postgres:
         image: postgres:17
@@ -53,6 +54,8 @@ jobs:
       - run: npm test
       - run: npm audit --omit=dev --audit-level=high
       - run: npm run build
+      - name: Tests that need the standalone build
+        run: npm run test:after-build
       - name: Browser accessibility, permissions and responsive checks
         run: |
           node --import tsx apps/renderer/main.ts > "$RUNNER_TEMP/nipt-renderer.log" 2>&1 &

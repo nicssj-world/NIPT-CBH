@@ -11,6 +11,7 @@
    network    Staging egress firewall rules exist and block non-loopback addresses (once provisioned).
    reset      -IncludeReset: Production's release, schema ledger, configuration, install state and file-store listing are fingerprinted,
               Staging is reset, and Production is fingerprinted again - they must be identical.
+  Exit code 0 = every check ran and passed; 1 = a check failed; 2 = INCOMPLETE (a check could not run: an open blocker, never a pass).
 .EXAMPLE   .\deploy\test-isolation.ps1
 .EXAMPLE   .\deploy\test-isolation.ps1 -IncludeReset -ResetConfirmation "RESET STAGING"
 #>
@@ -98,6 +99,9 @@ t('his-unc',()=>b.assertPathAllowed('\\\\his-server\\NIPT\\PET',env));
 t('nas-unc',()=>b.assertPathAllowed('\\\\hospital-nas\\NIPT\\archive',env));
 t('outside-folder',()=>b.assertPathAllowed('C:\\Users\\Public',env));
 t('remote-archive',()=>b.assertArchiveRootAllowed('\\\\hospital-nas\\NIPT\\archive',env));
+t('admin-share-archive',()=>b.assertArchiveRootAllowed('\\\\localhost\\C$\\NIPT-CBH\\production\\data\\files',env));
+t('mapped-drive',()=>b.assertPathAllowed('Z:\\HIS\\RES',env));
+t('long-unc-prefix',()=>b.assertPathAllowed('\\\\?\\UNC\\his-server\\NIPT\\PET',env));
 t('production-database',()=>b.assertProcessBoundary({...env,DATABASE_URL:'postgresql://nipt_web:x@127.0.0.1:'+process.env.PROBE_PRODUCTION_PORT+'/db'}));
 t('own-simulator-folder',()=>b.assertPathAllowed(process.env.NIPT_ENVIRONMENT_ROOT+'\\data\\integration\\inbound',env));
 console.log(JSON.stringify(out));
@@ -137,7 +141,15 @@ if ($sIn) {
   if ($rules.Count) {
     $bad = @($rules | Where-Object { $_.Enabled -ne 'True' -or $_.Action -ne 'Block' -or $_.Direction -ne 'Outbound' } | ForEach-Object DisplayName)
     Add-Result 'network' 'staging-egress-block' $(if ($bad.Count) { 'FAIL' } else { 'PASS' }) $(if ($bad.Count) { "not enforcing: $($bad -join ',')" } else { "$($rules.Count) outbound block rule(s): " + (($rules | ForEach-Object DisplayName) -join ', ') })
-  } else { Add-Result 'network' 'staging-egress-block' 'NOT_RUN' 'rules not created yet: provision-identities.ps1 -Environment staging (elevated)' }
+  } else { Add-Result 'network' 'staging-egress-block' 'NOT_RUN' 'SECURITY BLOCKER: no Staging egress rule exists; run provision-identities.ps1 -Environment staging from an elevated prompt' }
+  Test-Result 'identity' 'staging-service-identity' {
+    $marker = Join-Path $s.root 'config\service-identity.json'
+    if (-not (Test-Path -LiteralPath $marker)) { Add-Result 'identity' 'staging-service-identity' 'NOT_RUN' 'SECURITY BLOCKER: Staging still runs as the installing user; run provision-identities.ps1 -Environment staging (elevated)'; return }
+    $task = Get-ScheduledTask -TaskPath '\NIPT-CBH\' -TaskName "nipt-cbh-$($s.instance)" -ErrorAction Stop
+    $want = (Read-NiptJson $marker).account
+    if ($task.Principal.UserId -notlike "*$($s.serviceAccount)") { throw "TASK_RUNS_AS_$($task.Principal.UserId)_NOT_$want" }
+    Add-Result 'identity' 'staging-service-identity' 'PASS' "supervisor task runs as $($task.Principal.UserId)"
+  }
 }
 
 # ── reset leaves Production unchanged ──
@@ -169,7 +181,12 @@ if ($IncludeReset) {
 Write-Host ''
 foreach ($r in $results) { Write-Host ('{0,-8} {1,-11} {2,-48} {3}' -f $r.state, $r.area, $r.id, $r.detail) -ForegroundColor @{ PASS = 'Green'; FAIL = 'Red'; NOT_RUN = 'Yellow' }[$r.state] }
 $fail = @($results | Where-Object state -eq 'FAIL').Count
+$notRun = @($results | Where-Object state -eq 'NOT_RUN').Count
+# a check that could not run (no firewall rule, no identity, an environment not installed) is a blocker, never a pass
+$verdict = if ($fail) { 'FAIL' } elseif ($notRun) { 'INCOMPLETE' } else { 'PASS' }
 $file = Join-Path (Join-Path (Join-Path $PSScriptRoot 'history') 'isolation') ((Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ') + '.json')
-Write-NiptJson ([ordered]@{ checkedAt = (Get-Date).ToString('o'); host = $env:COMPUTERNAME; failed = $fail; results = @($results) }) $file
-Write-Host ''; Write-Host "evidence: $file"
-exit $(if ($fail) { 1 } else { 0 })
+Write-NiptJson ([ordered]@{ checkedAt = (Get-Date).ToString('o'); host = $env:COMPUTERNAME; verdict = $verdict; failed = $fail; notRun = $notRun; results = @($results) }) $file
+Write-Host ''
+Write-Host ("ISOLATION {0}: {1} FAIL, {2} NOT_RUN (each NOT_RUN is an open security blocker)" -f $verdict, $fail, $notRun) -ForegroundColor @{ PASS = 'Green'; INCOMPLETE = 'Yellow'; FAIL = 'Red' }[$verdict]
+Write-Host "evidence: $file"
+exit $(switch ($verdict) { 'PASS' { 0 } 'FAIL' { 1 } default { 2 } })

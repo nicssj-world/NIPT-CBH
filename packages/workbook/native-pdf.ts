@@ -8,6 +8,7 @@ import {getDocument} from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {SHEETS} from './master';
 import {sha256} from './archive';
 import {restoreNativeA4Coordinates} from './pdf-media';
+import {stopOwnOfficeInstance} from './office-instance';
 const run=promisify(execFile);
 const pause=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
 type NativeEntry={index:number;zoom:number|false;formulaCount:number;formulaErrors:{cell:string;error:string}[];poolingCalculation:null|{D52:number|null;F52:number;D55:number;F52Formula:string;D55Formula:string}};
@@ -84,7 +85,14 @@ export async function exportTaskPdfs(bytes:Buffer,selectedSheets:readonly string
     const input=path.join(temp,'task.xlsx'), output=path.join(temp,'pdf');
     await writeFile(input,bytes,{flag:'wx'});
     const indexes=SHEETS.flatMap((sheet,i)=>selectedSheets.includes(sheet)?[i+1]:[]);if(!indexes.length)throw Error('TASK_SHEET_REQUIRED');
-    await run(process.env.NIPT_NATIVE_POWERSHELL??'pwsh.exe',['-NoLogo','-NoProfile','-NonInteractive','-File',path.join(process.cwd(),'packages/workbook/native-export.ps1'),'-InputWorkbook',input,'-OutputDirectory',output,'-SheetIndices',indexes.join(',')],{windowsHide:true,maxBuffer:1024*1024,timeout:180000});
+    const pidFile=path.join(temp,'office.pid');
+    try {
+      await run(process.env.NIPT_NATIVE_POWERSHELL??'pwsh.exe',['-NoLogo','-NoProfile','-NonInteractive','-File',path.join(process.cwd(),'packages/workbook/native-export.ps1'),'-InputWorkbook',input,'-OutputDirectory',output,'-SheetIndices',indexes.join(',')],{windowsHide:true,maxBuffer:1024*1024,timeout:180000,env:{...process.env,NIPT_OFFICE_PID_FILE:pidFile}});
+    } catch(error) {
+      // a script stopped by its timeout cannot quit Excel itself: stop exactly the instance it started, then report the original failure
+      await stopOwnOfficeInstance(pidFile,'EXCEL.EXE');
+      throw error;
+    }
     return await verifyNativeOutput(output,selectedSheets);
   } finally {await rm(temp,{recursive:true,force:true});}
 }

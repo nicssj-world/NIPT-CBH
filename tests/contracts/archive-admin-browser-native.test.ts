@@ -2,6 +2,7 @@ import {it,expect} from 'vitest';
 import {spawn,execFileSync} from 'node:child_process';
 import {mkdtemp,mkdir,cp,readFile,rm,writeFile} from 'node:fs/promises';
 import os from 'node:os';
+import {randomBytes} from 'node:crypto';
 import path from 'node:path';
 import net from 'node:net';
 import {pathToFileURL} from 'node:url';
@@ -29,28 +30,37 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('real browser Admin NAS Settings,
  try{
   await migrate(owner);await owner.query(await readFile('packages/db/roles.sql','utf8'));
   // Web truly runs with inherited app_rw permissions, not the database owner.
-  await owner.query('CREATE ROLE nipt_synthetic_browser_app LOGIN INHERIT');
+  // A per-run password: PostgreSQL with scram-sha-256 over TCP (the CI postgres service included) refuses a login without one.
+  // Idempotent, so a rerun against the same synthetic database does not fail on the role left by an earlier run.
+  const webPassword=randomBytes(18).toString('hex');
+  await owner.query("DO $$BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='nipt_synthetic_browser_app') THEN CREATE ROLE nipt_synthetic_browser_app LOGIN INHERIT; END IF; END$$");
+  await owner.query(`ALTER ROLE nipt_synthetic_browser_app LOGIN INHERIT PASSWORD '${webPassword}'`);
   await owner.query('GRANT app_rw TO nipt_synthetic_browser_app');
-  const webUrl=new URL(url);webUrl.username='nipt_synthetic_browser_app';webUrl.password='';
+  const webUrl=new URL(url);webUrl.username='nipt_synthetic_browser_app';webUrl.password=webPassword;
   await mkdir(archive);await mkdir(path.join(base,'data/files'),{recursive:true});
   const loader=pathToFileURL(path.join(repo,'node_modules/tsx/dist/loader.mjs')).href;
   execFileSync(process.execPath,['--import',loader,path.join(repo,'tools/init-dev.ts')],{
    cwd:base,windowsHide:true,stdio:'ignore',timeout:30000
   });
   const keys=(s:string)=>path.join(base,'data/keys',s);
+  // The shared test database is already seeded by the suite (CI "Separate native concurrency fixtures") with the suite's identity
+  // lookup key and seed password; seed.ts never rewrites an existing account or case. Use the same two files, or this test's own
+  // fresh ones when the suite has none. (A fresh key re-registers the same synthetic cases under other identity keys: Idempotency
+  // conflict; a fresh password does not match the existing synthetic.admin.)
+  const suite=(name:string|undefined,own:string)=>name?path.resolve(repo,name):own;
   const env={...process.env,NIPT_MODE:'synthetic',DATABASE_URL:webUrl.toString(),APP_ORIGIN:origin,E2E_BASE_URL:origin,
    HOSTNAME:'127.0.0.1',PORT:String(port),FILE_STORE_ROOT:path.join(base,'data/files'),
    SIMULATOR_ROOT:path.join(base,'data/simulator'),RENDERER_URL:'http://127.0.0.1:63334',
    RENDERER_TOKEN_FILE:keys('renderer-token'),
    INTEGRATION_PUBLIC_KEY_FILE:keys('integration-public.pem'),INTEGRATION_PRIVATE_KEY_FILE:keys('integration-private.pem'),
-   IDENTITY_ENCRYPTION_KEY_FILE:keys('identity.key'),IDENTITY_LOOKUP_KEY_FILE:keys('lookup.key'),
-   BACKUP_KEY_FILE:keys('backup.key'),SYNTHETIC_SEED_PASSWORD_FILE:path.join(base,'data/secrets/seed-password'),
+   IDENTITY_ENCRYPTION_KEY_FILE:keys('identity.key'),IDENTITY_LOOKUP_KEY_FILE:suite(process.env.IDENTITY_LOOKUP_KEY_FILE,keys('lookup.key')),
+   BACKUP_KEY_FILE:keys('backup.key'),SYNTHETIC_SEED_PASSWORD_FILE:suite(process.env.SYNTHETIC_SEED_PASSWORD_FILE,path.join(base,'data/secrets/seed-password')),
   };
   await mkdir(path.join(base,'data/simulator/inbound'),{recursive:true});
   await mkdir(path.join(base,'data/simulator/results'),{recursive:true});
   await writeFile(path.join(base,'data/simulator/.nipt-synthetic-root'),'NIPT_SYNTHETIC_ONLY_V1');
   execFileSync(process.execPath,['--import','tsx','tools/seed.ts'],{
-   cwd:repo,env:{...env,DATABASE_URL:url},windowsHide:true,stdio:'ignore',timeout:45000
+   cwd:repo,env:{...env,DATABASE_URL:url},windowsHide:true,stdio:'pipe',timeout:45000
   });
   await cp(path.join(repo,'public'),path.join(repo,'.next/standalone/public'),{recursive:true});
   await cp(path.join(repo,'.next/static'),path.join(repo,'.next/standalone/.next/static'),{recursive:true});
