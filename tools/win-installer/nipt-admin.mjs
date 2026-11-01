@@ -130,6 +130,12 @@ function processEvidence(L,pid,marker){
   const raw=ps(`$p=Get-CimInstance Win32_Process -Filter ${q(`ProcessId = ${value}`)} -ErrorAction Stop;if($p){[pscustomobject]@{name=[string]$p.Name;commandLine=[string]$p.CommandLine}|ConvertTo-Json -Compress}`);
   if(!raw)return {pid:value,state:'UNVERIFIED'};
   const actual=JSON.parse(raw);
+  // Under a dedicated service identity Windows does not show that process's command line to a non-elevated observer. Then the
+  // supervisor is identified by its own record instead: run\state.json (writable only by this installation's identities) names
+  // this PID, it is node.exe, and it has not recorded a stop.
+  if(!actual.commandLine&&marker==='supervisor.mjs'&&String(actual.name).toLowerCase()==='node.exe'){
+   try{const s=JSON.parse(readFileSync(L.state,'utf8'));if(Number(s.supervisorPid)===value&&!s.stoppedAt)return {pid:value,state:'RUNNING',verifiedBy:'SUPERVISOR_STATE'};}catch{/* no record */}
+  }
   return {pid:value,state:recordedProcessState({pid:value,alive:isAlive,image:actual.name,commandLine:actual.commandLine,root:L.root,marker})};
  }catch{return {pid:value,state:'UNVERIFIED'};}
 }

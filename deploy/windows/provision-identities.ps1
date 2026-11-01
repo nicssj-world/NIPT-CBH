@@ -80,15 +80,28 @@ try {
 
       Assert-NiptEngineOk (Invoke-NiptAdmin $cfg 'stop') 'STOP'
 
-      $password = New-NiptPassword
-      $secure = ConvertTo-SecureString $password -AsPlainText -Force
-      if (Get-LocalUser -Name $cfg.serviceAccount -ErrorAction SilentlyContinue) {
-        Set-LocalUser -Name $cfg.serviceAccount -Password $secure -PasswordNeverExpires $true -UserMayChangePassword $false
-        Write-NiptLog "re-keyed local account $acct"
-      } else {
-        New-LocalUser -Name $cfg.serviceAccount -Password $secure -PasswordNeverExpires -UserMayNotChangePassword -AccountNeverExpires -Description "NIPT-CBH $n runtime (non-interactive)" | Out-Null
-        Write-NiptLog "created local account $acct"
-      }
+      # The password is random, used once to register the tasks and never stored. Re-running must not rotate it needlessly: it is
+      # replaced only when the account is missing, a task is not yet bound to it, or the Production NAS credential still has to be
+      # stored under it (which needs the password once).
+      $task = "nipt-cbh-$($cfg.instance)"
+      $existing = Get-LocalUser -Name $cfg.serviceAccount -ErrorAction SilentlyContinue
+      $bound = { param($name) $x = Get-ScheduledTask -TaskPath '\NIPT-CBH\' -TaskName $name -ErrorAction SilentlyContinue; [bool]($x -and $x.Principal.UserId -match "(^|\\)$([regex]::Escape($cfg.serviceAccount))$" -and [string]$x.Principal.LogonType -eq 'Password') }
+      $wantsNas = ($n -eq 'production' -and $cfg.PSObject.Properties['backup'] -and $cfg.backup)
+      $nasDone = $false
+      if ($wantsNas) { $pf = Join-Path $cfg.root 'run\nas-probe.json'; $nasDone = (Test-Path -LiteralPath $pf) -and [bool]((Get-Content -LiteralPath $pf -Raw | ConvertFrom-Json).ok) -and (& $bound "$task-backup") }
+      $needKey = (-not $existing) -or -not (& $bound $task) -or ($wantsNas -and -not $nasDone)
+      $password = $null; $secure = $null
+      if ($needKey) {
+        $password = New-NiptPassword
+        $secure = ConvertTo-SecureString $password -AsPlainText -Force
+        if ($existing) {
+          Set-LocalUser -Name $cfg.serviceAccount -Password $secure -PasswordNeverExpires $true -UserMayChangePassword $false
+          Write-NiptLog "re-keyed local account $acct"
+        } else {
+          New-LocalUser -Name $cfg.serviceAccount -Password $secure -PasswordNeverExpires -UserMayNotChangePassword -AccountNeverExpires -Description "NIPT-CBH $n runtime (non-interactive)" | Out-Null
+          Write-NiptLog "created local account $acct"
+        }
+      } else { Write-NiptLog "account $acct and its tasks are already provisioned: credentials kept as they are" }
 
       $root = $cfg.root
       Invoke-Icacls @($root, '/inheritance:r', '/grant:r', '*S-1-5-32-544:(OI)(CI)F', '*S-1-5-18:(OI)(CI)F', "${owner}:(OI)(CI)F", "${acct}:(OI)(CI)RX")
@@ -108,15 +121,16 @@ try {
 
       Grant-NiptBatchLogonRight $acct
       Write-NiptLog "granted 'Log on as a batch job' to $acct"
-      $task = "nipt-cbh-$($cfg.instance)"
-      Set-ScheduledTask -TaskPath '\NIPT-CBH\' -TaskName $task -Trigger (New-ScheduledTaskTrigger -AtStartup) -User $acct -Password $password | Out-Null
+      if ($password) {
+        Set-ScheduledTask -TaskPath '\NIPT-CBH\' -TaskName $task -Trigger (New-ScheduledTaskTrigger -AtStartup) -User $acct -Password $password | Out-Null
+        Write-NiptLog "supervisor task $task now runs as $acct at system startup"
+      }
       $detail.task = $task
-      Write-NiptLog "supervisor task $task now runs as $acct at system startup"
 
       # Production NAS backup (environments\production.json "backup"): the service identity itself authenticates to the NAS with a
       # credential kept in ITS OWN Windows Credential Manager (typed here, never written to a file or to Git), and the daily backup
       # runs as that identity at its scheduled time, with or without anyone signed in.
-      if ($n -eq 'production' -and $cfg.PSObject.Properties['backup'] -and $cfg.backup) {
+      if ($wantsNas -and $needKey) {
         $b = $cfg.backup
         if ($b.root -notmatch '^\\\\[^\\]+\\[^\\]+') { throw "BACKUP_ROOT_MUST_BE_UNC: $($b.root)" }
         $nasServer = ($b.root -split '\\')[2]
@@ -168,7 +182,16 @@ try {
         if ($info) { $detail.taskLastRun = [string]$info.LastRunTime; $detail.taskLastResult = ('0x{0:X8}' -f $info.LastTaskResult) }
         throw
       }
-      $report = Get-NiptEnvironmentReport $cfg
+      # the Excel bridge runs in the owner's interactive session (desktop Excel cannot run in a service session); bring it up too
+      $tasks = Get-NiptTaskNames $cfg
+      if ($cfg.excelMode -eq 'bridge' -and (Get-ScheduledTask -TaskPath '\NIPT-CBH\' -TaskName $tasks.bridge -ErrorAction SilentlyContinue)) {
+        if (-not (Get-NiptBridgeState $cfg).alive) {
+          Enable-ScheduledTask -TaskPath '\NIPT-CBH\' -TaskName $tasks.bridge -ErrorAction Stop | Out-Null
+          Start-ScheduledTask -TaskPath '\NIPT-CBH\' -TaskName $tasks.bridge -ErrorAction Stop
+          $deadline = (Get-Date).AddSeconds(60); while (-not (Get-NiptBridgeState $cfg).alive -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+        }
+        $detail.bridge = Get-NiptBridgeState $cfg
+      }      $report = Wait-NiptHealthy $cfg
       $detail.health = [ordered]@{ ok = $report.ok; failed = $report.failed }
       if (-not $report.ok) { throw "NOT_HEALTHY_UNDER_SERVICE_IDENTITY: $($report.failed -join ',')" }
       if ($detail.Contains('backup')) {
@@ -183,7 +206,7 @@ try {
         $entries = if (Test-Path -LiteralPath $idx) { @(Get-Content -LiteralPath $idx -Raw | ConvertFrom-Json) } else { @() }
         $detail.backup.indexEntries = $entries.Count
         if ($ti.LastTaskResult -ne 0 -or -not $entries.Count) { throw "SCHEDULED_BACKUP_AS_SERVICE_IDENTITY_FAILED: result $($detail.backup.firstRun.result), index entries $($entries.Count)" }
-        $report = Get-NiptEnvironmentReport $cfg
+        $report = Wait-NiptHealthy $cfg
         if (-not $report.ok) { throw "NOT_HEALTHY_AFTER_SCHEDULED_BACKUP: $($report.failed -join ',')" }
         Write-NiptLog "scheduled backup as ${acct}: PASS ($($entries.Count) backup(s) in $($cfg.backup.root))"
       }

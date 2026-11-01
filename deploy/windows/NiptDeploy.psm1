@@ -336,6 +336,17 @@ function Get-NiptEnvironmentReport($EnvCfg, [switch]$Quiet) {
   [pscustomobject]@{ environment = $EnvCfg.environment; installed = $true; ok = ($failed.Count -eq 0); failed = $failed; status = $status; health = $health; schema = $schema; stamp = $stamp }
 }
 
+<# The engine's start returns once the supervisor is running; the services need a little longer. Poll the report until it is healthy or the timeout passes. #>
+function Wait-NiptHealthy($EnvCfg, [int]$TimeoutSeconds = 180) {
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  do {
+    $report = Get-NiptEnvironmentReport $EnvCfg -Quiet
+    if ($report.ok) { return $report }
+    Start-Sleep -Seconds 5
+  } while ((Get-Date) -lt $deadline)
+  $report
+}
+
 # ───────────── on-demand Staging lifecycle ─────────────
 <# The operator's intent for Staging (STOPPED / RUNNING), kept outside the engine root so an intentional stop is never an incident. #>
 function Get-NiptLifecycleFile { Join-Path (Get-NiptHistoryDir 'staging') 'lifecycle.json' }
