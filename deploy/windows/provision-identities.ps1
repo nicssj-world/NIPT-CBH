@@ -105,7 +105,7 @@ try {
 
       $root = $cfg.root
       Invoke-Icacls @($root, '/inheritance:r', '/grant:r', '*S-1-5-32-544:(OI)(CI)F', '*S-1-5-18:(OI)(CI)F', "${owner}:(OI)(CI)F", "${acct}:(OI)(CI)RX")
-      foreach ($d in 'data', 'logs', 'run') { Invoke-Icacls @((Join-Path $root $d), '/grant', "${acct}:(OI)(CI)M") }
+      foreach ($d in 'data', 'logs', 'run', 'restores') { Invoke-Icacls @((Join-Path $root $d), '/grant', "${acct}:(OI)(CI)M") }
       Invoke-Icacls @((Join-Path $root 'secrets'), '/grant', "${acct}:(OI)(CI)R")
       if ($other.serviceAccount -and (Get-LocalUser -Name $other.serviceAccount -ErrorAction SilentlyContinue)) {
         Invoke-Icacls @($root, '/deny', "$env:COMPUTERNAME\$($other.serviceAccount):(OI)(CI)F")

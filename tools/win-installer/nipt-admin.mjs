@@ -446,7 +446,7 @@ async function takeBackup(L,c){
  if(r.status!==0)fail('BACKUP_FAILED',(r.stderr||r.stdout).slice(-2000));
  const out=JSON.parse(r.stdout.trim().split('\n').pop());
  c.lastBackupPath=out.backupBase;mkdirSync(L.run,{recursive:true});await writeJson(path.join(L.run,'last-backup.json'),{lastBackupPath:out.backupBase,at:new Date().toISOString()});
- try{await writeJson(L.configFile,c);}catch{/* service identity: config is read-only by design; runlast-backup.json holds it */}
+ try{await writeJson(L.configFile,c);}catch{/* service identity: config is read-only by design; run\last-backup.json holds it */}
  const index=await readJson(path.join(c.backupRoot??L.backups,'index.json'),[]);index.push({...out,release:st.current.version,at:new Date().toISOString()});await writeJson(path.join(c.backupRoot??L.backups,'index.json'),index);
  return out;
 }
@@ -454,9 +454,27 @@ async function takeBackup(L,c){
 async function backup(){
  const L=layout(args.root),c=cfgOf(L);
  const out=await takeBackup(L,c);
+ // One-off restore verification requested by the operator (run\verify-restore.request): the backup and restore tools only run
+ // as the policy's service identity, so the drill rides on the identity's own scheduled backup instead of an operator session.
+ const request=path.join(L.run,'verify-restore.request');let drill=null;
+ if(existsSync(request)){rmSync(request,{force:true});drill=await restoreCheck(L,c,out);await writeJson(path.join(L.run,'restore-drill-result.json'),{...drill,at:new Date().toISOString()});}
  await startServices(L,c);await waitHealthy(L,c);
  const pruned=args.keep===undefined?[]:await pruneBackups(L,c,args.keep);
- return {backup:out,...(args.keep===undefined?{}:{retention:{keep:Number(args.keep),pruned}})};
+ return {backup:out,...(drill?{restoreDrill:drill}:{}),...(args.keep===undefined?{}:{retention:{keep:Number(args.keep),pruned}})};
+}
+/** Verified restore of one backup into a NEW database and folder, both removed afterwards; the live database is never touched. */
+async function restoreCheck(L,c,backup){
+ const st=stateOf(L),ops=path.join(releaseDir(L,st.current.version),'ops');
+ const id=randomUUID().replaceAll('-',''),database='nipt_operational_restore_'+id.slice(0,24),destination=path.join(L.restores,id);
+ psql(L,c,`CREATE DATABASE ${database}`,{db:'postgres'});
+ const env=appEnv(L,c,st,{DATABASE_URL:readSecret(L,'migration-url'),RESTORE_DATABASE_URL:urlFor(L,c,'migration-url',database),RESTORE_TO_NEW_OPERATIONAL_DATABASE:'yes'});
+ const r=nodeIn(L,ops,[path.join('tools','win-installer','ops-restore.mjs'),'restore',backup.backupBase,destination],env);
+ let receipt=null,failure=null;
+ if(r.status===0)receipt=JSON.parse(r.stdout.trim().split('\n').pop());else failure=(r.stderr||r.stdout).slice(-1200);
+ const restoredBytes=dirBytes(destination);
+ try{psql(L,c,`DROP DATABASE IF EXISTS ${database}`,{db:'postgres'});}catch{/* reported by the next backup */}
+ rmSync(destination,{recursive:true,force:true});
+ return failure?{restoreVerified:false,backupBase:backup.backupBase,failure}:{restoreVerified:receipt.restoreVerified===true,backupBase:backup.backupBase,tables:receipt.tableCount,files:receipt.fileCount,restoredBytes};
 }
 /** Retention after a successful backup: keep the newest N backups of THIS installation. Only folders recorded in its own index.json,
  *  named operational-*, directly inside the backup root, are removed; anything else in the destination is never touched. */
