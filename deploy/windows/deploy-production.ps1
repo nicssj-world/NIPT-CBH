@@ -69,7 +69,7 @@ try {
   $pendingSql = @{}
   foreach ($name in $pkg.migrations.PSObject.Properties.Name) {
     $f = Join-Path $pkg.dir "payload\release\ops\db\migrations\$name"
-    if (Test-Path -LiteralPath $f) { $pendingSql[$name] = Get-Content -LiteralPath $f -Raw -Encoding UTF8 }
+    if (Test-Path -LiteralPath $f) { $pendingSql[$name] = [IO.File]::ReadAllText($f, [Text.Encoding]::UTF8) } # a plain string: Get-Content adds PSPath/PSProvider properties that ConvertTo-Json -Depth 30 expands without bound
   }
   $gate = Invoke-NiptGate 'production-gate' $tc @{
     verified = $verified; commit = $Commit; now = (Get-Date).ToUniversalTime().ToString('o'); maxAgeDays = $cfg.stagingVerifiedMaxAgeDays

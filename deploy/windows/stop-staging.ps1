@@ -28,7 +28,7 @@ try {
   Assert-NiptCanVerifyServices $cfg
   $tasks = Get-NiptTaskNames $cfg
   $pgService = (Get-Service postgresql-x64-17 -ErrorAction SilentlyContinue).Status
-  $prodBefore = if (Test-NiptInstalled $prod) { (Get-Content -LiteralPath (Join-Path $prod.root 'run\supervisor.lock') -ErrorAction SilentlyContinue) } else { 'NOT_INSTALLED' }
+  $prodBefore = if (Test-NiptInstalled $prod) { [string](Get-Content -LiteralPath (Join-Path $prod.root 'run\supervisor.lock') -ErrorAction SilentlyContinue) } else { 'NOT_INSTALLED' }
   $detail.memoryBefore = Get-NiptMemory
   $owned = @(Get-NiptOwnedProcesses $cfg)
   $detail.ownedBefore = [ordered]@{ count = $owned.Count; privateMB = [int](($owned | Measure-Object privateMB -Sum).Sum) }
@@ -65,7 +65,7 @@ try {
   $taskStates = @(foreach ($t in $tasks.supervisor, $tasks.bridge) { (Get-ScheduledTask -TaskPath '\NIPT-CBH\' -TaskName $t).State })
   $detail.taskStates = $taskStates
   if (@($taskStates | Where-Object { "$_" -ne 'Disabled' }).Count) { throw "STAGING_TASK_NOT_DISABLED: $($taskStates -join ',')" }
-  $prodAfter = if (Test-NiptInstalled $prod) { (Get-Content -LiteralPath (Join-Path $prod.root 'run\supervisor.lock') -ErrorAction SilentlyContinue) } else { 'NOT_INSTALLED' }
+  $prodAfter = if (Test-NiptInstalled $prod) { [string](Get-Content -LiteralPath (Join-Path $prod.root 'run\supervisor.lock') -ErrorAction SilentlyContinue) } else { 'NOT_INSTALLED' }
   $pgServiceAfter = (Get-Service postgresql-x64-17 -ErrorAction SilentlyContinue).Status
   $detail.untouched = [ordered]@{ production = "$prodBefore -> $prodAfter"; 'postgresql-x64-17' = "$pgService -> $pgServiceAfter" }
   if ("$prodBefore" -ne "$prodAfter" -or "$pgService" -ne "$pgServiceAfter") { throw "UNRELATED_SERVICE_CHANGED: $($detail.untouched | ConvertTo-Json -Compress)" }
