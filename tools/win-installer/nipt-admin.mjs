@@ -437,14 +437,30 @@ async function waitHealthy(L,c,{timeout=120000}={}){
  return last;
 }
 
-async function takeBackup(L,c){
+// Signed operations receipts (deploy/scripts/operations-status.mjs): the backup tool holds the PRIVATE key and publishes a receipt only after a
+// verified backup; the web process receives the PUBLIC key and the receipt path. The historical migration refuses Execute without such a receipt.
+// The receipt lives in run\ (writable by the service identity that runs the scheduled backup); the keys live in secrets\ (written by an administrator).
+const operationsStatusKeyPair=()=>generateKeyPairSync('ed25519',{publicKeyEncoding:{type:'spki',format:'pem'},privateKeyEncoding:{type:'pkcs8',format:'pem'}});
+const operationsStatusFile=L=>path.join(L.run,'operations-status.json');
+/** Installations created before these keys existed gain them the next time an administrator starts, restarts or backs up; a half-present pair is never repaired silently. */
+function ensureOperationsStatusKeys(L){
+ const priv=secretFile(L,'operations-status-private.pem'),pub=secretFile(L,'operations-status-public.pem');
+ if(existsSync(priv)&&existsSync(pub))return;
+ if(existsSync(priv)||existsSync(pub))fail('OPERATIONS_STATUS_KEYS_INCOMPLETE');
+ const k=operationsStatusKeyPair();writeFileSync(priv,k.privateKey,{flag:'wx',mode:0o600});writeFileSync(pub,k.publicKey,{flag:'wx',mode:0o600});
+}
+async function takeBackup(L,c,{requireReceipt=true}={}){
  const st=stateOf(L),ops=path.join(releaseDir(L,st.current.version),'ops');
+ // keys first: a service identity cannot create them, and the services must not be stopped for a backup that cannot publish its receipt
+ try{ensureOperationsStatusKeys(L);}catch(e){if(requireReceipt||e.message==='OPERATIONS_STATUS_KEYS_INCOMPLETE')fail(e.message==='OPERATIONS_STATUS_KEYS_INCOMPLETE'?e.message:'OPERATIONS_STATUS_KEYS_MISSING',{hint:'run "nipt-admin start" or "restart" once from an administrator session'});}
  await stopServices(L,{keepDatabase:true});
  pgStart(L,c);
- const env=appEnv(L,c,st,{DATABASE_URL:readSecret(L,'migration-url'),BACKUP_SOURCE_QUIESCENT:'yes'});
+ const env=appEnv(L,c,st,{DATABASE_URL:readSecret(L,'migration-url'),BACKUP_SOURCE_QUIESCENT:'yes',...(existsSync(secretFile(L,'operations-status-private.pem'))?{NIPT_OPERATIONS_STATUS_FILE:operationsStatusFile(L),NIPT_OPERATIONS_STATUS_SIGNING_KEY_FILE:secretFile(L,'operations-status-private.pem')}:{})});
  const r=nodeIn(L,ops,[path.join('tools','win-installer','ops-backup.mjs'),'backup',c.backupRoot??L.backups],env);
  if(r.status!==0)fail('BACKUP_FAILED',(r.stderr||r.stdout).slice(-2000));
  const out=JSON.parse(r.stdout.trim().split('\n').pop());
+ // A release whose backup tool predates receipts reports no status (nothing to check); a newer one must have published its signed receipt.
+ if(requireReceipt&&out.operationsStatus!==undefined&&out.operationsStatus!=='PUBLISHED')fail('BACKUP_RECEIPT_NOT_PUBLISHED',{backupBase:out.backupBase,operationsStatus:out.operationsStatus});
  c.lastBackupPath=out.backupBase;mkdirSync(L.run,{recursive:true});await writeJson(path.join(L.run,'last-backup.json'),{lastBackupPath:out.backupBase,at:new Date().toISOString()});
  try{await writeJson(L.configFile,c);}catch{/* service identity: config is read-only by design; run\last-backup.json holds it */}
  const index=await readJson(path.join(c.backupRoot??L.backups,'index.json'),[]);index.push({...out,release:st.current.version,at:new Date().toISOString()});await writeJson(path.join(c.backupRoot??L.backups,'index.json'),index);
@@ -594,7 +610,7 @@ async function upgrade(){
  if(!compat.compatibleWithDatabase)fail('UPGRADE_SCHEMA_INCOMPATIBLE',compat);
  say('pre-upgrade verified backup');
  let pre;
- try{pre=await takeBackup(L,c);}
+ try{pre=await takeBackup(L,c,{requireReceipt:false});}
  catch(error){ // nothing was changed yet: leave the installed system running exactly as before
   say('pre-upgrade backup failed — restarting the installed release unchanged');
   await startServices(L,c).then(()=>waitHealthy(L,c)).catch(e=>say('restart after failed backup: '+e.message));
@@ -852,6 +868,19 @@ async function backupsList(){
 const dirBytes=dir=>{let n=0;const walk=d=>{for(const e of readdirSync(d,{withFileTypes:true})){const p=path.join(d,e.name);if(e.isDirectory())walk(p);else n+=statSync(p).size;}};try{walk(dir);}catch{/* gone */}return n;};
 /** Recovery drill: timed quiescent backup, verified restore into a quarantined database, then the drill copy is removed and the services restart.
  *  Nothing is activated and the live database is never overwritten. The numbers are measurements for RPO/RTO planning on THIS host, not guarantees. */
+/** Runs ONE operator script from the installed release's ops\tools\migration (the code that was deployed) with the web service's environment: its database
+ *  role, file store, identity key and the signed-backup-receipt variables. Arguments after a literal "--" go to the script. Nothing else can be run this way.
+ *    nipt-admin ops-run --root <root> --script tools\migration\run-production-migration.ts -- --phase preflight ...   */
+async function opsRun(){
+ const L=layout(args.root),c=cfgOf(L),st=stateOf(L),ops=path.join(releaseDir(L,st.current.version),'ops');
+ const at=process.argv.indexOf('--'),rest=at<0?[]:process.argv.slice(at+1),script=String(args.script??'');
+ if(!/^tools[\\/]migration[\\/][A-Za-z0-9_.-]+\.ts$/.test(script)||!existsSync(path.join(ops,script)))fail('OPS_RUN_SCRIPT_NOT_ALLOWED');
+ const pub=secretFile(L,'operations-status-public.pem');
+ const env=appEnv(L,c,st,{DATABASE_URL:readSecret(L,'web-url'),...(existsSync(pub)?{NIPT_OPERATIONS_STATUS_FILE:operationsStatusFile(L),NIPT_OPERATIONS_STATUS_PUBLIC_KEY_FILE:pub}:{})});
+ const r=spawnSync(L.node,['--import','tsx',script,...rest],{cwd:ops,env,stdio:'inherit',windowsHide:true});
+ if(r.status!==0)fail('OPS_RUN_FAILED',{exitCode:r.status});
+ return {ran:script,exitCode:0};
+}
 async function drDrill(){
  const L=layout(args.root),c=cfgOf(L),st=stateOf(L),ops=path.join(releaseDir(L,st.current.version),'ops');
  const t0=Date.now();const lap=()=>Math.round((Date.now()-t0)/100)/10;
@@ -934,13 +963,13 @@ async function resetStaging(){
 const commands={
  'verify-package':async()=>{const m=await verifyPackage(path.resolve(args.package),path.resolve(args['public-key']));return {ok:true,version:m.version,revision:m.revision,files:Object.keys(m.files).length};},
  preflight,install,
- start:async()=>{const L=layout(args.root),c=cfgOf(L);await startServices(L,c);return {started:true};},
+ start:async()=>{const L=layout(args.root),c=cfgOf(L);try{ensureOperationsStatusKeys(L);}catch(e){if(e.message==='OPERATIONS_STATUS_KEYS_INCOMPLETE')throw e;/* a service identity cannot write secrets\\; an administrator will */}await startServices(L,c);return {started:true};},
  stop:async()=>{const L=layout(args.root);await stopServices(L,{keepDatabase:args['keep-database']===true});return {stopped:true};},
- restart:async()=>{const L=layout(args.root),c=cfgOf(L);await stopServices(L);await startServices(L,c);await waitHealthy(L,c);return {restarted:true};},
+ restart:async()=>{const L=layout(args.root),c=cfgOf(L);try{ensureOperationsStatusKeys(L);}catch(e){if(e.message==='OPERATIONS_STATUS_KEYS_INCOMPLETE')throw e;}await stopServices(L);await startServices(L,c);await waitHealthy(L,c);return {restarted:true};},
  status,
  health:async()=>{const L=layout(args.root);return healthReport(L,cfgOf(L));},
  backup,restore,upgrade,rollback,uninstall,schema:schemaReport,'reset-staging':resetStaging,
- 'set-lan':setLan,'lan-status':lanStatus,'set-backup-root':setBackupRoot,'schedule-backup':scheduleBackup,'unschedule-backup':unscheduleBackup,'backups':backupsList,'dr-drill':drDrill,photos,'host-check':hostCheck,'office-check':officeCheck
+ 'set-lan':setLan,'lan-status':lanStatus,'set-backup-root':setBackupRoot,'schedule-backup':scheduleBackup,'unschedule-backup':unscheduleBackup,'backups':backupsList,'dr-drill':drDrill,'ops-run':opsRun,photos,'host-check':hostCheck,'office-check':officeCheck
 };
 if(!commands[command]){process.stderr.write(`usage: nipt-admin <${Object.keys(commands).join('|')}> --root <dir> [options]\n`);process.exit(2);}
 try{

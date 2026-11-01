@@ -4,6 +4,7 @@ import {authorize} from "../../../../packages/security/policy";
 import {withTransaction} from "../../../../packages/db/connection";
 import {labWorklistPage} from "../../../../packages/lab/intake";
 import {LabWorklist,type WorklistData} from "../../../components/p4/worklist";
+import {MigrationWorklist} from '../../../components/p4/migration-worklist';
 
 export default async function LabPage(){
  const user=(await currentUser())!;
@@ -13,5 +14,6 @@ export default async function LabPage(){
  return <>
   <header className="page-header"><div><h1>งาน Lab — คิวตัวอย่าง</h1></div><Link className="button secondary" href="/lab/batches">Batch / Task List</Link></header>
   <LabWorklist initial={data} can={can}/>
+  <MigrationWorklist/>
  </>;
 }

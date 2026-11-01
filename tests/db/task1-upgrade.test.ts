@@ -36,7 +36,7 @@ it('Task1 migration preserves pre123 legacy R, frozen synthetic evidence and Poo
   const before=await Promise.all(tables.map(t=>db!.query('SELECT * FROM '+t+' ORDER BY 1'))),attemptsBefore=(await db.query('SELECT * FROM analytical_attempt ORDER BY id')).rows,ledger=(await db.query('SELECT * FROM schema_migration ORDER BY name')).rows;
   await migrate(db);
   for(let i=0;i<tables.length;i++)expect((await db.query('SELECT * FROM '+tables[i]+' ORDER BY 1')).rows).toEqual(before[i].rows);
-  const attempts=(await db.query<Record<string,unknown>>('SELECT * FROM analytical_attempt ORDER BY id')).rows;expect(attempts.map(({overall_ordinal,...row})=>{void overall_ordinal;return row;})).toEqual(attemptsBefore);expect(attempts.find(a=>a.id===second.id)).toMatchObject({printed_sample_id:base+'R',overall_ordinal:2});
+  const attempts=(await db.query<Record<string,unknown>>('SELECT * FROM analytical_attempt ORDER BY id')).rows;expect(attempts.map(({overall_ordinal,historical_source_id,...row})=>{void overall_ordinal;expect(historical_source_id).toBeNull();return row;})).toEqual(attemptsBefore);expect(attempts.find(a=>a.id===second.id)).toMatchObject({printed_sample_id:base+'R',overall_ordinal:2});
   expect((await db.query("SELECT * FROM p4b_pool_event WHERE event_type='STOP_USE'")).rows).toHaveLength(0);expect(await store.get(fileHash)).toEqual(bytes);
   expect((await db.query('SELECT * FROM schema_migration WHERE name<$1 ORDER BY name',['123'])).rows).toEqual(ledger);
   await db.close();db=new PGlite(disk);await migrate(db);

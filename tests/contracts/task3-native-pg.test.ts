@@ -68,7 +68,9 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('native Task 3: app_rw internal r
   const rv=async()=>(await owner.query<{row_version:number}>('SELECT row_version FROM result_report_version WHERE id=$1',[vid])).rows[0].row_version;
   const r2=await tx(app,async t=>results.acceptInternalAndRelease(t,f.u.certifier,{versionId:vid,expectedRowVersion:await rv(),idempotencyKey:randomUUID(),reportContentVerified:true,identityAndValuesMatchReport:true,disclosureReviewed:true,abnormalAcknowledged:true,benchRevision:1,benchMeasurementsReviewed:true}));
   expect(r2.outcome).toBe('CertifiedReleased');
-  await expect(reserveReleasedResult(worker,r2.releaseId!,store)).rejects.toThrow('HIS_PRESENCE_ATTESTED_NO_OUTBOUND');
+  // Two database layers refuse it: migration 147 makes p6_release_eligible false for an attested HIS presence (checked first), and the insert guard
+  // of migration 128 (HIS_PRESENCE_ATTESTED_NO_OUTBOUND) remains the last line of defence. Either way no transfer may exist.
+  await expect(reserveReleasedResult(worker,r2.releaseId!,store)).rejects.toThrow(/HIS_PRESENCE_ATTESTED_NO_OUTBOUND|CERTIFIED_CURRENT_RELEASE_REQUIRED/);
   expect((await owner.query('SELECT 1 FROM p6_transfer WHERE clinical_release_id=$1',[r2.releaseId])).rows).toHaveLength(0);
   // Least privilege: the worker cannot attest; the web role cannot rewrite frozen evidence.
   await expect(worker.query("INSERT INTO result_his_attestation(version_id,round_id,case_id,statement,his_state,effect,actor_id) SELECT version_id,round_id,case_id,statement,his_state,effect,actor_id FROM result_his_attestation LIMIT 1")).rejects.toThrow();

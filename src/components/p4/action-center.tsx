@@ -18,7 +18,7 @@ const LIVE=["Assigned","InProgress"],FAILED=["QcFailed","Stopped","BatchCancelle
 
 export function SampleActionCenter({subject:s,can,onClose,onDone}:{subject:ActionCenterSubject;can:{repeat:boolean;redraw:boolean;noCall:boolean};onClose:()=>void;onDone:(message:string)=>Promise<void>|void}){
  const ordinal=s.overallOrdinal??1,afterFour=ordinal>=4,waitingNoCall=s.outcomeStatus==="รอรับ PDF No Call";
- const repeatable=[...LIVE,...FAILED].includes(s.attemptState)&&!(s.roundNumber===1&&(s.attemptNumber??1)>=2);
+ const repeatable=([...LIVE,...FAILED].includes(s.attemptState)||s.outcomeStatus==='HALOS แนะนำตรวจซ้ำ')&&!(s.roundNumber===1&&(s.attemptNumber??1)>=2);
  const options:{kind:Kind;icon:LabIconName;label:string;detail:string;enabled:boolean;why?:string}[]=[
   {kind:"RE_LIBRARY",icon:"refresh",label:"Re-Library",detail:afterFour?`ครั้งที่ ${ordinal+1} — ต้องระบุเหตุผล`:"สิ่งส่งตรวจเดิม · ทำ Library ใหม่",enabled:can.repeat&&repeatable,why:s.roundNumber===1&&(s.attemptNumber??1)>=2?"รอบที่ 1 ตรวจซ้ำครบแล้ว ให้ Re-Sampling":undefined},
   {kind:"RE_EXTRACTION",icon:"flask",label:"Re-Extraction",detail:afterFour?`ครั้งที่ ${ordinal+1} — ต้องระบุเหตุผล`:"สิ่งส่งตรวจเดิม · สกัดใหม่",enabled:can.repeat&&repeatable,why:s.roundNumber===1&&(s.attemptNumber??1)>=2?"รอบที่ 1 ตรวจซ้ำครบแล้ว ให้ Re-Sampling":undefined},

@@ -7,6 +7,8 @@ import {specimenDisplayCode} from './rules';
 import {LabError,uuid,reasonText,need,assertSession,audit,caseEvent,attemptEvent,setAttemptState,attemptFacts,candidatePrintedId,caseVisible,bangkokToday,
  REDRAW_REASONS,REPEAT_REASONS,REPEAT_LEVELS,type Staff} from './core';
 import {isoDate} from '../domain/thai-date';
+import {migrationOriginalIdentifiers} from '../migration/original-identifiers';
+import {migrationRerunAttempts} from '../migration/rerun';
 
 // The F1 queue read (rows, categories, paging) lives in ./worklist; re-exported so existing imports keep working.
 export {labWorklist,labWorklistPage,worklistRow,WORKLIST_TABS,READY_SCAN_LIMIT} from './worklist';
@@ -112,7 +114,8 @@ export async function orderRepeat(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);const d=z.strictObject({attemptId:uuid,level:z.enum(REPEAT_LEVELS),reasonCode:z.enum(REPEAT_REASONS),note:reasonText}).parse(input);
  const a=await lockedAttempt(db,user,d.attemptId);need(user,'repeat.order','write',{unitId:a.unit_id??undefined,origin:a.registration_origin});
  if(a.no_call_selected)throw new LabError('NO_CALL_AWAITING_EXTERNAL_PDF',409);
- if(!['QcFailed','Stopped','BatchCancelled'].includes(a.attempt_state))throw new LabError('REPEAT_REQUIRES_FAILED_OR_STOPPED_ATTEMPT',409);
+ const historicalRerun=a.attempt_state==='Ready'&&(await migrationRerunAttempts(db,[a.attempt_id])).has(a.attempt_id);
+ if(!historicalRerun&&!['QcFailed','Stopped','BatchCancelled'].includes(a.attempt_state))throw new LabError('REPEAT_REQUIRES_FAILED_OR_STOPPED_ATTEMPT',409);
  if(a.overall_ordinal===4&&a.attempt_state!=='QcFailed')throw new LabError('FOURTH_ATTEMPT_FAILURE_NOT_CONFIRMED',409);
  if(a.round_number===1&&a.attempt_number>=2)throw new LabError('RESAMPLING_REQUIRED_AFTER_S1_REPEAT',409);
  if(a.current_round_id!==a.round_id||!['ReceivedInHIS','ReceivedInNIPT'].includes(a.round_state))throw new LabError('REPEAT_REQUIRES_CURRENT_RECEIVED_ROUND',409);
@@ -204,11 +207,12 @@ async function labelSamples(db:Queryable,user:Staff,d:z.infer<typeof labelInput>
  const ordered=d.roundIds.map(id=>{const r=byRound.get(id);if(!r||!caseVisible(user,r))throw new LabError('LN_HALOS_NOT_ISSUED_OR_NOT_VISIBLE',404,{roundId:id});if(['Cancelled'].includes(r.round_state))throw new LabError('ROUND_CANCELLED',409,{roundId:id});return r;});
  const facts=await attemptFacts(db,'a.round_id=ANY($1::uuid[]) AND a.attempt_number=1',[d.roundIds]);
  const pregnancy=new Map(facts.map(f=>[f.round_id,f.pregnancy]));
- const unconfirmed=ordered.filter(r=>!pregnancy.get(r.round_id)).map(r=>r.round_id);
+ const originalIdentifiers=await migrationOriginalIdentifiers(db,d.roundIds);
+ const unconfirmed=ordered.filter(r=>!originalIdentifiers.has(r.round_id)&&!pregnancy.get(r.round_id)).map(r=>r.round_id);
  if(unconfirmed.length)throw new LabError('PREGNANCY_TYPE_UNCONFIRMED',422,{roundIds:unconfirmed});
  // Name only on explicit request, only a synthetic name the user may already read for that case (Owner Lock §3 line 3).
  // Tube labels print the display code (OD-R1a): a redraw S2 shows BASE[D]R, never the S1 text.
- const samples=ordered.map(r=>({ln:r.ln,lnHalos:specimenDisplayCode(r.ln_halos,pregnancy.get(r.round_id)!,r.resampling),patientName:d.includeName&&r.name&&/^(SYNTHETIC|จำลอง|ผู้รับบริการจำลอง)/.test(r.name)?r.name:null}));
+ const samples=ordered.map(r=>({ln:r.ln,lnHalos:originalIdentifiers.get(r.round_id)??specimenDisplayCode(r.ln_halos,pregnancy.get(r.round_id)!,r.resampling),patientName:d.includeName&&r.name&&/^(SYNTHETIC|จำลอง|ผู้รับบริการจำลอง)/.test(r.name)?r.name:null}));
  return {ordered,samples,html:buildTubeLabelsHtml(samples),reprint:ordered.some(r=>r.prints>0)};
 }
 export async function previewLabels(db:Queryable,user:Staff,input:unknown){

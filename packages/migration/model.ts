@@ -1,0 +1,13 @@
+import {createHash} from 'node:crypto';
+import type {Interpretation} from '../readygen/interpretation';
+export const canonical=(v:unknown):string=>Array.isArray(v)?'['+v.map(canonical).join(',')+']':v&&typeof v==='object'?'{'+Object.keys(v).sort().filter(k=>(v as Record<string,unknown>)[k]!==undefined).map(k=>JSON.stringify(k)+':'+canonical((v as Record<string,unknown>)[k])).join(',')+'}':JSON.stringify(v);
+export const hash=(v:Buffer|string)=>createHash('sha256').update(v).digest('hex');
+export type SourceInput={name:string;bytes:Buffer};
+export type SourceEvidence={kind:'GENOMIC_MAPPING'|'HALOS_RUN';name:string;sha256:string;byteLength:number;runLabel?:string};
+export type MigrationClassification='NO_HALOS'|'RERUN'|'QUALIFIED_PDF_PENDING'|'PDF_REVIEW'|'CERTIFIED_RELEASED';
+export type MigrationException={code:string;severity:'WARNING'|'REVIEW_BEFORE_RELEASE';sourceSha256?:string;rowNumber?:number;sheet?:string;sourceKey?:string};
+export type MigrationMapping={sourceKey:string;sheet:string;rowNumber:number;hisLn:string;halosId:string;valid:boolean;classification:MigrationClassification;hisPdfExists:boolean;analysisKeys:string[];currentAnalysisKey:string|null;exceptions:MigrationException[];overrideReason?:string};
+export type MigrationAnalysis={key:string;mappingRow:number|null;runLabel:string;sourceSha256:string;sheet:'result'|'repeat';rowNumber:number;sampleRaw:string;sampleKey:string;baseId:string|null;attemptOrdinal:number|null;role:'ANALYSIS'|'CONTROL'|'TECHNICAL_REPEAT'|'UNRESOLVED';adviceStatus:'QUALIFIED'|'RERUN'|'REVIEW';values:Record<string,string>;raw:Record<string,string>;sampleinfo:Record<string,string>|null;interpretation:Interpretation|null;previousKey:string|null;supersededBy:string|null;originAnalysisKey:string|null};
+export type MigrationRun={runLabel:string;sourceSha256:string;chipIds:string[];counts:{result:number;repeat:number;sampleinfo:number;controls:number;unresolved:number;qualified:number;rerun:number;technicalRepeat:number};sampleinfoRows:Array<{rowNumber:number;sampleRaw:string;values:Record<string,string>;raw:Record<string,string>}>};
+export type MigrationChoice={sourceKey?:string;hisLn?:string;classification?:MigrationClassification;hisPdfExists?:boolean;reason?:string};
+export const sourceEvidence=(kind:SourceEvidence['kind'],s:SourceInput,runLabel?:string):SourceEvidence=>({kind,name:s.name,sha256:hash(s.bytes),byteLength:s.bytes.length,...(runLabel?{runLabel}:{})});

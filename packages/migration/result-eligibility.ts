@@ -1,0 +1,10 @@
+import type {Queryable} from '../db/connection';
+import type {GatePredicate,Purpose} from '../results/gates';
+/** Database owns provenance/currentness. This evidence is never QC5 or consent. */
+export async function migrationResultEvidence(db:Queryable,versionId:string){
+ return (await db.query<{migrated:boolean;current:boolean;reviewed:boolean}>(`SELECT EXISTS(SELECT 1 FROM migration_record m JOIN result_report_version v ON v.case_id=m.case_id AND v.round_id=m.round_id AND v.attempt_id=m.attempt_id WHERE v.id=$1) migrated,migration_result_source_current($1) current,migration_result_review_current($1) reviewed`,[versionId])).rows[0];
+}
+export function migrationPredicates(input:{current:boolean;reviewed:boolean;identity:boolean;readable:boolean;linked:boolean;latest:boolean;hold:boolean;revoked:boolean;certifier:boolean;openProposal:boolean;versionOpen:boolean},purpose:Purpose):GatePredicate[]{
+ const check=(code:GatePredicate['code'],pass:boolean,reason:string):GatePredicate=>({code,status:pass?'PASS':'FAIL',reason:pass?'MIGRATION_EVIDENCE_VERIFIED':reason});
+ return [check('RG-01',input.reviewed,'MIGRATION_OFFICIAL_PDF_REVIEW_REQUIRED'),check('RG-02',input.readable,'MIGRATION_PDF_UNREADABLE'),check('RG-03',input.linked&&!input.openProposal,'MIGRATION_LINK_REQUIRED'),check('RG-04',input.identity,'MIGRATION_PDF_IDENTITY_UNRESOLVED'),check('RG-05',input.current,'MIGRATION_CURRENT_ANALYTICAL_PROVENANCE_REQUIRED'),check('RG-06',input.current,'MIGRATION_AUTHENTIC_QUALIFIED_ANALYSIS_REQUIRED'),check('RG-07',!input.hold,'QC_HOLD_OPEN'),check('RG-08',input.identity,'IDENTITY_ISSUE_OPEN'),check('RG-09',input.reviewed,'MIGRATION_HISTORICAL_REVIEW_REQUIRED'),check('RG-10',!input.revoked,'CONSENT_REVOKED'),check('RG-11',input.reviewed,'MIGRATION_DISCLOSURE_REVIEW_REQUIRED'),check('RG-12',input.latest&&input.versionOpen&&input.reviewed,'MIGRATION_CURRENT_REVIEWED_VERSION_REQUIRED'),...(purpose==='CERTIFY_ATTEMPT'?[check('RG-13',input.certifier,'CERTIFIER_ROLE_NOT_ACTIVE')]:[])];
+}

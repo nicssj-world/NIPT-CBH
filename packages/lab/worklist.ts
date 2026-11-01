@@ -13,9 +13,9 @@ const iso=(d:Date|null)=>d?d.toISOString():null;
 export function worklistRow(r:AttemptRow,policy:'HOLD'|'PROCEED_SYNTHETIC_LABELLED'){
  const gate=r.attempt_state==='Ready'?assignmentDecision(r,policy):null;
  const category:QueueCategory=r.attempt_state==='Ready'?(gate!.eligible?'READY':'GATE_BLOCKED'):r.attempt_state==='Assigned'?'IN_BATCH':r.attempt_state==='InProgress'?'IN_PROGRESS':r.attempt_state==='QcFailed'?'QC_FAILED':['Stopped','BatchCancelled'].includes(r.attempt_state)?'NEEDS_DECISION':'OTHER';
- const code=r.ln_halos?specimenDisplayCode(r.ln_halos,r.pregnancy,r.ln_halos_resampling):r.ln_halos; // OD-R1a: BASE[D][R]
+ const code=r.migration_original_ln_halos??(r.ln_halos?specimenDisplayCode(r.ln_halos,r.pregnancy,r.ln_halos_resampling):r.ln_halos); // An imported issued identifier is not reconstructed.
  return {kind:'ATTEMPT' as const,category,caseId:r.case_id,roundId:r.round_id,roundNumber:r.round_number,receivedSource:r.received_source,receivedAt:iso(r.received_at),hisLn:r.ln,hn:r.hn,lnHalos:r.ln_halos,labelCode:code,pregnancy:r.pregnancy,ga:gestationalAge(r),
-  attemptId:r.attempt_id,attemptNumber:r.attempt_number,overallOrdinal:r.overall_ordinal,exceptional:r.overall_ordinal>=5,outcomeStatus:r.no_call_selected?'รอรับ PDF No Call':r.overall_ordinal>=4&&r.attempt_state==='QcFailed'?'รอพิจารณาหลังครบ 4 ครั้ง':null,attemptState:r.attempt_state,printedSampleId:candidatePrintedId(r).id,repeat:r.repeat_order_id?{level:r.repeat_level,state:r.repeat_state}:null,
+  attemptId:r.attempt_id,attemptNumber:r.attempt_number,overallOrdinal:r.overall_ordinal,exceptional:r.overall_ordinal>=5,outcomeStatus:r.migration_rerun?'HALOS แนะนำตรวจซ้ำ':r.no_call_selected?'รอรับ PDF No Call':r.overall_ordinal>=4&&r.attempt_state==='QcFailed'?'รอพิจารณาหลังครบ 4 ครั้ง':null,attemptState:r.attempt_state,printedSampleId:candidatePrintedId(r).id,repeat:r.repeat_order_id?{level:r.repeat_level,state:r.repeat_state}:null,
   urgent:r.urgent,urgentReason:r.urgent_reason,hold:r.hold?{stage:r.hold_stage}:null,resumeDecisionRequired:r.resume_decision_required,qcFailedStage:r.qc_failed_stage,
   gate:gate&&{eligible:gate.eligible,syntheticPendingAccepted:gate.syntheticPendingAccepted,failed:gate.failed,pending:gate.pending},
   placement:r.slot_batch_id?{batchId:r.slot_batch_id,runLabel:r.run_label,slot:r.slot_number,sheetState:r.sheet_state}:null,labels:{prints:r.label_prints,lastPrintedAt:iso(r.last_label_print)}};
@@ -88,8 +88,11 @@ async function readWorklist(db:Queryable,user:Staff,raw:unknown,tuning:ScanTunin
  const f=inputSchema.parse(raw);const q=f.q.toLowerCase();
  const {policy}=await pendingPolicy(db);
  const scope=await readableScope(db,user);
+ const migrationPresent=(await db.query<{present:boolean}>("SELECT to_regclass('public.migration_record') IS NOT NULL present")).rows[0].present;
+ const migrationExclusion=migrationPresent?" AND NOT EXISTS(SELECT 1 FROM migration_record m WHERE m.case_id=c.id AND m.round_id=a.round_id AND m.attempt_id=a.id AND m.state='IMPORTED' AND m.classification IN ('QUALIFIED_PDF_PENDING','PDF_REVIEW','CERTIFIED_RELEASED'))":"";
+ const attemptIdsSql=ATTEMPT_IDS+migrationExclusion,attemptsSql=ATTEMPTS+migrationExclusion;
  // Counts that need no per-attempt facts.
- const c=(await db.query<{ready:number;in_batch:number;decision:number}>(`SELECT count(*) FILTER (WHERE a.state='Ready')::int ready,count(*) FILTER (WHERE a.state IN ('Assigned','InProgress'))::int in_batch,count(*) FILTER (WHERE a.state NOT IN ('Ready','Assigned','InProgress'))::int decision ${ATTEMPT_IDS}`,[scope])).rows[0];
+ const c=(await db.query<{ready:number;in_batch:number;decision:number}>(`SELECT count(*) FILTER (WHERE a.state='Ready')::int ready,count(*) FILTER (WHERE a.state IN ('Assigned','InProgress'))::int in_batch,count(*) FILTER (WHERE a.state NOT IN ('Ready','Assigned','InProgress'))::int decision ${attemptIdsSql}`,[scope])).rows[0];
  const expectedFrom=`FROM specimen_round_current r JOIN nipt_case c ON c.id=r.case_id AND c.current_round_id=r.id JOIN case_ln l ON l.id=r.case_ln_id JOIN redraw_request d ON d.id=r.redraw_request_id
   WHERE r.round_number>=2 AND r.state='Expected' AND (COALESCE(${FIRST_UNIT}::text,'')||':'||c.registration_origin)=ANY($1::text[])`;
  const missingFrom=`FROM specimen_round_current r JOIN nipt_case c ON c.id=r.case_id AND c.current_round_id=r.id JOIN case_ln l ON l.id=r.case_ln_id
@@ -101,7 +104,7 @@ async function readWorklist(db:Queryable,user:Staff,raw:unknown,tuning:ScanTunin
  const rowMatches=(x:Light)=>x.category===f.tab&&lowerIncludes(q,x.hisLn,x.hn,x.lnHalos,x.labelCode,x.printedSampleId,x.runLabel)&&(f.round==='ALL'||(f.round==='S1'?x.roundNumber===1:x.roundNumber>1))&&(!f.unprinted||x.prints===0)&&(!f.urgent||x.urgent);
  const classify=async()=>{
   const activeRG=f.tab==='READY'||f.tab==='GATE_BLOCKED';
-  const readyIds=(await db.query<{id:string}>(`SELECT a.id ${ATTEMPT_IDS} AND a.state='Ready'`,[scope])).rows.map(r=>r.id);
+  const readyIds=(await db.query<{id:string}>(`SELECT a.id ${attemptIdsSql} AND a.state='Ready'`,[scope])).rows.map(r=>r.id);
   const ids=readyIds.length?(await db.query<{id:string}>(`SELECT a.id FROM analytical_attempt a JOIN specimen_round_current r ON r.id=a.round_id JOIN case_ln l ON l.id=r.case_ln_id WHERE a.id=ANY($1::uuid[]) ORDER BY ${fifoSql(activeRG?f.sort:'asc')}`,[readyIds])).rows.map(r=>r.id):[];
   const hard=ids.length>HARD;if(hard)ids.length=HARD;
   const need=activeRG?(f.page-1)*f.pageSize+f.pageSize:0;let matched=0;
@@ -131,9 +134,9 @@ async function readWorklist(db:Queryable,user:Staff,raw:unknown,tuning:ScanTunin
   if(f.round!=='ALL')where.push(f.round==='S1'?'r.round_number=1':'r.round_number>1');
   if(f.unprinted)where.push('NOT EXISTS(SELECT 1 FROM label_print_item i WHERE i.round_id=r.id)');
   if(f.urgent)where.push("COALESCE((SELECT e.event_type='URGENT_SET' FROM attempt_event e WHERE e.attempt_id=a.id AND e.event_type IN ('URGENT_SET','URGENT_CLEARED') ORDER BY e.sequence DESC LIMIT 1),false)");
-  const total=Number((await db.query<{n:string}>(`SELECT count(*)::text n ${ATTEMPTS} AND ${where.join(' AND ')}`,values)).rows[0].n);
+  const total=Number((await db.query<{n:string}>(`SELECT count(*)::text n ${attemptsSql} AND ${where.join(' AND ')}`,values)).rows[0].n);
   meta=clampPage(f.page,total,f.pageSize);
-  const ids=(await db.query<{id:string}>(`SELECT a.id ${ATTEMPTS} AND ${where.join(' AND ')} ORDER BY ${fifoSql(f.sort)} LIMIT ${meta.size} OFFSET ${offsetOf(meta)}`,values)).rows.map(r=>r.id);
+  const ids=(await db.query<{id:string}>(`SELECT a.id ${attemptsSql} AND ${where.join(' AND ')} ORDER BY ${fifoSql(f.sort)} LIMIT ${meta.size} OFFSET ${offsetOf(meta)}`,values)).rows.map(r=>r.id);
   const byId=new Map((await factsOf(db,ids)).map(r=>[r.attempt_id,r]));
   attempts=ids.flatMap(id=>{const r=byId.get(id);return r&&caseVisible(user,r)?[worklistRow(r,policy)]:[];});
  }else if(f.tab==='REDRAW_EXPECTED'){

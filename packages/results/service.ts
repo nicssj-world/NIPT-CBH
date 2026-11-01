@@ -1,3 +1,6 @@
+import {matchMigrationPdf,type MigrationPdfTarget} from '../migration/bulk-pdf';
+import {currentPatientNames} from '../migration/pdf-identity';
+import {migrationResultEvidence,migrationPredicates} from '../migration/result-eligibility';
 import {createHash,randomUUID} from 'node:crypto';
 import {z} from 'zod';
 import type {Queryable} from '../db/connection';
@@ -249,9 +252,17 @@ const humanDecided=async(db:Queryable,versionId:string)=>(await db.query("SELECT
 async function systemMatch(db:Queryable,v:VersionRow,s:ResultSettings){
  const candidates=await linkCandidates(db,null,v.parsed,s),conflicts=(await versionNameConflicts(db,v)).length;
  const series=candidates[0]?await seriesExists(db,v.kind,candidates[0].round.id,v.id):false;
- const match=autoMatchCandidate(candidates,{kind:v.kind,nameConflicts:conflicts,openRevision:series});
- const reason=match?null:!candidates.length?'NO_CANDIDATE':conflicts?'NAME_CONFLICT':series?'SERIES_NOT_EMPTY':new Set(candidates.map(c=>c.caseId)).size>1?'AMBIGUOUS_CASES':'NOT_A_CLEAN_MATCH';
- return {candidates,match,reason};
+ const targets=(await db.query<MigrationPdfTarget>(`SELECT m.id "recordId",m.case_id "caseId",m.round_id "roundId",m.attempt_id "attemptId",m.ln,m.ln_halos "lnHalos",a.sample_raw "sampleRaw",a.attempt_number "attemptNumber",i.hn,(a.is_current AND c.current_round_id=m.round_id) current,(a.advice_status='QUALIFIED') qualified FROM migration_record m JOIN migration_analysis a ON a.record_id=m.id AND a.attempt_id=m.attempt_id JOIN nipt_case c ON c.id=m.case_id JOIN p2_case_identity i ON i.case_id=m.case_id WHERE a.is_current AND a.classification='ANALYSIS'`)).rows;
+ const lab=v.parsed.identifiers.labNumber.value,named=targets.filter(t=>t.sampleRaw.trim()===lab),names=await currentPatientNames(db,named.map(t=>t.caseId));
+ const fileName=(await db.query<{name:string}>('SELECT coalesce(member_name,original_name) name FROM result_intake_file WHERE id=$1',[v.intake_file_id])).rows[0]?.name??null;
+ const verdict=matchMigrationPdf(v.parsed,named.map(t=>({...t,patientName:names.get(t.caseId)??null})),fileName),migrationMatch=verdict.match;
+ const migrationCandidate=migrationMatch&&v.kind==='RESULT'&&!conflicts&&!series?candidates.find(c=>c.caseId===migrationMatch.caseId&&c.round.id===migrationMatch.roundId&&c.attempt.id===migrationMatch.attemptId):null;
+ let match=migrationCandidate??autoMatchCandidate(candidates,{kind:v.kind,nameConflicts:conflicts,openRevision:series});let migrationBlock:string|null=null;
+ // A migrated historical attempt links automatically only through the exact identity contract above (content + file name + PET name);
+ // the ordinary auto-match must not be able to bypass a conflicting or unverified identity.
+ if(match&&!migrationCandidate&&(await db.query('SELECT 1 FROM migration_analysis WHERE attempt_id=$1',[match.attempt.id])).rows.length){match=null;migrationBlock=verdict.identity?verdict.reason:'MIGRATION_EXACT_MATCH_REQUIRED';}
+ const reason=match?null:migrationBlock??(!candidates.length?'NO_CANDIDATE':conflicts?'NAME_CONFLICT':series?'SERIES_NOT_EMPTY':new Set(candidates.map(c=>c.caseId)).size>1?'AMBIGUOUS_CASES':'NOT_A_CLEAN_MATCH');
+ return {candidates,match,reason,migrationMatched:!!migrationCandidate};
 }
 /**
  * Links a final result to its single clean match without a second person (Owner P5-A). The matching contract is the tested
@@ -259,23 +270,25 @@ async function systemMatch(db:Queryable,v:VersionRow,s:ResultSettings){
  * re-checks the target (current round, latest attempt, empty series, no human decision). Evidence is kept on the AUTO_LINKED event.
  * It does not review, certify or release, and nothing reaches HIS from here.
  */
-export async function autoLinkUnique(db:Queryable,actor:Staff,versionId:string):Promise<{linked:true;version:VersionRow}|{linked:false;reason:string}>{
- const s=await resultSettings(db);if(s.linkageMode!=='UNIQUE_AUTO_LINK')return {linked:false,reason:'LINKAGE_MODE_MANUAL'};
+export async function autoLinkUnique(db:Queryable,actor:Staff,versionId:string,options:{migrationOnly?:boolean}={}):Promise<{linked:true;version:VersionRow}|{linked:false;reason:string}>{
+ const s=await resultSettings(db);if(!options.migrationOnly&&s.linkageMode!=='UNIQUE_AUTO_LINK')return {linked:false,reason:'LINKAGE_MODE_MANUAL'};
  let v=await versionOf(db,versionId);
  if(v.kind!=='RESULT')return {linked:false,reason:'NOT_A_FINAL_RESULT'};
  if(v.state!=='Unlinked')return {linked:false,reason:'NOT_UNLINKED'};
  if(await humanDecided(db,v.id))return {linked:false,reason:'HUMAN_DECISION_EXISTS'};
- const before=await systemMatch(db,v,s);if(!before.match)return {linked:false,reason:before.reason!};
+ const before=await systemMatch(db,v,s);if(options.migrationOnly&&!before.migrationMatched)return {linked:false,reason:'MIGRATION_EXACT_MATCH_REQUIRED'};if(!before.match)return {linked:false,reason:before.reason!};
  await lockChain(db,before.match.round.id,before.match.attempt.id,[v.id]);
  v=await versionOf(db,v.id,true);if(v.state!=='Unlinked')return {linked:false,reason:'NOT_UNLINKED'};
  const now=await systemMatch(db,v,s),m=now.match;
+ if(options.migrationOnly&&!now.migrationMatched)return {linked:false,reason:'MIGRATION_EXACT_MATCH_REQUIRED'};
  if(!m)return {linked:false,reason:now.reason!};
  if(m.round.id!==before.match.round.id||m.attempt.id!==before.match.attempt.id)return {linked:false,reason:'CHANGED_DURING_LINK'};
- const evidence={contract:AUTO_LINK_CONTRACT,candidates:1,candidateRows:now.candidates.length,matchedOn:m.matchedOn,cross:m.cross,parserVersion:v.parser_version,sha256:v.sha256,gaToleranceDays:s.gaToleranceDays};
+ const contract=now.migrationMatched?'MIGRATION-EXACT-CONTENT-v1':AUTO_LINK_CONTRACT,linkReason=now.migrationMatched?'จับคู่ PDF กับหมายเลขตัวอย่างและ HN ตรงเพียงรายการเดียวตามหลักฐานย้ายระบบ':AUTO_MATCH_REASON;
+ const evidence={contract,candidates:1,candidateRows:now.candidates.length,matchedOn:m.matchedOn,cross:m.cross,parserVersion:v.parser_version,sha256:v.sha256,gaToleranceDays:s.gaToleranceDays};
  await db.query("INSERT INTO result_link_event(version_id,event,mode,case_id,round_id,attempt_id,outcome,reason,cross_check,match_evidence,actor_id) VALUES($1,'AUTO_LINKED','AUTO_UNIQUE',$2,$3,$4,'Linked',$5,$6,$7,$8)",
-  [v.id,m.caseId,m.round.id,m.attempt.id,AUTO_MATCH_REASON,JSON.stringify(m.cross),JSON.stringify(evidence),actor.id]);
- v=await move(db,v,'Linked',actor.id,'AUTO_LINKED_UNIQUE',{case_id:m.caseId,round_id:m.round.id,attempt_id:m.attempt.id,link_mode:'AUTO_UNIQUE'},{contract:AUTO_LINK_CONTRACT});
- await audit(db,actor,'RESULT_AUTO_LINKED','RESULT_VERSION',v.id,{outcome:'Linked',reasonCode:AUTO_LINK_CONTRACT});
+  [v.id,m.caseId,m.round.id,m.attempt.id,linkReason,JSON.stringify(m.cross),JSON.stringify(evidence),actor.id]);
+ v=await move(db,v,'Linked',actor.id,'AUTO_LINKED_UNIQUE',{case_id:m.caseId,round_id:m.round.id,attempt_id:m.attempt.id,link_mode:'AUTO_UNIQUE'},{contract});
+ await audit(db,actor,'RESULT_AUTO_LINKED','RESULT_VERSION',v.id,{outcome:'Linked',reasonCode:contract});
  return {linked:true,version:await validate(db,actor,v)};
 }
 const AUTO_LINK_REFUSALS=/^(AUTO_LINK_[A-Z_]+|LINK_PROPOSAL_OPEN|VERSION_CONFLICT)$/;
@@ -363,6 +376,11 @@ async function gateFor(db:Queryable,v:VersionRow,purpose:Purpose,certifierId?:st
  const reviewed=x.reviewed&&!x.open_proposal;
  if(v.kind==='REDRAW_NOTICE')return decideGate(noticePredicates({templateApproved,linked:!!v.link_mode&&['Linked','ValidationBlocked','PendingCertification','CertifiedReleased'].includes(v.state),openProposal:x.open_proposal,cross,redrawForRound:x.redraw_at!==null,redrawRequestedAt:x.redraw_at,importedAt:v.imported_at,
   openIdentityIssues:issues.n,consentRevoked:issues.revoked,versionState:v.state,latestInSeries:x.latest,reviewedCurrent:reviewed}),'RN');
+ const migration=await migrationResultEvidence(db,v.id);
+ if(migration.migrated&&!(isNoCallReport(v.parsed)&&qc5?.no_call_valid)){
+ const held=(await db.query<{hold:boolean}>("SELECT COALESCE((SELECT event_type='HOLD_SET' FROM attempt_event WHERE attempt_id=$1 AND event_type IN ('HOLD_SET','HOLD_RELEASED') ORDER BY sequence DESC LIMIT 1),false) hold",[v.attempt_id])).rows[0]?.hold??true;
+ return {...decideGate(migrationPredicates({current:migration.current,reviewed:migration.reviewed,identity:migration.current&&issues.n===0&&!Object.values(cross).includes('MISMATCH'),readable:missingRequired(v.parsed).length===0,linked:!!v.link_mode,latest:x.latest&&!x.active_release,hold:held,revoked:issues.revoked,certifier:x.certifier,openProposal:x.open_proposal,versionOpen:['Linked','ValidationBlocked','PendingCertification'].includes(v.state)},purpose),'RG'),ruleVersion:'MIGRATION-HISTORICAL-OFFICIAL-PDF-20261026'};
+ }
  const a=(await attemptFacts(db,'a.id=$1',[v.attempt_id]))[0];if(!a)throw new LabError('NOT_FOUND',404);
  const cf=commonFacts(a);
  const y=(await db.query<{open_repeat:boolean;qc1_accepted:boolean;non_measured:boolean;batch_cancelled:boolean}>(
@@ -456,7 +474,7 @@ export async function certifyAttempt(db:Queryable,user:Staff,input:unknown){
  const operational=await operationalWorkflow(db);if(operational){need(user,'result.certify');if(d.confirmed!==true)throw new LabError('CERTIFICATION_CONFIRMATION_REQUIRED',422);}
  await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,75432850))',[d.idempotencyKey]);
  const prior=(await db.query<{version_id:string;gate:'RG'|'RN';predicates:GatePredicate[]}>('SELECT version_id,gate,predicates FROM result_gate_evaluation WHERE idempotency_key=$1',[d.idempotencyKey])).rows[0];
- if(prior){if(prior.version_id!==d.versionId)throw new LabError('IDEMPOTENCY_KEY_REUSED',409);const g=decideGate(prior.predicates,prior.gate);const release=operational?(await db.query<{id:string}>('SELECT id FROM result_release WHERE version_id=$1',[prior.version_id])).rows[0]:null;return {outcome:release?'CertifiedReleased':g.eligible?'RELEASE_HOLD':'BLOCKED',releaseId:release?.id,replayed:true,predicates:g.predicates,failed:g.failed,pending:g.pending,waitsForP4b:g.waitsForP4b};}
+ if(prior){if(prior.version_id!==d.versionId)throw new LabError('IDEMPOTENCY_KEY_REUSED',409);const g=decideGate(prior.predicates,prior.gate);const release=operational?(await db.query<{id:string;suppressed:boolean}>('SELECT id,task3_his_presence_attested(version_id) suppressed FROM result_release WHERE version_id=$1',[prior.version_id])).rows[0]:null;return {outcome:release?'CertifiedReleased':g.eligible?'RELEASE_HOLD':'BLOCKED',releaseId:release?.id,outboundSuppressed:release?.suppressed??false,replayed:true,predicates:g.predicates,failed:g.failed,pending:g.pending,waitsForP4b:g.waitsForP4b};}
  const pre=await versionOf(db,d.versionId);if(!pre.round_id)throw new LabError('VALIDATION_REQUIRES_LINKED',409);
  await lockChain(db,pre.round_id,pre.attempt_id,[pre.id]);let v=await versionOf(db,pre.id,true);
  if(v.row_version!==d.expectedRowVersion)throw new LabError('VERSION_CONFLICT',409);
@@ -465,7 +483,7 @@ export async function certifyAttempt(db:Queryable,user:Staff,input:unknown){
  const outcome=g.eligible?(operational?'CERTIFIED_RELEASED':'RELEASE_HOLD'):'BLOCKED';
  await recordGate(db,v,g,'CERTIFY_ATTEMPT',outcome,user.id,d.idempotencyKey);
  if(!g.eligible&&v.state==='PendingCertification')v=await move(db,v,'ValidationBlocked',user.id,g.failed[0]??g.pending[0]??null);
- let releaseId:string|undefined;
+ let releaseId:string|undefined;let outboundSuppressed=false;
  if(outcome==='CERTIFIED_RELEASED'){
   if(v.kind!=='RESULT'||!v.attempt_id)throw new LabError('RESULT_RELEASE_REQUIRED',409);
   v=await move(db,v,'CertifiedReleased',user.id,'AUTHORIZED_SESSION_CERTIFICATION');
@@ -473,11 +491,12 @@ export async function certifyAttempt(db:Queryable,user:Staff,input:unknown){
   await db.query("INSERT INTO result_release_completed(release_id,version_id,actor_id) VALUES($1,$2,$3)",[release.id,v.id,user.id]);
   // Task 3: an authorised "มีผลใน HIS แล้ว" attestation means HIS already holds this result: the release stays visible in NIPT/ANC
   // but no outbound delivery is queued (the P6 insert guard refuses one as well). Withdrawing the attestation queues it later.
-  if((await db.query<{attested:boolean}>('SELECT task3_his_presence_attested($1) attested',[v.id])).rows[0].attested)await audit(db,user,'RESULT_OUTBOUND_SUPPRESSED','RESULT_RELEASE',release.id,{reasonCode:'HIS_PRESENCE_ATTESTED'});
+  outboundSuppressed=(await db.query<{attested:boolean}>('SELECT task3_his_presence_attested($1) attested',[v.id])).rows[0].attested;
+  if(outboundSuppressed)await audit(db,user,'RESULT_OUTBOUND_SUPPRESSED','RESULT_RELEASE',release.id,{reasonCode:'HIS_PRESENCE_ATTESTED'});
   else await db.query("INSERT INTO job_outbox(kind,payload,idempotency_key) VALUES('result_release_completed',$1,$2)",[JSON.stringify({releaseId:release.id}),'release:'+release.id]);
  }
  await audit(db,user,'RESULT_CERTIFY_ATTEMPT','RESULT_VERSION',v.id,{outcome});
- return {outcome:outcome==='CERTIFIED_RELEASED'?'CertifiedReleased':outcome,releaseId,replayed:false,predicates:g.predicates,failed:g.failed,pending:g.pending,waitsForP4b:g.waitsForP4b};
+ return {outcome:outcome==='CERTIFIED_RELEASED'?'CertifiedReleased':outcome,releaseId,outboundSuppressed,replayed:false,predicates:g.predicates,failed:g.failed,pending:g.pending,waitsForP4b:g.waitsForP4b};
 }
 /**
  * P5-B (Owner 2026-10-18): the final report was produced and certified by the external analysis system, so NIPT-CBH asks one authorised
@@ -498,7 +517,14 @@ export async function acceptAndRelease(db:Queryable,user:Staff,input:unknown){
  if(pre.row_version!==d.expectedRowVersion)throw new LabError('VERSION_CONFLICT',409);
  await recordReview(db,user,{versionId:pre.id,valuesMatchPdf:true,abnormalAcknowledged:d.abnormalAcknowledged,...(d.note?{note:d.note}:{}),expectedRowVersion:pre.row_version});
  let v=await versionOf(db,pre.id);
- if(v.kind==='RESULT'){
+ const migrated=await migrationResultEvidence(db,v.id);
+ if(v.kind==='RESULT'&&migrated.migrated&&!isNoCallReport(v.parsed)){
+  if(!migrated.current)throw new LabError('MIGRATION_CURRENT_ANALYTICAL_PROVENANCE_REQUIRED',409);
+  await db.query(`INSERT INTO migration_result_review(version_id,record_id,analysis_id,source_sha256,report_sha256,record_row_version,case_id,round_id,attempt_id,reviewed_by,identity_confirmed,official_final_confirmed,disclosure_reviewed,note)
+   SELECT v.id,m.id,a.id,s.sha256,v.sha256,m.row_version,v.case_id,v.round_id,v.attempt_id,$2,true,true,true,$3
+   FROM result_report_version v JOIN migration_record m ON m.case_id=v.case_id AND m.round_id=v.round_id AND m.attempt_id=v.attempt_id JOIN migration_analysis a ON a.record_id=m.id AND a.attempt_id=m.attempt_id JOIN migration_source s ON s.id=a.source_id WHERE v.id=$1 AND a.is_current AND a.classification='ANALYSIS'`,[v.id,user.id,d.note??null]);
+  v=await validate(db,user,await versionOf(db,v.id));
+ }else if(v.kind==='RESULT'){
   need(user,'qc.accept');
   await recordQc5(db,user,{versionId:v.id,expectedRowVersion:v.row_version,criteriaReference:EXTERNAL_FINAL_CRITERIA,templateReviewed:true,disclosureReviewed:true,abnormalAcknowledged:d.abnormalAcknowledged,reason:'ตรวจรับ PDF Final จากระบบวิเคราะห์ภายนอกและยืนยันส่งผล',...(d.benchRevision?{benchRevision:d.benchRevision}:{}),...(d.benchMeasurementsReviewed?{benchMeasurementsReviewed:true}:{})});
   v=await versionOf(db,v.id);
@@ -585,7 +611,7 @@ export async function withdrawHisAttestation(db:Queryable,user:Staff,input:unkno
  const v=await versionOf(db,a.version_id);await lockChain(db,v.round_id!,v.attempt_id,[v.id]);
  await db.query('UPDATE result_his_attestation SET withdrawn_at=clock_timestamp(),withdrawn_by=$2,withdraw_reason=$3 WHERE id=$1',[a.id,user.id,d.reason]);
  // A released result that was never sent is now queued once (the P6 unique transfer per release keeps delivery exactly-once).
- const release=(await db.query<{id:string}>("SELECT r.id FROM result_release r WHERE r.version_id=$1 AND r.state='Active' AND NOT EXISTS(SELECT 1 FROM p6_transfer t WHERE t.clinical_release_id=r.id)",[v.id])).rows[0];
+ const release=(await db.query<{id:string}>("SELECT r.id FROM result_release r WHERE r.version_id=$1 AND r.state='Active' AND NOT EXISTS(SELECT 1 FROM migration_record m WHERE m.case_id=r.case_id) AND NOT EXISTS(SELECT 1 FROM p6_transfer t WHERE t.clinical_release_id=r.id)",[v.id])).rows[0];
  if(release)await db.query("INSERT INTO job_outbox(kind,payload,idempotency_key) VALUES('result_release_completed',$1,$2) ON CONFLICT(idempotency_key) DO NOTHING",[JSON.stringify({releaseId:release.id}),`release:${release.id}:attestation-withdrawn:${a.id}`]);
  await audit(db,user,'RESULT_HIS_ATTESTATION_WITHDRAWN','RESULT_VERSION',v.id,{outcome:release?'DELIVERY_QUEUED':'WITHDRAWN'});
  return {id:a.id,deliveryQueued:!!release};
@@ -643,7 +669,7 @@ export async function versionDetail(db:Queryable,user:Staff,id:string){
  const fallback=(await db.query(`SELECT f.outage_reference "outageReference",f.outage_started_at "outageStartedAt",f.outage_ended_at "outageEndedAt",f.note,f.recorded_at "recordedAt",u.display_name "recordedBy" FROM result_external_fallback f JOIN app_user u ON u.id=f.recorded_by WHERE f.version_id=$1`,[v.id])).rows[0]??null;
  const attestations=(await db.query(`SELECT a.id,a.statement,a.effect,a.note,a.attested_at "attestedAt",u.display_name actor,a.withdrawn_at "withdrawnAt",w.display_name "withdrawnBy",a.withdraw_reason "withdrawReason" FROM result_his_attestation a JOIN app_user u ON u.id=a.actor_id LEFT JOIN app_user w ON w.id=a.withdrawn_by WHERE a.version_id=$1 ORDER BY a.attested_at DESC`,[v.id])).rows;
  const transfer=(await db.query<{state:string|null}>(`SELECT t.model->>'state' state FROM p6_transfer t JOIN result_release r ON r.id=t.clinical_release_id WHERE r.version_id=$1`,[v.id])).rows[0]??null;
- return {operational,nameConflicts:conflicts,origin:v.origin,internal,fallback,attestations,hisTransferState:transfer?.state??null,version:{id:v.id,origin:v.origin,kind:v.kind,templateKind:v.template_kind,templateVersion:v.template_version,parserVersion:v.parser_version,state:v.state,rowVersion:v.row_version,sha256:v.sha256,importedAt:v.imported_at,caseId:v.case_id,roundId:v.round_id,attemptId:v.attempt_id,linkMode:v.link_mode,supersedesId:v.supersedes_id,revision:v.revision},
+ return {migration:await migrationResultEvidence(db,v.id),operational,nameConflicts:conflicts,origin:v.origin,internal,fallback,attestations,hisTransferState:transfer?.state??null,version:{id:v.id,origin:v.origin,kind:v.kind,templateKind:v.template_kind,templateVersion:v.template_version,parserVersion:v.parser_version,state:v.state,rowVersion:v.row_version,sha256:v.sha256,importedAt:v.imported_at,caseId:v.case_id,roundId:v.round_id,attemptId:v.attempt_id,linkMode:v.link_mode,supersedesId:v.supersedes_id,revision:v.revision},
   parsed:v.parsed,summary:summary(v.parsed),intake:{...intake,size:Number(intake.byte_size)},target,proposal,
   benchEvidence:v.attempt_id&&authorize(user,'worksheet.read',{},'read')?await benchAttemptEvidence(db,v.attempt_id):null,
   candidates,autoMatch:auto?{caseId:auto.caseId,roundId:auto.round.id,attemptId:auto.attempt.id,reason:AUTO_MATCH_REASON,linksDirectly:s.linkageMode==='UNIQUE_AUTO_LINK'}:null,
@@ -652,7 +678,7 @@ export async function versionDetail(db:Queryable,user:Staff,id:string){
    unlink:authorize(user,'result.link.manual',{},'approve')&&['LinkConflict','Linked','ValidationBlocked','PendingCertification'].includes(v.state)&&!v.supersedes_id,
    review:authorize(user,'result.review')&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state),certify:authorize(user,'result.release.check')&&!!v.round_id,
    void:authorize(user,'result.revise')&&v.state==='Unlinked',releaseAuthorized:false,
-   acceptRelease:v.origin==='EXTERNAL_READYGEN'&&operational&&authorize(user,'result.review')&&authorize(user,'qc.accept')&&authorize(user,'result.certify')&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state),
+   acceptRelease:v.origin==='EXTERNAL_READYGEN'&&operational&&authorize(user,'result.review')&&authorize(user,'result.certify')&&((await migrationResultEvidence(db,v.id)).migrated||authorize(user,'qc.accept'))&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state),
    acceptInternal:v.origin==='INTERNAL_GENERATED'&&operational&&authorize(user,'result.review')&&authorize(user,'qc.accept')&&authorize(user,'result.certify')&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state),
    attestHis:authorize(user,'his.reconcile')&&v.kind==='RESULT'&&['Linked','ValidationBlocked','PendingCertification','CertifiedReleased'].includes(v.state)&&!transfer&&!attestations.some(a=>!(a as {withdrawnAt:unknown}).withdrawnAt),
    recordFallback:v.origin==='EXTERNAL_READYGEN'&&authorize(user,'result.import')&&!fallback}};
@@ -679,7 +705,7 @@ export async function ancCaseResults(db:Queryable,user:Staff,caseId:string){
   db.query<{source_round_id:string;reason_code:string;state:string;requested_at:Date}>("SELECT source_round_id,reason_code,state,requested_at FROM redraw_request WHERE case_id=$1 AND state IN ('Requested','Completed')",[c.id]),
   db.query<{id:string;round_id:string;kind:string;state:string;certified_at:Date;revised:boolean;parsed:Parsed}>("SELECT r.id,r.round_id,r.kind,r.state,r.certified_at,v.supersedes_id IS NOT NULL revised,v.parsed FROM result_release r JOIN result_report_version v ON v.id=r.version_id WHERE r.case_id=$1 AND r.state IN ('Active','Superseded','Voided') ORDER BY r.certified_at DESC",[c.id])]);
  await db.query("INSERT INTO result_access_log(actor_id,case_id,purpose) VALUES($1,$2,'ANC_RESULT_LIST')",[user.id,c.id]);
- return {currentRoundId:c.current_round_id,releaseHold:true,rounds:rounds.rows.map(r=>{
+ return {currentRoundId:c.current_round_id,releaseHold:!await operationalWorkflow(db),rounds:rounds.rows.map(r=>{
   const d=redraws.rows.find(x=>x.source_round_id===r.id);const mine=releases.rows.filter(x=>x.round_id===r.id);
   return {id:r.id,number:r.round_number,state:r.state,current:r.id===c.current_round_id,collectionDate:r.collection_date,
    redraw:d?{reasonCode:d.reason_code,label:REDRAW_LABELS[d.reason_code as keyof typeof REDRAW_LABELS]??REDRAW_LABELS.OTHER,requestedAt:d.requested_at}:null,

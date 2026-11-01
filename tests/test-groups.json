@@ -28,6 +28,9 @@
       "tests/db/task1-failure-no-call.test.ts",
       "tests/db/task3-fallback-package.test.ts",
       "tests/db/task3-halos-import.test.ts",
+      "tests/unit/migration-ingest-provenance.test.ts",
+      "tests/unit/migration-ingest-watermark.test.ts",
+      "tests/unit/migration-ingest.test.ts",
       "tests/unit/task1-exceptional-highlight.test.ts"
     ]
   },

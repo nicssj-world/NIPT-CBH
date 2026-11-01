@@ -1,4 +1,5 @@
 -- Execute separately as the synthetic database owner, never as an application connection.
+-- Migration bridge grants are repeated for first installations whose runtime roles are created after migrations.
 -- P7 evidence grants are repeated below for fresh installs where roles are created after migrations.
 DO $$ BEGIN
  IF NOT EXISTS(SELECT FROM pg_roles WHERE rolname='app_rw') THEN CREATE ROLE app_rw NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE; END IF;
@@ -165,3 +166,16 @@ GRANT SELECT ON pdf_archive_probe TO worker_rw;
 GRANT UPDATE(state,error_code,worker_account,completed_at,claimed_until,claim_token) ON pdf_archive_probe TO worker_rw;
 -- Migration 160: an untrusted recovery hint, never permission to mutate job state.
 GRANT INSERT(retry_job_id) ON pdf_archive_probe TO app_rw;
+-- Owner migration bridge 2026-10-26: source staging never grants clinical certification to the utility.
+GRANT SELECT,INSERT,UPDATE ON migration_execution,migration_record,migration_analysis TO app_rw;
+GRANT SELECT,INSERT ON migration_source,migration_execution_record,migration_record_event,migration_historical_run,migration_pet_binding,migration_result_review TO app_rw;
+GRANT SELECT ON migration_execution,migration_source,migration_execution_record,migration_record,migration_analysis,migration_historical_run,migration_pet_binding,migration_result_review TO report_ro;
+GRANT SELECT ON migration_execution,migration_source,migration_execution_record,migration_record,migration_analysis,migration_historical_run,migration_pet_binding TO worker_rw;
+GRANT SELECT,INSERT ON his_inbound_file,his_inbound_source TO app_rw;
+GRANT EXECUTE ON FUNCTION migration_result_source_current(uuid),migration_result_review_current(uuid),task3_his_presence_attested(uuid) TO app_rw;
+GRANT EXECUTE ON FUNCTION p6_release_eligible(uuid,integer),task3_his_presence_attested(uuid) TO worker_rw;
+
+GRANT SELECT ON migration_allocator_handover TO app_rw;
+GRANT EXECUTE ON FUNCTION migration_apply_allocator_handover(uuid,uuid,jsonb) TO app_rw;
+
+GRANT EXECUTE ON FUNCTION migration_reserve_original_number(uuid,uuid) TO app_rw;

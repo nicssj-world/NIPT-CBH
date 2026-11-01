@@ -21,11 +21,12 @@ function decodeCursor(raw:string):Cursor{
  * EXISTS and scalar subqueries keep exactly one row per case, even for multiple unit scopes.
  * Documents use the authoritative p2_clinical_source and document portion of the readiness predicate
  * (migration 088; Paper Consent marker 101; refusal-aware decision 102). Collection-date/clinical-review gates remain separate from document readiness. */
+// documentsReady is also true for a migrated Historical case whose result was already issued: its request/consent evidence is never created retroactively.
 export const factsSql=`SELECT c.created_at "registeredAt",c.id,l.ln,i.hn,CASE WHEN pet_patient.inbound_file_id IS NOT NULL THEN pet_patient.name ELSE COALESCE(NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),''),patient_history.name) END "patientName",
  ARRAY(SELECT s.unit_id::text FROM case_unit_scope s WHERE s.case_id=c.id AND s.unit_id=ANY($1::uuid[]) ORDER BY s.unit_id) "unitIds",
  c.current_round_id "currentRoundId",r.round_number "roundNumber",r.state "roundState",
  (SELECT s.received_at FROM specimen_round s WHERE s.case_id=c.id AND s.round_number=1) "s1ReceivedAt",r.received_at "currentReceivedAt",COALESCE(r.analysis_started,false) "analysisStarted",
- COALESCE((SELECT
+ (COALESCE((SELECT
  x->>'currentRoundId'=r.id::text AND x->>'revoked'='false'
  AND (CASE WHEN x->>'requestMode'='Electronic' THEN x#>'{requestDocument,payload,draft}'=x->'draft' ELSE x#>>'{paperRequest,status}'='Verified' END)
  AND (CASE WHEN x->>'consentMode'='Electronic' THEN CASE
@@ -35,7 +36,8 @@ export const factsSql=`SELECT c.created_at "registeredAt",c.id,l.ln,i.hn,CASE WH
   ELSE x#>>'{finalConsent,document_id}'=x#>>'{consentDocument,id}' AND x#>>'{finalConsent,payload,signature,decision}'='Granted' AND p2_consent_workspace_matches(x#>'{consentDocument,payload}',x->'draft',(x->>'workspaceVersion')::integer)
  END ELSE x->>'consentMode'='Paper' END)
  AND COALESCE(p2_consent_latest_decision(r.id),'')<>'Declined'
- FROM (SELECT p2_clinical_source(r.id) x) source),false) "documentsReady",
+ FROM (SELECT p2_clinical_source(r.id) x) source),false)
+ OR EXISTS(SELECT 1 FROM migration_record mh WHERE mh.case_id=c.id AND mh.state='IMPORTED' AND mh.classification IN ('QUALIFIED_PDF_PENDING','PDF_REVIEW','CERTIFIED_RELEASED'))) "documentsReady",
  (SELECT v.state FROM result_report_version v WHERE v.case_id=c.id AND v.round_id=r.id AND v.kind='RESULT' AND v.state NOT IN ('Superseded','Voided','RejectedImport') ORDER BY v.state_changed_at DESC,v.id DESC LIMIT 1) "reportState",
  (SELECT count(*)::int FROM result_release rr WHERE rr.case_id=c.id AND rr.round_id=r.id AND rr.kind='RESULT' AND rr.state='Active') "activeReleaseCount",
  (SELECT count(*)::int FROM result_release rr JOIN result_report_version v ON v.id=rr.version_id WHERE rr.case_id=c.id AND rr.round_id=r.id AND rr.kind='RESULT' AND rr.state='Active' AND v.state='CertifiedReleased' AND v.kind='RESULT' AND v.case_id=c.id AND v.round_id=r.id) "certifiedReleaseCount",

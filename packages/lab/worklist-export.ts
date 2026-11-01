@@ -16,7 +16,7 @@ export async function exportWorklistXlsx(db:Queryable,user:Staff){
  for(let i=0;i<rows.length;i+=200)await recordPhiAccess(db,user.id,rows.slice(i,i+200).map(r=>r.case_id),'REGISTRY_VIEW');
  const at=(d:Date|null)=>d?new Intl.DateTimeFormat('th-TH-u-ca-buddhist',{dateStyle:'short',timeStyle:'short',timeZone:'Asia/Bangkok'}).format(d):'';
  const table=[['ลำดับ','LN (HIS)','HN','LN Halos','Sample ID (พร้อม suffix)','รอบที่','ครั้งที่ตรวจ','สถานะ','Run / ตำแหน่ง','วันที่/เวลารับ'],
-  ...rows.map((r,i)=>[String(i+1),formatLn(r.ln),r.hn??'',r.ln_halos?specimenDisplayCode(r.ln_halos,r.pregnancy,r.ln_halos_resampling):'',r.printed_sample_id??'',String(r.round_number),String(r.overall_ordinal),STATE[r.attempt_state]??r.attempt_state,r.run_label?`${r.run_label} · ${r.slot_number??''}`:'',at(r.received_at)])];
+  ...rows.map((r,i)=>[String(i+1),formatLn(r.ln),r.hn??'',r.migration_original_ln_halos??(r.ln_halos?specimenDisplayCode(r.ln_halos,r.pregnancy,r.ln_halos_resampling):''),r.printed_sample_id??'',String(r.round_number),String(r.overall_ordinal),STATE[r.attempt_state]??r.attempt_state,r.run_label?`${r.run_label} · ${r.slot_number??''}`:'',at(r.received_at)])];
  await audit(db,user,'LAB_WORKLIST_EXPORTED','analytical_attempt',undefined,{count:rows.length,outcome:'XLSX'});
  return {bytes:simpleXlsx('LN และ LN Halos',table),count:rows.length};
 }

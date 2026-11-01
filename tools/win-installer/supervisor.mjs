@@ -66,6 +66,8 @@ const common={
  FILE_STORE_ROOT:config.filesRoot??L.files,SIMULATOR_ROOT:path.join(L.data,'integration'),
  RENDERER_URL:`http://127.0.0.1:${config.ports.renderer}`,RENDERER_TOKEN_FILE:secret('renderer-token'),
  IDENTITY_LOOKUP_KEY_FILE:secret('identity-lookup.key'),NIPT_HIS_SHARE_POLICY_FILE:path.join(L.config,'share-policy.json'),
+ // Only the PUBLIC key reaches the services: they verify the signed backup receipt (kept in run\), they can never forge one.
+ ...(existsSync(secret('operations-status-public.pem'))?{NIPT_OPERATIONS_STATUS_FILE:path.join(L.run,'operations-status.json'),NIPT_OPERATIONS_STATUS_PUBLIC_KEY_FILE:secret('operations-status-public.pem')}:{}),
  NIPT_BACKUP_POLICY_FILE:path.join(L.config,'backup-policy.json'),PLAYWRIGHT_BROWSERS_PATH:L.browsers,
  ...(existsSync(path.join(L.runtime,'pwsh','pwsh.exe'))?{NIPT_NATIVE_POWERSHELL:path.join(L.runtime,'pwsh','pwsh.exe')}:{}),
  ...((config.excelMode??(config.taskMode==='system'?'bridge':'direct'))==='bridge'?{NIPT_NATIVE_EXCEL_SPOOL:L.excelSpool}:{}),

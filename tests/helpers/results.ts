@@ -23,12 +23,15 @@ export type ResultFixture=Awaited<ReturnType<typeof resultFixture>>;
 let hnSeq=100;
 const addDays=(d:string,n:number)=>new Date(Date.parse(d)+n*86400000).toISOString().slice(0,10);
 /** Received S1 with an immutable P2 HN and an electronic Request carrying DOB, EDD (GA 86 days on the collection date) and sex wish. */
-export async function receivedCase(f:ResultFixture,o:{hn?:string;dob?:string;pregnancy?:'Singleton'|'Twins';fetalSex?:'Want'|'DoNotWant'|'Unspecified';collection?:string}={}){
+export async function receivedCase(f:ResultFixture,o:{ln?:string;name?:string;hn?:string;dob?:string;pregnancy?:'Singleton'|'Twins';fetalSex?:'Want'|'DoNotWant'|'Unspecified';collection?:string}={}){
  const hn=o.hn??`9900000${String(++hnSeq).padStart(5,'0')}`,collection=o.collection??'2026-10-10';
- const c=await f.run(t=>syntheticCase(t,{staff:f.u.staff,unit:f.u.unit},{pregnancy:o.pregnancy??'Singleton'}));
+ const c=await f.run(t=>syntheticCase(t,{staff:f.u.staff,unit:f.u.unit},{pregnancy:o.pregnancy??'Singleton',...(o.ln?{ln:o.ln}:{})}));
  await f.run(async t=>{
   await t.query('INSERT INTO p2_case_identity(case_id,hn) VALUES($1,$2)',[c.caseId,hn]);
   const payload={draft:{patient:{dob:o.dob??'1996-03-31'},pregnancy:{type:o.pregnancy??'Singleton',edd:addDays(collection,194),fetalSex:o.fetalSex??'DoNotWant'}}};
+  // The patient name the system holds for the case (what the ANC screens show); migration PDF identity compares the file and PDF names with it.
+  // Electronic mode keeps the signed request revision above as the request source (a Paper workspace would switch it to the paper panel).
+  if(o.name)await t.query("INSERT INTO p2_workspace(case_id,round_id,version,draft,request_mode,consent_mode,updated_by) VALUES($1,$2,0,$3,'Electronic','Electronic',$4)",[c.caseId,c.roundId,JSON.stringify({patient:{dob:o.dob??'1996-03-31',syntheticName:o.name},pregnancy:payload.draft.pregnancy}),f.u.staff.id]);
   await t.query("INSERT INTO p2_document_revision(case_id,round_id,kind,version,template_version,payload,content_hash,reason,created_by) VALUES($1,$2,'REQUEST',1,'SYNTHETIC-FM01-v1',$3,$4,'SYNTHETIC_P5',$5)",[c.caseId,c.roundId,JSON.stringify(payload),createHash('sha256').update(JSON.stringify(payload)).digest('hex'),f.u.staff.id]);
   await receiveS1(t,c,new Date(Date.now()-3600000),collection);
  });

@@ -1,0 +1,30 @@
+import {it,expect} from 'vitest';
+import {mkdtemp,rm} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';
+import {testDatabase,addUser} from '../helpers/database';import {syntheticCase,labUsers,receiveS1,tx} from '../helpers/lab';
+import {simpleXlsx} from '../../packages/workbook/simple-xlsx';import {FileStore} from '../../packages/storage';
+import {buildMigrationPlan} from '../../packages/migration/planner';import {prepareMigrationExecution,executeMigration,readMigrationExecution} from '../../packages/migration/service';
+import {pinAllocatorEvidence} from '../../packages/migration/high-watermark';import {applyAllocatorHandover} from '../../packages/migration/identifiers';
+it('blocks only new allocation until fresh authoritative handover and follows source152 rather than export137',async()=>{
+ const db=await testDatabase(),root=await mkdtemp(path.join(os.tmpdir(),'migration-allocator-'));
+ try{const admin=await addUser(db),u=await labUsers(db),next=await tx(db,d=>syntheticCase(d,{staff:u.staff,unit:u.unit}));
+ const clock=(await db.query<{today:string;at:string}>("SELECT p4_bangkok_date(now())::text today,now()::text at")).rows[0],date=clock.today,month=date.slice(0,7)+'-01',id=date.slice(2,4)+'B'+date.slice(2).replaceAll('-','')+'137';
+ const input={mapping:{name:'mapping.xlsx',bytes:simpleXlsx('Mapping',[['LN','LN Halos'],['9900099',id]])},halos:[]},plan=buildMigrationPlan(input);
+ const deps={store:new FileStore(root),verifyBackup:async()=>({manifestSha256:'a'.repeat(64),verification:'CREATION_VERIFIED'})};
+ const prepared=await prepareMigrationExecution(db,admin,input,{planDigest:plan.digest,uncheckedAcknowledged:true},deps);
+ expect(prepared.records).toHaveLength(0);
+ await expect(tx(db,d=>receiveS1(d,next))).rejects.toThrow('ALLOCATOR_HANDOVER_PENDING');
+ const execution=await executeMigration(db,admin,input,{planDigest:plan.digest,uncheckedAcknowledged:true},deps);
+ await expect(tx(db,d=>receiveS1(d,next))).rejects.toThrow('ALLOCATOR_HANDOVER_PENDING');
+ await expect(applyAllocatorHandover(db,admin,execution.id)).rejects.toThrow('ALLOCATOR_EVIDENCE_MISSING');
+ const evidence=pinAllocatorEvidence({version:1,source:'GENOMIC_READ_ONLY_ALLOCATOR',sourceIdentity:'synthetic-authoritative-source',capturedAt:new Date(clock.at).toISOString(),mappingSha256:plan.sources[0].sha256,registryPairsSha256:plan.registryPairsSha256,registryPairCount:1,months:[{month,lastValue:152}],sourceFrozen:true});
+ await expect(applyAllocatorHandover(db,u.staff,execution.id,evidence)).rejects.toThrow('FORBIDDEN');
+ await expect(applyAllocatorHandover(db,admin,execution.id,pinAllocatorEvidence({...evidence,capturedAt:new Date(Date.parse(clock.at)-86400001).toISOString()}))).rejects.toThrow('ALLOCATOR_EVIDENCE_STALE');
+ await expect(applyAllocatorHandover(db,admin,execution.id,pinAllocatorEvidence({...evidence,registryPairCount:2}))).rejects.toThrow('REGISTRY_DELTA_REQUIRES_REEXPORT');
+ await applyAllocatorHandover(db,admin,execution.id,evidence);
+ expect((await applyAllocatorHandover(db,admin,execution.id,evidence)).replayed).toBe(true);
+ expect((await readMigrationExecution(db,admin,execution.id)).allocatorHandover).toMatchObject({applied:true,readyForHandover:true,evidenceSha256:evidence.sha256,authoritativeMonths:evidence.months});
+ await tx(db,d=>receiveS1(d,next));
+ expect((await db.query<{ln_halos:string}>('SELECT ln_halos FROM specimen_lab_number WHERE round_id=$1',[next.roundId])).rows[0].ln_halos).toMatch(/153$/);
+ expect((await db.query('SELECT 1 FROM job_outbox')).rows).toHaveLength(0);
+ }finally{await db.close();await rm(root,{recursive:true,force:true});}
+});

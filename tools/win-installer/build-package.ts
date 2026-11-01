@@ -82,6 +82,8 @@ await mkdir(path.join(ops,'db'),{recursive:true});await cp(migrationsDir,path.jo
 await mkdir(path.join(ops,'deploy'),{recursive:true});await cp('deploy/scripts',path.join(ops,'deploy','scripts'),{recursive:true});
 await mkdir(path.join(ops,'tools'),{recursive:true});
 for(const f of ['migrate.ts','migration-checksums.ts','configure-operational.ts','runtime-env.mjs','environment-boundary.mjs','run-photos.ts'])await cp(path.join('tools',f),path.join(ops,'tools',f));
+// Historical migration operator tools, run from the ops folder with its own Node/tsx: the one-time read-only Genomic-CBH allocator watermark and the offline Dry Run classification.
+await mkdir(path.join(ops,'tools','migration'),{recursive:true});for(const f of ['collect-genomic-watermark.ts','offline-plan-report.ts','run-production-migration.ts'])await cp(path.join('tools','migration',f),path.join(ops,'tools','migration',f));
 await mkdir(path.join(ops,'tools','operational'),{recursive:true});await cp('tools/operational/native-excel-bridge.ps1',path.join(ops,'tools','operational','native-excel-bridge.ps1'));
 await mkdir(path.join(ops,'tools','task3-uat'),{recursive:true});await cp('tools/task3-uat/signature.ts',path.join(ops,'tools','task3-uat','signature.ts'));
 for(const d of ['p8','win-installer'])await cp(path.join('tools',d),path.join(ops,'tools',d),{recursive:true,filter:s=>!/build-package\.ts$/.test(s)});
