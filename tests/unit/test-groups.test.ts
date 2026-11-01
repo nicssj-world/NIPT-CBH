@@ -11,6 +11,11 @@ describe('test groups',()=>{
  it('no file is in both groups or listed twice',()=>{
   expect(new Set(all).size).toBe(all.length);
  });
+ it('every harness-only e2e spec exists and names exactly one prerequisite',()=>{
+  const specs=(JSON.parse(readFileSync('tests/test-groups.json','utf8')) as {e2eHarness:{specs:{file:string;requiresEnv?:string;requiresFile?:string}[]}}).e2eHarness.specs;
+  expect(specs.filter(s=>!existsSync(s.file))).toEqual([]);
+  expect(specs.filter(s=>!!s.requiresEnv===!!s.requiresFile)).toEqual([]);
+ });
  it('each group has its own npm script',()=>{
   const scripts=JSON.parse(readFileSync('package.json','utf8')).scripts as Record<string,string>;
   expect(scripts['test:owner-assets']).toContain('vitest.owner-assets.config.ts');

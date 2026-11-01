@@ -38,6 +38,14 @@
       "tests/contracts/archive-backup-restore-native.test.ts"
     ]
   },
+  "e2eHarness": {
+    "about": "Playwright specs that only their own harness can run (it creates the fixture). Without the prerequisite each one throws while loading, which aborts the whole `npm run test:e2e`; playwright.config.ts leaves out exactly those whose prerequisite is absent and prints which.",
+    "specs": [
+      { "file": "tests/e2e/sample-storage.spec.ts", "requiresEnv": "NIPT_SAMPLE_STORAGE_FIXTURE" },
+      { "file": "tests/e2e/sample-storage-interactions.spec.ts", "requiresEnv": "NIPT_SAMPLE_STORAGE_FIXTURE" },
+      { "file": "tests/e2e/task3-integrated-uat.spec.ts", "requiresFile": ".local/task3-uat/uat-fixture.json" }
+    ]
+  },
   "afterBuild": {
     "command": "npm run build && npm run test:after-build",
     "requires": "the Next standalone output (.next/standalone)",
