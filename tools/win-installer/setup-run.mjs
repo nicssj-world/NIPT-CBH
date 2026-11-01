@@ -106,9 +106,10 @@ try{
   if(console&&console.toLowerCase()!==whoami().toLowerCase()){log(`USER_MISMATCH console=${console} installer=${whoami()}`);finish({ok:false,action:'INSTALL',code:'INSTALL_USER_IS_NOT_THE_LOGGED_ON_USER',message:thaiError('INSTALL_USER_IS_NOT_THE_LOGGED_ON_USER')});}
  }
  const production=manifest.testEnvironmentOnly===false;
- // Production: the first accounts are named by the person installing (no default usernames or passwords exist); the engine creates them with random one-time passwords.
- const adminArgs=['admin-user','admin-name','checker-user','checker-name'].flatMap(n=>arg(n)&&arg(n)!=='true'?['--'+n,arg(n)]:[]);
- if(production&&!retained&&adminArgs.length!==8)finish({ok:false,action:'INSTALL',code:'ADMIN_IDENTITY_REQUIRED',message:thaiError('ADMIN_IDENTITY_REQUIRED')});
+ // Production: the ONE first account (APP_ADMIN) is named by the person installing (no default username or password exists); the engine
+ // creates it with a random one-time password. A legacy wizard's approver fields are not forwarded: that person is added in user management.
+ const adminArgs=['admin-user','admin-name'].flatMap(n=>arg(n)&&arg(n)!=='true'?['--'+n,arg(n)]:[]);
+ if(production&&!retained&&adminArgs.length!==4)finish({ok:false,action:'INSTALL',code:'ADMIN_IDENTITY_REQUIRED',message:thaiError('ADMIN_IDENTITY_REQUIRED')});
  if(production)warnings.push(THAI_WARNING.OFFICE_SESSION);
  if(!word)warnings.push(THAI_WARNING.WORD_MISSING);
  if(!excel)warnings.push(THAI_WARNING.EXCEL_MISSING);

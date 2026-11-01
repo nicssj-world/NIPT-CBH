@@ -15,9 +15,7 @@
   "ancConsentPdf": "C:\\NIPT-CBH\\assets\\forms\\consent.pdf",
   "bootstrap": {
     "adminUser": "",
-    "adminName": "",
-    "checkerUser": "",
-    "checkerName": ""
+    "adminName": ""
   },
   "releaseBranch": "origin/main",
   "stagingVerifiedMaxAgeDays": 14

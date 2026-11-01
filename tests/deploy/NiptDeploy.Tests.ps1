@@ -39,7 +39,7 @@ Describe 'Get-NiptLastJson' {
 Describe 'Get-NiptInstallArguments' {
   $s = Get-Content (Join-Path $repo 'deploy\windows\environments\staging.example.json') -Raw | ConvertFrom-Json
   $p = Get-Content (Join-Path $repo 'deploy\windows\environments\production.example.json') -Raw | ConvertFrom-Json
-  $p.bootstrap = [pscustomobject]@{ adminUser = 'lab.admin'; adminName = 'Lab Administrator'; checkerUser = 'clin.approver'; checkerName = 'Clinical Approver' }
+  $p.bootstrap = [pscustomobject]@{ adminUser = 'lab.admin'; adminName = 'Lab Administrator' }
   It 'installs Staging as the test profile, protecting the Production root, on loopback, without bootstrap accounts' {
     $a = Get-NiptInstallArguments $s $p 'C:\pkg' 'C:\pub.pem'
     $joined = $a -join ' '
@@ -50,13 +50,21 @@ Describe 'Get-NiptInstallArguments' {
     $joined -match '--lan' | Should Be $false
     $joined -match '--admin-user' | Should Be $false
   }
-  It 'installs Production as the production profile with LAN host and the two bootstrap identities' {
+  It 'installs Production as the production profile with LAN host and the ONE bootstrap identity (APP_ADMIN)' {
     $a = Get-NiptInstallArguments $p $s 'C:\pkg' 'C:\pub.pem'
     $a[[array]::IndexOf($a, '--environment') + 1] | Should Be 'production'
     $a[[array]::IndexOf($a, '--protected-roots') + 1] | Should Be $s.root
     $a[[array]::IndexOf($a, '--host') + 1] | Should Be 'nipt-cbh'
     $a[[array]::IndexOf($a, '--admin-user') + 1] | Should Be $p.bootstrap.adminUser
-    $a[[array]::IndexOf($a, '--checker-user') + 1] | Should Be $p.bootstrap.checkerUser
+    $a[[array]::IndexOf($a, '--admin-name') + 1] | Should Be $p.bootstrap.adminName
+    ($a -join ' ') -match '--checker' | Should Be $false
+  }
+  It 'binds Production HTTPS to the configured LAN adapter and firewall profile' {
+    $q = $p | ConvertTo-Json -Depth 8 | ConvertFrom-Json
+    $q.lan | Add-Member -NotePropertyName listen -NotePropertyValue '192.168.72.194'; $q.lan | Add-Member -NotePropertyName profiles -NotePropertyValue 'Private'
+    $a = Get-NiptInstallArguments $q $s 'C:\pkg' 'C:\pub.pem'
+    $a[[array]::IndexOf($a, '--https-host') + 1] | Should Be '192.168.72.194'
+    $a[[array]::IndexOf($a, '--lan-profiles') + 1] | Should Be 'Private'
   }
 }
 

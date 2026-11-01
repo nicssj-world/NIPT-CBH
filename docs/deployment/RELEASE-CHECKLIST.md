@@ -10,6 +10,32 @@ executed on this host or in GitHub Actions, or names what blocks it.
 Branch `feat/dual-environment-deploy` (draft PR #13). Basis: `main` @ `1ad1f340` (v1.1.2). v1.1.3 and Parity are not
 included. Production has not been installed or touched.
 
+## Single APP_ADMIN + Reported By / Approved By (owner decision 2026-11-01)
+
+Production starts with **one** application account, APP_ADMIN (`production.json` `bootstrap.adminUser`/`adminName`); the
+former mandatory CLINICAL_APPROVER bootstrap account is removed from the gate, module, engine, bootstrap and installer, and a
+definition that still names one is refused (`PRODUCTION_SINGLE_ADMIN_BOOTSTRAP_ONLY` / `SINGLE_ADMIN_BOOTSTRAP_ONLY`).
+
+| Scenario | Status | Evidence |
+|---|---|---|
+| 1. Install creates only one APP_ADMIN | **PASS (tests)** | `tests/db/admin-upgrade.test.ts` (one account, role APP_ADMIN, must change password, second identity refused, empty-only); `tests/deploy/*` (gate + install arguments carry no `--checker-*`) |
+| 2. APP_ADMIN reaches every module | **PASS (tests)** | `packages/security/policy.ts`: every matrix action except patient signing, historical send/promotion, the hard HIS production switch and redraw-after-release; `tests/permissions/*` (879 cases). Database guards: migration `161_app_admin_operator_authority.sql` (11 acting-user predicates, applied cleanly to a fresh database) |
+| 3. No CLINICAL_APPROVER bootstrap account | **PASS (tests)** | `tests/db/single-admin-report-personnel.test.ts` |
+| 4-6. Both personnel selected in one session; stored separately from the operator | **PASS (tests)** | same file: `signerAuthority` for Reported By and Approved By in one principal, basis `STANDING_DELEGATION`, `operatorId` = administrator; `internal_report.operator_id` / `reported_by` / `approved_by` / `*_authority` (native case in `owner-lab-054-signers-native.test.ts`) |
+| 7. Existing users, roles and records | **PASS (design)** | no schema or data change; migration 161 only re-creates guard functions; historical approval rows untouched |
+| 8. PDF shows both personnel and verified signatures | see native run below | `owner-lab-054-signers-native.test.ts` "single APP_ADMIN" case |
+| 9. A name alone is not evidence | **PASS (tests)** | unverified profile → `SIGNER_PROFILE_NOT_VERIFIED`; no delegation → listed not usable, `SIGNATURE_DELEGATION_REQUIRED`, nothing generated; the administrator itself is never an eligible signer |
+| 10. Safeguards and release gates | **PASS (tests)** | self-approval denied for the administrator (maker-checker), certification still needs operational mode, clinical settings still need a second person to approve |
+
+Defect found and fixed while testing: a delegation could only be granted to lab staff, so no one could authorise the APP_ADMIN
+to apply their signature (`DELEGATE_NOT_ELIGIBLE`). An enabled APP_ADMIN may now receive a delegation (operator only; it never
+becomes a signer).
+
+Operational consequence: rules that need two different people still do. A clinical setting (e.g. the report interpretation
+approval) must be proposed by one person and approved by another; with the roles as they are, a LAB_CERTIFIER proposes and the
+APP_ADMIN approves and activates. So at least one more user (for example the LAB_CERTIFIER who is Approved By) must exist before
+reports can be finalised. Each signer signs in once to submit their profile and grant the delegation.
+
 ## Production First assessment (2026-11-01, owner directive)
 
 **Production is not installed.** The owner authorised the installation once the mandatory release checks pass, and they do
@@ -21,7 +47,7 @@ not pass yet. Each blocker below is a gate, an owner decision or an IT/elevation
 | Release SHA verification | **BLOCKED** | no commit has a **passed** Staging workflow UAT (`history\staging\verified\*`: `2ba5b82`, `a7adc40`, `260e572` stopped at Pooling before the fonts existed; `6d5b020` has no UAT). Candidate `dda47b5`: `C:\NIPT-CBH\deploy\history\elevated-staging-readiness.ps1 -Candidate <sha>`, run from an elevated prompt, provisions the Staging identity and egress block, deploys the candidate, runs the full journey and the isolation test, and stops Staging. The UAC request for it was declined |
 | Candidate on the release branch | **BLOCKED (owner)** | the gate requires the commit on `origin/main`. PR #13 is a Draft and must be reviewed and merged by the owner (or the owner must change `releaseBranch` in the live `production.json` explicitly) |
 | Automated checks for the exact commit | **BLOCKED (owner decision)** | CI passes deploy contracts, typecheck, lint, `npm test`, audit, build and after-build tests. The Playwright step still has the pre-existing failures: 2 are verified spec drift from owner-approved UI changes (`5d4e45d`, `258d83c`); the rest need per-test triage (see "Playwright review"). Owner: fix or explicitly accept before promotion |
-| Bootstrap identities | **BLOCKED (owner)** | live `production.json` has no real APP_ADMIN / CLINICAL_APPROVER usernames and names; they cannot be invented |
+| Bootstrap identity | **PASS (owner, 2026-11-01)** | one APP_ADMIN, named by the owner, set in the live `production.json` (not in Git); no second bootstrap account (owner decision) |
 | Clinical assets | **PASS** | Combined Master `4c5300f9…`, Singleton `a56be6e4…`, Twin `0f731321…`, ANC request/consent: all match their repository pins in `C:\NIPT-CBH\assets` |
 | Fonts / Pooling one-page PDF | **PASS** | SimSun (system, Windows optional feature) and TH Sarabun New are installed. `office-check --excel-workbook` with the approved master: all six sheets meet the page contract, **Pooling Table 1 page A4**, 149 formulas; master hash unchanged. TH Sarabun New is installed for the `Admin` user only, which is what the Excel bridge account uses; IT should install it for all users |
 | Word PDF | **PASS** | approved Singleton master filled with synthetic values and two signers → 1 page, signatures embedded |

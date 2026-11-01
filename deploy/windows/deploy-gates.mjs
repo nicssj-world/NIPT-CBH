@@ -32,14 +32,17 @@ export function validateEnvironment(e,name,{purpose='staging'}={}){
  need(!(e.serviceAccount&&e.excelMode==='direct'),'ENVIRONMENT_SERVICE_ACCOUNT_REQUIRES_EXCEL_BRIDGE');
  need(e.serviceAccount===undefined||e.serviceAccount===null||/^[A-Za-z0-9][A-Za-z0-9._-]{2,19}$/.test(e.serviceAccount),'ENVIRONMENT_SERVICE_ACCOUNT_INVALID');
  need(e.lan&&typeof e.lan.enabled==='boolean','ENVIRONMENT_LAN_INVALID');
+ need(e.lan.listen===undefined||/^(?:\d{1,3}\.){3}\d{1,3}$/.test(e.lan.listen),'ENVIRONMENT_LAN_LISTEN_INVALID');
  if(name==='production'){
-  // the two first accounts are the owner's real people: never a default, never a placeholder. Only a Production action needs them,
-  // so a Staging deployment is not held up while they are still being chosen.
+  // the ONE first account (APP_ADMIN, owner decision 2026-11-01) is the owner's real person: never a default, never a placeholder.
+  // Only a Production action needs it, so a Staging deployment is not held up while it is still being chosen. A definition that
+  // still names a second bootstrap account (the former CLINICAL_APPROVER) is refused, not ignored: that person is added later in
+  // user management.
   if(purpose==='production'){
    const b=e.bootstrap??{};
-   for(const k of ['adminUser','adminName','checkerUser','checkerName'])need(typeof b[k]==='string'&&b[k].trim().length>0&&!PLACEHOLDER.test(b[k].trim()),'PRODUCTION_BOOTSTRAP_IDENTITY_REQUIRED');
-   need(/^[a-z0-9._-]{3,64}$/.test(b.adminUser)&&/^[a-z0-9._-]{3,64}$/.test(b.checkerUser),'PRODUCTION_BOOTSTRAP_USERNAME_INVALID');
-   need(b.adminUser!==b.checkerUser,'PRODUCTION_BOOTSTRAP_IDENTITIES_MUST_DIFFER');
+   for(const k of ['adminUser','adminName'])need(typeof b[k]==='string'&&b[k].trim().length>0&&!PLACEHOLDER.test(b[k].trim()),'PRODUCTION_BOOTSTRAP_IDENTITY_REQUIRED');
+   need(/^[a-z0-9._-]{3,64}$/.test(b.adminUser),'PRODUCTION_BOOTSTRAP_USERNAME_INVALID');
+   for(const k of ['checkerUser','checkerName'])need(b[k]===undefined||b[k]===null||(typeof b[k]==='string'&&!b[k].trim()),'PRODUCTION_SINGLE_ADMIN_BOOTSTRAP_ONLY');
   }
   need(typeof e.releaseBranch==='string'&&/^[A-Za-z0-9._/-]+$/.test(e.releaseBranch),'PRODUCTION_RELEASE_BRANCH_REQUIRED');
   need(Number.isInteger(e.stagingVerifiedMaxAgeDays)&&e.stagingVerifiedMaxAgeDays>=1&&e.stagingVerifiedMaxAgeDays<=90,'PRODUCTION_VERIFIED_AGE_INVALID');

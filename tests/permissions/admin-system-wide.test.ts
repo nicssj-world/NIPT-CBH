@@ -10,13 +10,19 @@ describe("APP_ADMIN system-wide workspace access",()=>{
   }
  });
 
- it("can use non-sign-off workspace APIs without inheriting clinical approval identities",()=>{
+ it("single APP_ADMIN (owner 2026-11-01) uses every module, including sign-off actions, under its own identity",()=>{
   for(const action of ["case.register.anc","case.register.lab","his.scan","batch.draft","execution.record","photo.read","report.export","settings.read"]){
    expect(authorize(admin,action,{},action==="settings.read"?"read":"write"),action).toBe(true);
   }
-  for(const action of ["consent.sign.patient","observation.verify","handoff.verify","pool.approve","qc.accept","result.certify","notice.release","result.revise","history.promote","settings.approve","downtime.approve","his.production.enable","history.send","redraw.after.release"]){
+  for(const action of ["observation.verify","handoff.verify","pool.approve","qc.accept","result.revise","settings.approve","downtime.approve","clinical.correct","clinical.sop","intake.link"]){
+   expect(authorize(admin,action,{actorId:"someone-else"},"approve"),action).toBe(true);
+  }
+  for(const action of ["consent.sign.patient","history.promote","his.production.enable","history.send","redraw.after.release"]){
    expect(authorize(admin,action,{actorId:"someone-else"},"approve"),action).toBe(false);
   }
+  // self-approval stays denied (maker-checker), and certification still needs operational mode
+  for(const action of ["observation.verify","handoff.verify","settings.approve","downtime.approve"])expect(authorize(admin,action,{actorId:admin.id},"approve"),action).toBe(false);
+  for(const action of ["result.certify","notice.release"])expect(authorize(admin,action,{},"approve"),action).toBe(false);
   expect(authorize(admin,"unknown.permission")).toBe(false);
  });
 

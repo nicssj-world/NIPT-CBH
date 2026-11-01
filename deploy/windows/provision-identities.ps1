@@ -28,6 +28,35 @@ function New-NiptPassword {
   # base64 + one of each class, so any local password policy accepts it
   ([Convert]::ToBase64String($bytes) -replace '[+/=]', 'x') + 'aA1!'
 }
+# "Log on as a batch job" (a stored-password scheduled task needs it; a new local account does not have it by default)
+function Grant-NiptBatchLogonRight([string]$Account) {
+  if (-not ('NiptLsa' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System; using System.Runtime.InteropServices; using System.Security.Principal;
+public static class NiptLsa {
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] struct LSA_UNICODE_STRING { public ushort Length, MaximumLength; public string Buffer; }
+  [StructLayout(LayoutKind.Sequential)] struct LSA_OBJECT_ATTRIBUTES { public int Length; public IntPtr RootDirectory, ObjectName; public uint Attributes; public IntPtr SecurityDescriptor, SecurityQualityOfService; }
+  [DllImport("advapi32.dll")] static extern uint LsaOpenPolicy(IntPtr system, ref LSA_OBJECT_ATTRIBUTES attr, uint access, out IntPtr handle);
+  [DllImport("advapi32.dll")] static extern uint LsaAddAccountRights(IntPtr handle, byte[] sid, LSA_UNICODE_STRING[] rights, uint count);
+  [DllImport("advapi32.dll")] static extern uint LsaClose(IntPtr handle);
+  [DllImport("advapi32.dll")] static extern int LsaNtStatusToWinError(uint status);
+  public static void Grant(string account, string right) {
+    var sid = (SecurityIdentifier)new NTAccount(account).Translate(typeof(SecurityIdentifier));
+    var bytes = new byte[sid.BinaryLength]; sid.GetBinaryForm(bytes, 0);
+    var attr = new LSA_OBJECT_ATTRIBUTES(); IntPtr h;
+    uint s = LsaOpenPolicy(IntPtr.Zero, ref attr, 0x00000811, out h); // POLICY_CREATE_ACCOUNT | POLICY_LOOKUP_NAMES | POLICY_VIEW_LOCAL_INFORMATION
+    if (s != 0) throw new System.ComponentModel.Win32Exception(LsaNtStatusToWinError(s));
+    try {
+      var r = new LSA_UNICODE_STRING { Buffer = right, Length = (ushort)(right.Length * 2), MaximumLength = (ushort)(right.Length * 2 + 2) };
+      s = LsaAddAccountRights(h, bytes, new[] { r }, 1);
+      if (s != 0) throw new System.ComponentModel.Win32Exception(LsaNtStatusToWinError(s));
+    } finally { LsaClose(h); }
+  }
+}
+'@
+  }
+  [NiptLsa]::Grant($Account, 'SeBatchLogonRight')
+}
 function Invoke-Icacls([string[]]$Arguments) {
   $r = Invoke-NiptProcess -File (Join-Path $env:SystemRoot 'System32\icacls.exe') -Arguments $Arguments -Step ("icacls " + ($Arguments -join ' '))
   if ($r.ExitCode -ne 0) { throw "ICACLS_FAILED: $($Arguments -join ' '): $($r.StdOut) $($r.StdErr)" }
@@ -57,7 +86,7 @@ try {
         Set-LocalUser -Name $cfg.serviceAccount -Password $secure -PasswordNeverExpires $true -UserMayChangePassword $false
         Write-NiptLog "re-keyed local account $acct"
       } else {
-        New-LocalUser -Name $cfg.serviceAccount -Password $secure -PasswordNeverExpires -UserMayNotChangePassword -AccountNeverExpires -Description "NIPT-CBH $n runtime services (no interactive use)" | Out-Null
+        New-LocalUser -Name $cfg.serviceAccount -Password $secure -PasswordNeverExpires -UserMayNotChangePassword -AccountNeverExpires -Description "NIPT-CBH $n runtime (non-interactive)" | Out-Null
         Write-NiptLog "created local account $acct"
       }
 
@@ -77,11 +106,49 @@ try {
       Write-NiptJson $policy $policyFile
       Write-NiptJson ([ordered]@{ account = $acct.ToLowerInvariant(); environment = $n; provisionedAt = (Get-Date).ToString('o'); by = $owner }) (Join-Path $root 'config\service-identity.json')
 
+      Grant-NiptBatchLogonRight $acct
+      Write-NiptLog "granted 'Log on as a batch job' to $acct"
       $task = "nipt-cbh-$($cfg.instance)"
       Set-ScheduledTask -TaskPath '\NIPT-CBH\' -TaskName $task -Trigger (New-ScheduledTaskTrigger -AtStartup) -User $acct -Password $password | Out-Null
-      $password = $null; $secure = $null
       $detail.task = $task
       Write-NiptLog "supervisor task $task now runs as $acct at system startup"
+
+      # Production NAS backup (environments\production.json "backup"): the service identity itself authenticates to the NAS with a
+      # credential kept in ITS OWN Windows Credential Manager (typed here, never written to a file or to Git), and the daily backup
+      # runs as that identity at its scheduled time, with or without anyone signed in.
+      if ($n -eq 'production' -and $cfg.PSObject.Properties['backup'] -and $cfg.backup) {
+        $b = $cfg.backup
+        if ($b.root -notmatch '^\\\\[^\\]+\\[^\\]+') { throw "BACKUP_ROOT_MUST_BE_UNC: $($b.root)" }
+        $nasServer = ($b.root -split '\\')[2]
+        $svcCred = New-Object Management.Automation.PSCredential($acct, $secure)
+        Write-Host ''
+        $nasPassword = Read-Host "NAS password for '$($b.nasUser)' on \\$nasServer (stored only in $acct's Windows Credential Manager)" -AsSecureString
+        $nasPlain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($nasPassword))
+        $extra = if ($b.PSObject.Properties['nasTargets']) { @($b.nasTargets | Where-Object { $_ }) } else { @() }
+        foreach ($t in @($nasServer) + $extra) {
+          $p = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\cmdkey.exe') -ArgumentList "/add:$t", "/user:$($b.nasUser)", "/pass:$nasPlain" -Credential $svcCred -LoadUserProfile -WorkingDirectory (Join-Path $env:SystemRoot 'System32') -WindowStyle Hidden -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "NAS_CREDENTIAL_FAILED: $t exit $($p.ExitCode)" }
+        }
+        $nasPlain = $null; $nasPassword = $null
+        Write-NiptLog "NAS credential for $($b.nasUser)@$nasServer stored for $acct"
+        # proof under the service identity: write, read back and remove a temporary file on the NAS
+        $probeOut = Join-Path $root 'run\nas-probe.json'; Remove-Item -LiteralPath $probeOut -ErrorAction SilentlyContinue
+        $probe = "`$r=[ordered]@{at=(Get-Date).ToString('o');user=[Security.Principal.WindowsIdentity]::GetCurrent().Name};try{`$f=Join-Path '$($b.root)' ('nipt-svc-probe-'+[guid]::NewGuid().ToString('N')+'.tmp');[IO.File]::WriteAllText(`$f,'probe');`$r.readBack=([IO.File]::ReadAllText(`$f) -eq 'probe');Remove-Item -LiteralPath `$f;`$r.removed=-not (Test-Path -LiteralPath `$f);`$r.ok=(`$r.readBack -and `$r.removed)}catch{`$r.ok=`$false;`$r.error=`$_.Exception.Message};`$r|ConvertTo-Json|Set-Content -LiteralPath '$probeOut' -Encoding UTF8"
+        Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgumentList '-NoProfile', '-NonInteractive', '-Command', $probe -Credential $svcCred -LoadUserProfile -WorkingDirectory (Join-Path $env:SystemRoot 'System32') -WindowStyle Hidden -Wait | Out-Null
+        $nas = if (Test-Path -LiteralPath $probeOut) { Get-Content -LiteralPath $probeOut -Raw | ConvertFrom-Json } else { $null }
+        $detail.nasProbe = $nas
+        if (-not $nas -or -not $nas.ok) { throw "NAS_ACCESS_AS_SERVICE_IDENTITY_FAILED: $(if ($nas) { $nas.error } else { 'no probe result' })" }
+        Write-NiptLog "NAS write/read/remove as ${acct}: PASS"
+        Assert-NiptEngineOk (Invoke-NiptAdmin $cfg 'set-backup-root' -Arguments @('--path', $b.root)) 'SET_BACKUP_ROOT'
+        $bp = Join-Path $root 'config\backup-policy.json'; $bpol = Read-NiptJson $bp; $bpol.serviceAccount = $acct.ToLowerInvariant(); Write-NiptJson $bpol $bp
+        $keep = if ($b.PSObject.Properties['keep'] -and $b.keep) { [int]$b.keep } else { 30 }
+        $at = if ($b.PSObject.Properties['dailyAt'] -and $b.dailyAt) { [string]$b.dailyAt } else { '02:00' }
+        Assert-NiptEngineOk (Invoke-NiptAdmin $cfg 'schedule-backup' -Arguments @('--time', $at, '--keep', [string]$keep)) 'SCHEDULE_BACKUP'
+        Set-ScheduledTask -TaskPath '\NIPT-CBH\' -TaskName "$task-backup" -User $acct -Password $password | Out-Null
+        $detail.backup = [ordered]@{ root = $b.root; dailyAt = $at; keep = $keep; account = $acct }
+        Write-NiptLog "daily backup $at (keep $keep) to $($b.root) now runs as $acct without an interactive logon"
+      }
+      $password = $null; $secure = $null
 
       if ($n -eq 'staging') {
         $nonLoopback = @('0.0.0.0-126.255.255.255', '128.0.0.0-255.255.255.255', '::2-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff')
@@ -96,10 +163,30 @@ try {
         $detail.egressBlocked = $true
       }
 
-      Assert-NiptEngineOk (Invoke-NiptAdmin $cfg 'start') 'START'
+      try { Assert-NiptEngineOk (Invoke-NiptAdmin $cfg 'start') 'START' } catch {
+        $info = Get-ScheduledTaskInfo -TaskPath '\NIPT-CBH\' -TaskName $task -ErrorAction SilentlyContinue
+        if ($info) { $detail.taskLastRun = [string]$info.LastRunTime; $detail.taskLastResult = ('0x{0:X8}' -f $info.LastTaskResult) }
+        throw
+      }
       $report = Get-NiptEnvironmentReport $cfg
       $detail.health = [ordered]@{ ok = $report.ok; failed = $report.failed }
       if (-not $report.ok) { throw "NOT_HEALTHY_UNDER_SERVICE_IDENTITY: $($report.failed -join ',')" }
+      if ($detail.Contains('backup')) {
+        # one real backup now, through the scheduled task itself (service identity, no interactive logon), then verify it on the NAS
+        $bt = "$task-backup"; $before = (Get-ScheduledTaskInfo -TaskPath '\NIPT-CBH\' -TaskName $bt).LastRunTime
+        Start-ScheduledTask -TaskPath '\NIPT-CBH\' -TaskName $bt
+        $deadline = (Get-Date).AddMinutes(30)
+        do { Start-Sleep -Seconds 10; $ti = Get-ScheduledTaskInfo -TaskPath '\NIPT-CBH\' -TaskName $bt; $st = (Get-ScheduledTask -TaskPath '\NIPT-CBH\' -TaskName $bt).State }
+        while ((Get-Date) -lt $deadline -and ([string]$st -eq 'Running' -or $ti.LastRunTime -eq $before))
+        $detail.backup.firstRun = [ordered]@{ lastRun = [string]$ti.LastRunTime; result = ('0x{0:X8}' -f $ti.LastTaskResult) }
+        $idx = Join-Path $cfg.backup.root 'index.json'
+        $entries = if (Test-Path -LiteralPath $idx) { @(Get-Content -LiteralPath $idx -Raw | ConvertFrom-Json) } else { @() }
+        $detail.backup.indexEntries = $entries.Count
+        if ($ti.LastTaskResult -ne 0 -or -not $entries.Count) { throw "SCHEDULED_BACKUP_AS_SERVICE_IDENTITY_FAILED: result $($detail.backup.firstRun.result), index entries $($entries.Count)" }
+        $report = Get-NiptEnvironmentReport $cfg
+        if (-not $report.ok) { throw "NOT_HEALTHY_AFTER_SCHEDULED_BACKUP: $($report.failed -join ',')" }
+        Write-NiptLog "scheduled backup as ${acct}: PASS ($($entries.Count) backup(s) in $($cfg.backup.root))"
+      }
       Complete-NiptRun $run 'SUCCEEDED' $detail
     } catch {
       $failed = $true; $detail.error = $_.Exception.Message

@@ -59,7 +59,9 @@ function history(L,s,event,detail={}){
  s.history=[...(latest.history??s.history??[]),{at:new Date().toISOString(),event,...detail}];
  saveState(L,s);
 }
-const cfgOf=L=>validateConfig(JSON.parse(readFileSync(L.configFile,'utf8')));
+// A backup run under the service identity cannot rewrite config (read-only for it by design: it holds the share policy), so the
+// last backup is also recorded in runlast-backup.json, which wins when present.
+const cfgOf=L=>{const c=validateConfig(JSON.parse(readFileSync(L.configFile,'utf8')));try{const b=JSON.parse(readFileSync(path.join(L.run,'last-backup.json'),'utf8'));if(typeof b.lastBackupPath==='string')c.lastBackupPath=b.lastBackupPath;}catch{/* none yet */}return c;};
 const releaseDir=(L,version)=>path.join(L.releases,version);
 const secretFile=(L,n)=>path.join(L.secrets,n);
 const readSecret=(L,n)=>readFileSync(secretFile(L,n),'utf8').trim();
@@ -353,13 +355,14 @@ function syncAdmin(L,releaseRoot){
  writeFileSync(path.join(L.root, 'Status.cmd'), `@echo off\r\nchcp 65001 >nul\r\n${cli} lan-status --root "%~dp0."\r\necho.\r\n${cli} status --root "%~dp0."\r\npause\r\n`);
 }
 
-/** Production: the operator names the two first accounts; there are no default usernames and no default passwords. */
+/** Production: the operator names the ONE first account (APP_ADMIN, owner decision 2026-11-01); there is no default username and no
+ * default password. A second bootstrap identity (the former CLINICAL_APPROVER) is refused: other users are added in user management. */
 function initialAdminInput(){
  const need=k=>{const v=args[k];if(typeof v!=='string'||!v.trim())fail('PRODUCTION_ADMIN_IDENTITY_REQUIRED',{missing:k});return v.trim();};
- const admin={username:need('admin-user').toLowerCase(),displayName:need('admin-name')},checker={username:need('checker-user').toLowerCase(),displayName:need('checker-name')};
- for(const a of [admin,checker])if(!/^[a-z0-9._-]{3,64}$/.test(a.username)||a.username.startsWith('synthetic.')||a.username.startsWith('uat.'))fail('PRODUCTION_ADMIN_USERNAME_INVALID',{username:a.username});
- if(admin.username===checker.username)fail('DISTINCT_BOOTSTRAP_IDENTITIES_REQUIRED');
- return {admin,checker};
+ for(const k of ['checker-user','checker-name'])if(args[k]!==undefined)fail('SINGLE_ADMIN_BOOTSTRAP_ONLY',{unexpected:k});
+ const admin={username:need('admin-user').toLowerCase(),displayName:need('admin-name')};
+ if(!/^[a-z0-9._-]{3,64}$/.test(admin.username)||admin.username.startsWith('synthetic.')||admin.username.startsWith('uat.'))fail('PRODUCTION_ADMIN_USERNAME_INVALID',{username:admin.username});
+ return {admin};
 }
 
 function generateSecrets(L,c,initial){
@@ -371,9 +374,9 @@ function generateSecrets(L,c,initial){
   .map(([username,displayName,role])=>({username,displayName,role,password:rnd()}));
  const {publicKey,privateKey}=generateKeyPairSync('rsa',{modulusLength:3072,publicKeyEncoding:{type:'spki',format:'pem'},privateKeyEncoding:{type:'pkcs8',format:'pem'}});
  const files={'db-password':db,'web-password':web,'worker-password':worker,'migration-url':url('nipt_migrator',db),'web-url':url('nipt_web',web),'worker-url':url('nipt_worker',worker),
-  'renderer-token':rnd(),'identity-lookup.key':randomBytes(32),'backup.key':randomBytes(32),'tls-passphrase':rnd(),'integration-public.pem':publicKey,'integration-private.pem':privateKey,...(production?{'initial-admins.json':JSON.stringify({admin:{...initial.admin,password:rnd().slice(0,32)},checker:{...initial.checker,password:rnd().slice(0,32)}})}:{'uat-accounts.json':JSON.stringify(accounts,null,2)})};
+  'renderer-token':rnd(),'identity-lookup.key':randomBytes(32),'backup.key':randomBytes(32),'tls-passphrase':rnd(),'integration-public.pem':publicKey,'integration-private.pem':privateKey,...(production?{'initial-admins.json':JSON.stringify({admin:{...initial.admin,password:rnd().slice(0,32)}})}:{'uat-accounts.json':JSON.stringify(accounts,null,2)})};
  for(const [name,value] of Object.entries(files))writeFileSync(secretFile(L,name),value,{flag:'wx',mode:0o600});
- if(production){const i=JSON.parse(files['initial-admins.json']);return ['NIPT-CBH WINDOWS INSTALLATION — FIRST SIGN-IN (CONFIDENTIAL)',`URL: ${c.origin}/login`,'','One-time passwords: each account must choose a new password at first sign-in.','Deliver each password only to its owner, then DELETE THIS FILE.','',`Role: APP_ADMIN`,`Username: ${i.admin.username}`,`Password: ${i.admin.password}`,'',`Role: CLINICAL_APPROVER`,`Username: ${i.checker.username}`,`Password: ${i.checker.password}`,''].join(String.fromCharCode(13,10));}
+ if(production){const i=JSON.parse(files['initial-admins.json']);return ['NIPT-CBH WINDOWS INSTALLATION — FIRST SIGN-IN (CONFIDENTIAL)',`URL: ${c.origin}/login`,'','One-time password: the account must choose a new password at first sign-in.','Deliver the password only to its owner, then DELETE THIS FILE.','',`Role: APP_ADMIN`,`Username: ${i.admin.username}`,`Password: ${i.admin.password}`,''].join(String.fromCharCode(13,10));}
  return ['NIPT-CBH WINDOWS INSTALLATION — TEST ENVIRONMENT ONLY — NOT FOR CLINICAL USE',`URL: ${c.origin}/login`,'',...accounts.flatMap(a=>[`Role: ${a.role}`,`Username: ${a.username}`,`Password: ${a.password}`,''])].join('\r\n');
 }
 
@@ -413,7 +416,8 @@ const healthTimeout=(d=180000)=>Number(args['health-timeout-seconds'])>0?Number(
 function recordHealthCheck(L,status,{timeoutMs,elapsedMs,report}={}){
  const st=stateOf(L);
  st.healthCheck={status,release:st.current.version,checkedAt:new Date().toISOString(),...(timeoutMs===undefined?{}:{timeoutMs}),...(elapsedMs===undefined?{}:{elapsedMs}),...(report?{failed:report.failed??[],technicalReady:report.technicalReady===true,backupStatus:report.backupStatus??'UNKNOWN',details:report.details??{}}:{})};
- saveState(L,st);
+ // the scheduled backup runs as the service identity, which can read but not rewrite install-state.json (by design)
+ try{saveState(L,st);}catch(e){if(e?.code!=='EPERM'&&e?.code!=='EACCES')throw e;}
 }
 async function waitHealthy(L,c,{timeout=120000}={}){
  const started=Date.now();let last;
@@ -435,7 +439,8 @@ async function takeBackup(L,c){
  const r=nodeIn(L,ops,[path.join('tools','win-installer','ops-backup.mjs'),'backup',c.backupRoot??L.backups],env);
  if(r.status!==0)fail('BACKUP_FAILED',(r.stderr||r.stdout).slice(-2000));
  const out=JSON.parse(r.stdout.trim().split('\n').pop());
- c.lastBackupPath=out.backupBase;await writeJson(L.configFile,c);
+ c.lastBackupPath=out.backupBase;mkdirSync(L.run,{recursive:true});await writeJson(path.join(L.run,'last-backup.json'),{lastBackupPath:out.backupBase,at:new Date().toISOString()});
+ try{await writeJson(L.configFile,c);}catch{/* service identity: config is read-only by design; runlast-backup.json holds it */}
  const index=await readJson(path.join(c.backupRoot??L.backups,'index.json'),[]);index.push({...out,release:st.current.version,at:new Date().toISOString()});await writeJson(path.join(c.backupRoot??L.backups,'index.json'),index);
  return out;
 }
@@ -444,7 +449,22 @@ async function backup(){
  const L=layout(args.root),c=cfgOf(L);
  const out=await takeBackup(L,c);
  await startServices(L,c);await waitHealthy(L,c);
- return {backup:out};
+ const pruned=args.keep===undefined?[]:await pruneBackups(L,c,args.keep);
+ return {backup:out,...(args.keep===undefined?{}:{retention:{keep:Number(args.keep),pruned}})};
+}
+/** Retention after a successful backup: keep the newest N backups of THIS installation. Only folders recorded in its own index.json,
+ *  named operational-*, directly inside the backup root, are removed; anything else in the destination is never touched. */
+async function pruneBackups(L,c,keepArg){
+ const keep=Number(keepArg);if(!Number.isInteger(keep)||keep<3||keep>365)fail('KEEP_MUST_BE_3_TO_365');
+ const root=c.backupRoot??L.backups,indexFile=path.join(root,'index.json'),index=await readJson(indexFile,[]);
+ const ordered=[...index].sort((a,b)=>String(a.at).localeCompare(String(b.at))),old=ordered.slice(0,Math.max(0,ordered.length-keep)),pruned=[];
+ for(const b of old){
+  const base=String(b.backupBase??''),inside=path.dirname(path.resolve(base)).toLowerCase()===path.resolve(root).toLowerCase()&&/^operational-\d+-[0-9a-f-]{36}$/i.test(path.basename(base));
+  if(!inside)continue; // never outside this installation's own backup folders
+  rmSync(base,{recursive:true,force:true});pruned.push(path.basename(base));
+ }
+ await writeJson(indexFile,index.filter(b=>!pruned.includes(path.basename(String(b.backupBase??'')))));
+ return pruned;
 }
 
 async function restore(){
@@ -753,16 +773,17 @@ async function setBackupRoot(){
 function scheduleBackup(){
  const L=layout(args.root),c=cfgOf(L),at=String(args.time??'02:00');
  if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(at))fail('TIME_MUST_BE_HH_MM');
+ if(args.keep!==undefined&&(!Number.isInteger(Number(args.keep))||Number(args.keep)<3||Number(args.keep)>365))fail('KEEP_MUST_BE_3_TO_365');
  const user=whoami();
  const trigger=`New-ScheduledTaskTrigger -Daily -At ${q(at)}`;
  const principal=c.taskMode==='system'?"New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest":`New-ScheduledTaskPrincipal -UserId ${q(user)} -LogonType Interactive -RunLevel Limited`;
  ps(`$ErrorActionPreference='Stop';`+
-  `$a=New-ScheduledTaskAction -Execute ${q(L.node)} -Argument ${q(`"${path.join(L.root,'admin','nipt-admin.mjs')}" backup --root "${L.root}"`)} -WorkingDirectory ${q(L.root)};`+
+  `$a=New-ScheduledTaskAction -Execute ${q(L.node)} -Argument ${q(`"${path.join(L.root,'admin','nipt-admin.mjs')}" backup --root "${L.root}"${args.keep===undefined?'':` --keep ${Number(args.keep)}`}`)} -WorkingDirectory ${q(L.root)};`+
   `$t=${trigger};`+
   `$s=New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 3) -StartWhenAvailable -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries;`+
   `$p=${principal};`+
   `Register-ScheduledTask -TaskName ${q(backupTaskName(c))} -TaskPath ${q(TASK_PATH)} -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null`);
- return {scheduled:true,task:TASK_PATH+backupTaskName(c),dailyAt:at,account:c.taskMode==='system'?'SYSTEM':user,note:'The backup stops the applications for its duration (quiescent snapshot). Choose a quiet hour; the achieved RPO is the interval between successful backups, not the schedule.'};
+ return {scheduled:true,task:TASK_PATH+backupTaskName(c),dailyAt:at,...(args.keep===undefined?{}:{keep:Number(args.keep)}),account:c.taskMode==='system'?'SYSTEM':user,note:'The backup stops the applications for its duration (quiescent snapshot). Choose a quiet hour; the achieved RPO is the interval between successful backups, not the schedule.'};
 }
 function unscheduleBackup(){const L=layout(args.root),c=cfgOf(L);void L;try{ps(`Unregister-ScheduledTask -TaskName ${q(backupTaskName(c))} -TaskPath ${q(TASK_PATH)} -Confirm:$false -ErrorAction Stop`);return {unscheduled:true};}catch{return {unscheduled:false,note:'no backup task was registered'};}}
 async function backupsList(){

@@ -307,10 +307,14 @@ function Get-NiptInstallArguments($EnvCfg, $OtherCfg, [string]$Package, [string]
   if ($EnvCfg.lan.enabled) {
     $a += @('--lan', 'yes', '--host', $EnvCfg.lan.host)
     if ($EnvCfg.lan.PSObject.Properties['allow'] -and $EnvCfg.lan.allow) { $a += @('--lan-allow', $EnvCfg.lan.allow) }
+    # bind HTTPS to one adapter (e.g. the hospital Ethernet address) so a Wi-Fi or hotspot address never serves clients
+    if ($EnvCfg.lan.PSObject.Properties['listen'] -and $EnvCfg.lan.listen) { $a += @('--https-host', $EnvCfg.lan.listen) }
+    if ($EnvCfg.lan.PSObject.Properties['profiles'] -and $EnvCfg.lan.profiles) { $a += @('--lan-profiles', $EnvCfg.lan.profiles) }
   }
   if ($EnvCfg.environment -eq 'production') {
     $b = $EnvCfg.bootstrap
-    $a += @('--admin-user', $b.adminUser, '--admin-name', $b.adminName, '--checker-user', $b.checkerUser, '--checker-name', $b.checkerName)
+    # one first account (APP_ADMIN); other users, including report personnel, are created in user management
+    $a += @('--admin-user', $b.adminUser, '--admin-name', $b.adminName)
   }
   $a
 }

@@ -21,7 +21,7 @@ it from Git commits instead of from Setup/Update EXE files, and adds the environ
 |---|---|---|
 | Root | `C:\NIPT-CBH\staging` | `C:\NIPT-CBH\production` |
 | Engine instance / startup task | `nipt-staging` / `\NIPT-CBH\nipt-cbh-nipt-staging` | `nipt-cbh` / `\NIPT-CBH\nipt-cbh-nipt-cbh` |
-| Package profile | `test` (six UAT accounts, test banner) | `production` (two named bootstrap accounts, no test accounts) |
+| Package profile | `test` (six UAT accounts, test banner) | `production` (one named APP_ADMIN account, no test accounts) |
 | PostgreSQL | own cluster `staging\data\pgdata`, `127.0.0.1:55442` | own cluster `production\data\pgdata`, `127.0.0.1:55432` |
 | Database | `nipt_operational_nipt_staging`, comment `NIPT_ENVIRONMENT=staging` | `nipt_operational_nipt_cbh`, comment `NIPT_ENVIRONMENT=production` |
 | DB roles | `nipt_migrator` (cluster owner), `nipt_web`, `nipt_worker`, random passwords per cluster | same names, different random passwords |

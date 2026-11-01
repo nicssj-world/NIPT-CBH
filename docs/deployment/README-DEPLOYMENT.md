@@ -41,7 +41,9 @@ powershell -ExecutionPolicy Bypass -File .\deploy\windows\Install-DeployTools.ps
 `Install-DeployTools.ps1` creates `C:\NIPT-CBH\deploy\environments\staging.json`, `production.json` and `toolchain.json`
 from the templates **only if they do not exist**. Review them:
 
-- `production.json` → `bootstrap`: the real APP_ADMIN and CLINICAL_APPROVER usernames and display names (no defaults).
+- `production.json` → `bootstrap`: `adminUser` and `adminName` of the ONE first account, APP_ADMIN (owner decision 2026-11-01; no
+  defaults). A second bootstrap account (`checkerUser`/`checkerName`) is refused: other users, including the Reported By /
+  Approved By personnel, are added afterwards in user management (see "Single APP_ADMIN and report personnel" below).
 - `production.json` → `lan.host`: `nipt-cbh` (hospital DNS must resolve it to the server's LAN address only).
 - Ports, roots and service account names normally stay as shipped.
 
@@ -140,11 +142,60 @@ The gate lists every failure and changes nothing unless all of these hold:
   and any destructive SQL is named in `-AllowDestructiveMigration <file.sql>`;
 - approver, change reference and the typed confirmation are given.
 
-Then the engine installs (first time: creates the two bootstrap accounts and takes the first verified backup) or upgrades.
+Then the engine installs (first time: creates the one APP_ADMIN account and takes the first verified backup) or upgrades.
 Upgrades take a verified backup, apply forward migrations, switch release, check health and roll back automatically if
 unhealthy. First-time sign-in passwords are in `C:\NIPT-CBH\production\credentials.txt`; deliver them, then delete the file.
 
 After the first Production install (*elevated*, once): `.\deploy\provision-identities.ps1 -Environment production`.
+
+### Production NAS backup (owner decision 2026-11-01)
+
+`production.json` names the destination (not in Git):
+
+```json
+"backup": { "root": "\\\\<nas>\\<share>\\NIPT-CBH-system-backup", "nasUser": "<nas account>", "nasTargets": ["<nas IP>"], "dailyAt": "02:00", "keep": 30 }
+```
+
+`provision-identities.ps1 -Environment production` then, in the elevated window:
+
+1. asks once for the NAS account's password and stores it only in the **service account's own** Windows Credential Manager
+   (`cmdkey` run as `nipt-prd-svc`); no file, no Git, no plaintext configuration;
+2. proves the service account can write, read back and remove a temporary file on the share;
+3. points the engine at the share (`set-backup-root`), schedules the daily backup with retention (`schedule-backup --keep 30`:
+   only this installation's own `operational-*` folders listed in its `index.json` are ever removed) and moves that task to
+   the service account, so it runs at 02:00 whether or not anyone is signed in;
+4. runs one backup immediately through that task and checks the NAS index and Production health afterwards.
+
+C: and D: are one physical disk and the USB drives are removable, so neither is a Production backup destination. The backup
+encryption key stays in `C:\NIPT-CBH\production\secrets\backup.key`: escrow a copy separately (a backup cannot be restored
+without it). Verify restore with `nipt.cmd dr-drill` (backup, then restore into a NEW database and folder, both removed
+afterwards; the live database is never touched).
+
+### Single APP_ADMIN and report personnel (owner decision 2026-11-01)
+
+- Production starts with **one application account, APP_ADMIN**, with full application authority: administration, users,
+  ANC and LAB, registration, runs, QC, reporting, clinical review, PDF and publication, HIS/NAS configuration, audit. It
+  always acts as itself: every record keeps the administrator as the operator (`operator_id`, `certified_by`, `reviewer_id`,
+  audit actor). Migration `161_app_admin_operator_authority.sql` lets the database guards accept a current APP_ADMIN as the
+  acting user.
+- Not inherited: signing as the patient, sending historical results, the hard HIS production switch, redraw after release,
+  historical promotion (Historical Verifier only; migration not started), and **self-approval**. Where a rule needs two
+  different people (maker and checker of a clinical setting, worksheet author and peer reviewer, a signer profile and its
+  verifier), it still needs two people: add the second person in user management. Example: the report interpretation
+  setting is proposed by a LAB_CERTIFIER and approved and activated by the APP_ADMIN.
+- **Reported By (ผู้รายงานผล) / Approved By (ผู้รับรองผล)** are two separate selections in the reporting screen, made by the
+  administrator in one session. The record stores each named person (`reported_by`, `approved_by`, their verified signer
+  profile), the operator (`operator_id`) and the evidence for each (`*_authority`: `SELF` or `STANDING_DELEGATION` with
+  the authority reference) and the time stamps. A name alone is not evidence: a person can be selected and printed with their
+  signature only when
+  1. they are a user with LAB_STAFF (Reported By) or LAB_CERTIFIER (Approved By), created by the administrator;
+  2. they signed in **themselves** once and submitted their legal name, MT licence and signature image (Own profile);
+  3. a different administrator verified that profile (the APP_ADMIN can verify other people's profiles);
+  4. they granted the administrator a standing delegation for that role, citing the hospital's authority reference.
+
+  Without 2-4 the person is listed as not usable and finalising is refused (`SIGNER_PROFILE_NOT_VERIFIED`,
+  `SIGNATURE_DELEGATION_REQUIRED`). Nothing is marked approved without it.
+- The Windows service identity (`nipt-prd-svc`) is unrelated to application accounts: it only runs the background services.
 
 ## 3a. Staging is on demand (owner decision)
 

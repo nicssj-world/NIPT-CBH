@@ -10,7 +10,7 @@ const code=re=>({message:re});
 test('the shipped environment templates are valid for Staging, separate and credential-free',async()=>{
  const {staging,production}=await examples();
  assert.equal(validateEnvironmentPair(staging,production).ok,true);
- assert.deepEqual(Object.values(production.bootstrap),['','','','']);
+ assert.deepEqual(production.bootstrap,{adminUser:'',adminName:''}); // one APP_ADMIN, named by the owner
  const text=JSON.stringify([staging,production]).toLowerCase();
  for(const word of ['password','secret','token','postgresql://'])assert.equal(text.includes(word),false,word);
 });
@@ -30,12 +30,15 @@ test('profile, Excel and Production bootstrap rules are enforced per environment
  assert.throws(()=>validateEnvironment({...staging,profile:'production'},'staging'),code(/ENVIRONMENT_PROFILE_MISMATCH/));
  assert.throws(()=>validateEnvironment({...production,profile:'test'},'production'),code(/ENVIRONMENT_PROFILE_MISMATCH/));
  assert.throws(()=>validateEnvironment({...staging,excelMode:'direct'},'staging'),code(/ENVIRONMENT_SERVICE_ACCOUNT_REQUIRES_EXCEL_BRIDGE/));
- const real={adminUser:'lab.admin',adminName:'Lab Administrator',checkerUser:'clin.approver',checkerName:'Clinical Approver'};
+ // owner decision 2026-11-01: exactly ONE first account (APP_ADMIN)
+ const real={adminUser:'lab.admin',adminName:'Lab Administrator'};
  const P={purpose:'production'};
- assert.throws(()=>validateEnvironment({...production,bootstrap:{...real,checkerUser:real.adminUser}},'production',P),code(/PRODUCTION_BOOTSTRAP_IDENTITIES_MUST_DIFFER/));
+ assert.doesNotThrow(()=>validateEnvironment({...production,bootstrap:real},'production',P));
+ assert.throws(()=>validateEnvironment({...production,bootstrap:{...real,checkerUser:'clin.approver',checkerName:'Clinical Approver'}},'production',P),code(/PRODUCTION_SINGLE_ADMIN_BOOTSTRAP_ONLY/));
+ assert.doesNotThrow(()=>validateEnvironment({...production,bootstrap:{...real,checkerUser:'',checkerName:''}},'production',P)); // an emptied legacy field is harmless
  assert.throws(()=>validateEnvironment({...production,bootstrap:{}},'production',P),code(/PRODUCTION_BOOTSTRAP_IDENTITY_REQUIRED/));
  assert.throws(()=>validateEnvironment({...production,bootstrap:{...real,adminUser:'replace.admin'}},'production',P),code(/PRODUCTION_BOOTSTRAP_IDENTITY_REQUIRED/));
- assert.throws(()=>validateEnvironment({...production,bootstrap:{...real,checkerUser:'Clin Approver'}},'production',P),code(/PRODUCTION_BOOTSTRAP_USERNAME_INVALID/));
+ assert.throws(()=>validateEnvironment({...production,bootstrap:{...real,adminUser:'Lab Admin'}},'production',P),code(/PRODUCTION_BOOTSTRAP_USERNAME_INVALID/));
  // the shipped template carries no identities: it cannot be used for Production as-is, but does not hold Staging up
  assert.throws(()=>validateEnvironmentPair(staging,production,P),code(/PRODUCTION_BOOTSTRAP_IDENTITY_REQUIRED/));
  assert.equal(validateEnvironmentPair(staging,{...production,bootstrap:real},P).ok,true);

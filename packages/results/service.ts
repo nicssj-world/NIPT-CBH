@@ -354,7 +354,7 @@ async function gateFor(db:Queryable,v:VersionRow,purpose:Purpose,certifierId?:st
    EXISTS(SELECT 1 FROM result_release r WHERE r.round_id=$2 AND r.kind=$3 AND r.state='Active' AND r.version_id<>$1) active_release,
    EXISTS(SELECT 1 FROM result_review w WHERE w.version_id=$1 AND w.created_at>=(SELECT max(e.created_at) FROM result_link_event e WHERE e.version_id=$1 AND e.event IN ('APPROVED','AUTO_LINKED','FROZEN_EXPORT_LINKED'))) reviewed,
    (SELECT min(d.requested_at) FROM redraw_request d WHERE d.source_round_id=$2 AND d.state IN ('Requested','Completed')) redraw_at,
-   EXISTS(SELECT 1 FROM role_assignment a WHERE a.user_id=$5 AND a.role='LAB_CERTIFIER' AND a.approved_by IS NOT NULL AND a.effective_from<=now() AND (a.expires_at IS NULL OR a.expires_at>now())) certifier,
+   EXISTS(SELECT 1 FROM role_assignment a WHERE a.user_id=$5 AND (a.role='APP_ADMIN' OR (a.role='LAB_CERTIFIER' AND a.approved_by IS NOT NULL)) AND a.effective_from<=now() AND (a.expires_at IS NULL OR a.expires_at>now())) certifier,
    (SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=$6 ORDER BY s.unit_id LIMIT 1) unit_id`,
   [v.id,v.round_id,v.kind,v.imported_at,certifierId??null,v.case_id])).rows[0];
  const t=(await db.query<{hn:string|null;printed_sample_id:string|null;ln_halos:string|null;ln:string}>('SELECT i.hn,(SELECT a.printed_sample_id FROM analytical_attempt a WHERE a.id=$2) printed_sample_id,n.ln_halos,l.ln FROM specimen_round_current r JOIN case_ln l ON l.id=r.case_ln_id LEFT JOIN p2_case_identity i ON i.case_id=r.case_id LEFT JOIN specimen_lab_number n ON n.round_id=r.id WHERE r.id=$1',[v.round_id,v.attempt_id])).rows[0];

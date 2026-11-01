@@ -1,5 +1,5 @@
 <#
-.SYNOPSIS  Offline installation of NIPT-CBH on this Windows host. The profile follows the signed package: a production package creates the two first accounts from -AdminUser/-CheckerUser (no test accounts); a test package creates six test accounts.
+.SYNOPSIS  Offline installation of NIPT-CBH on this Windows host. The profile follows the signed package: a production package creates the ONE first account (APP_ADMIN) from -AdminUser/-AdminName (no test accounts); a test package creates six test accounts.
 .DESCRIPTION
   Verifies the signed package against a public key you obtained separately, checks the host, copies the bundled Node/PostgreSQL/Chromium
   runtimes, creates a private PostgreSQL cluster, applies the forward migrations, creates the first accounts for the package profile, registers a startup task,
@@ -17,12 +17,12 @@ param(
   [string]$Instance='nipt-cbh',
   [string]$Ports='5432,3000,443,3001',
   [string]$Origin,
-  [string]$AdminUser,[string]$AdminName,[string]$CheckerUser,[string]$CheckerName
+  [string]$AdminUser,[string]$AdminName
 )
 $ErrorActionPreference='Stop'
 $here=Split-Path -Parent $MyInvocation.MyCommand.Path
 $extra=@('--master-workbook',$MasterWorkbook,'--task-mode',$TaskMode,'--instance',$Instance,'--ports',$Ports)
 if($Origin){$extra+=@('--origin',$Origin)}
-foreach($pair in @(@('--admin-user',$AdminUser),@('--admin-name',$AdminName),@('--checker-user',$CheckerUser),@('--checker-name',$CheckerName))){if($pair[1]){$extra+=@($pair[0],$pair[1])}}
+foreach($pair in @(@('--admin-user',$AdminUser),@('--admin-name',$AdminName))){if($pair[1]){$extra+=@($pair[0],$pair[1])}}
 & (Join-Path $here 'Nipt-Admin.ps1') install -Root $Root -PublicKey $PublicKey -Rest $extra
 exit $LASTEXITCODE

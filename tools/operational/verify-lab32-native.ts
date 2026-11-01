@@ -25,16 +25,16 @@ const db=new Client({connectionString:url.toString()}),temporaryFiles=await mkdt
 try{
  await db.connect();process.env.NIPT_MODE='synthetic';
  await migrate(db);const password=randomBytes(24).toString('hex'),next=randomBytes(24).toString('hex');
- const input={admin:{username:'first.admin',displayName:'Test Admin',password},checker:{username:'first.checker',displayName:'Test Checker',password:randomBytes(24).toString('hex')}};
+ const input={admin:{username:'first.admin',displayName:'Test Admin',password}};
  await tx(db,d=>bootstrapAdministrators(d,input));const login=await tx(db,d=>authenticate(d,'first.admin',password));assert.ok(login);
  const admin:Principal={id:login.userId,roles:['APP_ADMIN'],unitIds:[],permissions:[]};await tx(db,d=>changePassword(d,admin,password,next));
  assert.ok(await tx(db,d=>authenticate(d,'first.admin',next)));await assert.rejects(tx(db,d=>bootstrapAdministrators(d,input)),/EMPTY_INSTALLATION/);
  const created=await tx(db,d=>adminCommand(d,admin,{operation:'saveUser',username:'first.staff',displayName:'Test Staff',password,jobPosition:'Lab',phone:'',unitId:null,enabled:true,roles:['LAB_STAFF'],unitIds:[],permissions:[]}));assert.ok(created.id);checks.push('First install bootstrap, login, password rotation, role management; restart-safe empty-only guard');
  const u=await labUsers(db);
- const checkerId=(await db.query<{id:string}>("SELECT id FROM app_user WHERE username='first.checker'")).rows[0].id;
+ const checkerId=(await db.query<{id:string}>("SELECT id FROM app_user WHERE username='first.staff'")).rows[0].id; // single APP_ADMIN bootstrap: recover a user it created
  const request=await tx(db,d=>adminCommand(d,admin,{operation:'requestPasswordReset',id:checkerId,version:1,reason:'Disposable first-install access recovery'}));
  await tx(db,d=>adminCommand(d,u.approver,{operation:'approveAccess',id:request.id}));
- const recovered=randomBytes(24).toString('hex');await tx(db,d=>completeTargetEnrollment(d,{requestId:request.id,username:'first.checker',password:recovered,targetIdentityConfirmed:true}));assert.ok(await tx(db,d=>authenticate(d,'first.checker',recovered)));checks.push('Initial access recovery through independent authorization and operator target-only enrollment; no default password');
+ const recovered=randomBytes(24).toString('hex');await tx(db,d=>completeTargetEnrollment(d,{requestId:request.id,username:'first.staff',password:recovered,targetIdentityConfirmed:true}));assert.ok(await tx(db,d=>authenticate(d,'first.staff',recovered)));checks.push('Initial access recovery through independent authorization and operator target-only enrollment; no default password');
  const store=new FileStore(path.join(temporaryFiles,'files')),c=await tx(db,d=>registerP2(d,u.staff,{ln:'9903002902',hn:'9900042902',unitId:u.unit,origin:'LAB_DIRECT',identifierSource:'TUBE_LABEL',idempotencyKey:'native_lab32_storage_001'},Buffer.alloc(32,7),{store}));
  const round=(await db.query<{id:string}>('SELECT current_round_id id FROM nipt_case WHERE id=$1',[c.caseId])).rows[0].id,lnId=(await db.query<{id:string}>('SELECT id FROM case_ln WHERE case_id=$1',[c.caseId])).rows[0].id;
  await tx(db,d=>receiveS1(d,{roundId:round,lnId}));

@@ -111,28 +111,15 @@ export type Action = keyof typeof rows;
 export type ResourceScope = { unitId?: string; origin?: "ANC" | "LAB_DIRECT" | "HISTORICAL"; actorId?: string; assignedUserId?: string; state?: string };
 export type Operation = "read" | "write" | "propose" | "approve";
 
-// APP_ADMIN is the single system-wide administrator role. These workspace
-// actions run under that account's own identity and audit actor. Actions that
-// require separate clinical, historical, identity-linking, or maker-checker
-// authority are classified separately and do not inherit this grant.
-export const APP_ADMIN_SYSTEMWIDE_ACTIONS:ReadonlySet<Action>=new Set<Action>([
-  "case.register.anc","case.registration.void","case.register.lab","history.draft","history.read","history.withdraw","attempt.resume",
-  "request.edit","request.correct","consent.prepare","round.collect","consent.withdraw.receive","doctor.manage","case.read",
-  "document.request.read","his.scan","specimen.hold","specimen.accept","label.print","batch.assign","batch.unlock","batch.draft",
-  "batch.finalize","execution.record","batch.amend","observation.transcribe","observation.discrepancy","document.recall","handoff.create",
-  "handoff.exception","document.obsolete.print","downtime.incident","downtime.recover","downtime.form.register","slot.disposition",
-  "qc.record","pool.crosscheck","worksheet.read","worksheet.revise","material.manage","repeat.order","redraw.order","redraw.cancel",
-  "round.receive","attempt.noCall","result.import","result.review","result.release.check","result.read.released","result.read.obsolete","his.retry",
-  "his.reconcile","integration.configure","res.profile.change","user.manage","settings.read","audit.read","report.export","backup.manage",
-  "health.read","settings.general.change","settings.integration.propose","secret.write","photo.read","photo.upload","photo.manage",
-  "photo.storage.configure","report.template.manage"
-]);
+// APP_ADMIN is the single system-wide administrator role (owner decision 2026-11-01: Production starts with ONE application
+// account). It holds every workspace, laboratory, clinical-review, reporting and configuration action and always acts under its
+// own identity and audit actor. It does not inherit: actions denied to everyone (signing as the patient, sending historical
+// results, the hard HIS production switch, redraw after release), the Historical Verifier's promotion (historical migration is a
+// separate, later decision), and self-approval - the maker-checker separation in authorize() applies to APP_ADMIN like anyone.
 export const APP_ADMIN_RESTRICTED_ACTIONS:ReadonlySet<Action>=new Set<Action>([
-  "intake.link","history.promote","history.send","clinical.correct","clinical.sop","consent.sign.patient","paper.verify","round.attest",
-  "consent.withdraw.decide","his.conflict.resolve","observation.verify","handoff.verify","downtime.approve","qc.accept","pool.approve",
-  "formula.change","redraw.after.release","result.link.manual","result.certify","notice.release","result.revise","his.production.enable",
-  "clinical.rules.change","history.cutoff.change","settings.clinical.propose","settings.approve"
+  "consent.sign.patient","his.production.enable","history.send","redraw.after.release","history.promote"
 ]);
+export const APP_ADMIN_SYSTEMWIDE_ACTIONS:ReadonlySet<Action>=new Set<Action>((Object.keys(rows) as Action[]).filter(a=>!APP_ADMIN_RESTRICTED_ACTIONS.has(a)));
 
 export function authorize(user: Principal, action: string, resource: ResourceScope = {}, operation: Operation = "write"): boolean {
   if (!(action in rows) || !user.roles.length) return false;

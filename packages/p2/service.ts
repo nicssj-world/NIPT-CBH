@@ -398,7 +398,7 @@ export async function approveClinicalP2(db:Queryable,user:Staff,id:string,input:
  if(!operationalDataEnabled())throw new P2Error('OPERATIONAL_MODE_REQUIRED',423);
  const d=z.strictObject({expectedVersion:z.number().int().min(0),reason:syntheticText.refine(v=>v.length>0),sourceReference:syntheticText.refine(v=>v.length>0),attestation:z.literal(true)}).parse(input);
  const c=await activeCase(db,user,id,'clinical.correct'),w=await workspace(db,c,user);
- if(!user.roles.includes('CLINICAL_APPROVER'))throw new P2Error('FORBIDDEN',403);
+ if(!user.roles.some(r=>r==='CLINICAL_APPROVER'||r==='APP_ADMIN'))throw new P2Error('FORBIDDEN',403);
  if(w.version!==d.expectedVersion)throw new P2Error('VERSION_CONFLICT',409);
  if(await collectionConflict(db,c))throw new P2Error('COLLECTION_DATE_MISMATCH',409);
  const source=(await db.query<{source:Record<string,unknown>;hash:string}>('SELECT p2_clinical_source($1) AS source,p2_clinical_source_hash($1) AS hash',[c.current_round_id])).rows[0];

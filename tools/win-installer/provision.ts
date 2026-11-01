@@ -2,7 +2,7 @@
  *  phase=install : create the database, apply forward migrations, mark the runtime operational, create the least-privilege
  *                  logins and the first accounts (first installation only; refuses a database that is not empty).
  *                  profile=test       : the six UAT accounts.
- *                  profile=production : the existing administrator bootstrap (APP_ADMIN + CLINICAL_APPROVER, one-time passwords, forced change); no test account, no test unit.
+ *                  profile=production : the administrator bootstrap (ONE APP_ADMIN, one-time password, forced change); no test account, no test unit.
  *  phase=migrate : apply forward migrations and re-assert grants/logins (upgrade). No accounts, no mode change.
  *  The migration ledger is forward-only with SHA-256 checksums (tools/migrate.ts): a changed, missing or backdated migration aborts.
  *  Test environment only; the installer never targets a database whose name looks like synthetic/template/postgres. */
@@ -48,7 +48,7 @@ async function ensureLogin(db:Pool,login:'nipt_web'|'nipt_worker',group:'app_rw'
 /** Production first install: the existing bootstrap against an EMPTY installation, inside one transaction. The input file is removed once the accounts exist. */
 async function bootstrapProduction(db:Pool){
  const file=path.join(secrets,'initial-admins.json');
- const input=JSON.parse(await readFile(file,'utf8')) as {admin:unknown;checker:unknown};
+ const input=JSON.parse(await readFile(file,'utf8')) as {admin:unknown};
  const client=await db.connect();
  try{await client.query('BEGIN');await bootstrapAdministrators(client,input);await client.query('COMMIT');}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
  await rm(file,{force:true});

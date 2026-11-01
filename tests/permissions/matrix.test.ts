@@ -23,10 +23,15 @@ describe("every role × action × scope × operation cell",()=>{
     expect(authorize(p(["LAB_STAFF"]),"history.draft",{},"write")).toBe(true);
     expect(authorize({...p(["LAB_STAFF"]),permissions:[]},"history.draft",{},"write")).toBe(true);
   });
-  it("Admin has classified workspace permissions and does not inherit sign-off, breakglass or unknown permissions",()=>{
+  it("single APP_ADMIN (owner 2026-11-01) holds clinical/lab sign-off actions, but never patient signing, promotion, unknown actions or self-approval",()=>{
     const admin:Principal={id:"admin",roles:["APP_ADMIN"],unitIds:[],permissions:[]};
     for(const action of ["case.read","result.read.released","worksheet.read","settings.read"]) expect(authorize(admin,action,{unitId:"x"},"read")).toBe(true);
-    for(const action of ["consent.sign.patient","result.certify","notice.release","observation.verify","history.promote","his.production.enable","made-up"]) expect(authorize(admin,action,{unitId:"x",actorId:"other"},"approve")).toBe(false);
+    for(const action of ["observation.verify","qc.accept","pool.approve","clinical.correct","settings.approve","result.revise","handoff.verify","his.conflict.resolve"]) expect(authorize(admin,action,{unitId:"x",actorId:"other"},"approve")).toBe(true);
+    for(const action of ["consent.sign.patient","history.promote","his.production.enable","history.send","redraw.after.release","made-up"]) expect(authorize(admin,action,{unitId:"x",actorId:"other"},"approve")).toBe(false);
+    // maker-checker: the administrator cannot check their own work
+    for(const action of ["observation.verify","handoff.verify","settings.approve","downtime.approve","result.link.manual","his.conflict.resolve"]) expect(authorize(admin,action,{actorId:"admin"},"approve")).toBe(false);
+    // certification follows the operational switch for everyone, the administrator included
+    for(const action of ["result.certify","notice.release"]) expect(authorize(admin,action,{},"approve")).toBe(false);
   });
   it("classifies every permission exactly once for the system-wide Admin role",()=>{
     const all=new Set<Action>([...APP_ADMIN_SYSTEMWIDE_ACTIONS,...APP_ADMIN_RESTRICTED_ACTIONS]);

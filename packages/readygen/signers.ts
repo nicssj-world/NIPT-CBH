@@ -24,6 +24,10 @@ const eligibleRoleSql=(role:SignerRole)=>role==='APPROVED'
  ?"EXISTS(SELECT 1 FROM role_assignment a WHERE a.user_id=u.id AND a.role='LAB_CERTIFIER' AND a.approved_by IS NOT NULL AND a.effective_from<=now() AND (a.expires_at IS NULL OR a.expires_at>now()))"
  :"EXISTS(SELECT 1 FROM role_assignment a WHERE a.user_id=u.id AND a.role IN ('LAB_STAFF','LAB_CERTIFIER') AND (a.role<>'LAB_CERTIFIER' OR a.approved_by IS NOT NULL) AND a.effective_from<=now() AND (a.expires_at IS NULL OR a.expires_at>now()))";
 
+// Who may RECEIVE a delegation, i.e. operate the report and apply a delegating signer's stored signature: lab staff, or (owner decision
+// 2026-11-01, single APP_ADMIN) a current administrator. This is operator authority only: being a delegate never makes anyone a signer.
+const delegateRoleSql="EXISTS(SELECT 1 FROM role_assignment a WHERE a.user_id=u.id AND (a.role='APP_ADMIN' OR (a.role IN ('LAB_STAFF','LAB_CERTIFIER') AND (a.role<>'LAB_CERTIFIER' OR a.approved_by IS NOT NULL))) AND a.effective_from<=now() AND (a.expires_at IS NULL OR a.expires_at>now()))";
+
 export async function submitSignerProfile(db:Queryable,user:Staff,store:FileStore,input:{legalName:string;mtLicenseNo:string;signature:Buffer}){
  await assertSession(db,user);
  const d=z.strictObject({legalName:z.string().trim().min(3).max(120).refine(v=>!/[\r\n\0()]/.test(v),'LEGAL_NAME_INVALID'),mtLicenseNo:z.string().trim().regex(/^[0-9]{3,10}$/,'MT_LICENSE_INVALID')}).parse({legalName:input.legalName,mtLicenseNo:input.mtLicenseNo});
@@ -56,7 +60,7 @@ export async function grantDelegation(db:Queryable,user:Staff,input:unknown){
  if(d.granteeId===user.id)throw new LabError('DELEGATION_TO_SELF_INVALID',422);
  const mine=await currentProfile(db,user.id);if(!mine)throw new LabError('SIGNER_PROFILE_NOT_VERIFIED',409);
  if(d.roles.includes('APPROVED')&&!(await db.query(`SELECT 1 FROM app_user u WHERE u.id=$1 AND ${eligibleRoleSql('APPROVED')}`,[user.id])).rows.length)throw new LabError('SIGNER_NOT_ELIGIBLE',403);
- if(!(await db.query(`SELECT 1 FROM app_user u WHERE u.id=$1 AND u.enabled AND ${eligibleRoleSql('REPORTED')}`,[d.granteeId])).rows.length)throw new LabError('DELEGATE_NOT_ELIGIBLE',422);
+ if(!(await db.query(`SELECT 1 FROM app_user u WHERE u.id=$1 AND u.enabled AND ${delegateRoleSql}`,[d.granteeId])).rows.length)throw new LabError('DELEGATE_NOT_ELIGIBLE',422);
  const row=(await db.query<{id:string}>('INSERT INTO report_signature_delegation(grantor_id,grantee_id,roles,authority_reference,expires_at,created_by) VALUES($1,$2,$3,$4,$5,$1) RETURNING id',[user.id,d.granteeId,[...new Set(d.roles)],d.authorityReference,d.expiresAt])).rows[0];
  await audit(db,user,'SIGNATURE_DELEGATION_GRANTED','REPORT_SIGNATURE_DELEGATION',row.id,{outcome:'GRANTED',count:d.roles.length});
  return {id:row.id};
@@ -107,7 +111,7 @@ export async function signerOverview(db:Queryable,user:Staff){
    FROM report_signer_profile p JOIN app_user u ON u.id=p.user_id WHERE p.user_id=$1 OR $2 ORDER BY p.submitted_at DESC LIMIT 100`,[user.id,admin])).rows;
  const delegations=(await db.query(`SELECT g.id,g.grantor_id "grantorId",gu.display_name grantor,g.grantee_id "granteeId",ge.display_name grantee,g.roles,g.authority_reference "authorityReference",g.effective_from "effectiveFrom",g.expires_at "expiresAt",g.revoked_at "revokedAt"
    FROM report_signature_delegation g JOIN app_user gu ON gu.id=g.grantor_id JOIN app_user ge ON ge.id=g.grantee_id WHERE g.grantor_id=$1 OR g.grantee_id=$1 OR $2 ORDER BY g.created_at DESC LIMIT 100`,[user.id,admin])).rows;
- const candidates=(await db.query(`SELECT u.id,u.display_name "displayName" FROM app_user u WHERE u.enabled AND u.id<>$1 AND ${eligibleRoleSql('REPORTED')} ORDER BY u.display_name LIMIT 200`,[user.id])).rows;
+ const candidates=(await db.query(`SELECT u.id,u.display_name "displayName" FROM app_user u WHERE u.enabled AND u.id<>$1 AND ${delegateRoleSql} ORDER BY u.display_name LIMIT 200`,[user.id])).rows;
  return {canManage:admin,profiles,delegations,delegateCandidates:candidates};
 }
 export async function readSignatureImage(db:Queryable,user:Staff,store:FileStore,profileId:string){

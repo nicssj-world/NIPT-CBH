@@ -28,7 +28,7 @@ if(git('status','--porcelain','--untracked-files=normal'))throw Error('CLEAN_COM
 const log=(m:string)=>{process.stderr.write(`[prod-rehearsal] ${m}\n`);appendFileSync(path.join(evidenceDir,'log.txt'),m+'\n');};
 const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
 const tsx=(...a:string[])=>execFileSync(process.execPath,['node_modules/tsx/dist/cli.mjs',...a],{encoding:'utf8',stdio:['ignore','pipe','inherit'],maxBuffer:64*1024*1024});
-const admins={adminUser:'site.admin',adminName:'Site Administrator',checkerUser:'site.checker',checkerName:'Site Clinical Approver'};
+const admins={adminUser:'site.admin',adminName:'Site Administrator'}; // ONE first account (owner decision 2026-11-01)
 
 async function step(id:string,name:string,fn:()=>Promise<unknown>|unknown){
  const t=Date.now();log(`${id} ${name}`);
@@ -94,9 +94,9 @@ try{
   assert.equal(pre.ok,true);const ids=pre.checks.map((c:{id:string})=>c.id);assert.ok(ids.includes('word_installed')&&ids.includes('excel_installed'));
   const noAdmin=cli('package','install',['--package',pkgDir('1.1.0'),'--public-key',publicKey,'--ports',ports.join(','),'--instance','prod-rehearsal','--task-mode','user','--master-workbook',master],{allowFail:true});
   assert.equal(noAdmin.error,'PRODUCTION_ADMIN_IDENTITY_REQUIRED');assert.ok(!existsSync(path.join(root,'install-state.json')));
-  const sameName=cli('package','install',['--package',pkgDir('1.1.0'),'--public-key',publicKey,'--ports',ports.join(','),'--instance','prod-rehearsal','--task-mode','user','--master-workbook',master,'--admin-user','dup.user','--admin-name','A','--checker-user','dup.user','--checker-name','B'],{allowFail:true});
-  assert.equal(sameName.error,'DISTINCT_BOOTSTRAP_IDENTITIES_REQUIRED');
-  const uat=cli('package','install',['--package',pkgDir('1.1.0'),'--public-key',publicKey,'--ports',ports.join(','),'--instance','prod-rehearsal','--task-mode','user','--master-workbook',master,'--admin-user','uat.admin','--admin-name','A','--checker-user','site.checker','--checker-name','B'],{allowFail:true});
+  const sameName=cli('package','install',['--package',pkgDir('1.1.0'),'--public-key',publicKey,'--ports',ports.join(','),'--instance','prod-rehearsal','--task-mode','user','--master-workbook',master,'--admin-user','one.admin','--admin-name','A','--checker-user','site.checker','--checker-name','B'],{allowFail:true});
+  assert.equal(sameName.error,'SINGLE_ADMIN_BOOTSTRAP_ONLY');
+  const uat=cli('package','install',['--package',pkgDir('1.1.0'),'--public-key',publicKey,'--ports',ports.join(','),'--instance','prod-rehearsal','--task-mode','user','--master-workbook',master,'--admin-user','uat.admin','--admin-name','A'],{allowFail:true});
   assert.equal(uat.error,'PRODUCTION_ADMIN_USERNAME_INVALID');
   const mismatch=cli('package','install',['--package',pkgDir('1.1.0'),'--public-key',publicKey,'--profile','test','--ports',ports.join(','),'--instance','prod-rehearsal','--task-mode','user','--master-workbook',master],{allowFail:true});
   assert.equal(mismatch.error,'PROFILE_PACKAGE_MISMATCH');
@@ -114,17 +114,17 @@ try{
 
  await step('P04','fresh install on an empty database: runtime, PostgreSQL cluster, migrations, production admin bootstrap, startup task, services, first verified backup',()=>{
   const r=cli('package','install',['--package',pkgDir('1.1.0'),'--public-key',publicKey,'--ports',ports.join(','),'--instance','prod-rehearsal','--task-mode','user','--excel-mode','direct','--master-workbook',master,
-   '--admin-user',admins.adminUser,'--admin-name',admins.adminName,'--checker-user',admins.checkerUser,'--checker-name',admins.checkerName]);
+   '--admin-user',admins.adminUser,'--admin-name',admins.adminName]);
   assert.equal(r.installed,true);assert.equal(r.health.ok,true);assert.equal(r.health.backupStatus,'CHECKSUM_VERIFIED');
   return {version:r.version,url:r.url,migrations:r.migrations,health:r.health.ok,backup:r.health.backupStatus};
  });
 
- await step('P05','installed production facts: profile flags, only the two bootstrap accounts, no test accounts/unit/banner/default credentials, acceptance NOT set, least privilege',async()=>{
+ await step('P05','installed production facts: profile flags, only the ONE bootstrap account (APP_ADMIN), no test accounts/unit/banner/default credentials, acceptance NOT set, least privilege',async()=>{
   const cfg=JSON.parse(readFileSync(path.join(root,'config','nipt.json'),'utf8'));assert.equal(cfg.testEnvironmentOnly,false);assert.equal(cfg.mode,'operational');
   const st=installState();assert.equal(st.testEnvironmentOnly,false);assert.equal(st.profile,'production');assert.equal(st.status,'INSTALLED_NOT_ACCEPTED');assert.equal(st.acceptance,'NOT_ACCEPTED');
   assert.ok(!('clinicalAcceptance' in st)||st.clinicalAcceptance===false);assert.ok(!('hospitalOperationalAcceptance' in st)||st.hospitalOperationalAcceptance===false);
   const users=psql("SELECT string_agg(u.username||':'||string_agg_roles.roles||':'||u.must_change_password::text,'|' ORDER BY u.username) FROM app_user u JOIN LATERAL (SELECT string_agg(role::text,',' ORDER BY role::text) roles FROM role_assignment WHERE user_id=u.id) string_agg_roles ON true");
-  assert.equal(users,`${admins.adminUser}:APP_ADMIN:true|${admins.checkerUser}:CLINICAL_APPROVER:true`);
+  assert.equal(users,`${admins.adminUser}:APP_ADMIN:true`);
   assert.equal(psql("SELECT count(*) FROM app_user WHERE username LIKE 'uat.%' OR username LIKE 'synthetic.%'"),'0');
   assert.equal(psql("SELECT count(*) FROM unit WHERE code='INSTALL_TEST'"),'0');
   assert.ok(!existsSync(path.join(root,'secrets','uat-accounts.json')));assert.ok(!existsSync(path.join(root,'secrets','initial-admins.json')),'the bootstrap input is removed once the accounts exist');

@@ -113,8 +113,8 @@ if ($envs -and $tc) {
       Test-Check $n 'bootstrap-identities' {
         $b = $cfg.bootstrap
         $r = Invoke-NiptGate 'environments' $tc @{ staging = $envs.staging; production = $envs.production; purpose = 'production' }
-        if (-not $r.ok) { throw "$($r.error): environments\production.json bootstrap.adminUser/adminName/checkerUser/checkerName must name the real APP_ADMIN and CLINICAL_APPROVER (owner decision; blocks Production only)" }
-        Add-Check $n 'bootstrap-identities' 'PASS' "$($b.adminUser) / $($b.checkerUser)"
+        if (-not $r.ok) { throw "$($r.error): environments\production.json bootstrap.adminUser/adminName must name the real APP_ADMIN (one first account, owner decision 2026-11-01; blocks Production only)" }
+        Add-Check $n 'bootstrap-identities' 'PASS' "APP_ADMIN $($b.adminUser)"
       }
       Test-Check $n 'tls' { Add-Check $n 'tls' 'WARN' 'the engine generates a self-signed certificate; trusted hospital TLS needs a certificate from hospital IT (see README-DEPLOYMENT.md)' }
       Test-Check $n 'lan-network-profile' {

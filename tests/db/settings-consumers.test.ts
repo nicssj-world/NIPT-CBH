@@ -7,7 +7,7 @@ import {resultFixture,receivedCase} from '../helpers/results';
 import type {Principal} from '../../packages/security/policy';
 import {SETTINGS} from '../../packages/settings/catalog';
 import {SETTING_FORMS} from '../../packages/settings/fields';
-import {proposeSetting,validateSetting,activateSetting,rollbackSetting,readActiveSettings} from '../../packages/settings/service';
+import {proposeSetting,validateSetting,approveSetting,activateSetting,rollbackSetting,readActiveSettings} from '../../packages/settings/service';
 import {IDLE_MS,ABSOLUTE_MS,LOCKOUT_MS,LOCKOUT_ATTEMPTS} from '../../packages/security/session';
 import {crossCheck} from '../../packages/results/service';
 import {buildSyntheticPet,redactPet} from '../../packages/inbound/wire';
@@ -41,8 +41,10 @@ describe('Settings → consumer',()=>{
   expect(SETTING_FORMS.security.fields.every(f=>f.kind==='locked')).toBe(true);
  });
  it('2/3/9 request_consent, doctor_registry version and storage_backup have no runtime consumer: read-only and refused with a clear reason',async()=>{
-  // request_consent now has a consumer (ANC form preview, tests/db/anc-forms.test.ts); it is a clinical setting, proposed by a certifier.
-  await expect(proposeSetting(db,admin,'request_consent',SETTINGS.request_consent.default,'Clinical setting')).rejects.toThrow('FORBIDDEN');
+  // request_consent now has a consumer (ANC form preview, tests/db/anc-forms.test.ts); it is a clinical setting. Since the single
+  // APP_ADMIN decision (2026-11-01) the administrator may propose it; approval still needs a different person (settings.approve).
+  const proposed=await proposeSetting(db,admin,'request_consent',SETTINGS.request_consent.default,'Clinical setting');expect(proposed).toBeTruthy();
+  await expect(approveSetting(db,admin,proposed)).rejects.toThrow();
   await expect(proposeSetting(db,admin,'doctor_registry',SETTINGS.doctor_registry.default,'No consumer')).rejects.toThrow('SETTING_RUNTIME_CONSUMER_UNAVAILABLE');
   await expect(proposeSetting(db,admin,'storage_backup',SETTINGS.storage_backup.default,'Installation owned')).rejects.toThrow('INSTALLATION_OWNED_SETTING');
  });

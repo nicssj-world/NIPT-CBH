@@ -30,7 +30,10 @@ describe("settings lifecycle and locked architecture",()=>{
   expect((await db.query("SELECT * FROM settings_revision WHERE setting_key='general'")).rows).toHaveLength(3);
  });
  it('unsupported global settings and installation-owned retention cannot be edited by API/service',async()=>{
-  for(const key of ['request_consent','doctor_registry','storage_backup'] as const)await expect(proposeSetting(db,admin,key,SETTINGS[key].default,'UNSUPPORTED_TEST')).rejects.toThrow();
+  for(const key of ['doctor_registry','storage_backup'] as const)await expect(proposeSetting(db,admin,key,SETTINGS[key].default,'UNSUPPORTED_TEST')).rejects.toThrow();
+  // request_consent is a clinical setting with a consumer; since the single APP_ADMIN decision (2026-11-01) the administrator may
+  // propose it, and approving it still needs a different person.
+  const consent=await proposeSetting(db,admin,'request_consent',SETTINGS.request_consent.default,'CLINICAL_TEST');await validateSetting(db,admin,consent,async()=>true);await expect(approveSetting(db,admin,consent)).rejects.toThrow(/FORBIDDEN/);
   await expect(proposeSetting(db,{...approver,roles:['LAB_CERTIFIER']},'laboratory',{...SETTINGS.laboratory.default,formulaVersion:'invented'},'CONTROLLED_TEST')).rejects.toThrow('CONTROLLED_METADATA_READ_ONLY');
  });
  it('always includes actual Active revisions even after more than 100 newer history entries',async()=>{
