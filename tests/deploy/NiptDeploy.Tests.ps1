@@ -39,6 +39,7 @@ Describe 'Get-NiptLastJson' {
 Describe 'Get-NiptInstallArguments' {
   $s = Get-Content (Join-Path $repo 'deploy\windows\environments\staging.example.json') -Raw | ConvertFrom-Json
   $p = Get-Content (Join-Path $repo 'deploy\windows\environments\production.example.json') -Raw | ConvertFrom-Json
+  $p.bootstrap = [pscustomobject]@{ adminUser = 'lab.admin'; adminName = 'Lab Administrator'; checkerUser = 'clin.approver'; checkerName = 'Clinical Approver' }
   It 'installs Staging as the test profile, protecting the Production root, on loopback, without bootstrap accounts' {
     $a = Get-NiptInstallArguments $s $p 'C:\pkg' 'C:\pub.pem'
     $joined = $a -join ' '

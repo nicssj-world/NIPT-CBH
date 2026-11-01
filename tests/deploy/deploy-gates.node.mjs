@@ -7,9 +7,10 @@ import {parseVersion,compareVersions} from '../../tools/win-installer/lib.mjs';
 const examples=async()=>({staging:JSON.parse(await readFile('deploy/windows/environments/staging.example.json','utf8')),production:JSON.parse(await readFile('deploy/windows/environments/production.example.json','utf8'))});
 const code=re=>({message:re});
 
-test('the shipped environment templates are valid, separate and credential-free',async()=>{
+test('the shipped environment templates are valid for Staging, separate and credential-free',async()=>{
  const {staging,production}=await examples();
  assert.equal(validateEnvironmentPair(staging,production).ok,true);
+ assert.deepEqual(Object.values(production.bootstrap),['','','','']);
  const text=JSON.stringify([staging,production]).toLowerCase();
  for(const word of ['password','secret','token','postgresql://'])assert.equal(text.includes(word),false,word);
 });
@@ -29,8 +30,16 @@ test('profile, Excel and Production bootstrap rules are enforced per environment
  assert.throws(()=>validateEnvironment({...staging,profile:'production'},'staging'),code(/ENVIRONMENT_PROFILE_MISMATCH/));
  assert.throws(()=>validateEnvironment({...production,profile:'test'},'production'),code(/ENVIRONMENT_PROFILE_MISMATCH/));
  assert.throws(()=>validateEnvironment({...staging,excelMode:'direct'},'staging'),code(/ENVIRONMENT_SERVICE_ACCOUNT_REQUIRES_EXCEL_BRIDGE/));
- assert.throws(()=>validateEnvironment({...production,bootstrap:{...production.bootstrap,checkerUser:production.bootstrap.adminUser}},'production'),code(/PRODUCTION_BOOTSTRAP_IDENTITIES_MUST_DIFFER/));
- assert.throws(()=>validateEnvironment({...production,bootstrap:{}},'production'),code(/PRODUCTION_BOOTSTRAP_IDENTITY_REQUIRED/));
+ const real={adminUser:'lab.admin',adminName:'Lab Administrator',checkerUser:'clin.approver',checkerName:'Clinical Approver'};
+ const P={purpose:'production'};
+ assert.throws(()=>validateEnvironment({...production,bootstrap:{...real,checkerUser:real.adminUser}},'production',P),code(/PRODUCTION_BOOTSTRAP_IDENTITIES_MUST_DIFFER/));
+ assert.throws(()=>validateEnvironment({...production,bootstrap:{}},'production',P),code(/PRODUCTION_BOOTSTRAP_IDENTITY_REQUIRED/));
+ assert.throws(()=>validateEnvironment({...production,bootstrap:{...real,adminUser:'replace.admin'}},'production',P),code(/PRODUCTION_BOOTSTRAP_IDENTITY_REQUIRED/));
+ assert.throws(()=>validateEnvironment({...production,bootstrap:{...real,checkerUser:'Clin Approver'}},'production',P),code(/PRODUCTION_BOOTSTRAP_USERNAME_INVALID/));
+ // the shipped template carries no identities: it cannot be used for Production as-is, but does not hold Staging up
+ assert.throws(()=>validateEnvironmentPair(staging,production,P),code(/PRODUCTION_BOOTSTRAP_IDENTITY_REQUIRED/));
+ assert.equal(validateEnvironmentPair(staging,{...production,bootstrap:real},P).ok,true);
+ assert.throws(()=>validateEnvironmentPair(staging,production,{purpose:'uat'}),code(/ENVIRONMENT_PURPOSE_INVALID/));
  assert.throws(()=>validateEnvironment({...staging,format:'x'},'staging'),code(/ENVIRONMENT_FORMAT_INVALID/));
  assert.equal(staging.format,ENVIRONMENT_FORMAT);
 });

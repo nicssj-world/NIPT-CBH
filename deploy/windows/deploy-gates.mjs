@@ -14,7 +14,8 @@ const lower=p=>path.win32.resolve(p).replace(/[\\/]+$/,'').toLowerCase();
 const within=(root,p)=>{const r=lower(root),c=lower(p);return c===r||c.startsWith(r+'\\');};
 
 /** One environment definition (deploy\environments\<name>.json): no credentials, only names, paths and ports. */
-export function validateEnvironment(e,name){
+const PLACEHOLDER=/^(replace|example|changeme|todo|tbd|xxx)/i;
+export function validateEnvironment(e,name,{purpose='staging'}={}){
  const need=(ok,code)=>{if(!ok)fail(code);};
  need(e&&e.format===ENVIRONMENT_FORMAT,'ENVIRONMENT_FORMAT_INVALID');
  need(e.environment===name,'ENVIRONMENT_NAME_MISMATCH');
@@ -32,9 +33,14 @@ export function validateEnvironment(e,name){
  need(e.serviceAccount===undefined||e.serviceAccount===null||/^[A-Za-z0-9][A-Za-z0-9._-]{2,19}$/.test(e.serviceAccount),'ENVIRONMENT_SERVICE_ACCOUNT_INVALID');
  need(e.lan&&typeof e.lan.enabled==='boolean','ENVIRONMENT_LAN_INVALID');
  if(name==='production'){
-  const b=e.bootstrap??{};
-  for(const k of ['adminUser','adminName','checkerUser','checkerName'])need(typeof b[k]==='string'&&b[k].trim().length>0,'PRODUCTION_BOOTSTRAP_IDENTITY_REQUIRED');
-  need(b.adminUser!==b.checkerUser,'PRODUCTION_BOOTSTRAP_IDENTITIES_MUST_DIFFER');
+  // the two first accounts are the owner's real people: never a default, never a placeholder. Only a Production action needs them,
+  // so a Staging deployment is not held up while they are still being chosen.
+  if(purpose==='production'){
+   const b=e.bootstrap??{};
+   for(const k of ['adminUser','adminName','checkerUser','checkerName'])need(typeof b[k]==='string'&&b[k].trim().length>0&&!PLACEHOLDER.test(b[k].trim()),'PRODUCTION_BOOTSTRAP_IDENTITY_REQUIRED');
+   need(/^[a-z0-9._-]{3,64}$/.test(b.adminUser)&&/^[a-z0-9._-]{3,64}$/.test(b.checkerUser),'PRODUCTION_BOOTSTRAP_USERNAME_INVALID');
+   need(b.adminUser!==b.checkerUser,'PRODUCTION_BOOTSTRAP_IDENTITIES_MUST_DIFFER');
+  }
   need(typeof e.releaseBranch==='string'&&/^[A-Za-z0-9._/-]+$/.test(e.releaseBranch),'PRODUCTION_RELEASE_BRANCH_REQUIRED');
   need(Number.isInteger(e.stagingVerifiedMaxAgeDays)&&e.stagingVerifiedMaxAgeDays>=1&&e.stagingVerifiedMaxAgeDays<=90,'PRODUCTION_VERIFIED_AGE_INVALID');
  }
@@ -45,8 +51,9 @@ export function validateEnvironment(e,name){
 }
 
 /** Both environments together: nothing may be shared (root, instance, port, key, account). */
-export function validateEnvironmentPair(staging,production){
- validateEnvironment(staging,'staging');validateEnvironment(production,'production');
+export function validateEnvironmentPair(staging,production,{purpose='staging'}={}){
+ if(!['staging','production'].includes(purpose))fail('ENVIRONMENT_PURPOSE_INVALID');
+ validateEnvironment(staging,'staging',{purpose});validateEnvironment(production,'production',{purpose});
  const need=(ok,code)=>{if(!ok)fail(code);};
  need(!within(staging.root,production.root)&&!within(production.root,staging.root),'ENVIRONMENT_ROOTS_OVERLAP');
  need(staging.instance!==production.instance,'ENVIRONMENT_INSTANCE_SHARED');
@@ -134,7 +141,7 @@ if(cli){
  const [command,inputFile]=process.argv.slice(2);
  try{
   const input=inputFile?JSON.parse(readFileSync(inputFile,'utf8').replace(/^﻿/,'')):{};
-  const out=command==='environments'?validateEnvironmentPair(input.staging,input.production)
+  const out=command==='environments'?validateEnvironmentPair(input.staging,input.production,{purpose:input.purpose??'staging'})
    :command==='release-id'?{ok:true,releaseId:releaseId(input.appVersion,input.commit,input.at?new Date(input.at):new Date())}
    :command==='package-facts'?{ok:true,...packageFacts(input.dir)}
    :command==='production-gate'?productionGate(input)

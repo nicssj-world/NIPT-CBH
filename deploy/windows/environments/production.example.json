@@ -14,10 +14,10 @@
   "ancRequestPdf": "C:\\NIPT-CBH\\assets\\forms\\request.pdf",
   "ancConsentPdf": "C:\\NIPT-CBH\\assets\\forms\\consent.pdf",
   "bootstrap": {
-    "adminUser": "replace.admin",
-    "adminName": "Replace with the APP_ADMIN display name",
-    "checkerUser": "replace.checker",
-    "checkerName": "Replace with the CLINICAL_APPROVER display name"
+    "adminUser": "",
+    "adminName": "",
+    "checkerUser": "",
+    "checkerName": ""
   },
   "releaseBranch": "origin/main",
   "stagingVerifiedMaxAgeDays": 14,

@@ -17,9 +17,9 @@ Run in a normal PowerShell window unless a step says *elevated*.
 | What | Where | How |
 |---|---|---|
 | Git for Windows | on `PATH` | already installed on this host |
-| Node.js **24** (Windows x64 zip, includes npm) | `C:\NIPT-CBH\toolchain\node` | extract the zip so `C:\NIPT-CBH\toolchain\node\node.exe` and `npm.cmd` exist; the path must not contain spaces |
+| Node.js **24** (Windows x64 zip, includes npm) | `C:\NIPT-CBH\toolchain\node` | download `node-v24.x-win-x64.zip` from nodejs.org/dist, check it against that release's `SHASUMS256.txt`, extract so `C:\NIPT-CBH\toolchain\node\node.exe` and `npm.cmd` exist; the path must not contain spaces |
 | PostgreSQL **17** binaries | `C:\Program Files\PostgreSQL\17` | already installed (used only as binaries; each environment gets its own private cluster) |
-| PowerShell **7** | `C:\Program Files\PowerShell\7` | install the MSI (the native Excel export needs it) |
+| PowerShell **7** | `C:\NIPT-CBH\toolchain\pwsh7` | extract the official `PowerShell-7.x-win-x64.zip` from github.com/PowerShell/PowerShell releases after checking its SHA-256 against the release's `hashes.sha256` (no elevation needed; the native Excel export needs it). An MSI install in `C:\Program Files\PowerShell\7` also works: set `powershell7Home` accordingly |
 | Microsoft Office (Excel + Word) | registered | already installed |
 
 ```powershell

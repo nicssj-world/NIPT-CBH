@@ -110,10 +110,11 @@ function Invoke-NiptGate([string]$Command, $Toolchain, $Data) {
 }
 
 <# Both environment definitions, validated together: they must not share a root, instance, port, signing key or service account. #>
-function Read-NiptEnvironments($Toolchain) {
+function Read-NiptEnvironments($Toolchain, [ValidateSet('staging', 'production')][string]$Purpose = 'staging') {
   $dir = Join-Path $script:DeployDir 'environments'
   $s = Read-NiptJson (Join-Path $dir 'staging.json'); $p = Read-NiptJson (Join-Path $dir 'production.json')
-  $check = Invoke-NiptGate 'environments' $Toolchain @{ staging = $s; production = $p }
+  # 'production' additionally requires the real bootstrap identities (no empty value, no placeholder)
+  $check = Invoke-NiptGate 'environments' $Toolchain @{ staging = $s; production = $p; purpose = $Purpose }
   if (-not $check.ok) { throw "ENVIRONMENT_DEFINITION_INVALID: $($check.error)" }
   [pscustomobject]@{ staging = $s; production = $p }
 }

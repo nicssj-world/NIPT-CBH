@@ -29,7 +29,7 @@ $run = Start-NiptRun 'production' 'deploy'
 $detail = [ordered]@{ commit = $Commit; approvedBy = $ApprovedBy; changeReference = $ChangeReference }
 try {
   $tc = Get-NiptToolchain
-  $envs = Read-NiptEnvironments $tc
+  $envs = Read-NiptEnvironments $tc 'production'
   $cfg = $envs.production; $staging = $envs.staging
   Assert-NiptCanVerifyServices $cfg
 

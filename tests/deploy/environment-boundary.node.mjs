@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,rm,symlink} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {within,boundaryFromEnv,assertPathAllowed,assertArchiveRootAllowed,assertProcessBoundary,STAMP_FORMAT} from '../../tools/environment-boundary.mjs';
@@ -87,6 +87,30 @@ test('staging fails closed without any firewall rule: every refusal above is the
  for(const p of ['\\\\his-server\\NIPT\\PET','\\\\his-server\\NIPT\\RES\\OK','\\\\10.0.0.9\\nas\\pdf','//nas/archive','Z:\\HIS'])
   assert.throws(()=>assertPathAllowed(p,staging),code(/ENVIRONMENT_STAGING_(REMOTE_PATH_PROHIBITED|PATH_OUTSIDE_ROOT)/),p);
  assert.throws(()=>assertArchiveRootAllowed('\\\\10.0.0.9\\nas\\archive',staging),code(/ENVIRONMENT_STAGING_ARCHIVE_NOT_LOOPBACK/));
+});
+
+test('a junction, link or loopback admin share cannot alias Production or a share into Staging',async()=>{
+ const dir=await mkdtemp(path.join(tmpdir(),'nipt-alias-'));
+ const root=path.join(dir,'staging'),prod=path.join(dir,'production');
+ const env={...staging,NIPT_ENVIRONMENT_ROOT:root,NIPT_PROTECTED_ROOTS:prod};
+ try{
+  await mkdir(path.join(root,'data','integration'),{recursive:true});await mkdir(path.join(prod,'data','files'),{recursive:true});
+  // inside the Staging root by name, inside Production in reality ('junction' on Windows needs no privilege; a directory symlink elsewhere)
+  const link=path.join(root,'data','integration','outbound');
+  await symlink(path.join(prod,'data','files'),link,'junction');
+  assert.throws(()=>assertPathAllowed(link,env),code(/ENVIRONMENT_PROTECTED_PATH_PROHIBITED/));
+  assert.throws(()=>assertPathAllowed(path.join(link,'res','new-file.res'),env),code(/ENVIRONMENT_PROTECTED_PATH_PROHIBITED/),'a file that does not exist yet below the link');
+  await mkdir(path.join(root,'config'),{recursive:true});
+  await writeFile(path.join(root,'environment.json'),JSON.stringify({format:STAMP_FORMAT,environment:'staging'}));
+  const policy=path.join(root,'config','share-policy.json');await writeFile(policy,JSON.stringify({version:1,grants:[]}));
+  assert.throws(()=>assertProcessBoundary({...env,NIPT_HIS_SHARE_POLICY_FILE:policy,FILE_STORE_ROOT:link}),code(/ENVIRONMENT_FILE_STORE_ROOT_(OUTSIDE_ROOT|IN_PROTECTED_ROOT)/));
+  assert.doesNotThrow(()=>assertPathAllowed(path.join(root,'data','integration','inbound'),env));
+ }finally{await rm(dir,{recursive:true,force:true});}
+ // a loopback share is allowed for the archive simulator only under its own name, never an administrative share
+ assert.throws(()=>assertArchiveRootAllowed('\\\\localhost\\C$\\NIPT-CBH\\production\\data\\files',staging),code(/ENVIRONMENT_STAGING_ARCHIVE_SHARE_NOT_SIMULATOR/));
+ assert.throws(()=>assertArchiveRootAllowed('\\\\127.0.0.1\\ADMIN$\\x',staging),code(/ENVIRONMENT_STAGING_ARCHIVE_SHARE_NOT_SIMULATOR/));
+ assert.throws(()=>assertArchiveRootAllowed('\\\\localhost\\nipt-production-archive',staging),code(/ENVIRONMENT_STAGING_ARCHIVE_SHARE_NOT_SIMULATOR/));
+ assert.throws(()=>assertPathAllowed('\\\\?\\UNC\\his-server\\NIPT\\PET',staging),code(/ENVIRONMENT_STAGING_REMOTE_PATH_PROHIBITED/));
 });
 
 test('a stamped root cannot be turned back into an unrestricted installation by editing its configuration',()=>{

@@ -55,7 +55,12 @@ The rule is fail closed, enforced in several independent layers. None of them de
    - HIS share access is limited to the policy file's grants (`NIPT_HIS_SHARE_POLICY_ENFORCE=1`). A folder typed into
      Settings is not enough. Any UNC path, any path outside the Staging root and any path inside the Production root is
      refused (`ENVIRONMENT_STAGING_REMOTE_PATH_PROHIBITED`, `..._PATH_OUTSIDE_ROOT`, `ENVIRONMENT_PROTECTED_PATH_PROHIBITED`);
-   - the NAS archive may only be a share on this machine (`\\localhost\...`, the archive simulator).
+   - every path is checked twice: as written, and as Windows resolves it (`realpath`: junctions, symbolic links, 8.3 short
+     names; a mapped drive resolves to its UNC share). A junction inside the Staging root that leads into Production is
+     refused, and so is a root that is itself an alias of a protected root. Mapped and `subst` drive letters are outside
+     the Staging root in any case;
+   - the NAS archive may only be this machine's archive-simulator share, named `\\localhost\nipt-staging-<name>`.
+     Administrative shares (`C$`, `ADMIN$`) and any other loopback share name are refused.
 
    Production keeps hospital UNC shares but can never write into the Staging root. An installation without
    `NIPT_ENVIRONMENT` (made before this layout) behaves exactly as before.

@@ -112,14 +112,26 @@ if ($envs -and $tc) {
     if ($n -eq 'production') {
       Test-Check $n 'bootstrap-identities' {
         $b = $cfg.bootstrap
-        if ($b.adminUser -like 'replace*' -or $b.checkerUser -like 'replace*' -or $b.adminName -like 'Replace*' -or $b.checkerName -like 'Replace*') { throw 'PRODUCTION_BOOTSTRAP_PLACEHOLDERS: set the real APP_ADMIN and CLINICAL_APPROVER usernames/names in environments\production.json' }
+        $r = Invoke-NiptGate 'environments' $tc @{ staging = $envs.staging; production = $envs.production; purpose = 'production' }
+        if (-not $r.ok) { throw "$($r.error): environments\production.json bootstrap.adminUser/adminName/checkerUser/checkerName must name the real APP_ADMIN and CLINICAL_APPROVER (owner decision; blocks Production only)" }
         Add-Check $n 'bootstrap-identities' 'PASS' "$($b.adminUser) / $($b.checkerUser)"
       }
       Test-Check $n 'tls' { Add-Check $n 'tls' 'WARN' 'the engine generates a self-signed certificate; trusted hospital TLS needs a certificate from hospital IT (see README-DEPLOYMENT.md)' }
+      Test-Check $n 'lan-network-profile' {
+        # the engine's inbound HTTPS rule is scoped to the Domain and Private profiles; on a Public network it does not apply
+        $lan = @(Get-NetIPConfiguration -ErrorAction SilentlyContinue | Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' })
+        $rows = @($lan | ForEach-Object { "$($_.InterfaceAlias)=$($_.IPv4Address.IPAddress) [$($_.NetProfile.NetworkCategory)]" })
+        if ($lan.Count -gt 1) { Add-Check $n 'dual-homed' 'WARN' "more than one adapter has a default gateway: $($rows -join ', ') - a clinical server should leave the network only through the hospital LAN (hospital IT)" }
+        $public = @($lan | Where-Object { [string]$_.NetProfile.NetworkCategory -eq 'Public' })
+        if ($public.Count) { Add-Check $n 'lan-network-profile' 'WARN' "network category Public on: $(@($public | ForEach-Object InterfaceAlias) -join ', ') - LAN clients cannot reach HTTPS until IT sets the hospital network to Domain/Private or approves --lan-profiles" }
+        else { Add-Check $n 'lan-network-profile' 'PASS' ($rows -join ', ') }
+      }
       Test-Check $n 'dns' {
+        # ask the configured DNS servers, NOT the local resolver: Windows answers its own computer name from every local adapter
         $h = $cfg.lan.host
-        try { $a = @([Net.Dns]::GetHostAddresses($h) | ForEach-Object { $_.IPAddressToString }); Add-Check $n 'dns' 'PASS' "$h -> $($a -join ',')" }
-        catch { Add-Check $n 'dns' 'WARN' "$h does not resolve on this host yet (hospital DNS entry required for https://$h)" }
+        $servers = @((Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object ServerAddresses).ServerAddresses | Sort-Object -Unique)
+        $answers = @(foreach ($s in $servers) { try { $a = @(Resolve-DnsName $h -Server $s -DnsOnly -Type A -QuickTimeout -ErrorAction Stop | Where-Object IPAddress | ForEach-Object IPAddress); "$s -> $($a -join ',')" } catch { "$s -> $($_.Exception.Message)" } })
+        Add-Check $n 'dns' 'WARN' "DNS answers for ${h}: $($answers -join ' | '). Hospital DNS must return only the server's hospital LAN address (hospital IT)"
       }
     }
   }

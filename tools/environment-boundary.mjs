@@ -3,7 +3,7 @@
 // Absent NIPT_ENVIRONMENT = an installation made before the dual-environment layout: nothing here applies (unchanged behaviour).
 // Staging fails closed: no remote (UNC) path, nothing outside its own root, nothing inside a protected (Production) root,
 // a loopback database on its own port, enforced HIS share policy, and an archive only on a loopback simulator share.
-import {readFileSync} from 'node:fs';
+import {readFileSync,realpathSync,existsSync} from 'node:fs';
 import path from 'node:path';
 
 export const ENVIRONMENTS=['staging','production'];
@@ -37,24 +37,51 @@ export function boundaryFromEnv(env=process.env){
  }
  const port=Number(env.NIPT_EXPECTED_PG_PORT);
  if(!Number.isInteger(port)||port<1||port>65535)fail('ENVIRONMENT_PG_PORT_REQUIRED');
- return {name,root:path.win32.resolve(root),protectedRoots,port};
+ // native resolution for file access (the stamp); every containment decision uses Windows rules through within()
+ return {name,root:path.resolve(root),protectedRoots,port};
 }
 
-/** A local or share path an integration wants to read or write. */
+/** Where a local path really leads: its nearest existing ancestor resolved by the OS (junctions, symbolic links, 8.3 short names;
+ *  a mapped network drive comes back as its UNC path), with the not-yet-existing remainder appended. Null when nothing differs. */
+function resolvedAlias(p){
+ if(isUnc(p)||!path.isAbsolute(p))return null; // a Windows-shaped path on another platform is not a local file system path
+ let existing=path.resolve(p);const rest=[];
+ while(!existsSync(existing)){const parent=path.dirname(existing);if(parent===existing)return null;rest.unshift(path.basename(existing));existing=parent;}
+ let real;try{real=realpathSync.native(existing);}catch{return null;}
+ const full=rest.length?path.join(real,...rest):real;
+ return lower(full)===lower(path.resolve(p))?null:full;
+}
+const lower=p=>String(p).replace(/[\\/]+$/,'').replace(/\//g,'\\').toLowerCase();
+
+/** A local or share path an integration wants to read or write: checked as written AND as the OS resolves it, so a junction,
+ *  link, short name or mapped drive cannot alias a Production folder or a remote share into an allowed-looking path. */
 export function assertPathAllowed(p,env=process.env){
  const b=boundaryFromEnv(env);if(!b)return;
+ const rootAlias=b.name==='staging'?resolvedAlias(b.root):null;
+ assertLexical(p,b,rootAlias);
+ const alias=resolvedAlias(p);
+ if(alias)assertLexical(alias,b,rootAlias);
+}
+/** Inside the environment's own root, as configured or as the OS resolves the root (a root reached through a short name stays valid). */
+const insideOwnRoot=(b,p,rootAlias)=>within(b.root,p)||(!!rootAlias&&!isUnc(rootAlias)&&within(rootAlias,p));
+function assertLexical(p,b,rootAlias){
  for(const root of b.protectedRoots){
   if(isUnc(root)?isUnc(p)&&within(root,p):!isUnc(p)&&within(root,p))fail('ENVIRONMENT_PROTECTED_PATH_PROHIBITED');
  }
  if(b.name!=='staging')return;
  if(isUnc(p))fail('ENVIRONMENT_STAGING_REMOTE_PATH_PROHIBITED');
- if(!within(b.root,p))fail('ENVIRONMENT_STAGING_PATH_OUTSIDE_ROOT');
+ if(!insideOwnRoot(b,p,rootAlias))fail('ENVIRONMENT_STAGING_PATH_OUTSIDE_ROOT');
 }
 
-/** The NAS archive root (always UNC on Windows). Staging may only publish to a share on this machine (the archive simulator). */
+/** The NAS archive root (always UNC on Windows). Staging may only publish to its own archive-simulator share on this machine:
+ *  \\localhost\nipt-staging-<name>. Any other loopback share (C$, ADMIN$, a share of the Production root) is refused. */
 export function assertArchiveRootAllowed(root,env=process.env){
  const b=boundaryFromEnv(env);if(!b)return;
- if(b.name==='staging'&&!(isUnc(root)&&LOOPBACK.has(uncHost(root))))fail('ENVIRONMENT_STAGING_ARCHIVE_NOT_LOOPBACK');
+ if(b.name==='staging'){
+  if(!(isUnc(root)&&LOOPBACK.has(uncHost(root))))fail('ENVIRONMENT_STAGING_ARCHIVE_NOT_LOOPBACK');
+  const share=String(root).replace(/^(\\\\|\/\/)/,'').split(/[\\/]/)[1]??'';
+  if(!/^nipt-staging-[a-z0-9-]{1,40}$/i.test(share))fail('ENVIRONMENT_STAGING_ARCHIVE_SHARE_NOT_SIMULATOR');
+ }
  assertPathAllowed(root,{...env,NIPT_ENVIRONMENT:'production'}); // protected-root check only; the staging local-root rule does not apply to a UNC simulator share
 }
 
@@ -67,6 +94,9 @@ export function readStamp(root){
 /** Process start: every service checks the whole configuration it was given before it opens anything. */
 export function assertProcessBoundary(env=process.env){
  const b=boundaryFromEnv(env);if(!b)return null;
+ // the root itself must not be an alias (junction, link, mapped drive) of a protected root or of a share
+ const rootAlias=resolvedAlias(b.root);
+ if(rootAlias&&(isUnc(rootAlias)||b.protectedRoots.some(r=>!isUnc(r)&&within(r,rootAlias))))fail('ENVIRONMENT_ROOT_IS_AN_ALIAS');
  if(readStamp(b.root).environment!==b.name)fail('ENVIRONMENT_STAMP_MISMATCH');
  if(env.DATABASE_URL){
   let u;try{u=new URL(env.DATABASE_URL);}catch{fail('ENVIRONMENT_DATABASE_URL_INVALID');}
@@ -75,7 +105,11 @@ export function assertProcessBoundary(env=process.env){
  }
  for(const k of ['FILE_STORE_ROOT','SIMULATOR_ROOT','NIPT_HIS_SHARE_POLICY_FILE','NIPT_BACKUP_POLICY_FILE','NIPT_NATIVE_EXCEL_SPOOL']){
   const v=env[k];if(!v)continue;
-  if(isUnc(v)||!within(b.root,v))fail('ENVIRONMENT_'+k+'_OUTSIDE_ROOT');
+  // as written and as the OS resolves it: a junction inside the root that leads elsewhere is outside the root
+  for(const candidate of [v,resolvedAlias(v)].filter(Boolean)){
+   if(isUnc(candidate)||!insideOwnRoot(b,candidate,rootAlias))fail('ENVIRONMENT_'+k+'_OUTSIDE_ROOT');
+   if(b.protectedRoots.some(r=>!isUnc(r)&&within(r,candidate)))fail('ENVIRONMENT_'+k+'_IN_PROTECTED_ROOT');
+  }
  }
  if(b.name==='staging'){
   if(env.NIPT_HIS_SHARE_POLICY_ENFORCE!=='1')fail('ENVIRONMENT_STAGING_SHARE_POLICY_NOT_ENFORCED');
