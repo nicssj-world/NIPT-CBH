@@ -9,12 +9,12 @@ export function ingestHalos(source:SourceInput&{runLabel:string},mappings:Migrat
  const add=(code:string,r:HalosRow,severity:MigrationException['severity']='REVIEW_BEFORE_RELEASE')=>exceptions.push({code,severity,sourceSha256:evidence.sha256,sheet:r.sheet,rowNumber:r.rowNumber});
  for(const r of workbook.rows.filter(r=>r.sheet!=='sampleinfo')){
   const resolved=resolveMigrationIdentity(r.sampleKey,valid.map(m=>m.halosId),infoIds);
-  const terminal=/^(.+)-([1-9][0-9]?)$/.exec(r.sampleKey),infoKey=resolved.baseId??terminal?.[1]??r.sampleKey;
+  const terminal=/^(.+)-([1-9][0-9]?)$/.exec(r.sampleKey),infoKey=resolved.infoKey??resolved.baseId??terminal?.[1]??r.sampleKey;
   const candidates=info.filter(i=>i.sampleKey===infoKey||i.sampleKey===r.sampleKey),i=candidates.length===1?candidates[0]:null;
   // Explicit vendor control designation only. A missing mapping or an N-prefixed ID is never enough.
   const control=!resolved.baseId&&!!i&&/^(?:NC|PC|positive control|negative control|control)$/i.test(i.raw['Patient Name']?.trim()??'');
   const match=resolved.baseId?valid.find(m=>m.halosId===resolved.baseId):undefined;
-  const template=i?.values.fetusType?.trim()==='Singleton'?'SINGLETON':i?.values.fetusType?.trim()==='Twin'?'TWIN':null;
+  const template=i?.values.fetusType?.trim()==='Singleton'?'SINGLETON':/^twins?$/i.test(i?.values.fetusType?.trim()??'')?'TWIN':null;
   const interpretation=match&&template?interpretRow(r,template):null;
   const origin=[...prior,...analyses].filter(a=>a.sampleKey===r.sampleKey&&a.values.chipId===r.values.chipId&&a.role==='ANALYSIS');
   let role:MigrationAnalysis['role']=control?'CONTROL':match?'ANALYSIS':'UNRESOLVED';
