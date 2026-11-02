@@ -93,9 +93,15 @@ function Get-NiptToolchain {
     PlaywrightBrowsers = $t.playwrightBrowsers; Source = $t.source; Builds = $t.builds
   }
 }
+<# Caches shared by every build worktree of this host (they live beside the builds folder, never inside a worktree or an environment root):
+   npm's download cache (a new worktree's npm ci installs from disk, not the network) and the Next.js compilation cache that build-package.ts restores
+   and saves (keyed by Next, Node, platform and lockfile; it holds compilation work only, never BUILD_ID or output). #>
+function Get-NiptCacheRoot($Toolchain) { Join-Path (Split-Path -Parent $Toolchain.Builds) 'cache' }
 function Get-NiptBuildEnvironment($Toolchain) {
+  $cache = Get-NiptCacheRoot $Toolchain
   @{ Path = "$($Toolchain.NodeDir);$env:Path"; NIPT_PG_HOME = $Toolchain.PostgresHome; NIPT_PWSH_HOME = $Toolchain.Powershell7Home
-    PLAYWRIGHT_BROWSERS_PATH = $Toolchain.PlaywrightBrowsers; NEXT_TELEMETRY_DISABLED = '1'; CI = '1' }
+    PLAYWRIGHT_BROWSERS_PATH = $Toolchain.PlaywrightBrowsers; NEXT_TELEMETRY_DISABLED = '1'; CI = '1'
+    npm_config_cache = (Join-Path $cache 'npm'); npm_config_prefer_offline = 'true'; NIPT_BUILD_CACHE_DIR = (Join-Path $cache 'next') }
 }
 
 function Invoke-NiptGate([string]$Command, $Toolchain, $Data) {
@@ -319,6 +325,27 @@ function Invoke-NiptFocusedValidation($Toolchain, [string]$Worktree, [string]$Le
     if ($render.Count) { $results += Step 'render tests (PDF / report / dashboard)' $Toolchain.Node (@($vitest, 'run') + $render) }
   }
   $results
+}
+
+<# The deterministic pre-package checks of tools\release\preflight.mjs (--stage predeploy): clean exact revision, Node and dependency match, pinned assets, environment
+   identity, signing prerequisites, migration order/checksums and a rehearsal on an in-memory database, destructive-statement detection, risk, disk and memory.
+   They take seconds and run BEFORE the multi-minute build and package, so a deterministic failure is reported at once, with its reason and the next step.
+   A commit that predates the preflight tool is deployed as before (a warning is logged). Read-only: nothing is built, signed or installed here. #>
+function Invoke-NiptPreflight($Toolchain, [string]$Worktree, $EnvCfg, [string]$Base) {
+  if (-not (Test-Path -LiteralPath (Join-Path $Worktree 'tools\release\preflight.mjs') -PathType Leaf)) {
+    Write-NiptLog 'this commit predates tools\release\preflight.mjs: the pre-package preflight is skipped' 'WARN'
+    return [pscustomobject]@{ skipped = $true }
+  }
+  $a = @('tools/release/preflight.mjs', '--stage', 'predeploy', '--env', $EnvCfg.environment, '--json')
+  if ($Base) { $a += @('--base', $Base) }
+  $r = Invoke-NiptProcess -File $Toolchain.Node -Arguments $a -WorkingDirectory $Worktree -Environment (Get-NiptBuildEnvironment $Toolchain) -Step "preflight ($($EnvCfg.environment), before packaging)"
+  $report = Get-NiptLastJson $r.StdOut
+  if ($r.ExitCode -ne 0) {
+    $bad = if ($report) { @($report.results | Where-Object { $_.status -in 'FAIL', 'BLOCKED' } | ForEach-Object { "$($_.status) $($_.id): $($_.reason)$(if ($_.hint) { ' -> ' + $_.hint })" }) } else { @($r.StdErr.Trim()) }
+    throw "PREFLIGHT_FAILED (nothing was packaged, signed or installed; fix and run again, it is safe to repeat): $($bad -join ' | ')"
+  }
+  Write-NiptLog "preflight passed ($($report.totalMs) ms)" 'OK'
+  $report
 }
 
 <# The approved clinical inputs, against the SHA-256 that the commit being deployed pins (its own master-manifest.json and form-assets.mjs).

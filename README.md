@@ -1,4 +1,50 @@
-# NIPT CBH — P1 Foundation / P2 Synthetic
+# NIPT CBH
+
+ระบบเดียวสำหรับโรงพยาบาล: Next.js 16 Web, PostgreSQL 17, Node Worker (pg-boss) และ PDF Renderer (Chromium) ติดตั้งบน Windows Server ในโรงพยาบาลด้วย Installer แบบ Offline ที่ลงนามด้วย Ed25519 มีสองสภาพแวดล้อมแยกกัน (**Staging** และ **Production**) และมีสภาพแวดล้อม **Development** แยกต่างหากที่ใช้ข้อมูลสังเคราะห์เท่านั้น
+
+## Development & Deployment — Start Here
+
+**คู่มือหลัก: [docs/deployment/FAST-DEVELOPMENT-PIPELINE.md](docs/deployment/FAST-DEVELOPMENT-PIPELINE.md)** — แก้โค้ด → ตรวจในเครื่อง (วินาที) → ค่อยเตรียม Release ไม่ต้อง Build/Upgrade 30 นาทีซ้ำเพื่อหาบั๊กทั่วไป
+
+> `npm run dev` คือ **Development Server เท่านั้น** (127.0.0.1:3100, ฐานข้อมูลสังเคราะห์ที่ 127.0.0.1:55452, ข้อมูลใน `.local/dev`) — **ไม่ใช่และไม่เกี่ยวกับระบบโรงพยาบาล (Production)** ไม่อ่าน/เขียนโฟลเดอร์ HIS/NAS และไม่ส่งผลไป HIS
+
+```powershell
+npm ci                          # ติดตั้ง dependency ตาม lockfile (Node 24)
+npm run dev:setup               # ครั้งเดียวต่อ checkout: คีย์สังเคราะห์ + PostgreSQL 17 ส่วนตัว + migration + seed
+npm run dev                     # Next.js dev server + Hot Reload  → http://127.0.0.1:3100
+npm run dev:up -- web worker renderer   # เปิด Worker / PDF Renderer ด้วย (debug: เพิ่ม --inspect)
+
+npm run dev:verify              # ตรวจเฉพาะไฟล์ที่แก้: tsc, eslint, test ที่เกี่ยวข้อง, deploy contracts, migration rehearsal
+npm run dev:test -- tests/db/anc-owner-registry.test.ts   # test เดียวในสภาพแวดล้อม dev
+
+npm run release:preflight       # ก่อน Release: commit สะอาด, asset/คีย์/environment, migration rehearsal, build + provenance
+npm run perf:report             # เวลาที่ใช้จริงในแต่ละขั้นของ deployment (จาก history บนเซิร์ฟเวอร์)
+
+# Staging / Production: เฉพาะเมื่อนโยบาย Release ต้องการ และเฉพาะผู้ดูแลเซิร์ฟเวอร์ (ดูคู่มือ ข้อ 8–9, 15)
+C:\NIPT-CBH\deploy\deploy-staging.ps1
+C:\NIPT-CBH\deploy\deploy-production.ps1 -Commit <sha40> -ApprovedBy "<ชื่อ>" -ChangeReference "<เลขที่>"
+```
+
+คำสั่ง Production ต้องได้รับอนุมัติจาก Owner ทุกครั้ง (ดู [AGENTS.md](AGENTS.md)) เอกสาร Deployment เดิม: [README-DEPLOYMENT](docs/deployment/README-DEPLOYMENT.md), [สถาปัตยกรรม Staging/Production](docs/deployment/STAGING-PRODUCTION-ARCHITECTURE.md), [Release checklist](docs/deployment/RELEASE-CHECKLIST.md), [Upgrade guide](docs/deployment/UPGRADE-GUIDE.md), [Historical migration](docs/deployment/HISTORICAL-MIGRATION.md)
+
+### โครงสร้าง Repository (ปัจจุบัน)
+
+| ส่วน | ที่อยู่ |
+|---|---|
+| Web (Next.js App Router) | `src/` |
+| Domain / บริการ (P2 ทะเบียน, P3 HIS, P4 Lab, P5 ผล, P6 ส่งผล, migration ย้อนหลัง ฯลฯ) | `packages/` |
+| Worker, PDF Renderer | `apps/worker`, `apps/renderer` |
+| Migration ของฐานข้อมูล (forward-only, มี checksum) | `db/migrations/` |
+| Installer และเครื่องมือ Windows (build-package, nipt-admin) | `tools/win-installer/` |
+| สคริปต์ Deploy Staging/Production และ Gate | `deploy/windows/` |
+| **Fast Development Loop** / **Release preflight** | `tools/dev/`, `tools/release/` |
+| ตัวจำลอง HIS | `tools/his-simulator/` |
+
+ส่วนด้านล่างเป็นบันทึกประวัติ P1/P2 (Synthetic Foundation) และ Owner Lock ด้านคลินิก — ยังใช้เป็นข้อกำหนดความปลอดภัยของผู้ป่วย แต่ข้อความ "Synthetic เท่านั้น/ไม่มี Production" อธิบายรุ่น P1/P2 ในอดีต ไม่ใช่สถานะปัจจุบัน
+
+---
+
+## ประวัติ: P1 Foundation / P2 Synthetic
 
 P4b continuation: [Pooling / QC2 / F4 synthetic delivery](docs/p4b-pooling-delivery.md) — immutable HOLD snapshots, no clinical acceptance or HALOS export.
 
