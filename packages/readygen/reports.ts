@@ -85,6 +85,9 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  if(!s){const r=(await db.query<{classification:string;reason:string}>('SELECT classification,reason FROM halos_import_row WHERE id=$1',[input.rowId])).rows[0];if(r)throw new LabError('ROW_NOT_REPORTABLE',409,{raw:`${r.classification}/${r.reason}`});}
  if(!s||!caseVisible(user,{unit_id:s.unit_id,registration_origin:s.registration_origin}))throw new LabError('NOT_FOUND',404);
  const holds:Hold[]=[],h=(code:string,extra:Partial<Hold>={})=>holds.push({code,...extra});
+ // EQA: identity and clocks come from the organizer's referral card (eqa_case); there is no PET to read. Everything else is the normal path.
+ const eqa=(await db.query<{surname:string;first_name:string;dob:string;sample_ref:string;ga_weeks:number;ga_days:number;collection_date:string;received_at:Date|null}>(
+  `SELECT e.surname,e.first_name,e.dob::text,e.sample_ref,e.ga_weeks,e.ga_days,e.collection_date::text,r.received_at FROM eqa_case e JOIN specimen_round r ON r.id=e.round_id WHERE e.case_id=$1`,[s.case_id])).rows[0]??null;
  if(s.import_state!=='Confirmed')h('HALOS_IMPORT_NOT_CONFIRMED');
  if(s.classification!=='PATIENT')h('ROW_NOT_REPORTABLE',{raw:`${s.classification}/${s.reason}`});
  // The frozen export is re-resolved now: a later re-pooling, new attempt or batch change makes an earlier import stale.
@@ -95,7 +98,7 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  // Owner Task 1 decision 2: a No Call is reported in the SAME normal master with an explicit "Result = No Call"; it is never interpreted.
  const noCall=s.no_call;
  if(noCall&&s.attempt_state!=='QcFailed')h('NO_CALL_ATTEMPT_NOT_CONFIRMED_FAILED',{raw:s.attempt_state});
- if(s.on_hold)h('ATTEMPT_ON_QC_HOLD');if(s.revoked)h('CONSENT_REVOKED');if(!s.clinical_ready)h('CLINICAL_DATA_NOT_READY');
+ if(s.on_hold)h('ATTEMPT_ON_QC_HOLD');if(s.revoked)h('CONSENT_REVOKED');if(!s.clinical_ready&&!eqa)h('CLINICAL_DATA_NOT_READY');
  if(s.current_round_id!==s.round_id)h('ROUND_NOT_CURRENT');
  const reissue=s.internal_final?{internalId:s.internal_final,versionState:s.internal_version_state}:null;
  if(reissue&&!input.reissue)h('INTERNAL_REPORT_ALREADY_FINAL');
@@ -104,10 +107,11 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  if(!reissue&&s.active_release)h('ACTIVE_RELEASE_EXISTS_FOR_ROUND');
  // Identity: printed values come from the verified HIS PET of the round and the case identity; a disagreement is never resolved here.
  let pet:Awaited<ReturnType<typeof readPet>>|null=null;
- if(!s.pet_sha||!s.pet_filename)h('PET_EVIDENCE_REQUIRED');
+ if(eqa){/* organizer referral card replaces the PET */}
+ else if(!s.pet_sha||!s.pet_filename)h('PET_EVIDENCE_REQUIRED');
  else{try{pet=await readPet(deps.store,{sha256:s.pet_sha,filename:s.pet_filename,ln:s.ln});}catch{h('PET_EVIDENCE_UNVERIFIED');}}
  if(pet&&(!s.hn||pet.hn.replace(/^0+/,'')!==s.hn.replace(/^0+/,'')))h('HN_SOURCES_DISAGREE');
- const specimenAt=s.pet_parsed?.specimenAt??pet?.specimenAt,receivedAt=s.pet_parsed?.receivedAt??pet?.receivedAt;
+ const specimenAt=s.pet_parsed?.specimenAt??pet?.specimenAt??(eqa?eqa.collection_date+'T12:00:00+07:00':undefined),receivedAt=s.pet_parsed?.receivedAt??pet?.receivedAt??(eqa?.received_at?new Date(eqa.received_at).toISOString():undefined);
  if(!specimenAt||!receivedAt)h('PET_CLOCKS_REQUIRED');
  const req=await roundRequest(db,s.round_id),collectionDay=specimenAt?bangkokDay(specimenAt):null;
  if(collectionDay&&(req.dates.length!==1||req.dates[0]!==collectionDay))h('COLLECTION_DATE_SOURCES_DISAGREE',{raw:req.dates.join(',')});
@@ -135,10 +139,13 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  if(noCall&&!noCallQc)h('NO_CALL_QC_STATUS_UNREADABLE',{raw:`${analysis.sampleQc??''}/${analysis.operationAdvice??''}/${analysis.physicianAdvice??''}`});
  if(!noCall)holds.push(...interpretation.holds);
  // Disclosure follows the recorded wish (RG-11 / OD-09 proposal): the Singleton master always prints Fetal Gender.
- if(!noCall&&template==='SINGLETON'&&req.fetalSex!=='Want')h('FETAL_SEX_DISCLOSURE_NOT_PERMITTED',{raw:req.fetalSex??'NOT_RECORDED'});
+ if(!noCall&&template==='SINGLETON'&&req.fetalSex!=='Want'&&!eqa)h('FETAL_SEX_DISCLOSURE_NOT_PERMITTED',{raw:req.fetalSex??'NOT_RECORDED'});
  if(!noCall&&template==='TWIN'&&req.fetalSex==='DoNotWant')h('Y_CHROMOSOME_DISCLOSURE_NOT_PERMITTED');
  let ga:number|null=null;
- if(!req.edd&&!s.edd)h('EDD_REQUIRED_FOR_GA');
+ // EQA scheme Reporting Option 3 reports fetal sex; the card gives GA by scan at collection, which is used as is (no EDD is invented).
+ if(eqa)ga=eqa.ga_weeks*7+eqa.ga_days;
+ if(eqa){const halosGa=halosGaDays(info?.gestationalWeeks);if(halosGa!==null&&halosGa!==ga)h('GA_SOURCES_DISAGREE',{raw:info?.gestationalWeeks});}
+ else if(!req.edd&&!s.edd)h('EDD_REQUIRED_FOR_GA');
  else if(collectionDay){const edd=(req.edd??s.edd)!;ga=280-Math.round((Date.parse(edd+'T00:00:00Z')-Date.parse(collectionDay+'T00:00:00Z'))/86400000);
   if(ga<0||ga>315)h('GA_OUT_OF_RANGE');const halosGa=halosGaDays(info?.gestationalWeeks);if(halosGa!==null&&halosGa!==ga)h('GA_SOURCES_DISAGREE',{raw:info?.gestationalWeeks});}
  const productCode=productCodeOf(info?.productName);if(info&&!productCode)h('PRODUCT_UNRECOGNIZED',{raw:info.productName});
@@ -148,15 +155,15 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  if(noCall&&(!approval.approvedRevision||!approval.value.noCallRenderingApproved))h('NO_CALL_RENDERING_NOT_APPROVED');
  if(productCode&&(!approval.approvedRevision||approvedProduct!==productCode))h('PRODUCT_TEMPLATE_COMBINATION_NOT_APPROVED',{raw:`${productCode}/${TEMPLATES[template].code}`});
  if(!await masterBytes(db,deps,template))h('REPORT_MASTER_NOT_INSTALLED');
- const v=interpretation.values,identityBound=pet&&specimenAt&&receivedAt&&ga!==null;
+ const v=interpretation.values,identityBound=(pet||eqa)&&specimenAt&&receivedAt&&ga!==null;
  const canBind=identityBound&&(noCall?!!noCallQc:v.qc&&v.t21&&v.t18&&v.t13&&v.probability.t21&&v.probability.t18&&v.probability.t13);
  // No Call (proposal shown in Settings for approval): every result cell reads "No Call", probabilities "-" (the master's own not-applicable mark).
  const NC=NO_CALL_RESULT;
  const results=noCall?{qc:noCallQc!,trisomy21_ra:NC,trisomy18_ra:NC,trisomy13_ra:NC,risk21:'-',risk18:'-',risk13:'-',gender:NC,gender_cbh:NC,XO_NEW:NC,XXX_NEW:NC,XXY_NEW:NC,XYY_NEW:NC,fetalFaction_2:NC,remarks:`Result = ${NC}`}
   :{qc:v.qc!,trisomy21_ra:v.t21!,trisomy18_ra:v.t18!,trisomy13_ra:v.t13!,risk21:v.probability.t21!,risk18:v.probability.t18!,risk13:v.probability.t13!,
    gender:v.fetalGender??'',gender_cbh:v.yChromosome??'',XO_NEW:v.xo??'',XXX_NEW:v.xxx??'',XXY_NEW:v.xxy??'',XYY_NEW:v.xyy??'',fetalFaction_2:v.fetalFraction??'',remarks:''};
- const values:ReportValues|null=canBind?{patientName:petDisplayName(pet!.name),ga:`${Math.floor(ga!/7)}W ${ga!%7}D`,sampleID:s.sample_key,hn:pet!.hn,collectDate_cbh:reportDate(collectionDay!),
-  patientIDCard:pet!.identity||'-',dob_cbh:reportDate(pet!.dob),receivedDate_cbh:reportDate(bangkokDay(receivedAt!)),referringPhysician:s.doctor?.trim()||'-',hospitalName:'Chonburi hospital',sampleType:'Peripheral Blood',...results}:null;
+ const values:ReportValues|null=canBind?{patientName:eqa?`${eqa.first_name} ${eqa.surname}`:petDisplayName(pet!.name),ga:`${Math.floor(ga!/7)}W ${ga!%7}D`,sampleID:s.sample_key,hn:eqa?eqa.sample_ref:pet!.hn,collectDate_cbh:reportDate(collectionDay!),
+  patientIDCard:eqa?'-':pet!.identity||'-',dob_cbh:reportDate(eqa?eqa.dob:pet!.dob),receivedDate_cbh:reportDate(bangkokDay(receivedAt!)),referringPhysician:s.doctor?.trim()||'-',hospitalName:'Chonburi hospital',sampleType:'Peripheral Blood',...results}:null;
  return {rowId:s.row_id,caseId:s.case_id,roundId:s.round_id,attemptId:s.attempt_id,template,noCall,pregnancySource,overrideReason,holds,interpretation,values,productCode,hisLn:s.ln,lnHalos:s.ln_halos,hn:s.hn,sampleId:s.sample_key,approval,reissue,
   sources:{halosRowId:s.row_id,halosImportId:s.import_id,exportId:s.export_id,exportKind:s.export_kind,petSha256:s.pet_sha,pregnancy:{recorded,used:pregnancy,source:pregnancySource,halos:halosFetus??null},
    fetalSexPreference:req.fetalSex,edd:req.edd??s.edd,collectionDay,gaDays:ga,halosGa:info?.gestationalWeeks??null,productCode,productName:info?.productName??null,doctor:s.doctor??null}};

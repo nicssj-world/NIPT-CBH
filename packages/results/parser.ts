@@ -16,7 +16,7 @@ export type Parsed={templateKind:TemplateKind;templateVersion:string;parserVersi
 const RISK='(Low Risk|High Risk)',DETECT='(Not Detected|Detected)';
 const RE={
  labLn:/Lab No\.\s*\(LN\):\s*([A-Za-z0-9-]+)/,labLnNotice:/\(LN:\s*([A-Za-z0-9-]+)/,
- hnAnchored:/Lab No\.\s*\(LN\):\s*\S+[\s\S]{0,60}?HN:\s*(\d+(?:\/\d+)?)(?=\s|$)/,hn:/HN:\s*(\d+(?:\/\d+)?)(?=\s|$)/,
+ hnAnchored:/Lab No\.\s*\(LN\):\s*\S+[\s\S]{0,60}?HN:\s*((?=[A-Za-z0-9]*\d)[A-Za-z0-9]+(?:\/\d+)?)(?=\s|$)/,hn:/HN:\s*((?=[A-Za-z0-9]*\d)[A-Za-z0-9]+(?:\/\d+)?)(?=\s|$)/,
  name:/Patient Name:\s*(.+?)\s*(?:Gestational Age:|\n|$)/,ga:/Gestational Age:\s*(\d{1,2})\s*Weeks?\s*(\d)\s*Day\(s\)/i,
  // Task 3: the Owner DOCX masters (and ReadyGen enrich_format "{0}W {1}D") print GA as "15W 3D"; both layouts give the same two numbers.
  gaShort:/Gestational Age:\s*(\d{1,2})\s*W\s+(\d)\s*D(?=\s|$)/,

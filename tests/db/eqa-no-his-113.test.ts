@@ -10,8 +10,8 @@ afterAll(async()=>{await db?.close();});
 
 const sha=()=>createHash('sha256').update(randomUUID()).digest('hex');
 const classify=(c:{caseId:string;roundId:string},o:{sample?:string;actor?:string}={})=>db.query(
- `INSERT INTO eqa_case(case_id,round_id,organizer,program_year,program_round,organizer_sample_id,evidence_reference,evidence_sha256,registered_by,verified_by)
-  VALUES($1,$2,'SYNTHETIC-ORGANIZER',2026,'R1',$3,'SYNTHETIC-DOC-REF',$4,$5,$5)`,[c.caseId,c.roundId,o.sample??'S-'+randomUUID().slice(0,8),sha(),o.actor??u.staff.id]);
+ `INSERT INTO eqa_case(case_id,round_id,organizer,program_year,sample_ref,surname,first_name,dob,ga_weeks,ga_days,collection_date,pregnancy,note,registered_by)
+  VALUES($1,$2,'SYNTHETIC-ORGANIZER',2026,$3,'POLSON','Tonya','1988-08-23',11,1,'2026-10-19','Singleton',NULL,$4)`,[c.caseId,c.roundId,o.sample??'S-'+randomUUID().slice(0,8),o.actor??u.staff.id]);
 const eqaCase=async()=>{const c=await syntheticCase(db,u,{evidence:false});await classify(c);return c;};
 /** A released version for a case. Trigger-free fixture insert, mirroring tests/db/archive-native.test.ts. */
 async function release(caseId:string,roundId:string){

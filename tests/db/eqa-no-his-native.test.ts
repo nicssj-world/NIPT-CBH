@@ -32,10 +32,10 @@ beforeAll(async()=>{
 afterAll(async()=>{await c?.end();});
 
 it.skipIf(!url)('restricted roles: web may register, nobody may edit; Worker cannot classify; guards fire under both roles',async()=>{
- const insert=`INSERT INTO eqa_case(case_id,round_id,organizer,program_year,program_round,organizer_sample_id,evidence_reference,evidence_sha256,registered_by,verified_by)
-  VALUES($1,$2,'ORG',2026,'R1','S-1','DOC',$3,$4,$4)`;
- expect(await as('worker_rw',insert,[caseId,roundId,sha(),actor])).toMatch(/permission denied/i);
- await c.query(insert,[caseId,roundId,sha(),actor]);
+ const insert=`INSERT INTO eqa_case(case_id,round_id,organizer,program_year,sample_ref,surname,first_name,dob,ga_weeks,ga_days,collection_date,pregnancy,note,registered_by)
+  VALUES($1,$2,'ORG',2026,'S-1','POLSON','Tonya','1988-08-23',11,1,'2026-10-19','Singleton',NULL,$3)`;
+ expect(await as('worker_rw',insert,[caseId,roundId,actor])).toMatch(/permission denied/i);
+ await c.query(insert,[caseId,roundId,actor]);
  expect(await as('app_rw','UPDATE eqa_case SET organizer=\'X\'')).toMatch(/permission denied/i);
  expect(await as('app_rw','DELETE FROM eqa_case')).toMatch(/permission denied/i);
  expect(await as('worker_rw','UPDATE eqa_case SET organizer=\'X\'')).toMatch(/permission denied/i);
