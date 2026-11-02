@@ -23,15 +23,27 @@ Old WIP: `origin/backup/home-update-113-20261030` (b5a62ff). Never cherry-picked
 | Q10 | Admin page UX (tabs, status filters, pager, dialog with consequences, a11y) | old page → **MODIFY** | PARTIAL | tsc + eslint clean | – | real browser test + keyboard/responsive pass pending |
 | Q11 | Worker restart/recovery | – | NOT STARTED | – | – | – |
 
-## Phase 2 — PET history/count (NOT STARTED)
-| ID | Requirement | Decision | Status |
-|---|---|---|---|
-| P1 | Per-case PET counts: scan runs, PET files/versions, verified HIS receipts, specimen rounds, shown separately with source evidence | MISSING (old WIP had scan-run only) | NOT STARTED |
-| P2 | Old 164/166 raw-scan deletion (24 h compaction) | **DROP** (Owner rejected) | NOT APPLICABLE |
-| P3 | Old `inbound/queue.ts` hiding of "compactable" rows | **DROP** (hides raw history) | NOT APPLICABLE |
+## Phase 2 — PET case-level history/count
+| ID | Requirement | Source / decision | Status | Test | Result | Remaining |
+|---|---|---|---|---|---|---|
+| P1 | Per-case counts kept separate: PET files, distinct contents, resend sightings, verified HIS receipts, specimen rounds; scan executions explicitly "not attributable to a case" | `his_inbound_file`/`his_inbound_source`/`his_order`/`specimen_round_current` read-only → new `packages/inbound/case-pet-evidence.ts` (**MODIFY**: old WIP had scan-run only) | PASS (DB) | `tests/db/case-pet-evidence-113.test.ts` | 2/2: S1 + same-bytes resend at another day = 1 file, 1 sighting; redraw S2 = 2 rounds/2 receipts/2 files; another patient's PET not shown; scan history delete still blocked | native roles not run; technical repeat is not a PET event (no count by design) |
+| P2 | Shown in existing Case Workspace (no duplicate page) | `PetEvidencePanel` in `case-workspace.tsx`, payload `getCase().petEvidence` | PARTIAL | tsc/eslint; p2/lineage/inbound regression 80/80 | – | **Browser check not run**; historical-migration cases show "no PET evidence" instead of 0 (historical PET provenance via `migration_pet_binding` not yet surfaced) |
+| P3 | Raw `his_inbound_scan_run` preserved | old 164/166 compaction and `queue.ts` hiding **DROPPED** | PASS | immutable-trigger assertion in P1 test | – | – |
 
-## Phase 3 — EQA (NOT STARTED)
-Old WIP changes `eqaVerified` into RG-09/10/11, P3/P4 gates (`lab/gate,core,batch`, `p2/service`, `results/{service,gates}`) and migrations 161/162/165/169. All **MODIFY, narrow rewrite only**; none ported yet. Hard requirement E-HIS (no outbox/transfer/RES/CFS, every layer incl. DB guard) will be designed against `p6_release_eligible` and the composed release guard on current main first.
+## Phase 3 — EQA without PET
+Audit result (current main): the PET-less analytical path already exists for LAB_DIRECT (`labOperationalRoute` passes BG-01..07 with paper markers), so **no Task List / gate change is needed for EQA**. The old WIP's BG-01/03 changes and `roundPetOrEqaOk` are DROPPED. Outbound pathways found by audit: (1) `p6_transfer` insert, (2) `job_outbox` `result_release_completed` at certification (`results/service.ts`), attestation withdrawal and P6 reroute, (3) `synthetic_outbound_retry` (HIS retry), (4) worker eligibility `p6_release_eligible`, (5) PET→`his_order` receipt, (6) NAS archive of `result_release_completed` (not HIS; excluded until storage policy verified).
+| ID | Requirement | Decision | Status | Test | Result | Remaining |
+|---|---|---|---|---|---|---|
+| E1 | Immutable EQA classification (organizer, year, round, sample id, evidence ref+SHA-256, registrar, verifier); new LAB_DIRECT case only; refuses cases with PET/order/release/migration record | migration 183 `eqa_case` (**MODIFY** of old 161/162) | PASS | `eqa-no-his-113` (PGlite) 4 tests; `eqa-no-his-native` (PostgreSQL 17, app_rw/worker_rw) | worker_rw cannot classify, no role can edit/delete | registration API/UI/service not written yet |
+| E2 | DB: no `p6_transfer` for EQA release | `eqa_transfer_guard` | PASS | PGlite + native | `EQA_NO_HIS_TRANSFER` | – |
+| E3 | DB: no outbox job naming EQA case/release/version/transfer (delivery, retry, replay, reroute) | `eqa_outbox_guard` (text compare, malformed payload cannot skip) | PASS | PGlite + native as worker_rw and app_rw | `EQA_NO_HIS_OUTBOUND`; unrelated and patient jobs still accepted | – |
+| E4 | DB: later PET cannot become HIS receipt of EQA case | `eqa_his_order_guard` | PASS | PGlite + native | `EQA_CASE_REJECTS_HIS_RECEIPT` | inbound worker's handling of that error (file state) not yet exercised end to end |
+| E5 | Worker eligibility false for EQA; composed guards preserved | `p6_release_eligible` **wrapped** (rename chain, same as 165/166) | PARTIAL | structure test + native `false` | wraps `migration_presence_unfiltered_release_eligible` | positive-path equivalence for a certifiable normal release needs the Word/PDF contract tests (owner assets) |
+| E6 | TS certification: EQA must take the "outbound suppressed" branch instead of enqueueing | `results/service.ts` | NOT STARTED | – | – | – |
+| E7 | Narrow gate exception (RG-09 clinical, RG-10 consent) only for verified EQA; RG-11 not excepted (fetal-sex disclosure rule for EQA is an open clinical decision) | – | NOT STARTED | – | – | Owner decision needed for RG-11 |
+| E8 | Registration (no LN reuse, no PET linking at registration, organizer identity, no fabricated HN/DOB/EDD), report identity fields, PDF without EQA mark | – | NOT STARTED | – | – | `registerP2` calls `linkIntakeAtRegistration`; EQA must skip it |
+| E9 | EQA excluded from NAS archive until a storage policy is verified | – | NOT STARTED | – | – | one-line filter in `archive-worker.ts` |
+| E10 | End-to-end: EQA + patient in one Run, certified PDF, normal patient still reaches HIS | – | NOT STARTED | – | – | needs owner assets (`.local/task3-sources`) |
 
 ## Phase 4 — Quality Control (NOT STARTED)
 EQA annual registry and IQC PC/NC from the approved workbook. Source keys must be verified against the approved workbook before any chart/calculation.
