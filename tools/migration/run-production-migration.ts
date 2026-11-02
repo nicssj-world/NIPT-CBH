@@ -22,7 +22,7 @@ import {parseMapping} from '../../packages/migration/mapping';
 import {excelAllocatorEvidence} from '../../packages/migration/high-watermark';
 import {applyAllocatorHandover} from '../../packages/migration/identifiers';
 import {repairTwinAttachments,backfillPaperMarkers} from '../../packages/migration/twin-repair';
-import {importHistoricalDoctors} from '../../packages/migration/doctors';
+import {importHistoricalDoctors,registerHistoricalDoctors} from '../../packages/migration/doctors';
 import type {Staff} from '../../packages/lab/core';
 
 const argv=process.argv.slice(2);
@@ -114,6 +114,7 @@ try{
  }else if(phase==='doctors'){
   // Owner decision: the doctors named on the reports issued by Genomic-CBH become the historical doctor registry, linked to their cases. No unit, signature or approval.
   report.doctors=await importHistoricalDoctors(db,await actor(),store());
+  report.doctorRegistry=await registerHistoricalDoctors(db,await actor());
  }else if(phase==='twin'){
   // Owner decision: attach the twin "<LN Halos>D-<n>" analysis imported before the parser knew the D form. Evidence-checked, audited, idempotent.
   report.twin=await repairTwinAttachments(db,await actor());

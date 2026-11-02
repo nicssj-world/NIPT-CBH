@@ -29,7 +29,7 @@ export async function saveDoctor(db:Queryable,user:Staff,input:unknown){
  if(d.id?(!prior||prior.id!==d.id):!!prior)throw new P2Error('DOCTOR_RECORD_CHANGED',409);
  if(d.image&&d.vector)throw new P2Error('SIGNATURE_IMAGE_INVALID',422);
  const sig=d.image?await uploadedDoctorSignature(d.image):d.vector?deriveSignature(d.vector):prior?{vector:prior.signature,png:prior.signature_png,hash:prior.signature_hash}:null;
- if(!sig)throw new P2Error('DOCTOR_SIGNATURE_REQUIRED',422);
+ if(!sig||!sig.png)throw new P2Error('DOCTOR_SIGNATURE_REQUIRED',422);
  const row=(await db.query<{id:string;version:number}>('INSERT INTO p2_doctor_version(doctor_key,version,name,unit_id,effective_from,authorization_evidence,signature,signature_png,signature_hash,created_by,synthetic) VALUES($1,$2,$3,$4,clock_timestamp(),$5,$6,$7,$8,$9,$10) RETURNING id,version',[d.doctorKey,(prior?.version??0)+1,d.name,d.unitId,operationalDataEnabled()?'REGISTERED_DIRECTLY_BY_AUTHORIZED_STAFF':'SYNTHETIC_DIRECT_STAFF_REGISTRATION',sig.vector,sig.png,sig.hash,user.id,!operationalDataEnabled()])).rows[0];
  await db.query('INSERT INTO p2_doctor_registration(doctor_version_id,actor_id,authorized) VALUES($1,$2,true)',[row.id,user.id]);
  await db.query("INSERT INTO p2_doctor_event(doctor_version_id,event_type,actor_id,reason) VALUES($1,'Approved',$2,'REGISTRY_SAVED_DIRECTLY')",[row.id,user.id]);

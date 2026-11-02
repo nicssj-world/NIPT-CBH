@@ -18,7 +18,7 @@ const runs=await listHistoricalRuns(db,actor);
 const runDetail:Record<string,unknown>={};for(const r of runs){const d=await historicalRunDetail(db,actor,r.runLabel);runDetail[r.runLabel]=d?{slots:d.slots.length,sampleSlots:d.slots.filter(s=>s.kind==='SAMPLE').length,controlSlots:d.slots.filter(s=>s.kind==='CONTROL').length,repeatRows:d.slots.filter(s=>s.kind==='REPEAT').length,emptySlots:d.slots.filter(s=>s.kind==='EMPTY').length,withPdf:d.withPdf}:null;}
 console.log(JSON.stringify({
  historicalRuns:runs,runDetail,
- historicalDoctors:{registry:await count('SELECT count(*)::int n FROM migration_doctor'),casesLinked:await count('SELECT count(DISTINCT case_id)::int n FROM migration_doctor_case')},
+ historicalDoctors:{names:await count('SELECT count(*)::int n FROM migration_doctor'),registryEntries:await count("SELECT count(DISTINCT doctor_version_id)::int n FROM migration_doctor_registry"),casesLinked:await count('SELECT count(DISTINCT case_id)::int n FROM migration_doctor_case'),registryWithoutSignature:await count('SELECT count(*)::int n FROM p2_doctor_version WHERE signature_png IS NULL')},
  pregnancyDefaulted:w.attempts.filter(a=>a.pregnancyDefaulted).length,
  attempts:w.attempts.length,
  byCategory:tally(w.attempts.map(a=>a.category)),

@@ -6,7 +6,6 @@ import {appendAudit} from '../db/audit';
 import {pdfText} from '../results/extract';
 import {assertSession,need,type Staff} from '../lab/core';
 import type {FileStore} from '../storage';
-import {P2Error} from '../p2/service';
 
 const TITLE=/^(นายแพทย์|แพทย์หญิง|แพทย์ชาย|นพ\.?|พญ\.?|ผศ\.?|รศ\.?|ศ\.?|ดร\.?|dr\.?|mrs?\.?|ms\.?)\s*/i;
 /** "Referring Doctor: <name> Sample Type: ..." -> the name, or null when the line is absent or says nothing ("-"). */
@@ -44,13 +43,47 @@ export async function importHistoricalDoctors(db:Queryable,user:Staff,store:File
  return r;
 }
 
-export type HistoricalDoctor={id:string;name:string;cases:number};
-/** Everyone who may read the doctor registry may read the historical entries (names only; cases are counted, not listed). */
-export async function listHistoricalDoctors(db:Queryable,user:Staff):Promise<HistoricalDoctor[]>{
- await assertSession(db,user);
- if(!user.roles.some(x=>['ANC_NURSE','ANC_SUPERVISOR','LAB_STAFF','LAB_CERTIFIER','APP_ADMIN','CLINICAL_APPROVER'].includes(x)))throw new P2Error('FORBIDDEN',403);
- return (await db.query<HistoricalDoctor>('SELECT d.id,d.name,count(c.case_id)::int cases FROM migration_doctor d LEFT JOIN migration_doctor_case c ON c.doctor_id=d.id GROUP BY d.id ORDER BY d.name')).rows;
-}
 export async function referringDoctorOfCase(db:Queryable,caseId:string):Promise<string|null>{
- return (await db.query<{name:string}>('SELECT d.name FROM migration_doctor_case c JOIN migration_doctor d ON d.id=c.doctor_id WHERE c.case_id=$1 ORDER BY c.created_at LIMIT 1',[caseId])).rows[0]?.name??null;
+ return (await db.query<{name:string}>('SELECT COALESCE(rv.name,d.name) name FROM migration_doctor_case c JOIN migration_doctor d ON d.id=c.doctor_id LEFT JOIN migration_doctor_registry g ON g.migration_doctor_id=d.id LEFT JOIN p2_doctor_version rv ON rv.id=g.doctor_version_id WHERE c.case_id=$1 ORDER BY c.created_at LIMIT 1',[caseId])).rows[0]?.name??null;
+}
+
+/** Letters only: tone marks, vowels above/below, the thanthakhat and spacing are dropped and sara am reads as sara aa, because the report PDFs of the previous
+ *  system sometimes extract the same name with a stray mark. Used only to recognise the SAME doctor written two ways; it never changes a stored name. */
+export function doctorSkeleton(name:string):string{
+ return doctorKey(name).replace(/[ัิ-ฺ็-๎]/g,'').replace(/ํ?า|ำ/g,'า');
+}
+function within1(a:string,b:string):boolean{
+ if(Math.abs(a.length-b.length)>1)return false;
+ let i=0;while(i<a.length&&i<b.length&&a[i]===b[i])i++;
+ if(i===a.length&&i===b.length)return true;
+ return a.slice(i+1)===b.slice(i+1)||a.slice(i+1)===b.slice(i)||a.slice(i)===b.slice(i+1);
+}
+export type RegistryImportResult={names:number;registryDoctorsAdded:number;registryDoctorsExisting:number;namesMapped:number;mergedSpellings:number};
+/** The historical doctors become ordinary registry entries (p2_doctor_version): same page, search and edit as any doctor. No unit and no signature are invented, so
+ *  an entry is listed but not selectable on a request until an administrator adds the signature. Spellings of one doctor that differ by at most one letter
+ *  or mark map to the most frequently written spelling. Idempotent. */
+export async function registerHistoricalDoctors(db:Queryable,user:Staff):Promise<RegistryImportResult>{
+ await assertSession(db,user);need(user,'doctor.manage','write');
+ const names=(await db.query<{id:string;name:string;cases:number}>('SELECT d.id,d.name,count(c.case_id)::int cases FROM migration_doctor d LEFT JOIN migration_doctor_case c ON c.doctor_id=d.id GROUP BY d.id ORDER BY count(c.case_id) DESC,d.name')).rows;
+ const r:RegistryImportResult={names:names.length,registryDoctorsAdded:0,registryDoctorsExisting:0,namesMapped:0,mergedSpellings:0};
+ const canon:{skeleton:string;name:string;versionId:string|null;members:string[]}[]=[];
+ for(const n of names){
+  const sk=doctorSkeleton(n.name),hit=canon.find(c=>within1(c.skeleton,sk));
+  if(hit){hit.members.push(n.id);r.mergedSpellings++;}else canon.push({skeleton:sk,name:n.name,versionId:null,members:[n.id]});
+ }
+ for(const c of canon){
+  const key='HIST-'+(await import('node:crypto')).createHash('sha256').update(c.skeleton).digest('hex').slice(0,16);
+  await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,75432803))',[key]);
+  let v=(await db.query<{id:string}>('SELECT id FROM p2_doctor_version WHERE doctor_key=$1 ORDER BY version DESC LIMIT 1',[key])).rows[0];
+  if(v)r.registryDoctorsExisting++;
+  else{
+   v=(await db.query<{id:string}>("INSERT INTO p2_doctor_version(doctor_key,version,name,unit_id,effective_from,authorization_evidence,signature,signature_png,signature_hash,created_by) VALUES($1,1,$2,NULL,clock_timestamp(),'IMPORTED_FROM_GENOMIC_CBH_REPORTS',NULL,NULL,NULL,$3) RETURNING id",[key,c.name,user.id])).rows[0];
+   await db.query('INSERT INTO p2_doctor_registration(doctor_version_id,actor_id,authorized) VALUES($1,$2,true)',[v.id,user.id]);
+   await db.query("INSERT INTO p2_doctor_event(doctor_version_id,event_type,actor_id,reason) VALUES($1,'Approved',$2,'IMPORTED_FROM_GENOMIC_CBH_REPORTS')",[v.id,user.id]);
+   r.registryDoctorsAdded++;
+  }
+  for(const m of c.members){const x=await db.query('INSERT INTO migration_doctor_registry(migration_doctor_id,doctor_version_id,created_by) VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING migration_doctor_id',[m,v.id,user.id]);if(x.rows.length)r.namesMapped++;}
+ }
+ await appendAudit(db,{actorId:user.id,action:'MIGRATION_DOCTORS_REGISTERED',resourceType:'p2_doctor_version',details:{count:r.registryDoctorsAdded,outcome:'IMPORTED',origin:'HISTORICAL'}});
+ return r;
 }

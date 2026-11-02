@@ -30,7 +30,7 @@ export default async function HistoricalRunPage({params}:{params:Promise<{label:
      <td className="mono">{s.lnHalos??"—"}</td>
      <td>{s.attempt??"—"}</td>
      <td>{s.advice?ADVICE[s.advice]??s.advice:"—"}</td>
-     <td>{s.hasPdf&&s.caseId?<Link href={`/cases/${s.caseId}/result`}>ดูผลตรวจ</Link>:s.kind==="SAMPLE"||s.kind==="REPEAT"?"ยังไม่มี PDF":"—"}</td></tr>)}</tbody></table></div>
+     <td>{s.hasPdf&&s.caseId?<Link href={`/cases/${s.caseId}`}>ดูผลตรวจ</Link>:s.kind==="SAMPLE"||s.kind==="REPEAT"?"ยังไม่มี PDF":"—"}</td></tr>)}</tbody></table></div>
    <p className="help">ตำแหน่ง PC 1, NC 25 และ BLANK 40 เป็นแบบฟอร์ม Task List 48 ตำแหน่ง ตำแหน่งที่ไฟล์ต้นทางไม่มีแถวแสดงเป็น “ว่าง”</p>
   </section>
  </>;

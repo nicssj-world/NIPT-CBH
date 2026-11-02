@@ -9,7 +9,8 @@ import {labWorklist} from '../../packages/lab/intake';
 import {listP2Cases} from '../../packages/p2/service';
 import {listHistoricalRuns,historicalRunDetail} from '../../packages/lab/historical-run';
 import {syntheticReportPdf,syntheticPdf,reportText} from '../../tools/his-simulator/result-pdf';
-import {importHistoricalDoctors,listHistoricalDoctors,referringDoctorOfCase,referringDoctor,doctorKey} from '../../packages/migration/doctors';
+import {importHistoricalDoctors,registerHistoricalDoctors,doctorSkeleton,referringDoctorOfCase,referringDoctor,doctorKey} from '../../packages/migration/doctors';
+import {listDoctors} from '../../packages/p2/service';
 import {SETTINGS} from '../../packages/settings/catalog';
 import {proposeSetting,validateSetting,approveSetting,activateSetting} from '../../packages/settings/service';
 afterEach(()=>vi.unstubAllEnvs());
@@ -176,9 +177,9 @@ it('historical Runs: listed with sample counts and opened with their analyses; n
 },180000);
 // Owner 2026-11-02: the doctors named on the issued reports become the historical doctor registry, linked to their cases; nothing else is created.
 it('historical doctor registry: read from the report PDF, one entry per doctor, linked to the case, idempotent, no unit, signature or approval',async()=>{
- expect(referringDoctor('x Referring Doctor: พญ.พรชนก นาคสาร Sample Type: Whole Blood')).toBe('พญ.พรชนก นาคสาร');
+ expect(referringDoctor('x Referring Doctor: พญ.สมหญิง ทดสอบระบบ Sample Type: Whole Blood')).toBe('พญ.สมหญิง ทดสอบระบบ');
  expect(referringDoctor('Referring Doctor: - Sample Type: Whole Blood')).toBeNull();expect(referringDoctor('no such line')).toBeNull();
- expect(doctorKey('พญ. พรชนก  นาคสาร')).toBe(doctorKey('พญ.พรชนก นาคสาร'));expect(doctorKey('Dr. Somchai Test')).toBe(doctorKey('somchai   test'));
+ expect(doctorKey('พญ. สมหญิง  ทดสอบระบบ')).toBe(doctorKey('พญ.สมหญิง ทดสอบระบบ'));expect(doctorKey('Dr. Somchai Test')).toBe(doctorKey('somchai   test'));
  const f=await resultFixture();try{
   await activate(f,'MANUAL_REVIEWED_ONLY');const m=await migrated(f,false);
   const spec={kind:'SINGLETON' as const,collection:'10-Oct-2026',labNumber:m.sampleRaw,hn:m.hn,name:PDF_NAME};
@@ -187,8 +188,16 @@ it('historical doctor registry: read from the report PDF, one entry per doctor, 
   expect(first).toMatchObject({versions:1,parsed:1,doctorsAdded:1,casesLinked:1});
   const again=await f.run(t=>importHistoricalDoctors(t,f.u.staff,f.store));
   expect(again).toMatchObject({doctorsAdded:0,casesLinked:0,casesAlreadyLinked:1});
-  expect((await f.run(t=>listHistoricalDoctors(t,f.u.staff))).map(d=>[d.name,d.cases])).toEqual([['Dr. Somchai Testdoc',1]]);
+  // Owner 2026-11-02: they join the ORDINARY registry (p2_doctor_version): listed like any doctor, but without an invented unit or signature, so not yet selectable
+  const reg=await f.run(t=>registerHistoricalDoctors(t,f.u.staff));
+  expect(reg).toMatchObject({names:1,registryDoctorsAdded:1,namesMapped:1});
+  expect(await f.run(t=>registerHistoricalDoctors(t,f.u.staff))).toMatchObject({registryDoctorsAdded:0,registryDoctorsExisting:1,namesMapped:0});
+  const listed=(await f.run(t=>listDoctors(t,f.u.staff))).filter(d=>'name' in d&&d.name==='Dr. Somchai Testdoc');
+  expect(listed).toHaveLength(1);expect(listed[0]).toMatchObject({unit_id:null,has_signature:false,active:false});
   expect(await f.run(t=>referringDoctorOfCase(t,m.caseId))).toBe('Dr. Somchai Testdoc');
-  expect((await f.db.query("SELECT count(*)::int n FROM p2_doctor_version")).rows[0]).toEqual({n:0});
+  expect((await f.db.query("SELECT count(*)::int n FROM p2_doctor_version WHERE signature_png IS NULL AND unit_id IS NULL")).rows[0]).toEqual({n:1});
+  // one doctor written with a stray tone mark is one registry entry; different doctors are not merged
+  expect(doctorSkeleton('นพ.สมชาย ทดสอบงามเนตร')).toBe(doctorSkeleton('นพ.สมชาย ทดสอบ้งามเนตร'));
+  expect(doctorSkeleton('นพ.สมศักดิ์ ตัวอย่างหนึ่ง')).not.toBe(doctorSkeleton('พญ.สมศรี ตัวอย่างสอง'));
  }finally{await f.close();}
 },180000);
