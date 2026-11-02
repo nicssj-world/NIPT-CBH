@@ -83,6 +83,7 @@ try {
     $rid = $verified.releaseId; $detail.releaseId = $rid
     if (-not (Test-Path -LiteralPath (Join-Path $wt '.next\BUILD_ID'))) { throw 'VERIFIED_BUILD_MISSING: the Staging build worktree no longer holds its build; redeploy the commit to Staging' }
     if ((Get-Content -LiteralPath (Join-Path $wt '.next\BUILD_ID') -Raw).Trim() -ne $verified.buildId) { throw 'VERIFIED_BUILD_REPLACED: the worktree build is not the one Staging verified; redeploy the commit to Staging' }
+    $detail.preflight = (Invoke-NiptPreflight $tc $wt $cfg $base) | Select-Object -Property verdict, totalMs, skipped
     $t0 = Get-Date
     $pkg = New-NiptPackage $tc $wt $rid $cfg -AppOnly:$installed -SkipBuild
     $timings['package'] = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
@@ -106,6 +107,7 @@ try {
     }
     $timings['validation'] = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
     $detail.validation = $steps
+    $detail.preflight = (Invoke-NiptPreflight $tc $wt $cfg $base) | Select-Object -Property verdict, totalMs, skipped
     $t0 = Get-Date
     $pkg = New-NiptPackage $tc $wt $rid $cfg -AppOnly:$installed
     $timings['build and package'] = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)

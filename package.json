@@ -7,7 +7,14 @@
     "node": ">=24 <25"
   },
   "scripts": {
-    "dev": "next dev --hostname 127.0.0.1",
+    "dev": "node tools/dev/up.mjs web",
+    "dev:setup": "node tools/dev/setup.mjs",
+    "dev:up": "node tools/dev/up.mjs",
+    "dev:down": "node tools/dev/down.mjs",
+    "dev:test": "node tools/dev/test.mjs",
+    "dev:verify": "node tools/dev/verify.mjs",
+    "release:preflight": "node tools/release/preflight.mjs",
+    "perf:report": "node tools/release/perf-report.mjs",
     "build": "next build",
     "start": "next start --hostname 0.0.0.0",
     "typecheck": "next typegen && tsc --noEmit",

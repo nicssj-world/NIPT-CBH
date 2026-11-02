@@ -11,6 +11,12 @@ import path from 'node:path';
 import {migrationInventory} from '../../deploy/scripts/release-contract.mjs';
 import {directoryHashes,INSTALLER_FORMAT,parseVersion} from './lib.mjs';
 import {stageFormAssets,FORM_ASSETS} from './form-assets.mjs';
+import {verifyBuildStamp,writeBuildStamp,restoreBuildCache,saveBuildCache} from '../release/build-stamp.mjs';
+
+// Wall-clock of every phase, written with --perf-out <file> and echoed on stdout, so the cost of a package is measured, not guessed.
+const phases:{phase:string;seconds:number}[]=[];
+let phaseStart=Date.now(),phaseName='start';
+const phase=(name:string)=>{phases.push({phase:phaseName,seconds:Math.round((Date.now()-phaseStart)/100)/10});phaseName=name;phaseStart=Date.now();};
 
 const arg=(n:string)=>{const i=process.argv.indexOf('--'+n);return i<0?undefined:(process.argv[i+1]&&!process.argv[i+1].startsWith('--')?process.argv[i+1]:'true');};
 const git=(...a:string[])=>execFileSync('git',a,{encoding:'utf8'}).trim();
@@ -43,9 +49,22 @@ const inventory=await migrationInventory(migrationsDir);
 const provenance={revision,migrationsSha256:inventory.sha256,migrations:inventory.files};
 
 // 2. build (always from this exact commit unless --skip-build asserts an existing build of it)
+phase('next build');
+let buildCache:Record<string,unknown>={};
 if(!skipBuild){
- log('next build');execFileSync(process.platform==='win32'?'npm.cmd':'npm',['run','build'],{stdio:'inherit',shell:process.platform==='win32',env:{...process.env,NEXT_TELEMETRY_DISABLED:'1'}});
+ // The Turbopack compilation cache may be restored from NIPT_BUILD_CACHE_DIR (keyed by Next, Node, platform and lockfile). It holds compilation work only: BUILD_ID and every output file are produced fresh from this commit.
+ const restored=restoreBuildCache(process.cwd(),process.env.NIPT_BUILD_CACHE_DIR);
+ log('next build (compilation cache '+(restored.restored?'restored':'cold: '+restored.reason)+')');
+ execFileSync(process.platform==='win32'?'npm.cmd':'npm',['run','build'],{stdio:'inherit',shell:process.platform==='win32',env:{...process.env,NEXT_TELEMETRY_DISABLED:'1'}});
+ writeBuildStamp(process.cwd(),revision);
+ buildCache={restored:restored.restored,saved:saveBuildCache(process.cwd(),process.env.NIPT_BUILD_CACHE_DIR).saved};
+}else{
+ // --skip-build only reuses a build that PROVES it is this commit with these inputs; a stale .next or BUILD_ID is refused.
+ const proof=verifyBuildStamp(process.cwd(),revision);
+ if(!proof.ok)throw Error(proof.code+': '+proof.detail);
+ log('reusing the verified build (BUILD_ID '+proof.stamp.buildId+')');
 }
+phase('stage release');
 const standalone=path.resolve('.next/standalone');
 if(!await exists(path.join(standalone,'server.js')))throw Error('STANDALONE_BUILD_REQUIRED');
 if(git('status','--porcelain','--untracked-files=normal')||git('rev-parse','HEAD')!==revision)throw Error('SOURCE_CHANGED_DURING_BUILD');
@@ -92,6 +111,7 @@ await cp(path.join(modulesCache,'node_modules'),path.join(ops,'node_modules'),{r
 await writeFile(path.join(ops,'build-provenance.json'),JSON.stringify(provenance));
 await writeFile(path.join(release,'release.json'),JSON.stringify({version,revision,buildId,formAssets:FORM_ASSETS,migrationsSha256:inventory.sha256,migrationCount:Object.keys(inventory.files).length,migrations:inventory.files,extraTestMigration:extra?path.basename(extra):null,createdAt:git('log','-1','--format=%cI')},null,2)); // commit time, not wall-clock: packaging the same build twice is byte-identical
 
+phase('stage runtime');
 // 5. runtime (full packages only)
 let runtime:Record<string,string>|undefined;
 if(!appOnly){
@@ -122,12 +142,14 @@ if(masterArg){
  await mkdir(path.join(out,'payload','master'),{recursive:true});await writeFile(path.join(out,'payload','master','approved-master.xlsx'),bytes);
 }
 
+phase('installer and docs');
 // 6. installer + documentation
 await mkdir(path.join(out,'installer'),{recursive:true});
 for(const f of await readdir('tools/win-installer'))if(/\.(mjs|ps1)$/.test(f))await cp(path.join('tools/win-installer',f),path.join(out,'installer',f));
 await mkdir(path.join(out,'docs'),{recursive:true});
 for(const f of ['docs/p8/windows-installer.md','docs/p8/windows-installer-runbook.md'])if(await exists(f))await cp(f,path.join(out,'docs',path.basename(f)));
 
+phase('hash and sign');
 // 7. sign
 let keyFile=arg('signing-key');
 if(!keyFile){
@@ -142,4 +164,8 @@ const manifest={format:INSTALLER_FORMAT,version,revision,migrationsSha256:invent
 const raw=Buffer.from(JSON.stringify(manifest));
 await writeFile(path.join(out,'manifest.json'),raw);await writeFile(path.join(out,'manifest.sig'),sign(null,raw,privateKey));
 await rm(staging,{recursive:true,force:true});
-process.stdout.write(JSON.stringify({package:out,version,revision,appOnly,fileCount:Object.keys(files).length,publicKey:publicFile,migrations:Object.keys(inventory.files).length})+'\n');
+phase('done');
+const perf=phases.filter(x=>x.phase!=='start'||x.seconds>0);
+const perfOut=arg('perf-out');
+if(perfOut)await writeFile(perfOut,JSON.stringify({format:'NIPT_PACKAGE_PERF_V1',version,revision,appOnly,buildCache,totalSeconds:Math.round(perf.reduce((a,b)=>a+b.seconds,0)*10)/10,phases:perf},null,1));
+process.stdout.write(JSON.stringify({package:out,version,revision,appOnly,fileCount:Object.keys(files).length,publicKey:publicFile,migrations:Object.keys(inventory.files).length,phases:perf})+'\n');

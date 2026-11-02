@@ -49,6 +49,7 @@ try {
   Assert-NiptAssets $wt $cfg
   $detail.validation = @(Invoke-NiptValidation $tc $wt $Validation)
 
+  $detail.preflight = (Invoke-NiptPreflight $tc $wt $cfg $null) | Select-Object -Property verdict, totalMs, skipped
   $public = Initialize-NiptSigningKey $tc $cfg
   $installed = Test-NiptInstalled $cfg
   $pkg = New-NiptPackage $tc $wt $rid $cfg -AppOnly:$installed

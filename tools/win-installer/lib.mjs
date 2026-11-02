@@ -135,16 +135,19 @@ export async function readJson(file,fallback=undefined){
 
 /** Hash every file under dir (relative POSIX names), skipping the manifest and its signature. Symlinks are refused. */
 export async function directoryHashes(dir,skip=['manifest.json','manifest.sig']){
- const out={};
+ const out={},files=[];
  async function walk(rel=''){
   for(const e of await readdir(path.join(dir,rel),{withFileTypes:true})){
    const name=rel?rel+'/'+e.name:e.name;
    if(skip.includes(name))continue;
    if(e.isSymbolicLink())throw Error('PACKAGE_SYMLINK');
-   if(e.isDirectory())await walk(name);else if(e.isFile())out[name]=await sha256File(path.join(dir,name));
+   if(e.isDirectory())await walk(name);else if(e.isFile())files.push(name);
   }
  }
  await walk();
+ // Same SHA-256 per file as before, computed by a bounded pool instead of one file at a time; the result is sorted below, so the manifest is byte-identical.
+ let next=0;
+ await Promise.all(Array.from({length:Math.min(16,files.length||1)},async()=>{for(;;){const i=next++;if(i>=files.length)return;out[files[i]]=await sha256File(path.join(dir,files[i]));}}));
  return Object.fromEntries(Object.entries(out).sort(([a],[b])=>a<b?-1:a>b?1:0));
 }
 
