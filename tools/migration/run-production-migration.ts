@@ -6,7 +6,7 @@
  *  The environment is the web service's (DATABASE_URL = web role, FILE_STORE_ROOT, IDENTITY_LOOKUP_KEY_FILE, APP_ORIGIN, NIPT_MODE=operational,
  *  NIPT_ENVIRONMENT=production and the signed-backup-receipt variables). Output carries counts and codes only: never an LN, HN, name or date of birth.
  *  Never releases or certifies anything, never enables or sends anything to HIS. */
-import {readFileSync,readdirSync,existsSync,writeFileSync,mkdirSync} from 'node:fs';
+import {readFileSync,readdirSync,writeFileSync,mkdirSync} from 'node:fs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {pool} from '../../packages/db/connection';
@@ -18,6 +18,10 @@ import {enrichMigrationPets} from '../../packages/migration/pet-enrichment';
 import {scanHistoricalPetFolder,reconcilePetCandidates} from '../../packages/migration/pet-source';
 import {ingestMigrationPdfs} from '../../packages/migration/bulk-pdf';
 import {adminCommand} from '../../packages/admin/service';
+import {parseMapping} from '../../packages/migration/mapping';
+import {excelAllocatorEvidence} from '../../packages/migration/high-watermark';
+import {applyAllocatorHandover} from '../../packages/migration/identifiers';
+import {repairTwinAttachments,backfillPaperMarkers} from '../../packages/migration/twin-repair';
 import type {Staff} from '../../packages/lab/core';
 
 const argv=process.argv.slice(2);
@@ -25,6 +29,8 @@ const arg=(n:string)=>{const i=argv.indexOf('--'+n);return i<0?undefined:argv[i+
 const args=(n:string)=>argv.flatMap((a,i)=>a==='--'+n&&argv[i+1]?[argv[i+1]]:[]);
 const need=(n:string)=>{const v=arg(n);if(!v)throw Error('ARGUMENT_REQUIRED --'+n);return v;};
 const phase=need('phase'),sourceDir=arg('source')??'',petDir=arg('pet')??'',pdfDir=arg('pdf')??'',out=arg('out');
+// Owner decision for a specimen the HIS sent twice with only a different receipt time: the receipt time to keep (repeatable).
+const petOptions={keepReceivedAt:args('pet-received-at')};
 const sha=(b:Buffer)=>createHash('sha256').update(b).digest('hex');
 const tally=(xs:string[])=>xs.reduce<Record<string,number>>((a,k)=>({...a,[k]:(a[k]??0)+1}),{});
 const db=pool();
@@ -69,11 +75,11 @@ try{
  if(phase==='preflight'){
   const {mapping,halos}=files();const plan=buildMigrationPlan({mapping,halos});
   report.plan={digest:plan.digest.slice(0,12),counts:plan.counts,exceptions:tally(plan.exceptions.map(x=>x.code+':'+x.severity)),sources:plan.sources.map(s=>({kind:s.kind,run:s.runLabel??null,sha256:s.sha256.slice(0,12)}))};
-  const scan=await scanHistoricalPetFolder(petDir),pet=reconcilePetCandidates(scan.candidates);
+  const scan=await scanHistoricalPetFolder(petDir,petOptions),pet=reconcilePetCandidates(scan.candidates,petOptions);
   report.pet={files:scan.filesSeen,resolved:pet.candidates.length,issues:tally([...scan.issues,...pet.issues].map(x=>x.code)),wards:tally(pet.candidates.map(c=>c.pet.ward||'(none)'))};
   report.units=Number(await scalar("SELECT count(*)::int v FROM unit"));report.existingMigration=Number(await scalar("SELECT count(*)::int v FROM migration_execution"));
  }else if(phase==='units'){
-  const a=await actor(),scan=await scanHistoricalPetFolder(petDir),pet=reconcilePetCandidates(scan.candidates),created:string[]=[];
+  const a=await actor(),scan=await scanHistoricalPetFolder(petDir,petOptions),pet=reconcilePetCandidates(scan.candidates,petOptions),created:string[]=[];
   for(const ward of Object.keys(tally(pet.candidates.map(c=>c.pet.ward||'')))){
    if(!/^[A-Za-z0-9._-]{1,40}$/.test(ward))throw Error('PET_WARD_NEEDS_EXPLICIT_MAPPING');
    if(Number(await scalar("SELECT count(*)::int v FROM unit WHERE code=$1",[ward])))continue;
@@ -89,7 +95,7 @@ try{
   report.executionId=prepared.id;
   const done=await resumeMigration(db,a,prepared.id,{store:store()});report.executionState=done.state;
   const key=readFileSync(process.env.IDENTITY_LOOKUP_KEY_FILE!);
-  report.pet=await enrichMigrationPets(db,a,prepared.id,store(),key,{});
+  report.pet=await enrichMigrationPets(db,a,prepared.id,store(),key,{},petOptions);
  }else if(phase==='pdfs'){
   const a=await actor();
   await appendAudit(db,{actorId:a.id,action:'MIGRATION_OPERATOR_RUN',resourceType:'MIGRATION',details:{outcome:'STARTED',reasonCode:'OPERATOR_SCRIPT_OWNER_AUTH_20261102_PDFS'}});
@@ -104,6 +110,26 @@ try{
    }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
   }
   report.pdfFiles=names.length;report.linkedOrImported=imported;report.byState=tally(outcome);report.byStateReason=tally(reasons);
+ }else if(phase==='twin'){
+  // Owner decision: attach the twin "<LN Halos>D-<n>" analysis imported before the parser knew the D form. Evidence-checked, audited, idempotent.
+  report.twin=await repairTwinAttachments(db,await actor());
+ }else if(phase==='paper'){
+  // Owner decision: every historical case is Paper request + Paper consent. Markers only; no document, signature or approval.
+  report.paper=await backfillPaperMarkers(db,await actor());
+  report.paperMarkers=Object.fromEntries((await db.query<{k:string;n:string}>("SELECT w.request_mode||'/'||w.consent_mode k,count(*)::text n FROM p2_workspace w JOIN migration_record m ON m.case_id=w.case_id AND m.round_id=w.round_id WHERE m.state='IMPORTED' GROUP BY 1")).rows.map(r=>[r.k,Number(r.n)]));
+ }else if(phase==='handover'){
+  // Owner decision: the Excel mapping is the source of truth for the LN Halos hand-over (no Genomic-CBH database). The newest COMPLETED execution
+  // must hold exactly the Owner-confirmed file; --expect-last names the highest LN Halos the Owner confirmed, which must equal the file's own maximum.
+  const a=await actor(),{mapping}=files(),parsed=parseMapping(mapping),source=parsed.source;
+  const expectLast=need('expect-last'),em=/^\d{2}B(\d{2})(\d{2})\d{2}(\d{3})$/.exec(expectLast);if(!em)throw Error('EXPECT_LAST_INVALID');
+  const evidence=excelAllocatorEvidence(parsed.mappings,source.sha256,{sourceIdentity:'owner-confirmed-excel-mapping',capturedAt:new Date().toISOString()});
+  const monthKey='20'+em[1]+'-'+em[2]+'-01',month=evidence.months.find(m=>m.month===monthKey);
+  if(!month||month.lastValue!==Number(em[3]))throw Error('EXPECT_LAST_DOES_NOT_MATCH_MAPPING');
+  const execution=(await db.query<{id:string}>("SELECT e.id FROM migration_execution e WHERE e.state IN ('COMPLETED','PARTIAL') AND EXISTS(SELECT 1 FROM migration_source s WHERE s.execution_id=e.id AND s.kind='GENOMIC_MAPPING' AND s.sha256=$1) ORDER BY e.created_at DESC LIMIT 1",[source.sha256])).rows[0];
+  if(!execution)throw Error('NO_COMPLETED_EXECUTION_FOR_THIS_MAPPING');
+  await appendAudit(db,{actorId:a.id,action:'MIGRATION_OPERATOR_RUN',resourceType:'MIGRATION',details:{outcome:'STARTED',reasonCode:'OPERATOR_SCRIPT_OWNER_AUTH_20261102_HANDOVER'}});
+  report.handover=await applyAllocatorHandover(db,a,execution.id,evidence);
+  report.nextSequence=Object.fromEntries((await db.query<{m:string;n:number}>("SELECT sequence_month::text m,last_value+1 n FROM ln_halos_monthly_sequence ORDER BY 1")).rows.map(r=>[r.m,r.n]));
  }else if(phase!=='report')throw Error('UNKNOWN_PHASE');
  // counts after every phase (and the whole content of "report")
  const c=async(sql:string)=>Number(await scalar(sql));

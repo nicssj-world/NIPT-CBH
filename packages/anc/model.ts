@@ -9,9 +9,9 @@ export type Flag = keyof typeof flagLabels;
 export type CaseFacts = {
  registeredAt?:string; id:string; ln:string; hn:string|null; patientName?:string|null; unitIds:string[]; currentRoundId:string|null; roundNumber:number|null; roundState:string|null;
  s1ReceivedAt:string|null; currentReceivedAt:string|null; analysisStarted:boolean; documentsReady:boolean;
- reportState:string|null; activeReleaseCount:number; certifiedReleaseCount:number; redraw:boolean; repeat:boolean; hold:boolean; urgent:boolean; consentRevoked:boolean; identityIssue:boolean;
+ reportState:string|null; activeReleaseCount:number; certifiedReleaseCount:number; redraw:boolean; repeat:boolean; hold:boolean; urgent:boolean; consentRevoked:boolean; identityIssue:boolean; /** a migrated historical case with an official PDF linked to its imported attempt */historicalResult?:boolean;
 };
-export type QueueItem = CaseFacts & {stage:Stage;stageLabel:string;flags:Flag[];released:boolean;pending:boolean;daysWaiting:number|null};
+export type QueueItem = CaseFacts & {stage:Stage;stageLabel:string;flags:Flag[];released:boolean;pending:boolean;daysWaiting:number|null;/** certified release or, for a migrated historical case, an official PDF linked to the imported attempt (Owner 2026-11-02): the result exists */hasResult:boolean};
 export type Filters = {fy:number;unitId?:string;kpi?:'sent'|'pending'|'released'|'attention';stage?:Stage;flag?:Flag;tab?:'all'|'pending'|'released'|'attention'|'redraw'|'hold';q?:string;page:number;pageSize:number};
 export function fiscalYear(iso:string):number {const d=new Date(new Date(iso).getTime()+7*3600000);return d.getUTCFullYear()+(d.getUTCMonth()>=9?1:0)+543;}
 export function project(c:CaseFacts,now:Date):QueueItem {
@@ -22,22 +22,22 @@ export function project(c:CaseFacts,now:Date):QueueItem {
  const missingS1=!!c.currentReceivedAt&&!c.s1ReceivedAt;
  const conflict=c.activeReleaseCount>1||c.activeReleaseCount!==c.certifiedReleaseCount;
  if(missingS1)flags.push('missing_s1');if(conflict)flags.push('conflicting_release');
- if(c.reportState==='ValidationBlocked')flags.push('validation_blocked');
- const released=!missingS1&&!conflict&&c.certifiedReleaseCount===1;
+ if(c.reportState==='ValidationBlocked'&&!c.historicalResult)flags.push('validation_blocked');
+ const released=!missingS1&&!conflict&&c.certifiedReleaseCount===1,hasResult=!missingS1&&!conflict&&(c.certifiedReleaseCount===1||!!c.historicalResult);
  let stage:Stage='exception';
  if(missingS1||conflict||!c.currentRoundId)stage='exception';
- else if(released)stage='released';
+ else if(hasResult)stage='released';
  else if(c.redraw)stage='followup';
  else if(['Linked','ValidationBlocked','PendingCertification'].includes(c.reportState??''))stage='review';
  else if(c.analysisStarted)stage='analysis';
  else if(['ReceivedInHIS','ReceivedInNIPT','Completed'].includes(c.roundState??'')&&c.currentReceivedAt)stage='received';
  else if(c.roundState==='Expected')stage=c.documentsReady?'expected':'documents';
  if(stage==='exception'&&!missingS1&&!conflict)flags.push('unmapped_state');
- return {...c,stage,stageLabel:stages.find(s=>s[0]===stage)![1],flags,released,pending:!!c.s1ReceivedAt&&!released,
+ return {...c,stage,stageLabel:stages.find(s=>s[0]===stage)![1],flags,released,hasResult,pending:!!c.s1ReceivedAt&&!hasResult,
  daysWaiting:c.s1ReceivedAt?Math.max(0,Math.floor((now.getTime()-new Date(c.s1ReceivedAt).getTime())/86400000)):null};
 }
 export function matches(c:QueueItem,f:Partial<Filters>):boolean {
- const metric=(key:string)=>key==='sent'?!!c.s1ReceivedAt&&fiscalYear(c.s1ReceivedAt)===f.fy:key==='pending'?c.pending:key==='released'?c.released:key==='attention'?c.flags.length>0:false;
+ const metric=(key:string)=>key==='sent'?!!c.s1ReceivedAt&&fiscalYear(c.s1ReceivedAt)===f.fy:key==='pending'?c.pending:key==='released'?c.hasResult:key==='attention'?c.flags.length>0:false;
  return (!f.unitId||c.unitIds.includes(f.unitId))&&(!f.kpi||metric(f.kpi))&&(!f.stage||c.stage===f.stage)&&(!f.flag||c.flags.includes(f.flag))&&
  (!f.tab||f.tab==='all'||(f.tab==='redraw'?c.redraw:f.tab==='hold'?c.hold:metric(f.tab)))&&
  (!f.q||([c.ln,c.hn??'',c.patientName??'',c.id].some(v=>v.toLowerCase().includes(f.q!.trim().toLowerCase()))||(/^\d{2}-\d{3}-\d-\d{4}$/.test(f.q!.trim())&&c.ln.includes(f.q!.trim().replaceAll('-','')))));

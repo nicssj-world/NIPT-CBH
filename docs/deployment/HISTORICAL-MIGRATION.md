@@ -39,3 +39,17 @@ Restore from the verified backup taken immediately before the import (isolated r
 Anything written after that backup is lost on restore.
 
 ## Open items are recorded in the release checklist.
+
+## Remediation after the first Production import (Owner decisions, 2026-11-02)
+
+Applied on the installed Production with the same runner (`nipt-admin ops-run`), as idempotent phases; nothing is re-imported or reset.
+
+| Phase | What it does | Never does |
+|---|---|---|
+| `execute` (with the updated mapping, `--pet-received-at <time>`) | adds the November delta rows (no case, no analysis without evidence); binds the PET whose duplicate differs only in receipt time, keeping the receipt time the Owner named | pick a PET by any rule of its own; touch the other 201 cases |
+| `twin` | attaches a twin `<LN Halos>D-<n>` analysis imported before the parser knew the D form to its existing case and bare first attempt (`migration_repair_twin_attachments`, migration 177), audited, idempotent | create a case, attempt or analysis; weaken the immutability guards (they still refuse every other change) |
+| `paper` | sets request and consent to Paper for the workspaces of migrated cases; new workspaces of migrated cases start as Paper | create a document, signature or approval |
+| `pdfs` | links a PDF when the printed sample ID + HN select exactly one current qualified attempt; a matching LN (file name) or HN is the identifier, a name difference is kept as evidence and never rejects; an LN in the file name pointing elsewhere is a conflict | link by name alone; release or certify |
+| `handover --expect-last <LN Halos>` | LN Halos allocator hand-over from the Owner-confirmed Excel mapping (`OWNER_CONFIRMED_EXCEL_MAPPING`, migration 176): per-month high-water, the next number is last+1, a new month starts at 001 | read the Genomic-CBH database; carry one month's counter into another |
+
+The ANC dashboard shows "มีผลแล้ว (ข้อมูลย้อนหลัง)" beside a migrated case whose official PDF is linked. It is a separate fact: stages, KPIs, certification and HIS transfers are unchanged.

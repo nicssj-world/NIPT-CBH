@@ -37,17 +37,20 @@ it('requires HIS LN and name evidence; any contradiction is a conflict, missing 
  expect(verifyPdfIdentity({fileName:ok,pdfName:null,target:{ln:'9900000001',patientName:null}})).toMatchObject({status:'UNVERIFIED',reasons:['PATIENT_NAME_UNAVAILABLE']});
  expect(verifyPdfIdentity({fileName:'9900000001.pdf',pdfName:null,target:t})).toMatchObject({status:'UNVERIFIED',reasons:['FILE_NAME_MISSING']});
 });
-it('auto-matches only when content, file name and PET name agree; Re-Library binds the -2 final attempt and never -1',()=>{
+it('Owner rule: LN or HN identifies the PDF; a name mismatch alone never rejects; conflicting identifiers do; Re-Library binds -2 and never -1',()=>{
  const ok='9900000001 สมหญิง ทดสอบ.pdf',t=target('นางสาว สมหญิง ทดสอบ');
- expect(matchMigrationPdf(pdf(),[t],ok).match?.attemptId).toBe('a2');
+ expect(matchMigrationPdf(pdf(),[t],ok)).toMatchObject({match:{attemptId:'a2'},reason:'LN_MATCH'});
  expect(matchMigrationPdf(parseReport('Lab No. (LN): 26B261014027-1 HN: 123'),[t],ok)).toMatchObject({match:null,reason:'PDF_IDENTITY_OR_ATTEMPT_UNRESOLVED'});
  expect(matchMigrationPdf(parseReport('Lab No. (LN): 26B261014027-2 HN: 999'),[t],ok).match).toBeNull();
  expect(matchMigrationPdf(pdf(),[t,{...t,recordId:'other'}],ok)).toMatchObject({match:null,reason:'AMBIGUOUS_PDF_IDENTITY'});
+ // the LN printed in the file name points at another case than the sample ID + HN: never choose one
  expect(matchMigrationPdf(pdf(),[t],'9900000009 สมหญิง ทดสอบ.pdf')).toMatchObject({match:null,reason:'PDF_IDENTITY_CONFLICT'});
- expect(matchMigrationPdf(pdf(),[t],'9900000001 สมศรี ทดสอบ.pdf')).toMatchObject({match:null,reason:'PDF_IDENTITY_CONFLICT'});
- expect(matchMigrationPdf(pdf('สมศรี ทดสอบ'),[t],ok)).toMatchObject({match:null,reason:'PDF_IDENTITY_CONFLICT'});
- expect(matchMigrationPdf(pdf(),[t],'plain.pdf')).toMatchObject({match:null,reason:'PDF_IDENTITY_UNVERIFIED'});
- expect(matchMigrationPdf(pdf(),[target(null)],ok)).toMatchObject({match:null,reason:'PDF_IDENTITY_UNVERIFIED'});
+ // name differences are evidence, not a rejection (file name, printed name, or both)
+ expect(matchMigrationPdf(pdf(),[t],'9900000001 สมศรี ทดสอบ.pdf')).toMatchObject({match:{attemptId:'a2'},reason:'LN_MATCH',identity:{nameMismatch:{file:true,pdf:false}}});
+ expect(matchMigrationPdf(pdf('สมศรี ทดสอบ'),[t],ok)).toMatchObject({match:{attemptId:'a2'},reason:'LN_MATCH',identity:{nameMismatch:{file:false,pdf:true}}});
+ // no LN in the file name: the HN (already required with the sample ID) identifies it
+ expect(matchMigrationPdf(pdf(),[t],'plain.pdf')).toMatchObject({match:{attemptId:'a2'},reason:'HN_MATCH'});
+ expect(matchMigrationPdf(pdf(),[target(null)],ok)).toMatchObject({match:{attemptId:'a2'},reason:'LN_MATCH'});
 });
 it('reads the real HIS PET name format and the Owner file-name suffix (synthetic names)',()=>{
  // PET: "<surname>^^<title><given name>" with the dotted title in the middle; PDF/file: title attached to the given name.

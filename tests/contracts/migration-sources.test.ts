@@ -13,3 +13,18 @@ describe('migration historical PET read-only sources',()=>{
  it('never picks conflicting LN identities and deduplicates identical archive copies',()=>{const s=sample(),z=writeArchive(new Map([[s.filename,s.bytes],[s.filename.replace(/\.pet$/,'.ok'),Buffer.alloc(0)]]));const one=readPetArchive(z,'history.zip').candidates[0];expect(reconcilePetCandidates([one,one]).candidates).toHaveLength(1);const conflicting={...one,sha256:'f'.repeat(64),pet:{...one.pet,hn:'SYNTHETIC-HN-OTHER'}};const result=reconcilePetCandidates([one,conflicting]);expect(result.candidates).toHaveLength(0);expect(result.issues[0].code).toBe('PET_LN_IDENTITY_CONFLICT');});
 });
 
+describe('migration PET re-sent duplicate (Owner decision: keep the named receipt time)',()=>{
+ const pair=()=>{const a=buildSyntheticPet({ln:'990000000001',hn:'SYNTHETIC-HN-1',receivedAt:'20200101120000',specimenAt:'20200101080000',orderAt:'20200101080000',ward:'SYNTHETIC-WARD'}),b=buildSyntheticPet({ln:'990000000001',hn:'SYNTHETIC-HN-1',receivedAt:'20200113103000',specimenAt:'20200101080000',orderAt:'20200101080000',ward:'SYNTHETIC-WARD'});
+  const read=(s:ReturnType<typeof buildSyntheticPet>)=>readPetArchive(writeArchive(new Map([[s.filename,s.bytes],[s.filename.replace(/\.pet$/,'.ok'),Buffer.alloc(0)]])),'h.zip').candidates[0];return [read(a),read(b)];};
+ it('keeps one file when only the receipt time differs and the Owner named a time; otherwise stays a conflict',()=>{
+  const [first,second]=pair();
+  expect(reconcilePetCandidates([first,second]).issues.map(i=>i.code)).toEqual(['PET_LN_IDENTITY_CONFLICT']);
+  const kept=reconcilePetCandidates([first,second],{keepReceivedAt:[first.pet.receivedAt]});
+  expect(kept.candidates).toHaveLength(1);expect(kept.candidates[0].pet.receivedAt).toBe(first.pet.receivedAt);expect(kept.issues.map(i=>i.code)).toEqual(['PET_RESENT_DUPLICATE_IGNORED']);
+  expect(reconcilePetCandidates([first,second],{keepReceivedAt:['2020-02-02T00:00:00+07:00']}).candidates).toHaveLength(0);
+ });
+ it('never applies to a real identity difference', ()=>{
+  const [first,second]=pair();const other={...second,pet:{...second.pet,hn:'SYNTHETIC-HN-OTHER'}};
+  expect(reconcilePetCandidates([first,other],{keepReceivedAt:[first.pet.receivedAt]}).candidates).toHaveLength(0);
+ });
+});

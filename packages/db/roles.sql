@@ -177,5 +177,6 @@ GRANT EXECUTE ON FUNCTION p6_release_eligible(uuid,integer),task3_his_presence_a
 
 GRANT SELECT ON migration_allocator_handover TO app_rw;
 GRANT EXECUTE ON FUNCTION migration_apply_allocator_handover(uuid,uuid,jsonb) TO app_rw;
+GRANT EXECUTE ON FUNCTION migration_repair_twin_attachments(uuid) TO app_rw;
 
 GRANT EXECUTE ON FUNCTION migration_reserve_original_number(uuid,uuid) TO app_rw;

@@ -1,5 +1,5 @@
 import type {Parsed} from '../results/parser';
-import {verifyPdfIdentity,currentPatientNames,type PdfIdentityEvidence} from './pdf-identity';
+import {resolvePdfMatch,currentPatientNames,type PdfMatchEvidence} from './pdf-identity';
 export type MigrationPdfTarget={recordId:string;caseId:string;roundId:string;attemptId:string;ln:string;lnHalos:string;sampleRaw:string;attemptNumber:number;hn:string|null;current:boolean;qualified:boolean;patientName?:string|null};
 /**
  * Content selects at most one current Qualified attempt: the printed sample ID with its attempt suffix plus the HN, so a base ID can never pick a
@@ -8,10 +8,11 @@ export type MigrationPdfTarget={recordId:string;caseId:string;roundId:string;att
 export function matchMigrationPdf(parsed:Parsed,targets:MigrationPdfTarget[],fileName:string|null){
  const lab=parsed.identifiers.labNumber.value,hn=parsed.identifiers.hn.value;
  const candidates=targets.filter(t=>t.current&&t.qualified&&lab===t.sampleRaw.trim()&&!!hn&&!!t.hn&&hn.replace(/^0+/,'')===t.hn.replace(/^0+/,''));
- if(candidates.length!==1)return {match:null as MigrationPdfTarget|null,identity:null as PdfIdentityEvidence|null,reason:candidates.length>1?'AMBIGUOUS_PDF_IDENTITY':'PDF_IDENTITY_OR_ATTEMPT_UNRESOLVED'};
- const identity=verifyPdfIdentity({fileName,pdfName:parsed.identifiers.patientName.value,target:{ln:candidates[0].ln,patientName:candidates[0].patientName??null}});
- if(identity.status!=='MATCH')return {match:null,identity,reason:identity.status==='CONFLICT'?'PDF_IDENTITY_CONFLICT':'PDF_IDENTITY_UNVERIFIED'};
- return {match:candidates[0],identity,reason:'EXACT_CONTENT_IDENTITY'};
+ if(candidates.length!==1)return {match:null as MigrationPdfTarget|null,identity:null as PdfMatchEvidence|null,reason:candidates.length>1?'AMBIGUOUS_PDF_IDENTITY':'PDF_IDENTITY_OR_ATTEMPT_UNRESOLVED'};
+ // Owner rule: LN or HN is the identifier; a name mismatch alone never rejects (it is kept as evidence).
+ const identity=resolvePdfMatch({fileName,pdfName:parsed.identifiers.patientName.value,target:{ln:candidates[0].ln,patientName:candidates[0].patientName??null}});
+ if(identity.status!=='MATCH')return {match:null,identity,reason:'PDF_IDENTITY_CONFLICT'};
+ return {match:candidates[0],identity,reason:identity.method==='LN_MATCH'?'LN_MATCH':'HN_MATCH'};
 }
 import type {Queryable} from '../db/connection';
 import type {FileStore} from '../storage';
@@ -29,7 +30,7 @@ export async function ingestMigrationPdfs(db:Queryable,user:Staff,store:FileStor
  if(files.length<1||files.length>20)throw new LabError('FILE_COUNT_INVALID',422);
  const {resultSettings,limitsOf,confirmImport,autoLinkUnique}=await import('../results/service');
  const limits=limitsOf(await resultSettings(db)),targets=await migrationPdfTargets(db);
- const rows:{intakeId?:string;file:string;state:string;reason:string;identity?:PdfIdentityEvidence['checks']|null;versionId?:string;match:MigrationPdfTarget|null}[]=[];
+ const rows:{intakeId?:string;file:string;state:string;reason:string;identity?:PdfMatchEvidence['checks']|null;versionId?:string;match:MigrationPdfTarget|null}[]=[];
  for(const file of files){
   await db.query('SAVEPOINT migration_pdf_file');
   try{
@@ -50,7 +51,9 @@ export async function ingestMigrationPdfs(db:Queryable,user:Staff,store:FileStor
       row.reason='CONFLICTING_OFFICIAL_PDFS';rows.push(row);continue;
      }
      await db.query('SAVEPOINT migration_pdf_confirm');
-     try{const imported=(await confirmImport(db,user,{intakeIds:[intake.id]}))[0];row.versionId=imported.versionId;row.state=imported.outcome;if(imported.versionId&&imported.outcome==='Unlinked'){const linked=await autoLinkUnique(db,user,imported.versionId,{migrationOnly:true});if(linked.linked)row.state=linked.version.state;else row.reason=linked.reason;}}
+     try{const imported=(await confirmImport(db,user,{intakeIds:[intake.id]}))[0];row.versionId=imported.versionId;row.state=imported.outcome;if(imported.versionId&&imported.outcome==='Unlinked'){const linked=await autoLinkUnique(db,user,imported.versionId,{migrationOnly:true});if(linked.linked){row.state=linked.version.state;
+       // Matching method and any name difference stay as evidence; the names themselves are never written to the event.
+       await db.query("INSERT INTO migration_record_event(record_id,actor_id,event,details) VALUES($1,$2,'PDF_LINKED',$3)",[match.recordId,user.id,{intakeId:intake.id,versionId:imported.versionId,method:matched.reason,nameMismatch:matched.identity?.nameMismatch??null}]);}else row.reason=linked.reason;}}
      catch(e){await db.query('ROLLBACK TO SAVEPOINT migration_pdf_confirm');row.reason=e instanceof Error?e.message:'IMPORT_REVIEW_REQUIRED';}
      await db.query('RELEASE SAVEPOINT migration_pdf_confirm');
     }

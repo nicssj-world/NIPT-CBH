@@ -47,11 +47,11 @@ export async function bindMigrationPet(db:Queryable,user:Staff,recordId:string,c
   await d.query("INSERT INTO migration_record_event(record_id,actor_id,event,details) VALUES($1,$2,'PET_BOUND',$3)",[r.id,user.id,{sourceSha256:sha,sourceName:c.sourceName,relativePath:c.relativePath,ward:c.pet.ward,unitId:unit.id}]);return {outcome:'BOUND',caseId,roundId:round.id};
  });
 }
-export async function enrichMigrationPets(db:Queryable,user:Staff,id:string,store:FileStore,key:Buffer,wardMappings:Record<string,string>={}){
+export async function enrichMigrationPets(db:Queryable,user:Staff,id:string,store:FileStore,key:Buffer,wardMappings:Record<string,string>={},petOptions:{keepReceivedAt?:readonly string[]}={}){
  migrationAdmin(user);const x=(await db.query<{pet_source:{kind:'FOLDER'|'ZIP';path:string}|null;ward_mappings?:Record<string,string>}>('SELECT * FROM migration_execution WHERE id=$1',[id])).rows[0];if(!x?.pet_source)return {matched:0,pending:0,issues:[{code:'PET_SOURCE_NOT_CONFIGURED'}]};
  wardMappings={...x.ward_mappings,...wardMappings};
- const scan=x.pet_source.kind==='ZIP'?readPetArchive(await readFile(x.pet_source.path),x.pet_source.path):await scanHistoricalPetFolder(x.pet_source.path);
- const reconciled=reconcilePetCandidates(scan.candidates);
+ const scan=x.pet_source.kind==='ZIP'?readPetArchive(await readFile(x.pet_source.path),x.pet_source.path):await scanHistoricalPetFolder(x.pet_source.path,petOptions);
+ const reconciled=reconcilePetCandidates(scan.candidates,petOptions);
  const candidates=new Map(reconciled.candidates.map(c=>[c.pet.ln,c]));let matched=0,pending=0;const issues=[...scan.issues,...reconciled.issues].map(i=>({code:i.code}));
  const rows=(await db.query<{id:string;ln:string}>("SELECT id,ln FROM migration_record WHERE execution_id=$1 AND state='IMPORTED' AND case_id IS NULL ORDER BY row_number",[id])).rows;
  for(const r of rows){if((await db.query<{state:string}>('SELECT state FROM migration_execution WHERE id=$1',[id])).rows[0]?.state==='CANCELLED')break;const c=candidates.get(r.ln);if(!c){pending++;continue;}try{const result=await bindMigrationPet(db,user,r.id,c,store,key,wardMappings);if(result.outcome==='CANCELLED')break;matched++;}catch(e){pending++;const code=errorCode(e);issues.push({code});await db.query("INSERT INTO migration_record_event(record_id,actor_id,event,details) VALUES($1,$2,'PET_ENRICHMENT_WARNING',$3)",[r.id,user.id,{code}]);}}

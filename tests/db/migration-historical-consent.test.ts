@@ -27,7 +27,7 @@ beforeAll(async()=>{
 afterAll(async()=>{await db?.close();});
 it('flags a result-ready historical case and refuses every retroactive request/consent action without creating evidence',async()=>{
  const ready=await register(1);await mark(ready,'QUALIFIED_PDF_PENDING',1);
- const view=await tx(()=>getCase(db,anc,ready));expect(view.historicalMigration).toEqual({resultReady:true});
+ const view=await tx(()=>getCase(db,anc,ready));expect(view.historicalMigration).toEqual({resultReady:true,migrated:true});
  const version=view.workspace.version;
  const before=await documents(ready);
  const attempts:Array<[string,()=>Promise<unknown>]>=[
@@ -39,12 +39,12 @@ it('flags a result-ready historical case and refuses every retroactive request/c
  expect(await documents(ready)).toBe(before);
  expect((await db.query("SELECT 1 FROM p2_paper_review WHERE case_id=$1 AND kind='CONSENT'",[ready])).rows).toHaveLength(0);
  // The migration classification is the only thing that changes behaviour: the same state is also reported for released/review classes.
- for(const [n,classification] of [[2,'PDF_REVIEW'],[3,'CERTIFIED_RELEASED']] as const){const id=await register(n);await mark(id,classification,n);expect((await tx(()=>getCase(db,anc,id))).historicalMigration).toEqual({resultReady:true});}
+ for(const [n,classification] of [[2,'PDF_REVIEW'],[3,'CERTIFIED_RELEASED']] as const){const id=await register(n);await mark(id,classification,n);expect((await tx(()=>getCase(db,anc,id))).historicalMigration).toEqual({resultReady:true,migrated:true});}
 });
 it('an in-progress migrated case and a new ANC registration keep the ordinary request/consent workflow',async()=>{
  const progress=await register(4),fresh=await register(5);await mark(progress,'NO_HALOS',4);
  for(const id of [progress,fresh]){
-  const view=await tx(()=>getCase(db,anc,id));expect(view.historicalMigration).toEqual({resultReady:false});
+  const view=await tx(()=>getCase(db,anc,id));expect(view.historicalMigration).toEqual({resultReady:false,migrated:id===progress});
   const out=await tx(()=>setModes(db,anc,id,{expectedVersion:view.workspace.version,requestMode:'Electronic',consentMode:'Paper',reason:'SYNTHETIC ANC selected paper consent'}));expect(out).toBeTruthy();
  }
 });

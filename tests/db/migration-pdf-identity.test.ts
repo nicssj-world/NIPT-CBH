@@ -47,10 +47,6 @@ it('links only when the file name LN HIS, the file name and the PDF name agree w
   const wrongLn=(Number(m.ln)+1).toString().padStart(10,'0');
   const cases:Array<[string,string,Buffer,string]>=[
    ['wrong LN HIS in the file name',`${wrongLn} Somying Testcase.pdf`,m.pdf(),'PDF_IDENTITY_CONFLICT'],
-   ['wrong person in the file name',`${m.ln} Somchai Othercase.pdf`,m.pdf(),'PDF_IDENTITY_CONFLICT'],
-   ['wrong person printed inside the PDF',m.file,m.pdf({name:'SOMCHAI OTHERCASE'}),'PDF_IDENTITY_CONFLICT'],
-   ['no LN HIS or name in the file name','final-report.pdf',m.pdf(),'PDF_IDENTITY_UNVERIFIED'],
-   ['LN HIS but no name in the file name',`${m.ln}.pdf`,m.pdf(),'PDF_IDENTITY_UNVERIFIED'],
    ['two different LNs in the file name',`${m.ln} ${wrongLn} Somying Testcase.pdf`,m.pdf(),'PDF_IDENTITY_CONFLICT'],
    ['HN contradicts',m.file,m.pdf({hn:'9999999999'}),'PDF_IDENTITY_OR_ATTEMPT_UNRESOLVED']];
   for(const [label,name,bytes,reason] of cases){
@@ -58,18 +54,21 @@ it('links only when the file name LN HIS, the file name and the PDF name agree w
    expect(out.rows[0].reason,label).toBe(reason);expect(out.imported,label).toBe(0);
   }
   expect(await versions(f)).toBe(0);
-  // Name variants the owner's systems produce (title, spacing, order, case) are still the same person.
-  const ok=await f.run(t=>ingestMigrationPdfs(t,f.u.staff,f.store,[{name:`${m.ln} SOMYING  TESTCASE.pdf`,bytes:m.pdf({name:'Testcase Somying'})}]));
-  expect(ok.imported).toBe(1);expect(ok.rows[0].match?.attemptId).toBe(m.attemptId);expect(ok.rows[0].identity).toEqual({fileLnHis:'MATCH',fileName:'MATCH',pdfName:'MATCH'});
+  // Owner rule 2026-11-02: a matching LN (here also the HN and sample ID) identifies the PDF; a different name in the file name and in the PDF is
+  // evidence, not a rejection. The matching method and the name difference are recorded on the record's event trail.
+  const ok=await f.run(t=>ingestMigrationPdfs(t,f.u.staff,f.store,[{name:`${m.ln} Somchai Othercase.pdf`,bytes:m.pdf({name:'SOMCHAI OTHERCASE'})}]));
+  expect(ok.imported).toBe(1);expect(ok.rows[0].reason).toBe('LN_MATCH');expect(ok.rows[0].match?.attemptId).toBe(m.attemptId);expect(ok.rows[0].identity).toEqual({fileLnHis:'MATCH',fileName:'MISMATCH',pdfName:'MISMATCH'});
+  const event=(await f.db.query<{details:{method:string;nameMismatch:{file:boolean;pdf:boolean}}}>("SELECT details FROM migration_record_event WHERE event='PDF_LINKED'")).rows;
+  expect(event).toHaveLength(1);expect(event[0].details).toMatchObject({method:'LN_MATCH',nameMismatch:{file:true,pdf:true}});
  }finally{await f.close();}
 },180000);
 it('the ordinary auto-link contract cannot link a migrated attempt around a conflicting or unverified identity',async()=>{
  const f=await resultFixture();try{
   await activate(f,'UNIQUE_AUTO_LINK');const m=await migrated(f,false);
-  const bad=await importReport(f,m.pdf(),f.u.staff,`${m.ln} Somchai Othercase.pdf`);
+  // an LN in the file name that points at another case contradicts the sample ID + HN: never linked by the ordinary contract either
+  const wrongLn=(Number(m.ln)+1).toString().padStart(10,'0');
+  const bad=await importReport(f,m.pdf(),f.u.staff,`${wrongLn} Somying Testcase.pdf`);
   expect(await f.run(t=>autoLinkUnique(t,f.u.staff,bad.versionId))).toMatchObject({linked:false,reason:'PDF_IDENTITY_CONFLICT'});
-  const plain=await importReport(f,m.pdf({name:'SOMYING TESTCASE '}),f.u.staff,'final-report.pdf');
-  expect(await f.run(t=>autoLinkUnique(t,f.u.staff,plain.versionId))).toMatchObject({linked:false,reason:'PDF_IDENTITY_UNVERIFIED'});
   expect((await f.db.query("SELECT 1 FROM result_report_version WHERE state<>'Unlinked'")).rows).toHaveLength(0);
  }finally{await f.close();}
 },180000);

@@ -13,3 +13,11 @@ export async function historicalResultReady(db:Queryable,caseId:string){
  if(!(await db.query<{present:boolean}>("SELECT to_regclass('public.migration_record') IS NOT NULL present")).rows[0]?.present)return false;
  return (await db.query(`SELECT 1 FROM migration_record WHERE case_id=$1 AND state='IMPORTED' AND classification IN ${HISTORICAL_RESULT_READY_SQL} LIMIT 1`,[caseId])).rows.length>0;
 }
+/**
+ * Owner decision (2026-11-02): every sample imported from Genomic-CBH was requested and consented on paper. A migrated case is recognised by its
+ * Historical record (state IMPORTED with a bound case); the paper markers are channel markers only, never signatures or documents.
+ */
+export async function migratedCase(db:Queryable,caseId:string){
+ if(!(await db.query<{present:boolean}>("SELECT to_regclass('public.migration_record') IS NOT NULL present")).rows[0]?.present)return false;
+ return (await db.query("SELECT 1 FROM migration_record WHERE case_id=$1 AND state='IMPORTED' LIMIT 1",[caseId])).rows.length>0;
+}

@@ -41,6 +41,7 @@ export const factsSql=`SELECT c.created_at "registeredAt",c.id,l.ln,i.hn,CASE WH
  (SELECT v.state FROM result_report_version v WHERE v.case_id=c.id AND v.round_id=r.id AND v.kind='RESULT' AND v.state NOT IN ('Superseded','Voided','RejectedImport') ORDER BY v.state_changed_at DESC,v.id DESC LIMIT 1) "reportState",
  (SELECT count(*)::int FROM result_release rr WHERE rr.case_id=c.id AND rr.round_id=r.id AND rr.kind='RESULT' AND rr.state='Active') "activeReleaseCount",
  (SELECT count(*)::int FROM result_release rr JOIN result_report_version v ON v.id=rr.version_id WHERE rr.case_id=c.id AND rr.round_id=r.id AND rr.kind='RESULT' AND rr.state='Active' AND v.state='CertifiedReleased' AND v.kind='RESULT' AND v.case_id=c.id AND v.round_id=r.id) "certifiedReleaseCount",
+ EXISTS(SELECT 1 FROM migration_record mr JOIN result_report_version hv ON hv.case_id=mr.case_id AND hv.round_id=mr.round_id AND hv.attempt_id=mr.attempt_id WHERE mr.case_id=c.id AND mr.round_id=r.id AND mr.state='IMPORTED' AND hv.kind='RESULT' AND hv.state IN ('Linked','ValidationBlocked','PendingCertification','CertifiedReleased')) "historicalResult",
  EXISTS(SELECT 1 FROM p2_revocation v WHERE v.case_id=c.id) "consentRevoked",
  EXISTS(SELECT 1 FROM his_intake_issue i WHERE i.case_id=c.id AND i.state IN ('Open','Proposed')) "identityIssue",
  EXISTS(SELECT 1 FROM redraw_request d WHERE d.case_id=c.id AND d.state='Requested') redraw,
@@ -66,10 +67,10 @@ export const factsSql=`SELECT c.created_at "registeredAt",c.id,l.ln,i.hn,CASE WH
  * reference definition: tests/db/anc-sql-parity.test.ts runs both over the same data. A change to a stage, flag or KPI rule must be made in BOTH. */
 export const projectionFor=(facts:string,registrationOrder=false)=>`WITH facts AS MATERIALIZED (${facts}),
  rel AS (SELECT f.*,(f."currentReceivedAt" IS NOT NULL AND f."s1ReceivedAt" IS NULL) missing_s1,(f."activeReleaseCount">1 OR f."activeReleaseCount"<>f."certifiedReleaseCount") conflict FROM facts f),
- rel2 AS (SELECT r.*,(NOT r.missing_s1 AND NOT r.conflict AND r."certifiedReleaseCount"=1) released FROM rel r),
+ rel2 AS (SELECT r.*,(NOT r.missing_s1 AND NOT r.conflict AND r."certifiedReleaseCount"=1) released,(NOT r.missing_s1 AND NOT r.conflict AND (r."certifiedReleaseCount"=1 OR COALESCE(r."historicalResult",false))) has_result FROM rel r),
  st AS (SELECT r.*,CASE
    WHEN r.missing_s1 OR r.conflict OR r."currentRoundId" IS NULL THEN 'exception'
-   WHEN r.released THEN 'released'
+   WHEN r.has_result THEN 'released'
    WHEN r.redraw THEN 'followup'
    WHEN COALESCE(r."reportState",'') IN ('Linked','ValidationBlocked','PendingCertification') THEN 'review'
    WHEN r."analysisStarted" THEN 'analysis'
@@ -79,27 +80,27 @@ export const projectionFor=(facts:string,registrationOrder=false)=>`WITH facts A
  fl AS (SELECT s.*,
    array_remove(ARRAY[CASE WHEN s.redraw THEN 'redraw' END,CASE WHEN s.repeat THEN 'repeat' END,CASE WHEN s.hold THEN 'hold' END,CASE WHEN s.urgent THEN 'urgent' END,
     CASE WHEN s."consentRevoked" THEN 'consent_revoked' END,CASE WHEN s."identityIssue" THEN 'identity_issue' END,CASE WHEN NOT s."documentsReady" THEN 'documents' END,
-    CASE WHEN s.missing_s1 THEN 'missing_s1' END,CASE WHEN s.conflict THEN 'conflicting_release' END,CASE WHEN s."reportState"='ValidationBlocked' THEN 'validation_blocked' END,
+    CASE WHEN s.missing_s1 THEN 'missing_s1' END,CASE WHEN s.conflict THEN 'conflicting_release' END,CASE WHEN s."reportState"='ValidationBlocked' AND NOT COALESCE(s."historicalResult",false) THEN 'validation_blocked' END,
     CASE WHEN s.stage='exception' AND NOT s.missing_s1 AND NOT s.conflict THEN 'unmapped_state' END],NULL) flags,
-   (s."s1ReceivedAt" IS NOT NULL AND NOT s.released) pending,
+   (s."s1ReceivedAt" IS NOT NULL AND NOT s.has_result) pending,
    CASE WHEN s."s1ReceivedAt" IS NOT NULL THEN GREATEST(0,floor(extract(epoch FROM ($2::timestamptz-s."s1ReceivedAt"))/86400))::int END days_waiting,
    COALESCE((extract(year FROM s."s1ReceivedAt" AT TIME ZONE 'Asia/Bangkok')::int+(extract(month FROM s."s1ReceivedAt" AT TIME ZONE 'Asia/Bangkok')>=10)::int+543)=$3::int,false) sent
   FROM st s),
  sc AS (SELECT * FROM fl WHERE ($4::text IS NULL OR $4::text=ANY("unitIds"))),
  flt AS (SELECT * FROM sc WHERE
-   ($5::text IS NULL OR CASE $5::text WHEN 'sent' THEN sent WHEN 'pending' THEN pending WHEN 'released' THEN released WHEN 'attention' THEN cardinality(flags)>0 ELSE false END)
+   ($5::text IS NULL OR CASE $5::text WHEN 'sent' THEN sent WHEN 'pending' THEN pending WHEN 'released' THEN has_result WHEN 'attention' THEN cardinality(flags)>0 ELSE false END)
    AND ($6::text IS NULL OR stage=$6::text) AND ($7::text IS NULL OR $7::text=ANY(flags))
    AND ($9::text='' OR strpos(lower(ln),$9::text)>0 OR strpos(lower(COALESCE(hn,'')),$9::text)>0 OR strpos(lower(id::text),$9::text)>0 OR strpos(lower(COALESCE("patientName",'')),$9::text)>0 OR ($9::text ~ '^[0-9]{2}-[0-9]{3}-[0-9]-[0-9]{4}$' AND strpos(ln,replace($9::text,'-',''))>0)))
- , tabbed AS (SELECT * FROM flt WHERE ($8::text='all' OR CASE $8::text WHEN 'redraw' THEN redraw WHEN 'hold' THEN hold WHEN 'pending' THEN pending WHEN 'released' THEN released WHEN 'attention' THEN cardinality(flags)>0 ELSE false END)),
+ , tabbed AS (SELECT * FROM flt WHERE ($8::text='all' OR CASE $8::text WHEN 'redraw' THEN redraw WHEN 'hold' THEN hold WHEN 'pending' THEN pending WHEN 'released' THEN has_result WHEN 'attention' THEN cardinality(flags)>0 ELSE false END)),
  ordered AS (SELECT *,${registrationOrder?'0':'urgent::int'} ord_u,${registrationOrder?'floor(extract(epoch FROM "registeredAt")*1000000)::bigint':'COALESCE(days_waiting,-1)'} ord_d FROM tabbed)
  SELECT
-  (SELECT json_build_object('all',count(*),'pending',count(*) FILTER(WHERE pending),'released',count(*) FILTER(WHERE released),'attention',count(*) FILTER(WHERE cardinality(flags)>0),'redraw',count(*) FILTER(WHERE redraw),'hold',count(*) FILTER(WHERE hold)) FROM flt) tab_counts,
-  (SELECT json_build_object('sent',count(*) FILTER (WHERE sent),'pending',count(*) FILTER (WHERE pending),'released',count(*) FILTER (WHERE released),'attention',count(*) FILTER (WHERE cardinality(flags)>0)) FROM sc) metrics,
+  (SELECT json_build_object('all',count(*),'pending',count(*) FILTER(WHERE pending),'released',count(*) FILTER(WHERE has_result),'attention',count(*) FILTER(WHERE cardinality(flags)>0),'redraw',count(*) FILTER(WHERE redraw),'hold',count(*) FILTER(WHERE hold)) FROM flt) tab_counts,
+  (SELECT json_build_object('sent',count(*) FILTER (WHERE sent),'pending',count(*) FILTER (WHERE pending),'released',count(*) FILTER (WHERE has_result),'attention',count(*) FILTER (WHERE cardinality(flags)>0)) FROM sc) metrics,
   (SELECT COALESCE(json_object_agg(stage,n),'{}'::json) FROM (SELECT stage,count(*)::int n FROM sc GROUP BY stage) x) stage_counts,
   (SELECT count(*)::int FROM tabbed) total,
   (SELECT COALESCE(json_agg(row_to_json(p) ORDER BY p.ord_u DESC,p.ord_d DESC,p.id),'[]'::json) FROM (
     SELECT id,ln,hn,"patientName","unitIds","currentRoundId","roundNumber","roundState","s1ReceivedAt","currentReceivedAt","analysisStarted","documentsReady","reportState","activeReleaseCount","certifiedReleaseCount",
-     redraw,repeat,hold,urgent,"consentRevoked","identityIssue",stage,flags,released,pending,days_waiting "daysWaiting",ord_u,ord_d
+     redraw,repeat,hold,urgent,"consentRevoked","identityIssue","historicalResult",stage,flags,released,has_result "hasResult",pending,days_waiting "daysWaiting",ord_u,ord_d
     FROM ordered WHERE ($10::int IS NULL OR (ord_u<$10::int OR (ord_u=$10::int AND ord_d<$11::bigint) OR (ord_u=$10::int AND ord_d=$11::bigint AND id>$12::uuid)))
     ORDER BY ord_u DESC,ord_d DESC,id LIMIT $13 OFFSET $14) p) rows`;
 const projectionSql=projectionFor(factsSql,true);

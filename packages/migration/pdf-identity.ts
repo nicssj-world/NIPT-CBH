@@ -64,3 +64,17 @@ export async function currentPatientNames(db:Queryable,caseIds:readonly string[]
   LEFT JOIN LATERAL anc_workspace_patient(c.id) anc_patient ON true WHERE c.id=ANY($1::uuid[])`,[[...new Set(caseIds)]])).rows;
  for(const r of rows)out.set(r.caseId,r.name);return out;
 }
+export type PdfMatchMethod='LN_MATCH'|'HN_MATCH';
+export type PdfMatchEvidence={status:'MATCH'|'CONFLICT';method:PdfMatchMethod|null;nameMismatch:{file:boolean;pdf:boolean};reasons:string[];checks:PdfIdentityEvidence['checks']};
+/**
+ * Owner rule (2026-11-02): a matching LN or HN is an identifier; a patient-name mismatch alone never rejects a PDF and is kept as evidence.
+ * The target is already one current qualified attempt selected by the printed sample ID and HN. An LN printed in the file name that points to a
+ * different case than that target is a conflict between identifiers and is never resolved by choosing one.
+ */
+export function resolvePdfMatch(input:{fileName:string|null;pdfName:string|null;target:{ln:string;patientName:string|null}}):PdfMatchEvidence{
+ const evidence=verifyPdfIdentity(input),file=parsePdfFileName(input.fileName);
+ const nameMismatch={file:evidence.checks.fileName==='MISMATCH',pdf:evidence.checks.pdfName==='MISMATCH'};
+ if(evidence.checks.fileLnHis==='MISMATCH')return {status:'CONFLICT',method:null,nameMismatch,reasons:evidence.reasons.filter(r=>r.startsWith('FILE_LN_HIS')),checks:evidence.checks};
+ const method:PdfMatchMethod=evidence.checks.fileLnHis==='MATCH'&&!file.lnAmbiguous?'LN_MATCH':'HN_MATCH';
+ return {status:'MATCH',method,nameMismatch,reasons:evidence.reasons,checks:evidence.checks};
+}
