@@ -54,6 +54,7 @@ try {
   $exit = $LASTEXITCODE
   if ($exit -eq 0) {
     # the Excel bridge lives in the interactive session: make sure it runs after the switch (idempotent; one instance by mutex)
+    try { & (Join-Path $here 'register-excel-bridge.ps1') -Root $cfg.root -TaskName "nipt-cbh-$($cfg.instance)-excel-bridge" } catch { Write-Host "Excel bridge task not updated: $($_.Exception.Message)" -ForegroundColor Yellow }
     try {
       $bridge = Get-ScheduledTask -TaskPath '\NIPT-CBH\' -TaskName "nipt-cbh-$($cfg.instance)-excel-bridge" -ErrorAction Stop
       if ([string]$bridge.State -ne 'Running') { Start-ScheduledTask -InputObject $bridge; Write-Host 'Excel bridge was not running: started.' -ForegroundColor Yellow }

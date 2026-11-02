@@ -666,6 +666,8 @@ async function upgrade(){
  const from=st.current;
  st.previous=from;st.current={version:m.version,revision:m.revision,migrationsSha256:m.migrationsSha256};st.preUpgradeBackup=pre.backupBase;saveState(L,st);
  syncAdmin(L,next);
+ // an upgrade brings the bridge task to the current definition (hidden, restarts itself, one instance) before it restarts it; never fails the upgrade
+ if(bridgeMode(c)){try{registerBridgeTask(L,c);}catch(e){say('excel bridge task definition not updated: '+e.message);}}
  await restartBridge(L,c).catch(e=>say('excel bridge restart failed: '+e.message));
  try{
   await startServices(L,c);
