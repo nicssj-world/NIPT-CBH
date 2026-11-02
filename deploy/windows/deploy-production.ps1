@@ -65,7 +65,13 @@ try {
   if (-not $Confirmation) {
     Write-Host ''
     Write-Host "PRODUCTION deployment of $appVersionNow (commit $Commit, risk $($risk.level)) to $($cfg.root)" -ForegroundColor Yellow
-    $Confirmation = Read-Host "Type exactly: DEPLOY PRODUCTION $($Commit.Substring(0,7))"
+    # a stray key pressed while the window opened (a UAC click, an Enter) must not count as the answer: clear it, and ask again until the phrase is exact
+    try { $Host.UI.RawUI.FlushInputBuffer() } catch { }
+    $phrase = "DEPLOY PRODUCTION $($Commit.Substring(0,7))"
+    for ($try = 0; $try -lt 5 -and $Confirmation -cne $phrase; $try++) {
+      $Confirmation = Read-Host "Type exactly: $phrase"
+      if ($Confirmation -cne $phrase) { Write-Host 'Not the exact phrase (capital letters as shown).' -ForegroundColor Yellow }
+    }
   }
 
   $wt = Get-NiptBuildWorktree $tc $Commit
@@ -86,7 +92,18 @@ try {
     $rid = if ($stale) { $stale.Name -replace '-production$', '' } else { (Invoke-NiptGate 'release-id' $tc @{ appVersion = $appVersionNow; commit = $Commit }).releaseId }
     $detail.releaseId = $rid
     $t0 = Get-Date
+    # a run that already validated THIS commit (all steps passed, under a day old, same risk level) is not repeated after a later failure such as a refused confirmation
+    $prior = $null
+    $priorFile = Join-Path (Join-Path (Get-NiptHistoryDir 'production') 'validated') "$Commit.json"
+    if (Test-Path -LiteralPath $priorFile) { try { $prior = Read-NiptJson $priorFile } catch { $prior = $null } }
+    $reuse = $prior -and $prior.format -eq 'NIPT_DIRECT_VALIDATED_V1' -and $prior.commit -eq $Commit -and $prior.risk.level -eq $risk.level -and
+      @($prior.steps).Count -gt 0 -and @(@($prior.steps) | Where-Object { $_.exitCode -ne 0 }).Count -eq 0 -and (((Get-Date).ToUniversalTime() - [datetime]::Parse($prior.validatedAt).ToUniversalTime()).TotalHours -lt 20)
+    if ($reuse) {
+      Write-Host "Validation of this commit already passed at $($prior.validatedAt); not repeated." -ForegroundColor Green
+      $steps = @($prior.steps)
+    } else {
     $steps = @(Invoke-NiptValidation $tc $wt 'quick') + @(Invoke-NiptFocusedValidation $tc $wt $risk.level $changedPaths)
+    }
     $timings['validation'] = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
     $detail.validation = $steps
     $t0 = Get-Date
