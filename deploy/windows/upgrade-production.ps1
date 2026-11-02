@@ -18,6 +18,7 @@ param(
   [string]$ApprovedBy = "$env:USERDOMAIN\$env:USERNAME",
   [string]$ChangeReference = ('UPGRADE-' + (Get-Date).ToString('yyyyMMdd-HHmm')),
   [string[]]$AllowDestructiveMigration = @(),
+  [string]$SkipValidationReason,
   [switch]$Elevated
 )
 $ErrorActionPreference = 'Stop'
@@ -27,6 +28,7 @@ if (-not $isAdmin) {
   # Windows UAC is required for the service, task and firewall changes of an upgrade: ask once, in a fresh administrator console.
   $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $MyInvocation.MyCommand.Path, '-Elevated', '-ApprovedBy', $ApprovedBy, '-ChangeReference', $ChangeReference)
   if ($Commit) { $a += @('-Commit', $Commit) }
+  if ($SkipValidationReason) { $a += @('-SkipValidationReason', $SkipValidationReason) }
   if ($AllowDestructiveMigration.Count) { $a += @('-AllowDestructiveMigration', ($AllowDestructiveMigration -join ',')) }
   try { Start-Process powershell.exe -Verb RunAs -ErrorAction Stop -ArgumentList $a; Write-Host 'The upgrade continues in the administrator window.' } catch { Write-Host "NOT STARTED: $($_.Exception.Message) (the UAC prompt was cancelled or timed out; run this again and answer it)" -ForegroundColor Red; exit 1 }
   exit 0
@@ -50,6 +52,7 @@ try {
   try { & wevtutil.exe sl 'Microsoft-Windows-TaskScheduler/Operational' /e:true 2>$null | Out-Null } catch { }
   $deploy = @{ Commit = $Commit; ApprovedBy = $ApprovedBy; ChangeReference = $ChangeReference }
   if ($AllowDestructiveMigration.Count) { $deploy.AllowDestructiveMigration = $AllowDestructiveMigration }
+  if ($SkipValidationReason) { $deploy.SkipValidationReason = $SkipValidationReason }
   & (Join-Path $here 'deploy-production.ps1') @deploy
   $exit = $LASTEXITCODE
   if ($exit -eq 0) {

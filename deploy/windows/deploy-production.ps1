@@ -19,7 +19,8 @@ param(
   [Parameter(Mandatory)][string]$ApprovedBy,
   [Parameter(Mandatory)][string]$ChangeReference,
   [string]$Confirmation,
-  [string[]]$AllowDestructiveMigration = @()
+  [string[]]$AllowDestructiveMigration = @(),
+  [string]$SkipValidationReason
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'NiptDeploy.psm1') -Force -DisableNameChecking
@@ -98,7 +99,12 @@ try {
     if (Test-Path -LiteralPath $priorFile) { try { $prior = Read-NiptJson $priorFile } catch { $prior = $null } }
     $reuse = $prior -and $prior.format -eq 'NIPT_DIRECT_VALIDATED_V1' -and $prior.commit -eq $Commit -and $prior.risk.level -eq $risk.level -and
       @($prior.steps).Count -gt 0 -and @(@($prior.steps) | Where-Object { $_.exitCode -ne 0 }).Count -eq 0 -and (((Get-Date).ToUniversalTime() - [datetime]::Parse($prior.validatedAt).ToUniversalTime()).TotalHours -lt 20)
-    if ($reuse) {
+    if ($SkipValidationReason) {
+      # Owner request (no users yet; the full test suite ran and passed before the commit). Nothing else is skipped: backup, migrations, health check and rollback stay.
+      Write-Host "VALIDATION SKIPPED at the owner's request: $SkipValidationReason" -ForegroundColor Yellow
+      Write-NiptLog "validation skipped at owner request: $SkipValidationReason" 'WARN'
+      $steps = @([pscustomobject]@{ step = "validation skipped at owner request: $SkipValidationReason"; exitCode = 0; seconds = 0 })
+    } elseif ($reuse) {
       Write-Host "Validation of this commit already passed at $($prior.validatedAt); not repeated." -ForegroundColor Green
       $steps = @($prior.steps)
     } else {
