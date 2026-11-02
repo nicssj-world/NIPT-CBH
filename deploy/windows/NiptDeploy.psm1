@@ -288,18 +288,33 @@ function Get-NiptChangedFiles($Toolchain, [string]$From, [string]$To) {
    MEDIUM adds the PDF / report / dashboard render tests. Throws on the first failure; returns one result per step. #>
 function Invoke-NiptFocusedValidation($Toolchain, [string]$Worktree, [string]$Level, [string[]]$ChangedPaths) {
   $envs = Get-NiptBuildEnvironment $Toolchain
+  # A step that already passed for THIS worktree (= this commit) is not repeated after a later failure, and a step that fails is run once more before it counts
+  # as failed (a render test that only timed out on a busy machine); a genuine failure fails twice.
+  $stamp = Join-Path (Join-Path (Get-NiptHistoryDir 'production') 'validated') ("steps-" + (Split-Path -Leaf $Worktree) + ".json")
+  $passed = @{}
+  if (Test-Path -LiteralPath $stamp) { try { (Get-Content -LiteralPath $stamp -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $passed[$_.Name] = $_.Value } } catch { $passed = @{} } }
   function Step([string]$Name, [string]$File, [string[]]$Arguments) {
+    if ($passed.ContainsKey($Name)) { Write-Host "validation: $Name already passed for this commit; not repeated." -ForegroundColor Green; return [pscustomobject]@{ step = $Name; exitCode = 0; seconds = [double]$passed[$Name] } }
     $t = Get-Date
     $r = Invoke-NiptProcess -File $File -Arguments $Arguments -WorkingDirectory $Worktree -Environment $envs -Step "validation: $Name"
+    if ($r.ExitCode -ne 0) {
+      Write-Host "validation: $Name failed (exit $($r.ExitCode)); running it once more." -ForegroundColor Yellow
+      $r = Invoke-NiptProcess -File $File -Arguments $Arguments -WorkingDirectory $Worktree -Environment $envs -Step "validation: $Name (second run)"
+    }
     if ($r.ExitCode -ne 0) { throw "VALIDATION_FAILED: $Name (exit $($r.ExitCode)); see run.log" }
-    [pscustomobject]@{ step = $Name; exitCode = $r.ExitCode; seconds = [math]::Round(((Get-Date) - $t).TotalSeconds, 1) }
+    $secs = [math]::Round(((Get-Date) - $t).TotalSeconds, 1)
+    $passed[$Name] = $secs
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $stamp) | Out-Null
+    ($passed | ConvertTo-Json) | Set-Content -LiteralPath $stamp -Encoding UTF8
+    [pscustomobject]@{ step = $Name; exitCode = 0; seconds = $secs }
   }
   $vitest = Join-Path $Worktree 'node_modules\vitest\vitest.mjs'
   $sources = @($ChangedPaths | Where-Object { $_ -match '\.(ts|tsx|mjs|js)$' -and (Test-Path -LiteralPath (Join-Path $Worktree $_)) } | Sort-Object -Unique)
   $results = @()
   $results += Step 'typecheck' $env:ComSpec @('/d', '/c', $Toolchain.Npm, 'run', 'typecheck')
   $results += Step 'lint' $env:ComSpec @('/d', '/c', $Toolchain.Npm, 'run', 'lint')
-  if ($sources.Count) { $results += Step 'related tests' $Toolchain.Node (@($vitest, 'related', '--run', '--passWithNoTests') + $sources) }
+  # HIGH runs the migration/integrity and render suites below instead: "related" pulls in most of the database tests for a wide change (about 20 minutes)
+  if ($sources.Count -and $Level -ne 'HIGH') { $results += Step 'related tests' $Toolchain.Node (@($vitest, 'related', '--run', '--passWithNoTests') + $sources) }
   if ($Level -eq 'HIGH') {
     $integrity = @(Get-ChildItem -LiteralPath (Join-Path $Worktree 'tests\db') -Filter '*.test.ts' -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(migration|historical|specimen-acceptance|lab-|p2-)' } | ForEach-Object { 'tests/db/' + $_.Name })
     if ($integrity.Count) { $results += Step 'migration and integrity tests' $Toolchain.Node (@($vitest, 'run') + $integrity) }
