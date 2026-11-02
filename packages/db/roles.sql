@@ -181,3 +181,10 @@ GRANT EXECUTE ON FUNCTION migration_repair_twin_attachments(uuid) TO app_rw;
 GRANT SELECT ON historical_reported_result TO app_rw,worker_rw;
 
 GRANT EXECUTE ON FUNCTION migration_reserve_original_number(uuid,uuid) TO app_rw;
+
+-- v1.1.3 Worker Queue (migrations 181-182): web may only request a clear and read outcomes; the Worker applies and records them.
+GRANT SELECT,INSERT ON worker_queue_clear_request TO app_rw;
+GRANT SELECT ON worker_queue_clear_outcome TO app_rw;
+GRANT SELECT ON worker_queue_clear_request TO worker_rw;
+GRANT SELECT,INSERT ON worker_queue_clear_outcome TO worker_rw;
+GRANT EXECUTE ON FUNCTION nipt_pg_boss_counts(),nipt_pg_boss_recent(integer) TO app_rw;

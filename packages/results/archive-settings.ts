@@ -48,7 +48,7 @@ export async function retryFailedArchive(db:Queryable,user:Principal,id:string){
  const row=(await db.query<{root_path:string}>(`SELECT w.root_path FROM pdf_archive_job j
   JOIN pdf_archive_window w ON w.id=j.window_id
   JOIN pdf_archive_config cfg ON cfg.singleton AND cfg.enabled AND cfg.root_path=w.root_path
-  WHERE j.id=$1 AND j.state='FAILED'`,[jobId])).rows[0];
+  WHERE j.id=$1 AND j.state='FAILED' AND j.cancellation_requested_at IS NULL`,[jobId])).rows[0];
  if(!row)throw Error('ARCHIVE_RETRY_UNAVAILABLE');
  const request=(await db.query<{id:string}>(`INSERT INTO pdf_archive_probe(root_path,requested_by,retry_job_id)
   VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING id`,[row.root_path,user.id,jobId])).rows[0];
