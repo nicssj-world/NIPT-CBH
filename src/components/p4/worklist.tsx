@@ -96,7 +96,7 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
        {a.gate?.syntheticPendingAccepted&&<p className="small muted">ผ่านด้วยนโยบายจำลอง: {a.gate.pending.map(gateText).join(", ")}</p>}</td>
       <td>{a.labels.prints?<span className="status good">พิมพ์แล้ว {a.labels.prints}</span>:<span className="status warning">ยังไม่พิมพ์</span>}</td>
       <td>{a.placement?<Link href={`/lab/batches/${a.placement.batchId}${a.placement.slot?`?task=${getSheetNumber(a.placement.slot)}`:""}`}>{a.placement.runLabel} · {a.placement.slot?`Task List ${getSheetNumber(a.placement.slot)} · `:""}ตน. {a.placement.slot}</Link>:"—"}</td>
-      <td>{data.operational&&can.receive&&a.attemptState==='Ready'&&<button className="button small" onClick={()=>setDialog({type:'accept',row:a})}>ตรวจสภาพสิ่งส่งตรวจ</button>}<RowActions a={a} can={can} open={(type)=>setDialog({type,row:a})}/></td>
+      <td>{data.operational&&can.receive&&a.attemptState==='Ready'&&<button className="button small" onClick={()=>setDialog({type:'accept',row:a})}>พบปัญหา / ปฏิเสธ</button>}<RowActions a={a} can={can} open={(type)=>setDialog({type,row:a})}/></td>
      </tr>)}</tbody></table></div>}
    {pager}</>}
   </section>
@@ -160,10 +160,10 @@ function AssignDialog({attempts,onClose,onDone}:{attempts:Attempt[];onClose:()=>
 }
 /** Presets for a specimen that cannot be accepted. The code is recorded with the operator and the time; free text is only needed for "other". */
 export const REJECT_CAUSES:[string,string][]=[["PATIENT_DATA_MISMATCH","ข้อมูลผู้ป่วยไม่ตรง"],["TUBE_LABEL_MISMATCH","ฉลากหลอดไม่ตรง"],["TUBE_UNSUITABLE","หลอดหรือสิ่งส่งตรวจไม่เหมาะสม"],["VOLUME_INSUFFICIENT","ปริมาณไม่เพียงพอ"],["WRONG_SPECIMEN_TYPE","สิ่งส่งตรวจผิดประเภท"],["OTHER","อื่น ๆ (ระบุ)"]];
-/** Routine acceptance of the physical specimen after the HIS receipt: ONE confirmation by the person who checked the patient and the tube. The HIS
+/** Exception path of the specimen after the HIS receipt. The PET is the HIS receipt, so a routine specimen needs NO confirmation here (Owner 2026-11-02); this dialog opens on "found a problem / reject" with preset causes, and still allows a recorded routine acceptance. The HIS
  *  receipt time comes from the PET and is only shown. Nothing is recorded before the button is pressed and nothing changes before the server answers. */
 export function SampleAcceptanceDialog({row,onClose,onDone}:{row:Attempt;onClose:()=>void;onDone:(msg:string)=>Promise<void>}){
- const [busy,setBusy]=useState(false),[error,setError]=useState(""),[problem,setProblem]=useState(false),[cause,setCause]=useState(""),[note,setNote]=useState("");
+ const [busy,setBusy]=useState(false),[error,setError]=useState(""),[problem,setProblem]=useState(true),[cause,setCause]=useState(""),[note,setNote]=useState("");
  const sent=useRef(false);
  async function send(body:Record<string,unknown>,done:string){
   if(sent.current)return;sent.current=true;setBusy(true);setError("");

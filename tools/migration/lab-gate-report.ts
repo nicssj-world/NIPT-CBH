@@ -3,6 +3,8 @@
  *  Prints no LN, HN or name. The only write is the usual PHI-access audit row of a worklist read, made as the first APP_ADMIN. */
 import {pool} from '../../packages/db/connection';
 import {labWorklist} from '../../packages/lab/worklist';
+import type {Staff} from '../../packages/lab/core';
+import {listHistoricalRuns,historicalRunDetail} from '../../packages/lab/historical-run';
 
 const db=pool();
 const tally=(xs:string[])=>xs.reduce<Record<string,number>>((m,x)=>{m[x]=(m[x]??0)+1;return m;},{});
@@ -11,7 +13,13 @@ if(!admin)throw Error('APP_ADMIN_ACTOR_NOT_AVAILABLE');
 const w=await labWorklist(db,{id:admin.id,roles:['APP_ADMIN'],unitIds:[],permissions:[]});
 const blocked=w.attempts.filter(a=>a.category==='GATE_BLOCKED');
 const count=async(sql:string)=>Number((await db.query<{n:number}>(sql)).rows[0]?.n??0);
+const actor:Staff={id:admin.id,roles:['APP_ADMIN'],unitIds:[],permissions:[]};
+const runs=await listHistoricalRuns(db,actor);
+const runDetail:Record<string,unknown>={};for(const r of runs){const d=await historicalRunDetail(db,actor,r.runLabel);runDetail[r.runLabel]=d?{slots:d.slots.length,sampleSlots:d.slots.filter(s=>s.kind==='SAMPLE').length,controlSlots:d.slots.filter(s=>s.kind==='CONTROL').length,repeatRows:d.slots.filter(s=>s.kind==='REPEAT').length,emptySlots:d.slots.filter(s=>s.kind==='EMPTY').length,withPdf:d.withPdf}:null;}
 console.log(JSON.stringify({
+ historicalRuns:runs,runDetail,
+ historicalDoctors:{registry:await count('SELECT count(*)::int n FROM migration_doctor'),casesLinked:await count('SELECT count(DISTINCT case_id)::int n FROM migration_doctor_case')},
+ pregnancyDefaulted:w.attempts.filter(a=>a.pregnancyDefaulted).length,
  attempts:w.attempts.length,
  byCategory:tally(w.attempts.map(a=>a.category)),
  gateBlocked:blocked.length,

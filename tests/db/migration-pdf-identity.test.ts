@@ -5,9 +5,11 @@ import {ingestMigrationPdfs} from '../../packages/migration/bulk-pdf';
 import {autoLinkUnique,ancCaseResults,readHistoricalReportFile,versionDetail} from '../../packages/results/service';
 import {queryResults} from '../../packages/results/query';
 import {readMigrationResultSummary} from '../../packages/migration/result-summary';
-import {labWorklist,acceptSpecimen} from '../../packages/lab/intake';
+import {labWorklist} from '../../packages/lab/intake';
 import {listP2Cases} from '../../packages/p2/service';
-import {syntheticReportPdf} from '../../tools/his-simulator/result-pdf';
+import {listHistoricalRuns,historicalRunDetail} from '../../packages/lab/historical-run';
+import {syntheticReportPdf,syntheticPdf,reportText} from '../../tools/his-simulator/result-pdf';
+import {importHistoricalDoctors,listHistoricalDoctors,referringDoctorOfCase,referringDoctor,doctorKey} from '../../packages/migration/doctors';
 import {SETTINGS} from '../../packages/settings/catalog';
 import {proposeSetting,validateSetting,approveSetting,activateSetting} from '../../packages/settings/service';
 afterEach(()=>vi.unstubAllEnvs());
@@ -139,14 +141,10 @@ it('LAB queue: a historical case still in progress waits only for the real speci
   // still in progress (no HALOS analysis yet): work that has to be done here. Its request and consent were on paper, so only the physical acceptance is open.
   await f.db.query("UPDATE migration_record SET classification='NO_HALOS' WHERE id=$1",[m.record]);
   const open=await inQueue();expect(open).toHaveLength(1);
-  const reasons=[...(open[0].gate?.failed??[]),...(open[0].gate?.pending??[])].join(' ');
-  for(const gone of ['CONSENT','REQUEST_NOT_VERIFIED','CLINICAL_NOT_ASSESSED'])expect(reasons,gone).not.toContain(gone);
-  expect(reasons).toContain('SPECIMEN_ACCEPTANCE_POLICY');
-  // after the operator confirms the acceptance, that gate is closed too
-  await f.db.query("UPDATE case_ln SET verification='VERIFIED_BY_PET' WHERE id=(SELECT case_ln_id FROM specimen_round WHERE id=$1)",[m.roundId]);
-  await f.run(t=>acceptSpecimen(t,f.u.staff,{roundId:m.roundId,condition:'ACCEPTABLE'}));
-  const after=await inQueue();expect(after).toHaveLength(1);
-  expect([...(after[0].gate?.failed??[]),...(after[0].gate?.pending??[])].join(' ')).not.toContain('SPECIMEN_ACCEPTANCE_POLICY');
+  // Owner 2026-11-02 (zero historical gates): paper request and consent, the PET is the HIS receipt, an unrecorded pregnancy type is Singleton, and the previous system's clinical
+  // assessment is not repeated. The case waits for no gate; it is real work in the queue, neither ValidationBlocked nor advanced automatically.
+  expect([...(open[0].gate?.failed??[]),...(open[0].gate?.pending??[])]).toEqual([]);
+  expect(open[0]).toMatchObject({category:'READY',attemptState:'Ready'});
  }finally{await f.close();}
 },180000);
 // Owner 2026-11-02: central registry. "ดูผลตรวจ" is offered when a result exists: released here, or reported by the previous system (whatever its technical
@@ -160,5 +158,37 @@ it('central registry: hasResult is true for a reported historical case, false fo
   await f.run(t=>ingestMigrationPdfs(t,f.u.staff,f.store,[{name:m.file,bytes:m.pdf()}]));
   expect(await find(m.caseId)).toMatchObject({released:false,hasResult:true});
   expect(await find(plain.caseId)).toMatchObject({released:false,hasResult:false});
+ }finally{await f.close();}
+},180000);
+// Owner 2026-11-02: the imported Runs show their real content (read model of migration_analysis), not an empty Run list.
+it('historical Runs: listed with sample counts and opened with their analyses; nothing is created and the next Run stays free',async()=>{
+ const f=await resultFixture();try{
+  await activate(f,'MANUAL_REVIEWED_ONLY');const m=await migrated(f,false);
+  const runs=await f.run(t=>listHistoricalRuns(t,f.u.staff));
+  expect(runs.map(r=>r.runLabel)).toEqual(expect.arrayContaining(['Run001/2026','Run002/2026']));
+  expect(runs.find(r=>r.runLabel==='Run002/2026')!.samples).toBeGreaterThanOrEqual(1);
+  const d=await f.run(t=>historicalRunDetail(t,f.u.staff,'Run002/2026'));
+  expect(d!.slots.filter(s=>s.kind==='SAMPLE'&&s.caseId===m.caseId).length).toBeGreaterThanOrEqual(1);
+  expect(d!.slots.filter(s=>s.slot>=1&&s.slot<=48).length).toBe(48);
+  expect(await f.run(t=>historicalRunDetail(t,f.u.staff,'Run999/2026'))).toBeNull();
+  expect((await f.db.query("SELECT count(*)::int n FROM lab_batch")).rows[0]).toEqual({n:0});
+ }finally{await f.close();}
+},180000);
+// Owner 2026-11-02: the doctors named on the issued reports become the historical doctor registry, linked to their cases; nothing else is created.
+it('historical doctor registry: read from the report PDF, one entry per doctor, linked to the case, idempotent, no unit, signature or approval',async()=>{
+ expect(referringDoctor('x Referring Doctor: พญ.พรชนก นาคสาร Sample Type: Whole Blood')).toBe('พญ.พรชนก นาคสาร');
+ expect(referringDoctor('Referring Doctor: - Sample Type: Whole Blood')).toBeNull();expect(referringDoctor('no such line')).toBeNull();
+ expect(doctorKey('พญ. พรชนก  นาคสาร')).toBe(doctorKey('พญ.พรชนก นาคสาร'));expect(doctorKey('Dr. Somchai Test')).toBe(doctorKey('somchai   test'));
+ const f=await resultFixture();try{
+  await activate(f,'MANUAL_REVIEWED_ONLY');const m=await migrated(f,false);
+  const spec={kind:'SINGLETON' as const,collection:'10-Oct-2026',labNumber:m.sampleRaw,hn:m.hn,name:PDF_NAME};
+  await f.run(t=>ingestMigrationPdfs(t,f.u.staff,f.store,[{name:m.file,bytes:syntheticPdf([...reportText(spec),'Referring Doctor: Dr. Somchai Testdoc Sample Type: Whole Blood'])}]));
+  const first=await f.run(t=>importHistoricalDoctors(t,f.u.staff,f.store));
+  expect(first).toMatchObject({versions:1,parsed:1,doctorsAdded:1,casesLinked:1});
+  const again=await f.run(t=>importHistoricalDoctors(t,f.u.staff,f.store));
+  expect(again).toMatchObject({doctorsAdded:0,casesLinked:0,casesAlreadyLinked:1});
+  expect((await f.run(t=>listHistoricalDoctors(t,f.u.staff))).map(d=>[d.name,d.cases])).toEqual([['Dr. Somchai Testdoc',1]]);
+  expect(await f.run(t=>referringDoctorOfCase(t,m.caseId))).toBe('Dr. Somchai Testdoc');
+  expect((await f.db.query("SELECT count(*)::int n FROM p2_doctor_version")).rows[0]).toEqual({n:0});
  }finally{await f.close();}
 },180000);

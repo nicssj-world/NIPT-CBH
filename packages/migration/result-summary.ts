@@ -7,8 +7,9 @@ export function migrationResultSummary(input:{audience:'LAB'|'ANC';released:bool
 }
 import {assertSession,caseVisible,LabError,need,uuid,type Staff} from '../lab/core';
 import type {Queryable} from '../db/connection';
+import {referringDoctorOfCase} from './doctors';
 /** LAB-only projection. ANC continues to use the existing released-result service. */
-export async function readMigrationResultSummary(db:Queryable,user:Staff,caseId:string){
+async function readSummaryBase(db:Queryable,user:Staff,caseId:string){
  await assertSession(db,user);need(user,'result.review','read');uuid.parse(caseId);
  const c=(await db.query<{registration_origin:string;unit_id:string|null}>('SELECT c.registration_origin,(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=c.id ORDER BY s.unit_id LIMIT 1) unit_id FROM nipt_case c WHERE c.id=$1',[caseId])).rows[0];
  if(!c||!caseVisible(user,c))throw new LabError('NOT_FOUND',404);
@@ -24,4 +25,9 @@ export async function readMigrationResultSummary(db:Queryable,user:Staff,caseId:
  if(row.length!==1)return {summary:null};
  const r=row[0],halos=r.interpretation?.values?{...r.interpretation.values,fetalSex:r.interpretation.values.fetalGender??null}:{t21:r.values.testChr21??null,t18:r.values.testChr18??null,t13:r.values.testChr13??null,qc:r.values.sampleQc??null,fetalFraction:r.values.fetalFraction??null};
  return {summary:migrationResultSummary({audience:'LAB',released:!!official||r.released,historical:!!hist&&hist.attempt_id===r.attempt_id,parsed:official?.parsed??(hist&&hist.attempt_id===r.attempt_id?hist.parsed:r.parsed),halos}),holds:r.interpretation?.holds??[]};
+}
+/** The summary plus the doctor named on the report the previous system issued for this case (historical doctor registry); null when none is on record. */
+export async function readMigrationResultSummary(db:Queryable,user:Staff,caseId:string){
+ const base=await readSummaryBase(db,user,caseId);
+ return {...base,referringDoctor:await referringDoctorOfCase(db,caseId)};
 }

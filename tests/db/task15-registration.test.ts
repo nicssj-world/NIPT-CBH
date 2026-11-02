@@ -6,7 +6,7 @@ import {lookupRegistrationPet,registerFromPet} from '../../packages/p2/pet-regis
 import {getCase,registerP2,saveRequest,saveLabClinicalMetadata,refusePaperConsent,withdraw} from '../../packages/p2/service';
 import {attemptFacts,candidatePrintedId,assignmentDecision} from '../../packages/lab/core';
 import {discoverInbound} from '../../packages/inbound/discovery';
-import {previewLabels,orderRedraw} from '../../packages/lab/intake';
+import {orderRedraw} from '../../packages/lab/intake';
 let f:InboundFixture,u:Awaited<ReturnType<typeof registrar>>;
 const ln='990001234567',hn='9900012345',at='20261020101112';
 beforeEach(async()=>{f=await inboundFixture();u=await registrar(f.db);});afterEach(async()=>{await f.close();});
@@ -72,10 +72,12 @@ it('R15-07: registration can win the race after OK discovery but before the work
  await writePet(f.root,'20261020',{ln,hn,receivedAt:at});await discoverInbound(f.db,f.store,{root:f.root,lookupKey:f.lookupKey,lookbackDays:3,now:new Date('2026-10-20T05:00:00Z')});
  const r=await submit({ln,unitId:u.unit,consentMode:'Paper',idempotencyKey:randomUUID()});expect(r.caseId).toBeTruthy();expect((await f.db.query<{n:number}>('SELECT count(*)::int n FROM specimen_lab_number')).rows[0].n).toBe(1);
 });
-it('R15-08/15: Unknown pregnancy remains unconfirmed and cannot print a singleton label',async()=>{
+it('R15-08/15: Unknown pregnancy defaults to Singleton, flagged as a default (Owner 2026-11-02), and a recorded Twins is never overwritten',async()=>{
  await pet();const r=await submit({ln,unitId:u.unit,consentMode:'Paper',idempotencyKey:randomUUID()}),detail=await tx(f.db,db=>getCase(db,u.lab,r.caseId!));
  const draft=structuredClone(detail.workspace.draft);draft.pregnancy.type='Unknown';await tx(f.db,db=>saveRequest(db,u.lab,r.caseId!,{expectedVersion:detail.workspace.version,draft}));
- const facts=(await attemptFacts(f.db,'a.case_id=$1',[r.caseId]))[0];expect(facts.pregnancy).toBeNull();expect(candidatePrintedId(facts).status).toBe('PREGNANCY_UNCONFIRMED');await expect(tx(f.db,db=>previewLabels(db,u.lab,{roundIds:[detail.case.current_round_id],includeName:false}))).rejects.toMatchObject({code:'PREGNANCY_TYPE_UNCONFIRMED'});
+ const facts=(await attemptFacts(f.db,'a.case_id=$1',[r.caseId]))[0];expect(facts.pregnancy).toBe('Singleton');expect(facts.pregnancy_defaulted).toBe(true);expect(candidatePrintedId(facts).status).toBe('YES');
+ const twin=structuredClone(draft);twin.pregnancy.type='Twins';const d2=await tx(f.db,db=>getCase(db,u.lab,r.caseId!));await tx(f.db,db=>saveRequest(db,u.lab,r.caseId!,{expectedVersion:d2.workspace.version,draft:twin}));
+ const tf=(await attemptFacts(f.db,'a.case_id=$1',[r.caseId]))[0];expect(tf.pregnancy).toBe('Twins');expect(tf.pregnancy_defaulted).toBe(false);
 });
 it('R15-04/15: old S1 PET never satisfies pending S2; a newly discovered Ready S2 PET uses existing redraw receipt/lineage',async()=>{
  await pet();const first=await submit({ln,unitId:u.unit,consentMode:'Paper',idempotencyKey:randomUUID()}),original=(await f.db.query<{ln_halos:string}>('SELECT ln_halos FROM specimen_lab_number')).rows[0].ln_halos;

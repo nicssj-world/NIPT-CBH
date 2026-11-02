@@ -96,7 +96,7 @@ describe('Ready queue, gates and FIFO (§12.9, §5.9.1)',()=>{
   const row=(id:string)=>w.attempts.find(a=>a.roundId===id)!;
   expect(w.policy).toBe('HOLD');
   expect(row(ok.roundId)).toMatchObject({category:'GATE_BLOCKED',gate:{eligible:false,failed:[]}});
-  expect(row(ok.roundId).gate!.pending).toEqual(['OD-01:SPECIMEN_ACCEPTANCE_POLICY','OD-08:CLINICAL_RULES_NOT_APPROVED']);
+  expect(row(ok.roundId).gate!.pending).toEqual(['OD-08:CLINICAL_RULES_NOT_APPROVED']);
   expect(row(bad.roundId).gate!.failed).toContain('CLINICAL_BLOCKEDWITHREASON');
   expect(row(none.roundId).gate!.failed).toEqual(expect.arrayContaining(['CONSENT_NOT_GRANTED','REQUEST_NOT_VERIFIED','CLINICAL_NOT_ASSESSED']));
   expect((await db.query('SELECT count(*)::int n FROM lab_slot_assignment')).rows[0]).toEqual({n:0});
@@ -171,7 +171,7 @@ describe('Batch / Task List 1–3 (§12.4, §12.9; AT-TASK, AT-IDPAR-05/06/11)',
   const {b,cases,attempts}=await readyBatch(2);
   await expect(run(async t=>batch.planCheck(t,u.staff,{batchId:b.batchId,expectedVersion:await version(t,b.batchId),sheetNumber:1,confirm:{controlsAtTemplate:true,identifiersMatch:true,noDuplicates:true}}))).rejects.toMatchObject({code:'PLANNED_WORK_DATE_REQUIRED_FOR_CONTROL_CODES'});
   const f=await finalize(b.batchId);
-  expect(f.pendingAccepted).toEqual(['OD-01:SPECIMEN_ACCEPTANCE_POLICY','OD-08:CLINICAL_RULES_NOT_APPROVED']);
+  expect(f.pendingAccepted).toEqual(['OD-08:CLINICAL_RULES_NOT_APPROVED']);
   const snap=(await db.query<{payload:{slots:{slot:number;printedControlId:string|null;printedSampleId:string|null;lnHalos:string|null}[]}}>('SELECT payload FROM lab_placement_snapshot WHERE batch_id=$1',[b.batchId])).rows[0].payload;
   expect(snap.slots[0]).toMatchObject({slot:1,printedControlId:'26N120261012-1'});
   expect(snap.slots[1]).toMatchObject({slot:2,printedSampleId:(await lnHalos(cases[0].roundId))+'-1'});
@@ -340,7 +340,7 @@ describe('Tube labels from issued LN Halos (AT-LABEL-03..06)',()=>{
   expect((await db.query('SELECT count(*)::int n FROM specimen_lab_number')).rows[0]).toEqual(before);
   expect((await db.query('SELECT count(*)::int n FROM analytical_attempt')).rows[0]).toEqual({n:2}); // label -1/-2/-3 create no attempts
   const unknown=await run(t=>syntheticCase(t,u,{evidence:false}));await run(t=>receiveS1(t,unknown));
-  await expect(run(t=>intake.printLabels(t,u.staff,{roundIds:[unknown.roundId],includeName:false}))).rejects.toMatchObject({code:'PREGNANCY_TYPE_UNCONFIRMED'});
+  await expect(run(t=>intake.previewLabels(t,u.staff,{roundIds:[unknown.roundId],includeName:false}))).resolves.toBeDefined(); // Owner 2026-11-02: unrecorded pregnancy type defaults to Singleton
   const expected=await run(t=>syntheticCase(t,u));
   await expect(run(t=>intake.printLabels(t,u.staff,{roundIds:[expected.roundId],includeName:false}))).rejects.toMatchObject({code:'LN_HALOS_NOT_ISSUED_OR_NOT_VISIBLE'});
   await expect(run(t=>intake.printLabels(t,u.anc,{roundIds:[a.roundId],includeName:false}))).rejects.toMatchObject({code:'FORBIDDEN'});

@@ -1,9 +1,11 @@
 import {NextResponse,type NextRequest} from 'next/server';
 import {withTransaction} from '../../../../../packages/db/connection';
 import {listDoctors,doctorAction,doctorUnits} from '../../../../../packages/p2/service';
+import {listHistoricalDoctors} from '../../../../../packages/migration/doctors';
 import {protect,readJson} from '../../../../server/http';
 import {p2Error,p2Mutation,noStore} from '../../../../server/p2/http';
 export async function GET(request:NextRequest){try{const user=await protect(request);return await withTransaction(async db=>{
+ if(request.nextUrl.searchParams.get('historical')==='1')return NextResponse.json({historicalDoctors:await listHistoricalDoctors(db,user)},{headers:noStore});
  const doctors=await listDoctors(db,user),id=request.nextUrl.searchParams.get('id');
  if(id){if(!doctors.some(d=>'id' in d&&d.id===id))return NextResponse.json({code:'FORBIDDEN'},{status:403,headers:noStore});
  const row=(await db.query<{signature_png:string}>('SELECT signature_png FROM p2_doctor_version WHERE id=$1',[id])).rows[0];

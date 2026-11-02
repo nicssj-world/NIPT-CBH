@@ -7,15 +7,13 @@ const base:CommonFacts={isCurrentRound:true,roundNumber:1,roundState:'ReceivedIn
 const by=(f:CommonFacts)=>Object.fromEntries(commonPredicates(f).map(p=>[p.code,p]));
 it('an ordinary received case without request, consent or clinical assessment is still blocked on each of them',()=>{
  const g=by(base);
- expect(g['BG-04'].status).not.toBe('PASS');expect(g['BG-05'].status).not.toBe('PASS');expect(g['BG-06'].status).not.toBe('PASS');expect(g['BG-02'].status).toBe('PENDING');
+ expect(g['BG-04'].status).not.toBe('PASS');expect(g['BG-05'].status).not.toBe('PASS');expect(g['BG-06'].status).not.toBe('PASS');expect(g['BG-02']).toMatchObject({status:'PASS',reason:'HIS_RECEIPT_BY_PET'});
 });
-it('a historical paper case passes request, consent and clinical, and still needs the physical specimen acceptance',()=>{
- const g=by({...base,historicalPaper:true,consentRoundEvidence:'PAPER_SELECTED'});
+it('a historical paper case passes request, consent, clinical and acceptance; a verified PET receipt is the HIS receipt',()=>{
+ const g=by({...base,lnVerifiedByPet:false,historicalPaper:true,consentRoundEvidence:'PAPER_SELECTED'});
  expect(g['BG-04']).toMatchObject({status:'PASS',reason:'HISTORICAL_PAPER_CONSENT'});
- expect(g['BG-05']).toMatchObject({status:'PASS',reason:'HISTORICAL_PAPER_REQUEST'});
- expect(g['BG-06']).toMatchObject({status:'PASS',reason:'HISTORICAL_PAPER_ROUTE'});
- expect(g['BG-02'].status).toBe('PENDING');
- expect(by({...base,historicalPaper:true,consentRoundEvidence:'PAPER_SELECTED',specimenAccepted:true})['BG-02'].status).toBe('PASS');
+ expect(g['BG-02']).toMatchObject({status:'PASS',reason:'HISTORICAL_MIGRATION'});
+expect(g['BG-05']).toMatchObject({status:'PASS',reason:'HISTORICAL_PAPER_REQUEST'}); expect(g['BG-06']).toMatchObject({status:'PASS',reason:'HISTORICAL_PAPER_ROUTE'}); expect(g['BG-02']).toMatchObject({status:'PASS',reason:'HISTORICAL_MIGRATION'}); expect(by({...base,receivedSource:'HIS_PET_RECEIPT',lnVerifiedByPet:true})['BG-02']).toMatchObject({status:'PASS',reason:'HIS_RECEIPT_BY_PET'}); expect(by({...base,receivedSource:'HIS_PET_RECEIPT',lnVerifiedByPet:false})['BG-02'].status).toBe('PENDING');
 });
 it('paper does not hide a revoked or declined consent, an open identity issue, or an existing clinical failure',()=>{
  const paper={...base,historicalPaper:true,consentRoundEvidence:'PAPER_SELECTED' as const};

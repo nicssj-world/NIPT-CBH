@@ -51,7 +51,7 @@ export type AttemptRow={overall_ordinal:number;no_call_selected:boolean;ln_halos
  lab_operational_route?:boolean;round_number:number;round_state:string;received_source:string|null;received_at:Date|null;analysis_started:boolean;round_collection_date:string|null;receipt_check:Record<string,unknown>|null;specimen_accepted?:boolean;
  current_round_id:string;registration_origin:'ANC'|'LAB_DIRECT'|'HISTORICAL';unit_id:string|null;hn:string|null;ln:string;ln_verification:string;ln_halos:string|null;migration_original_ln_halos?:string|null;migration_rerun?:boolean;
  repeat_state:string|null;repeat_level:RepeatLevel|null;parent_attempt_id:string|null;open_issues:number;revoked:boolean;historical_paper?:boolean;consent_ev:string|null;request_ev:string|null;clinical_state:string|null;collection_dates:string[];
- pregnancy:'Singleton'|'Twins'|null;ga_edd:string|null;ga_request_collection:string|null;other_relibrary:number;previously_finalized:boolean;hold:boolean;hold_stage:string|null;urgent:boolean;urgent_reason:string|null;
+ pregnancy:'Singleton'|'Twins'|null;pregnancy_defaulted?:boolean;ga_edd:string|null;ga_request_collection:string|null;other_relibrary:number;previously_finalized:boolean;hold:boolean;hold_stage:string|null;urgent:boolean;urgent_reason:string|null;
  slot_batch_id:string|null;slot_number:number|null;run_label:string|null;sheet_state:string|null;label_prints:number;last_label_print:Date|null};
 
 /** Every fact needed for BG-01..09A, queue position and labels of the given attempts, in one set-based read. */
@@ -90,7 +90,9 @@ export async function attemptFacts(db:Queryable,where:string,params:unknown[]):P
  WHERE ${where}`,params)).rows;
  const originals=await migrationOriginalIdentifiers(db,[...new Set(rows.map(r=>r.round_id))]);
  const reruns=await migrationRerunAttempts(db,rows.filter(r=>r.attempt_state==='Ready').map(r=>r.attempt_id));
- return rows.map(r=>({...r,...(originals.has(r.round_id)?{migration_original_ln_halos:originals.get(r.round_id)!}:{}),...(reruns.has(r.attempt_id)?{migration_rerun:true}:{})}));
+ // Owner 2026-11-02: a pregnancy type nobody recorded is Singleton by default. The default is flagged (pregnancy_defaulted) so it is never presented as confirmed
+ // by the requester; a recorded Twins is never overwritten, and a user can still set Twins afterwards.
+ return rows.map(r=>({...r,pregnancy:r.pregnancy??'Singleton',pregnancy_defaulted:!r.pregnancy,...(originals.has(r.round_id)?{migration_original_ln_halos:originals.get(r.round_id)!}:{}),...(reruns.has(r.attempt_id)?{migration_rerun:true}:{})}));
 }
 export function commonFacts(r:AttemptRow):CommonFacts{
  const dates=[...r.collection_dates];if(r.round_collection_date)dates.push(r.round_collection_date);
