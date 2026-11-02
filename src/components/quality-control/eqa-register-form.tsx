@@ -2,10 +2,16 @@
 import Link from "next/link";
 import {useRef,useState} from "react";
 import {useRouter} from "next/navigation";
-import {api,Dialog,ErrorNotice,Field,message,type Unit} from "../p2/shared";
+import {api,ApiFailure,Dialog,ErrorNotice,Field,message,type Unit} from "../p2/shared";
 import {ThaiDateInput} from "../shared/thai-date-input";
+import "./quality-control.css";
 
 type Done={caseId:string;lnHalos:string};
+const EQA_MESSAGES:Record<string,string>={
+ EQA_REQUIRES_NEW_LAB_DIRECT_CASE:"เลข LN หรือ Hospital No. นี้มีอยู่ในระบบแล้ว ใช้ซ้ำไม่ได้ ตรวจเลขจากบัตร Referral อีกครั้ง",
+ COLLECTION_DATE_FUTURE:"วันที่เก็บตัวอย่างเป็นวันในอนาคต",
+ EQA_CASE_HAS_PATIENT_EVIDENCE:"รายการนี้มีข้อมูลผู้ป่วยจริงอยู่แล้ว จัดเป็น EQA ไม่ได้"
+};
 /** EQA registration from the organizer's referral card. The card is the only source: nothing is inferred (it has no EDD, so none is asked). */
 export function EqaRegisterForm({units}:{units:Unit[]}){
  const router=useRouter(),key=useRef(crypto.randomUUID());
@@ -19,7 +25,7 @@ export function EqaRegisterForm({units}:{units:Unit[]}){
    const result=await api<Done>("/api/eqa/register",{unitId:f.unitId,idempotencyKey:key.current,organizer:f.organizer.trim(),programYear:Number(f.programYear),sampleRef:f.sampleRef.trim(),ln:f.ln.trim().replaceAll("-",""),
     surname:f.surname.trim(),firstName:f.firstName.trim(),dob:f.dob,gaWeeks:Number(f.gaWeeks),gaDays:Number(f.gaDays),collectionDate:f.collectionDate,pregnancy:f.pregnancy});
    setDone(result);router.refresh();
-  }catch(e){setError(message(e));key.current=crypto.randomUUID();}finally{setBusy(false);}
+  }catch(e){setError((e instanceof ApiFailure&&EQA_MESSAGES[e.code])||message(e));key.current=crypto.randomUUID();}finally{setBusy(false);}
  }
  const ready=!!(f.unitId&&f.organizer.trim()&&f.sampleRef.trim()&&f.ln.trim()&&f.surname.trim()&&f.firstName.trim()&&f.dob&&f.collectionDate&&f.gaWeeks!==""&&f.gaDays!=="");
  return <>
@@ -31,7 +37,7 @@ export function EqaRegisterForm({units}:{units:Unit[]}){
    :<form className="stack" onSubmit={e=>{e.preventDefault();if(ready&&!busy)void submit();}}>
     <p className="help">กรอกตามบัตร Referral ของผู้จัดเท่านั้น ระบบไม่เดาค่าที่ไม่มีในบัตร (เช่น EDD) และไม่มีการส่งผลไปยัง HIS</p>
     <ErrorNotice error={error}/>
-    <div className="grid-2">
+    <div className="qc-form-grid">
      <Field label="ผู้จัดโปรแกรม" required>{id=>input("organizer",id,{maxLength:120})}</Field>
      <Field label="ปี EQA" required>{id=>input("programYear",id,{inputMode:"numeric",maxLength:4})}</Field>
      <Field label="Hospital No. บนบัตร (ใช้เป็น HN)" required>{id=>input("sampleRef",id,{maxLength:80})}</Field>

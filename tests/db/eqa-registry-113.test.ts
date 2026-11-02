@@ -23,6 +23,8 @@ it('EQA registry lists only EQA cases, shows no report before one exists, filter
   expect(one).toMatchObject({organizer:'GenQA/EMQN',programYear:2026,pregnancy:'Singleton',lnHalos:eqa.lnHalos,versionId:null,versions:0,run:null});
   expect((await readEqaRegistry(f.db,lab,{q:'esposito'})).rows.map(r=>r.surname)).toEqual(['ESPOSITO']);
   expect((await readEqaRegistry(f.db,lab,{year:2025})).total).toBe(0);
+  // The search form submits empty fields for unused filters; they must mean "no filter".
+  expect((await readEqaRegistry(f.db,lab,{q:'polson',year:'',page:'',pageSize:''})).total).toBe(1);
   expect((await readEqaRegistry(f.db,lab,{q:eqa.lnHalos!.toLowerCase()})).total).toBe(1);
   const users=await labUsers(f.db);
   await expect(readEqaRegistry(f.db,users.anc,{})).rejects.toThrow(/FORBIDDEN/);

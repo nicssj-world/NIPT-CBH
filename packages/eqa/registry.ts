@@ -2,11 +2,13 @@ import {z} from 'zod';
 import type {Queryable} from '../db/connection';
 import {need,assertSession,type Staff} from '../lab/core';
 
+// An empty form field means "no filter", never 0.
+const blank=(v:unknown)=>v===''?undefined:v;
 const pageSchema=z.strictObject({
- q:z.string().trim().max(80).optional(),
- year:z.coerce.number().int().min(2020).max(2100).optional(),
- page:z.coerce.number().int().min(1).max(100000).default(1),
- pageSize:z.coerce.number().int().refine(n=>[25,50,100].includes(n)).default(25)
+ q:z.preprocess(blank,z.string().trim().max(80).optional()),
+ year:z.preprocess(blank,z.coerce.number().int().min(2020).max(2100).optional()),
+ page:z.preprocess(blank,z.coerce.number().int().min(1).max(100000).default(1)),
+ pageSize:z.preprocess(blank,z.coerce.number().int().refine(n=>[25,50,100].includes(n)).default(25))
 });
 export type EqaRow={
  caseId:string;organizer:string;programYear:number;sampleRef:string;surname:string;firstName:string;pregnancy:'Singleton'|'Twins';
@@ -53,8 +55,8 @@ export async function readEqaRegistry(db:Queryable,user:Staff,raw:unknown={}){
 /** One slot's recorded measurement. Keys and unit come from the approved task master: slot.N.libraryQc is "library concentration ng/uL". */
 export type IqcRow={runLabel:string;runDate:string;control:'PC'|'NC';slot:number;sampleId:string|null;libraryQc:number|null;extractionQc:number|null;
  workbookRevision:number;masterSha256:string;reviewed:boolean;reviewedAt:string|null};
-const iqcSchema=z.strictObject({page:z.coerce.number().int().min(1).max(100000).default(1),pageSize:z.coerce.number().int().refine(n=>[25,50,100].includes(n)).default(25),
- control:z.enum(['PC','NC']).optional()});
+const iqcSchema=z.strictObject({page:z.preprocess(blank,z.coerce.number().int().min(1).max(100000).default(1)),pageSize:z.preprocess(blank,z.coerce.number().int().refine(n=>[25,50,100].includes(n)).default(25)),
+ control:z.preprocess(blank,z.enum(['PC','NC']).optional())});
 
 /**
  * IQC Positive/Negative Control: only recorded values of the control slots (1 = PC, 25 = NC) from each Run's latest approved workbook revision.

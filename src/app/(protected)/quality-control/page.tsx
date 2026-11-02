@@ -20,18 +20,20 @@ export default async function QualityControlPage({searchParams}:{searchParams:Pr
  const q=await searchParams,tab=q.tab==="iqc"?"iqc":"eqa";
  const href=(o:Search)=>{const p=new URLSearchParams();for(const [k,v] of Object.entries({tab,...o}))if(v)p.set(k,String(v));return "/quality-control?"+p;};
  const canRegister=authorize(user,"case.register.lab",{origin:"LAB_DIRECT"},"write");
- const units=canRegister?(await pool().query<{id:string;name:string;code:string}>(user.roles.includes("APP_ADMIN")?"SELECT id,name,code FROM unit ORDER BY name":"SELECT id,name,code FROM unit WHERE id=ANY($1::uuid[]) ORDER BY name",user.roles.includes("APP_ADMIN")?[]:[user.unitIds])).rows:[];
+ const units=canRegister?(await pool().query<{id:string;name:string;code:string}>("SELECT id,name,code FROM unit ORDER BY name")).rows.filter(u=>authorize(user,"case.register.lab",{unitId:u.id,origin:"LAB_DIRECT"},"write")):[];
  let body;
  if(tab==="eqa"){
   const d=await readEqaRegistry(pool(),user,{q:q.q,year:q.year,page:q.page,pageSize:q.pageSize});
   body=<>
+   <div className="row">
    <form method="get" className="row" role="search" aria-label="ค้นหา EQA">
     <input type="hidden" name="tab" value="eqa"/>
     <label>ปี <select name="year" defaultValue={d.year??""} className="input"><option value="">ทุกปี</option>{d.years.map(y=><option key={y} value={y}>{y}</option>)}</select></label>
     <label>ค้นหา <input name="q" defaultValue={d.q??""} className="input" placeholder="HN, ชื่อ, LN, LN Halos" maxLength={80}/></label>
     <button className="button secondary" type="submit">ค้นหา</button>
-    {canRegister&&<EqaRegisterForm units={units}/>}
    </form>
+   {canRegister&&<EqaRegisterForm units={units}/>}
+   </div>
    <div className="table-wrap"><table className="table data-table">
     <caption className="sr-only">ทะเบียน EQA</caption>
     <thead><tr><th scope="col">ปี / ผู้จัด</th><th scope="col">ตัวอย่าง</th><th scope="col">LN / LN Halos</th><th scope="col">Run</th><th scope="col">สถานะการตรวจ</th><th scope="col">รายงาน</th></tr></thead>
