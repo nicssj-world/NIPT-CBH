@@ -100,10 +100,12 @@ export function productionGate(i){
  const failures=[];const add=(ok,code,detail)=>{if(!ok)failures.push(detail===undefined?{code}:{code,detail});};
  const v=i.verified;
  // Risk-based (Owner 2026-11-02): LOW and MEDIUM may go to Production on focused validation of the exact commit instead of a Staging verification;
- // HIGH keeps the Staging verification. No risk given means HIGH, so every caller that does not classify behaves exactly as before.
- const risk=['LOW','MEDIUM','HIGH'].includes(i.risk?.level)?i.risk.level:'HIGH';
+ // HIGH (Owner 2026-11-02, risk-based policy) also goes direct on extended validation of the exact commit; Staging evidence, when it exists, is still honoured.
+ // A caller that does not classify at all (no risk given) behaves exactly as before and needs the Staging verification.
+ const classified=['LOW','MEDIUM','HIGH'].includes(i.risk?.level);
+ const risk=classified?i.risk.level:'HIGH';
  const stagingEvidence=!!v&&v.format===VERIFIED_FORMAT;
- const direct=risk!=='HIGH'&&!stagingEvidence;
+ const direct=classified&&!stagingEvidence;
  if(direct){
   const d=i.validated;
   add(!!d&&d.format===VALIDATED_FORMAT,'DIRECT_VALIDATION_MISSING');
@@ -140,7 +142,8 @@ export function productionGate(i){
   add(!unknown.length&&!changed.length,'PRODUCTION_SCHEMA_INCOMPATIBLE',{unknown,changed});
   const applied=new Set(i.productionLedger.map(r=>r.name));
   const pending=[...known.keys()].filter(n=>!applied.has(n)).sort();
-  if(direct)add(!pending.length,'DIRECT_DEPLOY_CANNOT_CARRY_MIGRATIONS',{pending});
+  // LOW and MEDIUM carry no schema change; a HIGH direct deployment may carry forward migrations (destructive ones still need explicit approval below)
+  if(direct&&risk!=='HIGH')add(!pending.length,'DIRECT_DEPLOY_CANNOT_CARRY_MIGRATIONS',{pending});
   else{
    const rehearsed=new Map((v?.schema?.ledger??[]).map(r=>[r.name,r.checksum]));
    const notRehearsed=pending.filter(n=>rehearsed.get(n)!==rel[n]);

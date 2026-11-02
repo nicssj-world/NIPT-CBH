@@ -35,12 +35,12 @@ test('pending migrations in the package force HIGH even when the paths look harm
  const low=classifyChange({files:[{path:'src/components/p2/shared.tsx'}]});
  assert.equal(low.level,'LOW');
  const high=withPendingMigrations(low,['179_x.sql']);
- assert.equal(high.level,'HIGH');assert.equal(high.requires.stagingVerification,true);
+ assert.equal(high.level,'HIGH');assert.equal(high.requires.stagingVerification,false);
  assert.equal(withPendingMigrations(low,[]).level,'LOW');
 });
-test('HIGH requires Staging verification; LOW and MEDIUM require focused validation and the same backup and confirmation',()=>{
+test('no level requires a Staging round; HIGH is validated most widely; all keep the backup and one confirmation',()=>{
  const l=classifyChange({files:[{path:'src/components/p2/shared.tsx'}]}),m=classifyChange({files:[{path:'packages/anc/model.ts'}]}),h=classifyChange({files:[{path:'db/migrations/1_x.sql'}]});
- assert.equal(l.requires.stagingVerification,false);assert.equal(m.requires.stagingVerification,false);assert.equal(h.requires.stagingVerification,true);
+ assert.equal(l.requires.stagingVerification,false);assert.equal(m.requires.stagingVerification,false);assert.equal(h.requires.stagingVerification,false);assert.ok(h.requires.focusedValidation.length>m.requires.focusedValidation.length);
  assert.ok(m.requires.focusedValidation.length>l.requires.focusedValidation.length);
  for(const r of [l,m,h]){assert.equal(r.requires.verifiedPreUpgradeBackup,true);assert.equal(r.requires.confirmation,'one typed confirmation');}
 });

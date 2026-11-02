@@ -294,7 +294,11 @@ function Invoke-NiptFocusedValidation($Toolchain, [string]$Worktree, [string]$Le
   $results += Step 'typecheck' $env:ComSpec @('/d', '/c', $Toolchain.Npm, 'run', 'typecheck')
   $results += Step 'lint' $env:ComSpec @('/d', '/c', $Toolchain.Npm, 'run', 'lint')
   if ($sources.Count) { $results += Step 'related tests' $Toolchain.Node (@($vitest, 'related', '--run', '--passWithNoTests') + $sources) }
-  if ($Level -eq 'MEDIUM') {
+  if ($Level -eq 'HIGH') {
+    $integrity = @(Get-ChildItem -LiteralPath (Join-Path $Worktree 'tests\db') -Filter '*.test.ts' -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^(migration|historical|specimen-acceptance|lab-|p2-)' } | ForEach-Object { 'tests/db/' + $_.Name })
+    if ($integrity.Count) { $results += Step 'migration and integrity tests' $Toolchain.Node (@($vitest, 'run') + $integrity) }
+  }
+  if ($Level -eq 'MEDIUM' -or $Level -eq 'HIGH') {
     $render = @(Get-ChildItem -LiteralPath (Join-Path $Worktree 'tests\unit') -Filter '*pdf*.test.ts' -ErrorAction SilentlyContinue | ForEach-Object { 'tests/unit/' + $_.Name })
     $render += @(Get-ChildItem -LiteralPath (Join-Path $Worktree 'tests\db') -Filter 'anc-*.test.ts' -ErrorAction SilentlyContinue | ForEach-Object { 'tests/db/' + $_.Name })
     if ($render.Count) { $results += Step 'render tests (PDF / report / dashboard)' $Toolchain.Node (@($vitest, 'run') + $render) }

@@ -55,10 +55,6 @@ try {
   if ($risk.reasons.Count -gt 8) { Write-Host "   ... and $($risk.reasons.Count - 8) more" }
   Write-Host ("   needs: " + $(if ($risk.requires.stagingVerification) { 'Staging verification of this exact commit' } else { 'focused validation: ' + (@($risk.requires.focusedValidation) -join '; ') }) + '; verified backup; one confirmation')
   Write-NiptLog "risk $($risk.level): $($risk.files) file(s); staging verification required = $($risk.requires.stagingVerification)"
-  if ($risk.level -eq 'HIGH' -and -not $verified) {
-    $why = (@($risk.reasons | Where-Object { $_.level -eq 'HIGH' } | Select-Object -First 3 | ForEach-Object { "$($_.path) ($($_.rule))" }) -join '; ')
-    throw "STAGING_VERIFICATION_MISSING: this change is HIGH risk - $why. Deploy this commit to Staging first (.\deploy\deploy-staging.ps1 -Ref $Commit)"
-  }
   $detail.path = if ($verified) { 'STAGING_VERIFIED' } else { 'DIRECT_VALIDATED' }
   $appVersionNow = if ($verified) { $verified.appVersion } else { Resolve-NiptAppVersion $tc $Commit $null }
   $detail.appVersion = $appVersionNow

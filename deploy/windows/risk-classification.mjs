@@ -43,12 +43,12 @@ export function classifyChange(input){
  const level=reasons.reduce((m,r)=>rank(r.level)>rank(m)?r.level:m,'LOW');
  return {ok:true,level,files:files.length,reasons:reasons.sort((a,b)=>rank(b.level)-rank(a.level)||a.path.localeCompare(b.path)),requires:requires(level)};
 }
-/** What a level demands before Production. HIGH keeps the Staging verification of the exact commit; LOW and MEDIUM replace it with focused validation. */
+/** What a level demands before Production (Owner policy 2026-11-02): no level needs a Staging round; each is validated on the exact commit, HIGH most widely. */
 export function requires(level){
  const base=['typecheck','lint','deploy contracts','related tests (vitest related, from the changed files)'];
  return {
-  stagingVerification:level==='HIGH',
-  focusedValidation:level==='HIGH'?['full validation of the Staging deployment']:level==='MEDIUM'?[...base,'PDF / report / dashboard render tests (tests/unit/*pdf*, tests/db/anc-*)']:base,
+  stagingVerification:false,
+  focusedValidation:level==='HIGH'?[...base,'PDF / report / dashboard render tests (tests/unit/*pdf*, tests/db/anc-*)','migration and integrity tests (tests/db/migration*, historical, specimen acceptance)']:level==='MEDIUM'?[...base,'PDF / report / dashboard render tests (tests/unit/*pdf*, tests/db/anc-*)']:base,
   verifiedPreUpgradeBackup:true,confirmation:'one typed confirmation'
  };
 }

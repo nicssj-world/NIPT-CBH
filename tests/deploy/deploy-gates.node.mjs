@@ -153,10 +153,12 @@ test('a direct deployment refuses missing, stale, failed, other-commit, other-ri
  assert.ok(codes(direct({validated:{...validated,risk:{level:'MEDIUM'}}})).includes('DIRECT_VALIDATED_RISK_MISMATCH'));
  assert.ok(codes(direct({payloadDigest:'q'.repeat(64)})).includes('PRODUCTION_PAYLOAD_DIFFERS_FROM_VALIDATED'));
 });
-test('a direct deployment can never carry a database migration, and HIGH always needs Staging verification',()=>{
+test('LOW and MEDIUM can never carry a database migration; HIGH goes direct on its validation and may carry forward migrations',()=>{
  assert.ok(codes(direct({productionLedger:[{name:'001_a.sql',checksum:'h1'}]})).includes('DIRECT_DEPLOY_CANNOT_CARRY_MIGRATIONS'));
- const high=gate({verified:null,validated,risk:{level:'HIGH'}});
- assert.ok(codes(high).includes('STAGING_VERIFICATION_MISSING'));assert.ok(!codes(high).includes('DIRECT_VALIDATION_MISSING'));
+ const hv={...validated,risk:{level:'HIGH'}};
+ const high=gate({verified:null,validated:hv,risk:{level:'HIGH'}});
+ assert.ok(!codes(high).includes('STAGING_VERIFICATION_MISSING'));assert.ok(!codes(high).includes('DIRECT_DEPLOY_CANNOT_CARRY_MIGRATIONS'));
+ assert.ok(codes(gate({verified:null,validated:null,risk:{level:'HIGH'}})).includes('DIRECT_VALIDATION_MISSING'));
  // no risk given behaves as HIGH: exactly the earlier behaviour
  assert.ok(codes(gate({verified:null,validated})).includes('STAGING_VERIFICATION_MISSING'));
 });
