@@ -6,9 +6,11 @@ import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {classifyChange,withPendingMigrations} from './risk-classification.mjs';
 
 export const ENVIRONMENT_FORMAT='NIPT_DEPLOY_ENVIRONMENT_V1';
 export const VERIFIED_FORMAT='NIPT_STAGING_VERIFIED_V1';
+export const VALIDATED_FORMAT='NIPT_DIRECT_VALIDATED_V1';
 const fail=code=>{throw Error(code);};
 const lower=p=>path.win32.resolve(p).replace(/[\\/]+$/,'').toLowerCase();
 const within=(root,p)=>{const r=lower(root),c=lower(p);return c===r||c.startsWith(r+'\\');};
@@ -97,8 +99,24 @@ export function destructiveStatements(sql){
 export function productionGate(i){
  const failures=[];const add=(ok,code,detail)=>{if(!ok)failures.push(detail===undefined?{code}:{code,detail});};
  const v=i.verified;
- add(!!v&&v.format===VERIFIED_FORMAT,'STAGING_VERIFICATION_MISSING');
- if(v&&v.format===VERIFIED_FORMAT){
+ // Risk-based (Owner 2026-11-02): LOW and MEDIUM may go to Production on focused validation of the exact commit instead of a Staging verification;
+ // HIGH keeps the Staging verification. No risk given means HIGH, so every caller that does not classify behaves exactly as before.
+ const risk=['LOW','MEDIUM','HIGH'].includes(i.risk?.level)?i.risk.level:'HIGH';
+ const stagingEvidence=!!v&&v.format===VERIFIED_FORMAT;
+ const direct=risk!=='HIGH'&&!stagingEvidence;
+ if(direct){
+  const d=i.validated;
+  add(!!d&&d.format===VALIDATED_FORMAT,'DIRECT_VALIDATION_MISSING');
+  if(d&&d.format===VALIDATED_FORMAT){
+   add(d.commit===i.commit,'DIRECT_VALIDATED_COMMIT_MISMATCH',{validated:d.commit,requested:i.commit});
+   add(d.risk?.level===risk,'DIRECT_VALIDATED_RISK_MISMATCH',{validated:d.risk?.level,classified:risk});
+   add(Array.isArray(d.steps)&&d.steps.length>0&&d.steps.every(x=>x.exitCode===0),'DIRECT_VALIDATION_STEP_FAILED');
+   const age=(Date.parse(i.now)-Date.parse(d.validatedAt))/86400000;
+   add(Number.isFinite(age)&&age>=0&&age<=1,'DIRECT_VALIDATION_TOO_OLD',{ageDays:Math.round(age*10)/10,maxAgeDays:1});
+   add(d.payloadDigest===i.payloadDigest,'PRODUCTION_PAYLOAD_DIFFERS_FROM_VALIDATED');
+  }
+ }else add(stagingEvidence,'STAGING_VERIFICATION_MISSING');
+ if(stagingEvidence){
   add(v.commit===i.commit,'STAGING_VERIFIED_COMMIT_MISMATCH',{verified:v.commit,requested:i.commit});
   add(v.outcome==='SUCCEEDED'&&v.health?.ok===true,'STAGING_DEPLOYMENT_NOT_HEALTHY');
   add(v.schema?.ok===true,'STAGING_SCHEMA_NOT_CURRENT');
@@ -122,9 +140,12 @@ export function productionGate(i){
   add(!unknown.length&&!changed.length,'PRODUCTION_SCHEMA_INCOMPATIBLE',{unknown,changed});
   const applied=new Set(i.productionLedger.map(r=>r.name));
   const pending=[...known.keys()].filter(n=>!applied.has(n)).sort();
-  const rehearsed=new Map((v?.schema?.ledger??[]).map(r=>[r.name,r.checksum]));
-  const notRehearsed=pending.filter(n=>rehearsed.get(n)!==rel[n]);
-  add(!notRehearsed.length,'PRODUCTION_MIGRATION_NOT_REHEARSED_ON_STAGING',{notRehearsed});
+  if(direct)add(!pending.length,'DIRECT_DEPLOY_CANNOT_CARRY_MIGRATIONS',{pending});
+  else{
+   const rehearsed=new Map((v?.schema?.ledger??[]).map(r=>[r.name,r.checksum]));
+   const notRehearsed=pending.filter(n=>rehearsed.get(n)!==rel[n]);
+   add(!notRehearsed.length,'PRODUCTION_MIGRATION_NOT_REHEARSED_ON_STAGING',{notRehearsed});
+  }
   const allowed=new Set(i.allowDestructive??[]);
   const destructive=Object.entries(i.pendingSql??{}).filter(([n,sql])=>pending.includes(n)&&destructiveStatements(sql).length).map(([n])=>n);
   const unapproved=destructive.filter(n=>!allowed.has(n));
@@ -151,6 +172,7 @@ if(cli){
    :command==='release-id'?{ok:true,releaseId:releaseId(input.appVersion,input.commit,input.at?new Date(input.at):new Date())}
    :command==='package-facts'?{ok:true,...packageFacts(input.dir)}
    :command==='production-gate'?productionGate(input)
+   :command==='classify'?withPendingMigrations(classifyChange(input),input.pendingMigrations??[])
    :fail('GATE_COMMAND_UNKNOWN');
   process.stdout.write(JSON.stringify(out)+'\n');
   if(out.ok===false)process.exitCode=1;

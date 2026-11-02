@@ -97,8 +97,11 @@ const bridgeMode=c=>(c.excelMode??(c.taskMode==='system'?'bridge':'direct'))==='
 function registerBridgeTask(L,c){
  const user=c.excelUser??whoami(),pwsh=path.join(L.runtime,'pwsh','pwsh.exe'),script=path.join(L.root,'admin','Start-ExcelBridge.ps1');
  ps(`$ErrorActionPreference='Stop';`+
-  `$a=New-ScheduledTaskAction -Execute ${q(pwsh)} -Argument ${q(`-NoLogo -NoProfile -ExecutionPolicy Bypass -File "${script}" -Root "${L.root}"`)} -WorkingDirectory ${q(L.root)};`+
-  `$t=New-ScheduledTaskTrigger -AtLogOn -User ${q(user)};`+
+  // Evidence (Production, 2026-11-02): the bridge ended with 0xC000013A - the console it ran in was closed or its session ended - and nothing started it
+  // again. So: no visible console to close by accident (Hidden), a start attempt every 2 minutes whenever no instance runs (IgnoreNew keeps it to one, and
+  // Start-ExcelBridge.ps1 holds a machine-wide mutex so a second session can never run a second one), and the logon start stays.
+  `$a=New-ScheduledTaskAction -Execute ${q(pwsh)} -Argument ${q(`-NoLogo -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "${script}" -Root "${L.root}"`)} -WorkingDirectory ${q(L.root)};`+
+  `$t=@((New-ScheduledTaskTrigger -AtLogOn -User ${q(user)}),(New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(1)) -RepetitionInterval (New-TimeSpan -Minutes 2) -RepetitionDuration (New-TimeSpan -Days 3650)));`+
   `$s=New-ScheduledTaskSettingsSet -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries;`+
   `$p=New-ScheduledTaskPrincipal -UserId ${q(user)} -LogonType Interactive -RunLevel Limited;`+
   `Register-ScheduledTask -TaskName ${q(bridgeTaskName(c))} -TaskPath ${q(TASK_PATH)} -Action $a -Trigger $t -Settings $s -Principal $p -Force | Out-Null`);

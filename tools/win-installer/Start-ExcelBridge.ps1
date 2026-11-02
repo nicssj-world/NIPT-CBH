@@ -10,6 +10,13 @@
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$Root)
 $ErrorActionPreference='Stop'
+# ONE bridge per installation on the whole machine, whichever session started it (the task also starts every 2 minutes while none is running, and the
+# logon trigger fires in every session). A second instance would read and answer the same spool jobs twice, so it simply exits.
+$sha=[Security.Cryptography.SHA256]::Create()
+$key=([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes(([IO.Path]::GetFullPath($Root)).TrimEnd('\').ToLowerInvariant())))).Replace('-','').Substring(0,24)
+$created=$false;$mutex=$null
+try{$mutex=New-Object System.Threading.Mutex($true,"Global\NIPT-CBH-ExcelBridge-$key",[ref]$created)}catch{$mutex=New-Object System.Threading.Mutex($true,"Local\NIPT-CBH-ExcelBridge-$key",[ref]$created)}
+if(-not $created){exit 0}
 $state=Get-Content -LiteralPath (Join-Path $Root 'install-state.json') -Raw | ConvertFrom-Json
 $release=Join-Path (Join-Path $Root 'releases') $state.current.version
 $spool=Join-Path (Join-Path $Root 'data') 'excel-spool'

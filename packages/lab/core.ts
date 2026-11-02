@@ -50,7 +50,7 @@ export const BATCH_TEMPLATE='SYNTHETIC-BATCH48-PC1-NC25-BLANK40-v1';
 export type AttemptRow={overall_ordinal:number;no_call_selected:boolean;ln_halos_resampling:boolean;attempt_id:string;case_id:string;round_id:string;attempt_number:number;attempt_state:string;repeat_order_id:string|null;printed_sample_id:string|null;resume_decision_required:boolean;qc_failed_stage:string|null;attempt_created_at:Date;
  lab_operational_route?:boolean;round_number:number;round_state:string;received_source:string|null;received_at:Date|null;analysis_started:boolean;round_collection_date:string|null;receipt_check:Record<string,unknown>|null;specimen_accepted?:boolean;
  current_round_id:string;registration_origin:'ANC'|'LAB_DIRECT'|'HISTORICAL';unit_id:string|null;hn:string|null;ln:string;ln_verification:string;ln_halos:string|null;migration_original_ln_halos?:string|null;migration_rerun?:boolean;
- repeat_state:string|null;repeat_level:RepeatLevel|null;parent_attempt_id:string|null;open_issues:number;revoked:boolean;consent_ev:string|null;request_ev:string|null;clinical_state:string|null;collection_dates:string[];
+ repeat_state:string|null;repeat_level:RepeatLevel|null;parent_attempt_id:string|null;open_issues:number;revoked:boolean;historical_paper?:boolean;consent_ev:string|null;request_ev:string|null;clinical_state:string|null;collection_dates:string[];
  pregnancy:'Singleton'|'Twins'|null;ga_edd:string|null;ga_request_collection:string|null;other_relibrary:number;previously_finalized:boolean;hold:boolean;hold_stage:string|null;urgent:boolean;urgent_reason:string|null;
  slot_batch_id:string|null;slot_number:number|null;run_label:string|null;sheet_state:string|null;label_prints:number;last_label_print:Date|null};
 
@@ -58,7 +58,7 @@ export type AttemptRow={overall_ordinal:number;no_call_selected:boolean;ln_halos
 export async function attemptFacts(db:Queryable,where:string,params:unknown[]):Promise<AttemptRow[]>{
  const rows=(await db.query<AttemptRow>(`SELECT a.id attempt_id,a.case_id,a.round_id,a.attempt_number,a.overall_ordinal,EXISTS(SELECT 1 FROM attempt_event e WHERE e.attempt_id=a.id AND e.event_type='NO_CALL_SELECTED') no_call_selected,a.state attempt_state,a.repeat_order_id,a.printed_sample_id,a.resume_decision_required,a.qc_failed_stage,a.created_at attempt_created_at,
   r.round_number,r.state round_state,r.received_source,r.received_at,r.analysis_started,r.collection_date::text round_collection_date,r.receipt_check,
-  c.current_round_id,c.registration_origin,(SELECT i.hn FROM p2_case_identity i WHERE i.case_id=c.id) hn,(labreg.round_id IS NOT NULL AND labreg.paper_request AND labreg.paper_consent) lab_operational_route,(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=c.id ORDER BY s.unit_id LIMIT 1) unit_id,l.ln,l.verification ln_verification,n.ln_halos,(n.original_round_id IS NOT NULL) ln_halos_resampling,
+  c.current_round_id,c.registration_origin,(SELECT i.hn FROM p2_case_identity i WHERE i.case_id=c.id) hn,(labreg.round_id IS NOT NULL AND labreg.paper_request AND labreg.paper_consent) lab_operational_route,EXISTS(SELECT 1 FROM migration_record mh WHERE mh.case_id=a.case_id AND mh.round_id=a.round_id AND mh.state='IMPORTED') historical_paper,(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=c.id ORDER BY s.unit_id LIMIT 1) unit_id,l.ln,l.verification ln_verification,n.ln_halos,(n.original_round_id IS NOT NULL) ln_halos_resampling,
   o.state repeat_state,o.level repeat_level,o.parent_attempt_id,
   (SELECT count(*) FROM his_intake_issue i WHERE i.case_id=a.case_id AND i.state IN ('Open','Proposed'))::int open_issues,
   EXISTS(SELECT 1 FROM p2_revocation v WHERE v.case_id=a.case_id) revoked,
@@ -97,7 +97,7 @@ export function commonFacts(r:AttemptRow):CommonFacts{
  const check=r.receipt_check??{};
  return {labOperationalRoute:r.lab_operational_route===true,isCurrentRound:r.current_round_id===r.round_id,roundNumber:r.round_number,roundState:r.round_state,receivedSource:r.received_source,analysisStarted:r.analysis_started,isRepeatChild:r.repeat_order_id!==null,previouslyFinalized:r.previously_finalized,
   openIdentityIssues:r.open_issues,lnVerifiedByPet:r.ln_verification==='VERIFIED_BY_PET',receiptIdentityAndLabel:check.identity===true&&check.label===true,
-  consentRevoked:r.revoked,consentRoundEvidence:r.consent_ev==='GRANTED'?'GRANTED':r.consent_ev==='DECLINED'?'DECLINED':r.consent_ev==='PAPER_SELECTED'||r.lab_operational_route?'PAPER_SELECTED':'NONE',requestRoundEvidence:r.request_ev==='VERIFIED'?'VERIFIED':'NONE',
+  consentRevoked:r.revoked,consentRoundEvidence:r.consent_ev==='GRANTED'?'GRANTED':r.consent_ev==='DECLINED'?'DECLINED':r.consent_ev==='PAPER_SELECTED'||r.lab_operational_route||r.historical_paper?'PAPER_SELECTED':'NONE',requestRoundEvidence:r.request_ev==='VERIFIED'?'VERIFIED':'NONE',historicalPaper:r.historical_paper===true,
   clinicalState:r.clinical_state,collectionDates:dates,specimenAccepted:r.specimen_accepted===true};
 }
 export function candidatePrintedId(r:AttemptRow){

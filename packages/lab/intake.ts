@@ -15,12 +15,35 @@ export {labWorklist,labWorklistPage,worklistRow,WORKLIST_TABS,READY_SCAN_LIMIT} 
 export type {QueueCategory,WorklistAttempt,WorklistPage,WorklistTab} from './worklist';
 
 export async function acceptSpecimen(db:Queryable,user:Staff,input:unknown){
- await assertSession(db,user);const d=z.strictObject({roundId:uuid,identityChecked:z.literal(true),labelChecked:z.literal(true),condition:z.enum(['ACCEPTABLE','REJECTED']),criteriaReference:reasonText,reason:reasonText}).parse(input);
+ await assertSession(db,user);
+ // Routine acceptance (Owner 2026-11-02) is ONE confirmation by the person who checked the patient and the tube: the press records who and when, and the
+ // policy reference and the reason are system text, not typed. A rejection names a preset cause; free text is needed only for "other".
+ const d=z.strictObject({roundId:uuid,condition:z.enum(['ACCEPTABLE','REJECTED']),reasonCode:z.enum(REJECT_CAUSES).optional(),note:z.string().trim().max(300).refine(s=>!/[\u0000-\u001f\u007f]/.test(s)).optional(),
+  // older callers may still send these; they are accepted and ignored in favour of the system text
+  identityChecked:z.boolean().optional(),labelChecked:z.boolean().optional(),criteriaReference:z.string().optional(),reason:z.string().optional()}).parse(input);
+ if(d.condition==='REJECTED'&&!d.reasonCode)throw new LabError('REJECT_CAUSE_REQUIRED',422);
+ if(d.reasonCode==='OTHER'&&!d.note)throw new LabError('REJECT_NOTE_REQUIRED',422);
  const r=await lockedRound(db,user,d.roundId);need(user,'round.receive','write',{unitId:r.unit_id??undefined,origin:r.registration_origin as 'ANC'});
  if(process.env.NIPT_MODE!=='operational')throw new LabError('OPERATIONAL_MODE_REQUIRED',409);
- const id=(await db.query<{id:string}>('INSERT INTO specimen_acceptance(round_id,identity_checked,label_checked,condition,criteria_reference,reason,actor_id) VALUES($1,true,true,$2,$3,$4,$5) RETURNING id',[r.id,d.condition,d.criteriaReference,d.reason,user.id])).rows[0].id;
- await audit(db,user,'SPECIMEN_ACCEPTANCE_RECORDED','specimen_acceptance',id,{outcome:d.condition});return {id,condition:d.condition};
+ // The round is locked: check-then-insert cannot race. A second press (double submit, another tab) answers with the acceptance that already exists.
+ const last=(await db.query<{id:string;condition:string}>('SELECT id,condition FROM specimen_acceptance WHERE round_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1',[r.id])).rows[0];
+ if(last&&last.condition===d.condition&&d.condition==='ACCEPTABLE')return {id:last.id,condition:d.condition,duplicate:true as const};
+ if(d.condition==='ACCEPTABLE'){
+  // A patient-identity or LN conflict is never accepted by a routine confirmation: it has to be resolved (or the specimen rejected) first.
+  const open=(await db.query<{n:string}>("SELECT count(*)::text n FROM his_intake_issue WHERE case_id=$1 AND state IN ('Open','Proposed')",[r.case_id])).rows[0].n;
+  if(Number(open)>0)throw new LabError('IDENTITY_ISSUE_OPEN',409);
+  const ln=(await db.query<{verification:string|null;received_source:string|null}>('SELECT l.verification,s.received_source FROM specimen_round s JOIN case_ln l ON l.id=s.case_ln_id WHERE s.id=$1',[r.id])).rows[0];
+  if(ln?.received_source==='HIS_PET_RECEIPT'&&ln.verification!=='VERIFIED_BY_PET')throw new LabError('LN_NOT_VERIFIED',409);
+ }
+ const label=d.reasonCode?REJECT_LABELS[d.reasonCode]:'';
+ const reason=d.condition==='ACCEPTABLE'?'ACCEPTED_ROUTINE_CHECK: confirmed by the person who checked patient and tube':`REJECTED: ${d.reasonCode} ${label}${d.note?' - '+d.note:''}`.slice(0,500);
+ const id=(await db.query<{id:string}>('INSERT INTO specimen_acceptance(round_id,identity_checked,label_checked,condition,criteria_reference,reason,actor_id) VALUES($1,true,true,$2,$3,$4,$5) RETURNING id',[r.id,d.condition,ACCEPTANCE_POLICY_REFERENCE,reason,user.id])).rows[0].id;
+ await audit(db,user,'SPECIMEN_ACCEPTANCE_RECORDED','specimen_acceptance',id,{outcome:d.condition,...(d.reasonCode?{reasonCode:d.reasonCode}:{})});return {id,condition:d.condition,duplicate:false as const};
 }
+/** The acceptance policy the system applies (a reference, not typed per specimen) and the preset rejection causes. */
+const ACCEPTANCE_POLICY_REFERENCE='POLICY:SPECIMEN_ACCEPTANCE_ROUTINE_V1';
+const REJECT_CAUSES=['PATIENT_DATA_MISMATCH','TUBE_LABEL_MISMATCH','TUBE_UNSUITABLE','VOLUME_INSUFFICIENT','WRONG_SPECIMEN_TYPE','OTHER'] as const;
+const REJECT_LABELS:Record<typeof REJECT_CAUSES[number],string>={PATIENT_DATA_MISMATCH:'patient data does not match',TUBE_LABEL_MISMATCH:'tube label does not match',TUBE_UNSUITABLE:'tube or specimen unsuitable',VOLUME_INSUFFICIENT:'volume insufficient',WRONG_SPECIMEN_TYPE:'wrong specimen type',OTHER:'other'};
 
 /** F1 queues (Plan §12.9 "คิวในหน้าจอ Lab"). S1 enters from the matched HIS PET receipt only; there is no second S1 receipt here. */
 async function lockedRound(db:Queryable,user:Staff,roundId:string){

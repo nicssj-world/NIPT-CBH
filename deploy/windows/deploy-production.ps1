@@ -34,28 +34,73 @@ try {
   Assert-NiptCanVerifyServices $cfg
 
   if ((Resolve-NiptCommit $tc $Commit) -ne $Commit) { throw 'COMMIT_UNRESOLVED' }
+  Disable-NiptQuickEdit
+  $timings = [ordered]@{}; $detail.timings = $timings
+  $installed = Test-NiptInstalled $cfg
   $verifiedFile = Get-NiptVerifiedFile $Commit
   $verified = if (Test-Path -LiteralPath $verifiedFile) { Read-NiptJson $verifiedFile } else { $null }
-  if (-not $verified) { throw "STAGING_VERIFICATION_MISSING: deploy this commit to Staging first (.\deploy\deploy-staging.ps1 -Ref $Commit)" }
-  $rid = $verified.releaseId; $detail.releaseId = $rid; $detail.appVersion = $verified.appVersion
+
+  # ---- how risky is this change? Derived only from the Git difference to the INSTALLED release; there is no switch to choose a level ----
+  $t0 = Get-Date
+  $base = $null; $files = @()
+  if ($installed) { try { $base = [string](Invoke-NiptAdmin $cfg 'status' -Quiet).release.revision } catch { $base = $null } }
+  if ($base -match '^[0-9a-f]{40}$') { $files = @(Get-NiptChangedFiles $tc $base $Commit) }
+  $risk = Invoke-NiptGate 'classify' $tc @{ files = $files }
+  $timings['classify change'] = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
+  $changedPaths = @($files | ForEach-Object { $_.path })
+  $detail.risk = [ordered]@{ level = $risk.level; files = $risk.files; installedRevision = $base; reasons = @($risk.reasons | Select-Object -First 40); requires = $risk.requires }
+  Write-Host ''
+  Write-Host "RISK: $($risk.level) - $($risk.files) changed file(s) since the installed release ($(if ($base) { $base.Substring(0, 7) } else { 'unknown' }))" -ForegroundColor $(if ($risk.level -eq 'HIGH') { 'Red' } elseif ($risk.level -eq 'MEDIUM') { 'Yellow' } else { 'Green' })
+  foreach ($r in @($risk.reasons | Select-Object -First 8)) { Write-Host ("   [{0}] {1}  ({2})" -f $r.level, $r.path, $r.rule) }
+  if ($risk.reasons.Count -gt 8) { Write-Host "   ... and $($risk.reasons.Count - 8) more" }
+  Write-Host ("   needs: " + $(if ($risk.requires.stagingVerification) { 'Staging verification of this exact commit' } else { 'focused validation: ' + (@($risk.requires.focusedValidation) -join '; ') }) + '; verified backup; one confirmation')
+  Write-NiptLog "risk $($risk.level): $($risk.files) file(s); staging verification required = $($risk.requires.stagingVerification)"
+  if ($risk.level -eq 'HIGH' -and -not $verified) {
+    $why = (@($risk.reasons | Where-Object { $_.level -eq 'HIGH' } | Select-Object -First 3 | ForEach-Object { "$($_.path) ($($_.rule))" }) -join '; ')
+    throw "STAGING_VERIFICATION_MISSING: this change is HIGH risk - $why. Deploy this commit to Staging first (.\deploy\deploy-staging.ps1 -Ref $Commit)"
+  }
+  $detail.path = if ($verified) { 'STAGING_VERIFIED' } else { 'DIRECT_VALIDATED' }
+  $appVersionNow = if ($verified) { $verified.appVersion } else { Resolve-NiptAppVersion $tc $Commit $null }
+  $detail.appVersion = $appVersionNow
 
   $onBranch = $true
   try { Invoke-NiptGit $tc $tc.Source @('merge-base', '--is-ancestor', $Commit, $cfg.releaseBranch) | Out-Null } catch { $onBranch = $false }
 
   if (-not $Confirmation) {
     Write-Host ''
-    Write-Host "PRODUCTION deployment of $rid (commit $Commit) to $($cfg.root)" -ForegroundColor Yellow
+    Write-Host "PRODUCTION deployment of $appVersionNow (commit $Commit, risk $($risk.level)) to $($cfg.root)" -ForegroundColor Yellow
     $Confirmation = Read-Host "Type exactly: DEPLOY PRODUCTION $($Commit.Substring(0,7))"
   }
 
-  # the Production package is built from the SAME worktree and the SAME Next build that Staging verified (no rebuild)
   $wt = Get-NiptBuildWorktree $tc $Commit
   Assert-NiptAssets $wt $cfg
-  if (-not (Test-Path -LiteralPath (Join-Path $wt '.next\BUILD_ID'))) { throw 'VERIFIED_BUILD_MISSING: the Staging build worktree no longer holds its build; redeploy the commit to Staging' }
-  if ((Get-Content -LiteralPath (Join-Path $wt '.next\BUILD_ID') -Raw).Trim() -ne $verified.buildId) { throw 'VERIFIED_BUILD_REPLACED: the worktree build is not the one Staging verified; redeploy the commit to Staging' }
   $public = Initialize-NiptSigningKey $tc $cfg
-  $installed = Test-NiptInstalled $cfg
-  $pkg = New-NiptPackage $tc $wt $rid $cfg -AppOnly:$installed -SkipBuild
+  $validatedRecord = $null
+  if ($verified) {
+    # Staging evidence for this exact commit: the Production package is built from the SAME worktree and the SAME Next build that Staging verified (no rebuild)
+    $rid = $verified.releaseId; $detail.releaseId = $rid
+    if (-not (Test-Path -LiteralPath (Join-Path $wt '.next\BUILD_ID'))) { throw 'VERIFIED_BUILD_MISSING: the Staging build worktree no longer holds its build; redeploy the commit to Staging' }
+    if ((Get-Content -LiteralPath (Join-Path $wt '.next\BUILD_ID') -Raw).Trim() -ne $verified.buildId) { throw 'VERIFIED_BUILD_REPLACED: the worktree build is not the one Staging verified; redeploy the commit to Staging' }
+    $t0 = Get-Date
+    $pkg = New-NiptPackage $tc $wt $rid $cfg -AppOnly:$installed -SkipBuild
+    $timings['package'] = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
+  } else {
+    # LOW or MEDIUM and no Staging evidence: focused validation of this exact commit, then build and package it here
+    $stale = Get-ChildItem -LiteralPath (Join-Path $wt '.local\p8-win\packages') -Directory -Filter "*.$($Commit.Substring(0, 7))-production" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    $rid = if ($stale) { $stale.Name -replace '-production$', '' } else { (Invoke-NiptGate 'release-id' $tc @{ appVersion = $appVersionNow; commit = $Commit }).releaseId }
+    $detail.releaseId = $rid
+    $t0 = Get-Date
+    $steps = @(Invoke-NiptValidation $tc $wt 'quick') + @(Invoke-NiptFocusedValidation $tc $wt $risk.level $changedPaths)
+    $timings['validation'] = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
+    $detail.validation = $steps
+    $t0 = Get-Date
+    $pkg = New-NiptPackage $tc $wt $rid $cfg -AppOnly:$installed
+    $timings['build and package'] = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
+    $validatedRecord = [ordered]@{ format = 'NIPT_DIRECT_VALIDATED_V1'; commit = $Commit; releaseId = $rid; risk = [ordered]@{ level = $risk.level; files = $risk.files }
+      steps = @($steps | ForEach-Object { [ordered]@{ step = $_.step; exitCode = $_.exitCode; seconds = $_.seconds } }); validatedAt = (Get-Date).ToUniversalTime().ToString('o'); payloadDigest = $pkg.payloadDigest; runId = $run.runId }
+    Write-NiptJson $validatedRecord (Join-Path (Join-Path (Get-NiptHistoryDir 'production') 'validated') "$Commit.json")
+  }
+  Write-NiptLog "package ready in $($timings['package'] + $timings['build and package']) s" 'OK'
   $detail.package = [ordered]@{ dir = $pkg.dir; version = $pkg.version; profile = $pkg.profile; payloadDigest = $pkg.payloadDigest; migrationsSha256 = $pkg.migrationsSha256 }
   if ($pkg.revision -ne $Commit -or $pkg.profile -ne 'production' -or $pkg.testEnvironmentOnly) { throw "PACKAGE_IDENTITY_MISMATCH: revision $($pkg.revision) profile $($pkg.profile)" }
 
@@ -72,7 +117,7 @@ try {
     if (Test-Path -LiteralPath $f) { $pendingSql[$name] = [IO.File]::ReadAllText($f, [Text.Encoding]::UTF8) } # a plain string: Get-Content adds PSPath/PSProvider properties that ConvertTo-Json -Depth 30 expands without bound
   }
   $gate = Invoke-NiptGate 'production-gate' $tc @{
-    verified = $verified; commit = $Commit; now = (Get-Date).ToUniversalTime().ToString('o'); maxAgeDays = $cfg.stagingVerifiedMaxAgeDays
+    verified = $verified; validated = $validatedRecord; risk = @{ level = $risk.level }; commit = $Commit; now = (Get-Date).ToUniversalTime().ToString('o'); maxAgeDays = $cfg.stagingVerifiedMaxAgeDays
     payloadDigest = $pkg.payloadDigest; release = @{ migrationsSha256 = $pkg.migrationsSha256; migrations = $pkg.migrations }
     onReleaseBranch = $onBranch; approvedBy = $ApprovedBy; changeReference = $ChangeReference; confirmation = $Confirmation
     productionLedger = $ledger; pendingSql = $pendingSql; allowDestructive = $AllowDestructiveMigration
@@ -91,18 +136,23 @@ try {
     $detail.mode = 'INSTALL'; $detail.firstBackup = $engine.firstBackup
     Write-Host "First sign-in credentials (one-time, deliver then delete): $($engine.credentials)" -ForegroundColor Yellow
   } else {
+    $t0 = Get-Date
     $engine = Invoke-NiptAdmin $cfg 'upgrade' @('--package', $pkg.dir, '--public-key', $public)
+    $timings['upgrade (backup, migrations, switch)'] = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
     Assert-NiptEngineOk $engine 'UPGRADE'
     $detail.mode = 'UPGRADE'; $detail.migrationsApplied = $engine.pendingMigrationsApplied; $detail.preUpgradeBackup = $engine.preUpgradeBackup
   }
 
+  $t0 = Get-Date
   $report = Get-NiptEnvironmentReport $cfg
+  $timings['health check'] = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
   $detail.report = [ordered]@{ ok = $report.ok; failed = $report.failed; release = $report.status.release; schemaApplied = $report.schema.applied; schemaLast = $report.schema.last }
   if (-not $report.ok) { throw "PRODUCTION_NOT_HEALTHY_AFTER_DEPLOY: $($report.failed -join ','); run .\deploy\health-check.ps1 -Environment production and, if needed, .\deploy\rollback-production.ps1" }
   if ($report.status.release.revision -ne $Commit) { throw "PRODUCTION_RUNS_DIFFERENT_REVISION: $($report.status.release.revision)" }
   Complete-NiptRun $run 'SUCCEEDED' $detail
   Write-Host ''
   Write-Host "PRODUCTION now runs $rid (commit $Commit). Previous release kept for rollback: $($report.status.previous.version)" -ForegroundColor Green
+  Write-Host ('Time per step: ' + (($timings.GetEnumerator() | ForEach-Object { "$($_.Key) $($_.Value) s" }) -join '; '))
   exit 0
 } catch {
   $detail.error = $_.Exception.Message

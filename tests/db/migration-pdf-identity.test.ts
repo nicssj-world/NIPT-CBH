@@ -5,6 +5,8 @@ import {ingestMigrationPdfs} from '../../packages/migration/bulk-pdf';
 import {autoLinkUnique,ancCaseResults,readHistoricalReportFile,versionDetail} from '../../packages/results/service';
 import {queryResults} from '../../packages/results/query';
 import {readMigrationResultSummary} from '../../packages/migration/result-summary';
+import {labWorklist,acceptSpecimen} from '../../packages/lab/intake';
+import {listP2Cases} from '../../packages/p2/service';
 import {syntheticReportPdf} from '../../tools/his-simulator/result-pdf';
 import {SETTINGS} from '../../packages/settings/catalog';
 import {proposeSetting,validateSetting,approveSetting,activateSetting} from '../../packages/settings/service';
@@ -123,5 +125,40 @@ it('a matched historical PDF is reported by the previous system: readable by ANC
   expect(lab.summary).toMatchObject({source:'OFFICIAL_PDF'});expect(lab.summary!.label).toContain('ระบบเดิม');
   for(const t of ['result_release','p6_transfer','result_review'])expect((await f.db.query('SELECT 1 FROM '+t)).rows).toHaveLength(0);
   await expect(f.run(t=>readHistoricalReportFile(t,f.u.anc,f.store,'00000000-0000-4000-8000-000000000000'))).rejects.toThrow('NOT_FOUND');
+ }finally{await f.close();}
+},180000);
+// Owner 2026-11-02: LAB queue. A historical case without its PDF is work that still has to be done here: it is not blocked on a missing electronic form
+// (its request and consent were on paper); a historical case whose PDF is matched was already reported and is not an open item of the queue.
+it('LAB queue: a historical case still in progress waits only for the real specimen acceptance; one whose result was reported is not an open item',async()=>{
+ const f=await resultFixture();try{
+  vi.stubEnv('NIPT_MODE','operational');vi.stubEnv('APP_ORIGIN','https://nipt.test');await f.db.query("UPDATE nipt_runtime_config SET mode='operational'");
+  await activate(f,'MANUAL_REVIEWED_ONLY');const m=await migrated(f,false);
+  const inQueue=async()=>(await f.run(t=>labWorklist(t,f.u.staff))).attempts.filter(a=>a.caseId===m.caseId);
+  // reported by the previous system (HALOS qualified, PDF to be matched or matched): never an open item of the queue
+  expect(await inQueue()).toHaveLength(0);
+  // still in progress (no HALOS analysis yet): work that has to be done here. Its request and consent were on paper, so only the physical acceptance is open.
+  await f.db.query("UPDATE migration_record SET classification='NO_HALOS' WHERE id=$1",[m.record]);
+  const open=await inQueue();expect(open).toHaveLength(1);
+  const reasons=[...(open[0].gate?.failed??[]),...(open[0].gate?.pending??[])].join(' ');
+  for(const gone of ['CONSENT','REQUEST_NOT_VERIFIED','CLINICAL_NOT_ASSESSED'])expect(reasons,gone).not.toContain(gone);
+  expect(reasons).toContain('SPECIMEN_ACCEPTANCE_POLICY');
+  // after the operator confirms the acceptance, that gate is closed too
+  await f.db.query("UPDATE case_ln SET verification='VERIFIED_BY_PET' WHERE id=(SELECT case_ln_id FROM specimen_round WHERE id=$1)",[m.roundId]);
+  await f.run(t=>acceptSpecimen(t,f.u.staff,{roundId:m.roundId,condition:'ACCEPTABLE'}));
+  const after=await inQueue();expect(after).toHaveLength(1);
+  expect([...(after[0].gate?.failed??[]),...(after[0].gate?.pending??[])].join(' ')).not.toContain('SPECIMEN_ACCEPTANCE_POLICY');
+ }finally{await f.close();}
+},180000);
+// Owner 2026-11-02: central registry. "ดูผลตรวจ" is offered when a result exists: released here, or reported by the previous system (whatever its technical
+// state). A sample without a result keeps "รายละเอียดตัวอย่าง". The certified-release flag itself is untouched.
+it('central registry: hasResult is true for a reported historical case, false for one without a result, and released stays certified-only',async()=>{
+ const f=await resultFixture();try{
+  await activate(f,'MANUAL_REVIEWED_ONLY');const plain=await receivedCase(f);const m=await migrated(f,false);
+  const rowOf=async(id:string)=>(await f.run(t=>listP2Cases(t,f.u.staff,{pageSize:50}))) as unknown as {cases:{id:string;released:boolean;hasResult:boolean}[]};
+  const find=async(id:string)=>{const r=await rowOf(id);return r.cases.find(x=>x.id===id);};
+  expect(await find(m.caseId)).toMatchObject({released:false,hasResult:false});
+  await f.run(t=>ingestMigrationPdfs(t,f.u.staff,f.store,[{name:m.file,bytes:m.pdf()}]));
+  expect(await find(m.caseId)).toMatchObject({released:false,hasResult:true});
+  expect(await find(plain.caseId)).toMatchObject({released:false,hasResult:false});
  }finally{await f.close();}
 },180000);

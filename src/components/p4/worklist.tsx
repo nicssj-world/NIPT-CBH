@@ -103,7 +103,8 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
   {dialog?.type==="labels"&&<LabelDialog samples={(dialog.samples??[dialog.row as Attempt]).map(a=>({roundId:a.roundId,hisLn:a.hisLn,lnHalos:a.lnHalos,labelCode:a.labelCode,roundNumber:a.roundNumber,printed:a.labels.prints}))} onClose={()=>setDialog(null)} onPrinted={reload}/>}
   {dialog?.type==="center"&&<SampleActionCenter subject={{...(dialog.row as Attempt),sampleId:(dialog.row as Attempt).printedSampleId??(dialog.row as Attempt).labelCode,overallOrdinal:(dialog.row as Attempt).overallOrdinal??null,attemptNumber:(dialog.row as Attempt).attemptNumber}} can={{repeat:can.repeat,redraw:can.redraw,noCall:!!can.noCall}} onClose={()=>setDialog(null)} onDone={async msg=>{setStatus(msg);await reload();}}/>}
   {dialog?.type==="assign"&&<AssignDialog attempts={dialog.samples!} onClose={()=>setDialog(null)} onDone={async msg=>{setDialog(null);setStatus(msg);await reload();}}/>}
-  {dialog&&["accept","urgent","hold","repeat","redraw","receive","recover","cancelRedraw","repeatLibrary","repeatExtraction","noCall","confirmFailure"].includes(dialog.type)&&<ActionDialog operational={!!data.operational} type={dialog.type} row={dialog.row!} onClose={()=>setDialog(null)} onDone={async msg=>{setStatus(msg);await reload();}}/>}
+  {dialog&&dialog.type==="accept"&&<SampleAcceptanceDialog row={dialog.row as Attempt} onClose={()=>setDialog(null)} onDone={async msg=>{setStatus(msg);await reload();}}/>}
+  {dialog&&["urgent","hold","repeat","redraw","receive","recover","cancelRedraw","repeatLibrary","repeatExtraction","noCall","confirmFailure"].includes(dialog.type)&&<ActionDialog operational={!!data.operational} type={dialog.type} row={dialog.row!} onClose={()=>setDialog(null)} onDone={async msg=>{setStatus(msg);await reload();}}/>}
  </>;
 }
 function RowActions({a,can,open}:{a:Attempt;can:Can;open:(type:string)=>void}){
@@ -155,6 +156,38 @@ function AssignDialog({attempts,onClose,onDone}:{attempts:Attempt[];onClose:()=>
    {needReason&&<div><p className="notice warning-notice" role="note">ตัวอย่างที่เลือกแซงลำดับ FIFO {overtaken} รายการที่รอก่อน — ผู้ใช้เลือกแทรกคิวได้ โดยต้องบันทึกเหตุผล (อย่างน้อย 8 ตัวอักษร)</p><label htmlFor="override">เหตุผลที่แซงลำดับ FIFO (จำเป็น)</label><input id="override" value={reason} onChange={e=>setReason(e.target.value)} maxLength={500}/></div>}
    {error&&<p className="notice" role="alert">{error}</p>}
    <div className="dialog-actions"><button className="button" type="button" disabled={busy||!batchId||(attempts.length===1&&(!exactSlot||!Number.isInteger(Number(exactSlot))||Number(exactSlot)<1||Number(exactSlot)>48))||(needReason&&reason.trim().length<8)} onClick={submit}>ยืนยันเพิ่มเข้า Batch</button><button className="button secondary" type="button" onClick={onClose}>ยกเลิก</button></div></>}
+ </div></Dialog>;
+}
+/** Presets for a specimen that cannot be accepted. The code is recorded with the operator and the time; free text is only needed for "other". */
+export const REJECT_CAUSES:[string,string][]=[["PATIENT_DATA_MISMATCH","ข้อมูลผู้ป่วยไม่ตรง"],["TUBE_LABEL_MISMATCH","ฉลากหลอดไม่ตรง"],["TUBE_UNSUITABLE","หลอดหรือสิ่งส่งตรวจไม่เหมาะสม"],["VOLUME_INSUFFICIENT","ปริมาณไม่เพียงพอ"],["WRONG_SPECIMEN_TYPE","สิ่งส่งตรวจผิดประเภท"],["OTHER","อื่น ๆ (ระบุ)"]];
+/** Routine acceptance of the physical specimen after the HIS receipt: ONE confirmation by the person who checked the patient and the tube. The HIS
+ *  receipt time comes from the PET and is only shown. Nothing is recorded before the button is pressed and nothing changes before the server answers. */
+export function SampleAcceptanceDialog({row,onClose,onDone}:{row:Attempt;onClose:()=>void;onDone:(msg:string)=>Promise<void>}){
+ const [busy,setBusy]=useState(false),[error,setError]=useState(""),[problem,setProblem]=useState(false),[cause,setCause]=useState(""),[note,setNote]=useState("");
+ const sent=useRef(false);
+ async function send(body:Record<string,unknown>,done:string){
+  if(sent.current)return;sent.current=true;setBusy(true);setError("");
+  try{const r=await labApi<{duplicate?:boolean}>("/api/p4/worklist",{action:"acceptSpecimen",roundId:row.roundId,...body});await onDone(r.duplicate?"ตัวอย่างนี้ได้รับการยืนยันรับไว้แล้ว":done);onClose();}
+  catch(e){setError(failureText(e));sent.current=false;}finally{setBusy(false);}
+ }
+ const rejectReady=!!cause&&(cause!=="OTHER"||note.trim().length>0);
+ return <Dialog title="รับสิ่งส่งตรวจ" onClose={onClose}><div className="stack acceptance-dialog">
+  <dl className="acceptance-facts">
+   <div><dt>LN</dt><dd className="mono">{row.hisLn}</dd></div><div><dt>HN</dt><dd className="mono">{row.hn??"—"}</dd></div>
+   <div><dt>LN Halos</dt><dd className="mono">{row.lnHalos??"ยังไม่ออก"}</dd></div><div><dt>รอบตัวอย่าง</dt><dd>{row.roundNumber}</dd></div>
+   <div><dt>รับใน HIS</dt><dd>{row.receivedAt?bkk(row.receivedAt):"—"}</dd></div>
+  </dl>
+  <p className="help">ตรวจชื่อ/HN และฉลากหลอดกับตัวสิ่งส่งตรวจจริงแล้วจึงกดยืนยัน การกดยืนยันบันทึกว่าคุณเป็นผู้ตรวจรับ พร้อมวันเวลา</p>
+  {problem&&<fieldset className="acceptance-problem"><legend>ปัญหาที่พบ</legend>{REJECT_CAUSES.map(([v,l])=><label key={v} className="check-label"><input type="radio" name="cause" checked={cause===v} onChange={()=>setCause(v)}/> {l}</label>)}
+   {cause&&<div><label htmlFor="reject-note">หมายเหตุ{cause==="OTHER"?" (จำเป็น)":" (ถ้ามี)"}</label><input id="reject-note" value={note} maxLength={300} onChange={e=>setNote(e.target.value)}/></div>}</fieldset>}
+  {error&&<p className="notice" role="alert">{error}</p>}
+  <div className="dialog-actions">
+   {!problem?<><button className="button" type="button" autoFocus disabled={busy} onClick={()=>send({condition:"ACCEPTABLE"},"ยืนยันรับสิ่งส่งตรวจแล้ว")}>{busy?"กำลังบันทึก…":"ยืนยันรับสิ่งส่งตรวจ"}</button>
+     <button className="button secondary" type="button" disabled={busy} onClick={()=>setProblem(true)}>พบปัญหา / ปฏิเสธ</button></>
+    :<><button className="button danger" type="button" disabled={busy||!rejectReady} onClick={()=>send({condition:"REJECTED",reasonCode:cause,...(note.trim()?{note:note.trim()}:{})},"บันทึกการปฏิเสธสิ่งส่งตรวจแล้ว")}>{busy?"กำลังบันทึก…":"บันทึกการปฏิเสธ"}</button>
+     <button className="button secondary" type="button" disabled={busy} onClick={()=>{setProblem(false);setCause("");setNote("");}}>กลับ</button></>}
+   <button className="button secondary" type="button" onClick={onClose}>ปิด</button>
+  </div>
  </div></Dialog>;
 }
 const REDRAW_REASONS:[string,string][]=[["QC1_FAILED","QC1 ไม่ผ่าน"],["QC_SAMPLE_FAILED","QC ระดับตัวอย่างไม่ผ่าน"],["FETAL_FRACTION_LOW","FF ต่ำ"],["SPECIMEN_PROBLEM","ปัญหาสิ่งส่งตรวจ"],["OTHER","อื่น ๆ"]];

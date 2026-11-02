@@ -19,7 +19,7 @@ const EVENT_LABEL:Record<string,string>={P2_REQUEST_AUTOSAVED:"บันทึ�
 function patientAge(value:string){const age=ageOnDate(value,new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"}));return age===null?"รอข้อมูลจาก HIS":`${age} ปี`;}
 function hisTime(value:string){const d=new Date(value);if(Number.isNaN(d.getTime()))return "ยังไม่มีข้อมูล";const p=new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Bangkok",day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(d);const part=(type:string)=>p.find(x=>x.type===type)?.value??"";return `${part("day")}/${part("month")}/${Number(part("year"))+543} ${part("hour")}:${part("minute")} น.`;}
 function activityRows(events:CaseData["history"]["events"]){const rows:(CaseData["history"]["events"][number]&{count:number})[]=[];for(const event of events){const previous=rows.at(-1);const isAuto=event.event_type==="P2_REQUEST_AUTOSAVED"&&event.details?.saveMode==="Auto";if(isAuto&&previous?.event_type===event.event_type&&previous.details?.saveMode==="Auto"&&previous.actor_id===event.actor_id&&previous.details?.roundId===event.details?.roundId){previous.count++;continue;}rows.push({...event,count:1});}return rows;}
-function MigrationLabSummary({caseId}:{caseId:string}){
+export function MigrationLabSummary({caseId}:{caseId:string}){
  const [summary,setSummary]=useState<{label:string;source:string;released:boolean;values:Record<string,unknown>;discrepancies?:string[]}|null>(null);
  useEffect(()=>{let live=true;api<{summary:typeof summary}>(`/api/migration/cases/${caseId}/summary`).then(r=>{if(live)setSummary(r.summary);}).catch(()=>{});return()=>{live=false;};},[caseId]);
  if(!summary)return null;

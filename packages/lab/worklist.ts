@@ -46,13 +46,13 @@ const FIRST_UNIT=`(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=c.id 
 // Same population as the original worklist: the live attempt (highest number) of each case's current round, never historical imports.
 const ATTEMPTS=`FROM analytical_attempt a JOIN specimen_round_current r ON r.id=a.round_id JOIN nipt_case c ON c.id=a.case_id JOIN case_ln l ON l.id=r.case_ln_id
  LEFT JOIN specimen_lab_number n ON n.round_id=r.id LEFT JOIN lab_slot_assignment sa ON sa.attempt_id=a.id AND sa.removed_at IS NULL LEFT JOIN lab_batch b ON b.id=sa.batch_id
- WHERE c.current_round_id=a.round_id AND c.registration_origin<>'HISTORICAL' AND a.attempt_number=(SELECT max(x.attempt_number) FROM analytical_attempt x WHERE x.round_id=a.round_id)
+ WHERE c.current_round_id=a.round_id AND c.registration_origin<>'HISTORICAL' AND a.attempt_number=(SELECT max(x.attempt_number) FROM analytical_attempt x WHERE x.round_id=a.round_id) AND NOT EXISTS(SELECT 1 FROM historical_reported_result hr WHERE hr.case_id=a.case_id AND hr.round_id=a.round_id)
  AND (COALESCE(${FIRST_UNIT}::text,'')||':'||c.registration_origin)=ANY($1::text[])`;
 /** Same row set as ATTEMPTS but only the two tables the filter needs. The full ATTEMPTS join multiplies two opaque selectivity guesses (latest-attempt
  * sub-select x scope expression) down to "1 row", so PostgreSQL nests seq scans of specimen_round/case_ln per attempt: O(N^2), ~8 s at 12 000 Ready.
  * Counting and listing ids needs neither table; the FIFO sort keys are fetched afterwards for exactly these ids (an array of known length plans well). */
 const ATTEMPT_IDS=`FROM analytical_attempt a JOIN nipt_case c ON c.id=a.case_id
- WHERE c.current_round_id=a.round_id AND c.registration_origin<>'HISTORICAL' AND a.attempt_number=(SELECT max(x.attempt_number) FROM analytical_attempt x WHERE x.round_id=a.round_id)
+ WHERE c.current_round_id=a.round_id AND c.registration_origin<>'HISTORICAL' AND a.attempt_number=(SELECT max(x.attempt_number) FROM analytical_attempt x WHERE x.round_id=a.round_id) AND NOT EXISTS(SELECT 1 FROM historical_reported_result hr WHERE hr.case_id=a.case_id AND hr.round_id=a.round_id)
  AND (COALESCE(${FIRST_UNIT}::text,'')||':'||c.registration_origin)=ANY($1::text[])`;
 const TWINS=`(SELECT x.pt FROM (SELECT d.created_at,d.payload->'draft'->'pregnancy'->>'type' pt FROM p2_document_revision d WHERE d.round_id=a.round_id AND d.kind='REQUEST'
    UNION ALL SELECT p.created_at,p.panel->>'pregnancyType' FROM p2_paper_review p WHERE p.round_id=a.round_id AND p.kind='REQUEST' AND p.status='Verified') x WHERE x.pt IN ('Singleton','Twins') ORDER BY x.created_at DESC LIMIT 1)='Twins'`;

@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {validateEnvironment,validateEnvironmentPair,releaseId,payloadDigest,destructiveStatements,productionGate,ENVIRONMENT_FORMAT,VERIFIED_FORMAT} from '../../deploy/windows/deploy-gates.mjs';
+import {validateEnvironment,validateEnvironmentPair,releaseId,payloadDigest,destructiveStatements,productionGate,ENVIRONMENT_FORMAT,VERIFIED_FORMAT,VALIDATED_FORMAT} from '../../deploy/windows/deploy-gates.mjs';
 import {parseVersion,compareVersions} from '../../tools/win-installer/lib.mjs';
 
 const examples=async()=>({staging:JSON.parse(await readFile('deploy/windows/environments/staging.example.json','utf8')),production:JSON.parse(await readFile('deploy/windows/environments/production.example.json','utf8'))});
@@ -130,4 +130,33 @@ test('a release verified on Staging stays promotable while Staging is stopped (l
 
 test('first Production install lists every migration as pending',()=>{
  const r=gate({productionLedger:null});assert.equal(r.ok,true);assert.equal(r.firstInstall,true);assert.deepEqual(r.pending,['001_a.sql','002_b.sql','003_c.sql']);
+});
+
+// Risk-based Production gate (Owner 2026-11-02)
+const validated={format:VALIDATED_FORMAT,commit,risk:{level:'LOW'},steps:[{step:'typecheck',exitCode:0},{step:'lint',exitCode:0},{step:'related tests',exitCode:0}],validatedAt:'2026-11-02T23:00:00Z',payloadDigest:'p'.repeat(64)};
+const direct=(over={})=>gate({verified:null,validated,risk:{level:'LOW'},productionLedger:[{name:'001_a.sql',checksum:'h1'},{name:'002_b.sql',checksum:'h2'},{name:'003_c.sql',checksum:'h3'}],pendingSql:{},...over});
+test('LOW and MEDIUM pass on focused validation of the exact commit, with no Staging verification',()=>{
+ const r=direct();assert.equal(r.ok,true,JSON.stringify(r.failures));
+ assert.equal(direct({risk:{level:'MEDIUM'},validated:{...validated,risk:{level:'MEDIUM'}}}).ok,true);
+});
+test('a direct deployment still needs approval, a change reference, the release branch and the typed confirmation',()=>{
+ assert.ok(codes(direct({onReleaseBranch:false})).includes('COMMIT_NOT_ON_RELEASE_BRANCH'));
+ assert.ok(codes(direct({approvedBy:''})).includes('RELEASE_APPROVER_REQUIRED'));
+ assert.ok(codes(direct({confirmation:'yes'})).includes('PRODUCTION_CONFIRMATION_PHRASE_REQUIRED'));
+});
+test('a direct deployment refuses missing, stale, failed, other-commit, other-risk or other-payload validation',()=>{
+ assert.deepEqual(codes(direct({validated:null})),['DIRECT_VALIDATION_MISSING']);
+ assert.ok(codes(direct({validated:{...validated,steps:[{step:'lint',exitCode:1}]}})).includes('DIRECT_VALIDATION_STEP_FAILED'));
+ assert.ok(codes(direct({validated:{...validated,steps:[]}})).includes('DIRECT_VALIDATION_STEP_FAILED'));
+ assert.ok(codes(direct({now:'2026-11-05T00:00:00Z'})).includes('DIRECT_VALIDATION_TOO_OLD'));
+ assert.ok(codes(direct({validated:{...validated,commit:'b'.repeat(40)}})).includes('DIRECT_VALIDATED_COMMIT_MISMATCH'));
+ assert.ok(codes(direct({validated:{...validated,risk:{level:'MEDIUM'}}})).includes('DIRECT_VALIDATED_RISK_MISMATCH'));
+ assert.ok(codes(direct({payloadDigest:'q'.repeat(64)})).includes('PRODUCTION_PAYLOAD_DIFFERS_FROM_VALIDATED'));
+});
+test('a direct deployment can never carry a database migration, and HIGH always needs Staging verification',()=>{
+ assert.ok(codes(direct({productionLedger:[{name:'001_a.sql',checksum:'h1'}]})).includes('DIRECT_DEPLOY_CANNOT_CARRY_MIGRATIONS'));
+ const high=gate({verified:null,validated,risk:{level:'HIGH'}});
+ assert.ok(codes(high).includes('STAGING_VERIFICATION_MISSING'));assert.ok(!codes(high).includes('DIRECT_VALIDATION_MISSING'));
+ // no risk given behaves as HIGH: exactly the earlier behaviour
+ assert.ok(codes(gate({verified:null,validated})).includes('STAGING_VERIFICATION_MISSING'));
 });

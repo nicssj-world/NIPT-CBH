@@ -147,10 +147,41 @@ function Get-NiptJourneyEnvironment($Toolchain, $EnvCfg) {
 function Enter-NiptDeployLock {
   $path = Join-Path (Join-Path $script:DeployDir 'history') 'deploy.lock'
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $path) | Out-Null
-  try { $stream = [IO.File]::Open($path, 'OpenOrCreate', 'ReadWrite', 'None') } catch { throw 'DEPLOYMENT_ALREADY_RUNNING: another deployment, rollback or reset holds history\deploy.lock' }
-  $bytes = [Text.Encoding]::ASCII.GetBytes("pid=$PID user=$env:USERNAME at=$((Get-Date).ToString('o'))")
+  $info = "$path.info"
+  try { $stream = [IO.File]::Open($path, 'OpenOrCreate', 'ReadWrite', 'None') } catch {
+    # The lock is an operating-system lock: it is released the moment its process ends, so a held lock always has a live holder. Say which one.
+    $holder = ''
+    try {
+      $t = [IO.File]::ReadAllText($info); $m = [regex]::Match($t, 'pid=(\d+)')
+      if ($m.Success) {
+        $alive = [bool](Get-Process -Id ([int]$m.Groups[1].Value) -ErrorAction SilentlyContinue)
+        $holder = " Holder: $($t.Trim()) (process $(if ($alive) { 'is running' } else { 'is gone: wait a moment and retry' })). A console window whose title starts with 'Select' is paused by a mouse click: press Esc in it."
+      }
+    } catch { }
+    throw "DEPLOYMENT_ALREADY_RUNNING: another deployment, rollback or reset holds history\deploy.lock.$holder"
+  }
+  $text = "pid=$PID user=$env:USERNAME at=$((Get-Date).ToString('o'))"
+  $bytes = [Text.Encoding]::ASCII.GetBytes($text)
   $stream.SetLength(0); $stream.Write($bytes, 0, $bytes.Length); $stream.Flush()
+  try { [IO.File]::WriteAllText($info, $text) } catch { }
   $stream
+}
+
+<# A click in a console window starts text selection (the title starts with "Select") and Windows then PAUSES the program until Esc or Enter.
+   Switch that mode off for the deploying console so a stray click can never stall a deployment. Harmless when there is no console. #>
+function Disable-NiptQuickEdit {
+  try {
+    if (-not ('Nipt.ConsoleMode' -as [type])) {
+      Add-Type -Namespace Nipt -Name ConsoleMode -ErrorAction Stop -MemberDefinition '[DllImport("kernel32.dll")] public static extern IntPtr GetStdHandle(int h); [DllImport("kernel32.dll")] public static extern bool GetConsoleMode(IntPtr h, out uint m); [DllImport("kernel32.dll")] public static extern bool SetConsoleMode(IntPtr h, uint m);'
+    }
+    $h = [Nipt.ConsoleMode]::GetStdHandle(-10); $m = [uint32]0
+    if ([Nipt.ConsoleMode]::GetConsoleMode($h, [ref]$m)) { [void][Nipt.ConsoleMode]::SetConsoleMode($h, (($m -bor 0x80) -band (-bnot 0x40))) }
+  } catch { }
+}
+<# Runs one deployment step and records how long it took (seconds) in $Timings, so the log and the run record show where the time goes. #>
+function Measure-NiptStep($Timings, [string]$Name, [scriptblock]$Body) {
+  $t = Get-Date
+  try { & $Body } finally { $Timings[$Name] = [math]::Round(((Get-Date) - $t).TotalSeconds, 1); Write-NiptLog "step '$Name' took $($Timings[$Name]) s" }
 }
 
 function Start-NiptRun([string]$Environment, [string]$Action) {
@@ -221,11 +252,52 @@ function Invoke-NiptValidation($Toolchain, [string]$Worktree, [ValidateSet('full
     [pscustomobject]@{ step = $Name; exitCode = $r.ExitCode; seconds = [math]::Round(((Get-Date) - $t).TotalSeconds, 1) }
   }
   $results = @()
-  $results += Step 'npm ci' $env:ComSpec @('/d', '/c', $Toolchain.Npm, 'ci', '--no-audit', '--no-fund')
+  # Dependencies are installed from the lockfile once per exact content: the stamp names the lockfile and Node version they were installed for.
+  $stamp = Join-Path $Worktree '.local\npm-ci.stamp'
+  $lockHash = (Get-FileHash -LiteralPath (Join-Path $Worktree 'package-lock.json') -Algorithm SHA256).Hash.ToLowerInvariant() + '|' + (Get-Item -LiteralPath $Toolchain.Node).VersionInfo.FileVersion
+  if ((Test-Path -LiteralPath (Join-Path $Worktree 'node_modules')) -and (Test-Path -LiteralPath $stamp) -and ([IO.File]::ReadAllText($stamp).Trim() -eq $lockHash)) {
+    Write-NiptLog 'dependencies already installed for this exact lockfile: npm ci skipped'
+    $results += [pscustomobject]@{ step = 'npm ci'; exitCode = 0; seconds = 0; skipped = $true }
+  } else {
+    $results += Step 'npm ci' $env:ComSpec @('/d', '/c', $Toolchain.Npm, 'ci', '--no-audit', '--no-fund')
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $stamp) | Out-Null; [IO.File]::WriteAllText($stamp, $lockHash)
+  }
   $deployTests = @(Get-ChildItem -LiteralPath (Join-Path $Worktree 'tests\deploy') -Filter '*.node.mjs' | ForEach-Object { 'tests/deploy/' + $_.Name })
   $results += Step 'deploy contracts' $Toolchain.Node (@('--test') + $deployTests)
   if ($Level -eq 'full') {
     foreach ($name in $script:ValidationSteps.Keys) { $results += Step $name $env:ComSpec (@('/d', '/c', $Toolchain.Npm) + $script:ValidationSteps[$name]) }
+  }
+  $results
+}
+
+<# Files that differ between two commits (status and path; a rename lists both paths), for the risk classification. #>
+function Get-NiptChangedFiles($Toolchain, [string]$From, [string]$To) {
+  $text = Invoke-NiptGit $Toolchain $Toolchain.Source @('diff', '--name-status', '--no-color', '--find-renames', "$From..$To")
+  @(foreach ($line in @($text -split "`r?`n" | Where-Object { $_.Trim() })) {
+      $parts = $line -split "`t"
+      foreach ($p in $parts[1..($parts.Count - 1)]) { @{ status = $parts[0]; path = $p } }
+    })
+}
+<# Focused validation of a LOW or MEDIUM change (Owner 2026-11-02): type check, lint and the tests related to the changed files (vitest related);
+   MEDIUM adds the PDF / report / dashboard render tests. Throws on the first failure; returns one result per step. #>
+function Invoke-NiptFocusedValidation($Toolchain, [string]$Worktree, [string]$Level, [string[]]$ChangedPaths) {
+  $envs = Get-NiptBuildEnvironment $Toolchain
+  function Step([string]$Name, [string]$File, [string[]]$Arguments) {
+    $t = Get-Date
+    $r = Invoke-NiptProcess -File $File -Arguments $Arguments -WorkingDirectory $Worktree -Environment $envs -Step "validation: $Name"
+    if ($r.ExitCode -ne 0) { throw "VALIDATION_FAILED: $Name (exit $($r.ExitCode)); see run.log" }
+    [pscustomobject]@{ step = $Name; exitCode = $r.ExitCode; seconds = [math]::Round(((Get-Date) - $t).TotalSeconds, 1) }
+  }
+  $vitest = Join-Path $Worktree 'node_modules\vitest\vitest.mjs'
+  $sources = @($ChangedPaths | Where-Object { $_ -match '\.(ts|tsx|mjs|js)$' -and (Test-Path -LiteralPath (Join-Path $Worktree $_)) } | Sort-Object -Unique)
+  $results = @()
+  $results += Step 'typecheck' $env:ComSpec @('/d', '/c', $Toolchain.Npm, 'run', 'typecheck')
+  $results += Step 'lint' $env:ComSpec @('/d', '/c', $Toolchain.Npm, 'run', 'lint')
+  if ($sources.Count) { $results += Step 'related tests' $Toolchain.Node (@($vitest, 'related', '--run', '--passWithNoTests') + $sources) }
+  if ($Level -eq 'MEDIUM') {
+    $render = @(Get-ChildItem -LiteralPath (Join-Path $Worktree 'tests\unit') -Filter '*pdf*.test.ts' -ErrorAction SilentlyContinue | ForEach-Object { 'tests/unit/' + $_.Name })
+    $render += @(Get-ChildItem -LiteralPath (Join-Path $Worktree 'tests\db') -Filter 'anc-*.test.ts' -ErrorAction SilentlyContinue | ForEach-Object { 'tests/db/' + $_.Name })
+    if ($render.Count) { $results += Step 'render tests (PDF / report / dashboard)' $Toolchain.Node (@($vitest, 'run') + $render) }
   }
   $results
 }
@@ -250,6 +322,19 @@ function Assert-NiptAssets([string]$Worktree, $EnvCfg) {
 <# The signed Windows package for one environment, built by the repository's own tools\win-installer\build-package.ts. #>
 function New-NiptPackage($Toolchain, [string]$Worktree, [string]$ReleaseId, $EnvCfg, [switch]$AppOnly, [switch]$SkipBuild) {
   $out = Join-Path $Worktree ".local\p8-win\packages\$ReleaseId-$($EnvCfg.profile)"
+  # A package left by an earlier attempt of this same commit is a build output under this worktree and the deploy lock is held by us. It is reused
+  # when it is exactly the package that would be built (same commit, profile and shape; the installing engine re-verifies every signature and hash);
+  # otherwise it is removed so the build gets a fresh directory (FRESH_PACKAGE_DIRECTORY_REQUIRED never reaches the operator).
+  if (Test-Path -LiteralPath $out) {
+    $head = Invoke-NiptGit $Toolchain $Worktree @('rev-parse', 'HEAD'); $existing = $null
+    try { $existing = Invoke-NiptGate 'package-facts' $Toolchain @{ dir = $out } } catch { }
+    if ($existing -and $existing.ok -and $existing.revision -eq $head -and $existing.profile -eq $EnvCfg.profile -and ((-not [bool]$existing.runtimeIncluded) -eq [bool]$AppOnly) -and ([bool]$existing.testEnvironmentOnly -eq ($EnvCfg.profile -eq 'test'))) {
+      Write-NiptLog "reusing the verified package from an earlier attempt: $out" 'OK'
+      Add-Member -InputObject $existing -NotePropertyName dir -NotePropertyValue $out -Force; return $existing
+    }
+    Write-NiptLog "removing an unusable package directory from an earlier attempt: $out" 'WARN'
+    Remove-Item -LiteralPath $out -Recurse -Force
+  }
   $a = @('--import', 'tsx', 'tools/win-installer/build-package.ts', '--version', $ReleaseId, '--profile', $EnvCfg.profile, '--out', $out,
     '--signing-key', $EnvCfg.signingKey, '--anc-request-pdf', $EnvCfg.ancRequestPdf, '--anc-consent-pdf', $EnvCfg.ancConsentPdf, '--master-workbook', $EnvCfg.masterWorkbook)
   if ($AppOnly) { $a += '--app-only' }

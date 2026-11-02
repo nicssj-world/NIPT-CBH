@@ -99,7 +99,7 @@ export async function listBatchPage(db:Queryable,user:Staff,raw:unknown={}){
 
 /** The eligible FIFO queue head and the earlier eligible work a selection would overtake (single source for assign and preview). */
 async function eligibleQueue(db:Queryable,user:Staff,policy:Awaited<ReturnType<typeof pendingPolicy>>['policy']){
- return (await attemptFacts(db,"a.state='Ready' AND c.current_round_id=a.round_id AND c.registration_origin<>'HISTORICAL'",[])).filter(r=>caseVisible(user,r)&&assignmentDecision(r,policy).eligible).sort(fifo);
+ return (await attemptFacts(db,"a.state='Ready' AND c.current_round_id=a.round_id AND c.registration_origin<>'HISTORICAL' AND NOT EXISTS(SELECT 1 FROM historical_reported_result hr WHERE hr.case_id=a.case_id AND hr.round_id=a.round_id)",[])).filter(r=>caseVisible(user,r)&&assignmentDecision(r,policy).eligible).sort(fifo);
 }
 async function fifoOvertaken(db:Queryable,user:Staff,attemptIds:string[],policy:Awaited<ReturnType<typeof pendingPolicy>>['policy']){
  const queue=await eligibleQueue(db,user,policy);
