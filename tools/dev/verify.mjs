@@ -92,6 +92,10 @@ if(env){
    if(r.logFile&&r.status===STATUS.PASS){
     try{const rep=JSON.parse((await import('node:fs')).readFileSync(path.join(repoRoot,r.logFile),'utf8').trim().split('\n').pop());r.detail=`${rep.checks.length} checks, ${rep.pending.length} pending, ${rep.destructive.length} destructive`;if(rep.destructive.length)r.warning='destructive statements need explicit approval before Production: '+rep.destructive.map(d=>d.migration).join(', ');}catch{/* summary only */}
    }
+   if(r.status===STATUS.FAIL&&r.logFile){
+    // show the failing checks instead of the raw JSON line
+    try{const rep=JSON.parse((await import('node:fs')).readFileSync(path.join(repoRoot,r.logFile),'utf8').trim().split('\n').pop());r.output=rep.checks.filter(c=>!c.ok).map(c=>`${c.id}: ${c.detail}`).join('\n');}catch{/* keep the raw tail */}
+   }
    push(r);
    if(r.status===STATUS.PASS){const inv=await checkMigrationInventory();push(inv);}
   }else push(skipped('migration','Migration rehearsal','no migration or migration-engine file changed'));

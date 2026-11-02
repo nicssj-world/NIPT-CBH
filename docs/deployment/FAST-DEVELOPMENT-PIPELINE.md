@@ -175,6 +175,10 @@ C:\NIPT-CBH\deploy\deploy-production.ps1 -Commit <sha40> -ApprovedBy "<ชื่
 
 ผู้ช่วย AI ห้ามรันคำสั่งนี้เอง
 
+**`-SkipValidationReason "<เหตุผล>"`** (ตัวเลือกของ Owner สำหรับข้ามชุด test ที่ใช้เวลานาน) ข้ามเฉพาะ *การรัน test* เท่านั้น: ยังติดตั้ง dependency และรัน deploy contracts, **ยังรัน preflight ก่อน package ทุกครั้ง** (migration rehearsal, SQL ทำลาย, asset ที่ pin SHA-256, คีย์ลงนาม, การแยก environment), ยัง build จาก commit ที่แน่นอน, ลงนาม, backup ที่ตรวจแล้ว, migration, health check และ rollback ครบ — preflight อยู่หลังการตัดสินใจข้าม จึงไม่มีตัวเลือกใดข้ามได้ (ล็อกด้วย `tests/deploy/skip-validation-contract.node.mjs`) เหตุผลถูกบันทึกใน `run.log` และ `record.json`
+
+ลำดับมาตรฐาน: **แก้ → `dev:verify` → แก้ → `release:preflight` → package → deploy** ห้ามใช้ Staging/Production upgrade เป็นเครื่องมือ debug
+
 ## 11. เมื่อ build / migration / health ล้มเหลว
 
 | อาการ | ทำอย่างไร |
