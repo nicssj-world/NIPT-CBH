@@ -2,7 +2,9 @@ import {it,expect,afterEach,vi} from 'vitest';
 import {createHash} from 'node:crypto';
 import {resultFixture,receivedCase,importReport,type ResultFixture} from '../helpers/results';
 import {ingestMigrationPdfs} from '../../packages/migration/bulk-pdf';
-import {autoLinkUnique} from '../../packages/results/service';
+import {autoLinkUnique,ancCaseResults,readHistoricalReportFile,versionDetail} from '../../packages/results/service';
+import {queryResults} from '../../packages/results/query';
+import {readMigrationResultSummary} from '../../packages/migration/result-summary';
 import {syntheticReportPdf} from '../../tools/his-simulator/result-pdf';
 import {SETTINGS} from '../../packages/settings/catalog';
 import {proposeSetting,validateSetting,approveSetting,activateSetting} from '../../packages/settings/service';
@@ -98,5 +100,28 @@ it('Re-Library across Runs: the final PDF links to attempt -2 only, never -1, an
   expect(v).toHaveLength(1);expect(v[0]).toMatchObject({attempt_id:m.attemptId,link_mode:'AUTO_UNIQUE'});expect(['Linked','ValidationBlocked','PendingCertification']).toContain(v[0].state);
   expect((await f.db.query("SELECT id,attempt_number,state,printed_sample_id FROM analytical_attempt WHERE case_id=$1 ORDER BY attempt_number",[m.caseId])).rows).toEqual(before);
   expect((await f.db.query<{n:number}>("SELECT count(*)::int n FROM migration_analysis WHERE record_id=$1",[m.record])).rows[0].n).toBe(2);
+ }finally{await f.close();}
+},180000);
+// Owner decision 2026-11-02: a historical result matched to its complete PDF is "reported by the previous system": no gate, no certification,
+// no release, no HIS transfer; ANC and LAB read the values and open/download/print the exact PDF.
+it('a matched historical PDF is reported by the previous system: readable by ANC and LAB, never certifiable, no release or transfer',async()=>{
+ const f=await resultFixture();try{
+  await activate(f,'MANUAL_REVIEWED_ONLY');const m=await migrated(f,false);
+  const out=await f.run(t=>ingestMigrationPdfs(t,f.u.staff,f.store,[{name:m.file,bytes:m.pdf()}]));expect(out.imported).toBe(1);
+  const version=(await f.db.query<{id:string;state:string}>("SELECT id,state FROM result_report_version")).rows[0];
+  expect(['Linked','ValidationBlocked','PendingCertification']).toContain(version.state);
+  expect((await f.db.query('SELECT version_id FROM historical_reported_result')).rows).toEqual([{version_id:version.id}]);
+  const historical=await f.run(t=>queryResults(t,f.u.staff,{bucket:'historical'}));expect(historical.rows.map(r=>r.id)).toEqual([version.id]);expect(historical.rows[0].historical).toBe(true);
+  for(const bucket of ['blocked','pending'] as const)expect((await f.run(t=>queryResults(t,f.u.staff,{bucket}))).rows.map(r=>r.id)).not.toContain(version.id);
+  const detail=await f.run(t=>versionDetail(t,f.u.staff,version.id)) as unknown as {historicalReported:boolean;can:Record<string,boolean>};
+  expect(detail.historicalReported).toBe(true);expect(detail.can).toMatchObject({review:false,certify:false,acceptRelease:false,acceptInternal:false});
+  const anc=await f.run(t=>ancCaseResults(t,f.u.anc,m.caseId));const result=anc.rounds.find(r=>r.current)?.result as unknown as {id:string;state:string;historical?:boolean;summary:{t21?:string|null}}|null;
+  expect(result).toMatchObject({id:version.id,state:'HistoricalReported',historical:true});expect(result!.summary.t21).toBeTruthy();
+  for(const mode of ['VIEW','DOWNLOAD','PRINT'] as const){const file=await f.run(t=>readHistoricalReportFile(t,f.u.anc,f.store,version.id,mode));expect(file.bytes.length).toBeGreaterThan(100);expect(file.name).toMatch(/\.pdf$/i);}
+  expect((await f.db.query<{purpose:string}>("SELECT purpose FROM result_access_log WHERE version_id=$1 ORDER BY purpose",[version.id])).rows.map(r=>r.purpose)).toEqual(['ANC_RESULT_DOWNLOAD','ANC_RESULT_FILE','ANC_RESULT_PRINT_VIEW']);
+  const lab=await f.run(t=>readMigrationResultSummary(t,f.u.staff,m.caseId)) as unknown as {summary:{source:string;label:string}|null};
+  expect(lab.summary).toMatchObject({source:'OFFICIAL_PDF'});expect(lab.summary!.label).toContain('ระบบเดิม');
+  for(const t of ['result_release','p6_transfer','result_review'])expect((await f.db.query('SELECT 1 FROM '+t)).rows).toHaveLength(0);
+  await expect(f.run(t=>readHistoricalReportFile(t,f.u.anc,f.store,'00000000-0000-4000-8000-000000000000'))).rejects.toThrow('NOT_FOUND');
  }finally{await f.close();}
 },180000);

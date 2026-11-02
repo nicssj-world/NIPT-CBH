@@ -15,9 +15,9 @@ type ScanFile={path:string;folder:string;name:string;size:number;modifiedAt:stri
 type ScanResult={folder:string;files:ScanFile[];folders:number;truncated:boolean;errorCode:string|null};
 type Summary={result?:string|null;labNumber:string|null;hn:string|null;collectionDate:string|null;t21:string|null;t18:string|null;t13:string|null;sca:string[]|null;yChromosome:string|null;fetalFraction:number|null;qc:string|null;needsManualReview:boolean;abnormal:boolean;unreadable:string[]};
 type Intake={id:string;file:string;member:string|null;parentId:string|null;container:string|null;state:string;rejectCode:string|null;templateKind:string|null;summary:Summary|null;candidates:number;size:number;nameConflicts?:{versions:{id:string;state:string}[];sameBatch:number}};
-type Row={id:string;origin?:string;kind:string;template_kind:string;state:string;state_changed_at:string;original_name:string;relative_path:string|null;member_name:string|null;hn:string|null;lab:string|null;collection:string|null;round_number:number|null;ln:string|null;proposal:boolean;abnormal:boolean;name_conflict:boolean};
+type Row={id:string;origin?:string;kind:string;template_kind:string;state:string;state_changed_at:string;original_name:string;relative_path:string|null;member_name:string|null;hn:string|null;lab:string|null;collection:string|null;round_number:number|null;ln:string|null;proposal:boolean;abnormal:boolean;name_conflict:boolean;historical?:boolean};
 type Data={page:{number:number;size:number;hasNext:boolean;total:number;totalPages:number;scope:"BOUNDED_PAGE"};rows:Row[];latestFolder:{folder:string;at:string}|null;intake:{folder:string;scanSubfolders:boolean;acceptZip:boolean;maxUploadMb:number;maxFilesPerScan:number;picVersion:string;scanMode:"ON_DEMAND";lastTest:{result:TestResult|null;completed_at:string|null}|null;lastScan:{result:ScanResult|null;completed_at:string|null}|null}};
-const BUCKETS=[["unlinked","รอเชื่อมโยง",["Unlinked"]],["conflict","ข้อมูลไม่ตรง",["LinkConflict"]],["blocked","ถูกบล็อกโดย Gate",["ValidationBlocked"]],["pending","รอรับรอง",["PendingCertification"]],["closed","ปิดแล้ว/ใช้ไม่ได้",["RejectedImport","Superseded","Voided","CertifiedReleased"]]] as const;
+const BUCKETS=[["historical","ออกรายงานแล้วจากระบบเดิม",[]],["unlinked","รอเชื่อมโยง",["Unlinked"]],["conflict","ข้อมูลไม่ตรง",["LinkConflict"]],["blocked","ถูกบล็อกโดย Gate",["ValidationBlocked"]],["pending","รอรับรอง",["PendingCertification"]],["closed","ปิดแล้ว/ใช้ไม่ได้",["RejectedImport","Superseded","Voided","CertifiedReleased"]]] as const;
 const DEFAULT_FILTERS={dateField:"REPORTED",from:"",to:"",q:"",gender:"ALL",qc:"ALL",risk:"ALL"};
 const STEPS=["ทดสอบโฟลเดอร์","สแกนไฟล์ PDF","เลือกไฟล์และ Preview","ยืนยันนำเข้า"];
 
@@ -65,7 +65,7 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
   const url=URL.createObjectURL(await r.blob()),a=document.createElement("a");a.href=url;a.download=`nipt-results-page-${page}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);setNotice("ส่งออก CSV เฉพาะหน้าปัจจุบันแล้ว — ไม่ใช่รายการทั้งหมด");});
  const step=preview?3:scan?.files?.length?2:test?.passed?1:0;
  const newFiles=useMemo(()=>(scan?.files??[]).filter(f=>f.status==="NEW"),[scan]);
- const rows=useMemo(()=>(data?.rows??[]).filter(r=>(BUCKETS.find(b=>b[0]===bucket)?.[2] as readonly string[]|undefined)?.includes(r.state)),[data,bucket]);
+ const rows=useMemo(()=>(data?.rows??[]).filter(r=>bucket==="historical"?!!r.historical:(BUCKETS.find(b=>b[0]===bucket)?.[2] as readonly string[]|undefined)?.includes(r.state)&&!(r.historical&&(bucket==="blocked"||bucket==="pending"))),[data,bucket]);
  const toggle=(set:Set<string>,key:string,on:boolean)=>{const n=new Set(set);if(on)n.add(key);else n.delete(key);return n;};
  const folderMsg=(code:string|null)=>code?(FOLDER_ERROR_TEXT[code]??code):"";
  const conflicted=(i:Intake)=>!!i.nameConflicts&&(i.nameConflicts.versions.length>0||i.nameConflicts.sameBatch>0);
@@ -165,7 +165,7 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
      <tbody>{!data?<tr><td colSpan={8} className="empty-row">{queueLoading?"กำลังโหลด…":"โหลดคิวไม่สำเร็จ"}</td></tr>:rows.length?rows.map(r=><tr key={r.id}>
       <td className="p5-file">{r.origin==="INTERNAL_GENERATED"?"รายงานที่ออกในระบบ":r.member_name??r.relative_path??r.original_name}</td><td>{KIND_TEXT[r.template_kind]??r.kind}{r.origin==="INTERNAL_GENERATED"&&<span className="badge info">ออกในระบบ</span>}{r.abnormal&&<span className="badge danger">ผิดปกติ</span>}</td>
       <td className="mono">{r.hn??"—"}<br/>{r.lab??"—"}</td><td>{r.collection??"—"}</td><td>{r.ln?<><span className="mono">{r.ln}</span> · รอบที่ {r.round_number}</>:"—"}</td>
-      <td><Status tone={STATE_TONE[r.state]}>{STATE_TEXT[r.state]??r.state}</Status>{r.proposal&&<span className="badge warning">รอผู้ยืนยันคนที่สอง</span>}{r.name_conflict&&<span className="badge warning">ชื่อไฟล์ซ้ำ — ตรวจว่าใหม่/ฉบับแก้ไข</span>}</td><td>{bkk(r.state_changed_at)}</td>
+      <td><Status tone={STATE_TONE[r.historical?"HistoricalReported":r.state]}>{STATE_TEXT[r.historical?"HistoricalReported":r.state]??r.state}</Status>{r.proposal&&<span className="badge warning">รอผู้ยืนยันคนที่สอง</span>}{r.name_conflict&&<span className="badge warning">ชื่อไฟล์ซ้ำ — ตรวจว่าใหม่/ฉบับแก้ไข</span>}</td><td>{bkk(r.state_changed_at)}</td>
       <td><Link className="button small secondary" href={`/results/${r.id}`}>เปิด</Link></td></tr>)
       :<tr><td colSpan={8} className="empty-row">ไม่มีรายการในสถานะนี้</td></tr>}</tbody></table>
    </div>

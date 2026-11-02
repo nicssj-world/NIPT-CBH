@@ -669,17 +669,19 @@ export async function versionDetail(db:Queryable,user:Staff,id:string){
  const fallback=(await db.query(`SELECT f.outage_reference "outageReference",f.outage_started_at "outageStartedAt",f.outage_ended_at "outageEndedAt",f.note,f.recorded_at "recordedAt",u.display_name "recordedBy" FROM result_external_fallback f JOIN app_user u ON u.id=f.recorded_by WHERE f.version_id=$1`,[v.id])).rows[0]??null;
  const attestations=(await db.query(`SELECT a.id,a.statement,a.effect,a.note,a.attested_at "attestedAt",u.display_name actor,a.withdrawn_at "withdrawnAt",w.display_name "withdrawnBy",a.withdraw_reason "withdrawReason" FROM result_his_attestation a JOIN app_user u ON u.id=a.actor_id LEFT JOIN app_user w ON w.id=a.withdrawn_by WHERE a.version_id=$1 ORDER BY a.attested_at DESC`,[v.id])).rows;
  const transfer=(await db.query<{state:string|null}>(`SELECT t.model->>'state' state FROM p6_transfer t JOIN result_release r ON r.id=t.clinical_release_id WHERE r.version_id=$1`,[v.id])).rows[0]??null;
- return {migration:await migrationResultEvidence(db,v.id),operational,nameConflicts:conflicts,origin:v.origin,internal,fallback,attestations,hisTransferState:transfer?.state??null,version:{id:v.id,origin:v.origin,kind:v.kind,templateKind:v.template_kind,templateVersion:v.template_version,parserVersion:v.parser_version,state:v.state,rowVersion:v.row_version,sha256:v.sha256,importedAt:v.imported_at,caseId:v.case_id,roundId:v.round_id,attemptId:v.attempt_id,linkMode:v.link_mode,supersedesId:v.supersedes_id,revision:v.revision},
+ // Reported by the previous system (Owner 2026-11-02): never offered certification, acceptance or review of the gate, and shown as such.
+ const historicalReported=(await db.query('SELECT 1 FROM historical_reported_result WHERE version_id=$1',[v.id])).rows.length>0;
+ return {historicalReported,migration:await migrationResultEvidence(db,v.id),operational,nameConflicts:conflicts,origin:v.origin,internal,fallback,attestations,hisTransferState:transfer?.state??null,version:{id:v.id,origin:v.origin,kind:v.kind,templateKind:v.template_kind,templateVersion:v.template_version,parserVersion:v.parser_version,state:v.state,rowVersion:v.row_version,sha256:v.sha256,importedAt:v.imported_at,caseId:v.case_id,roundId:v.round_id,attemptId:v.attempt_id,linkMode:v.link_mode,supersedesId:v.supersedes_id,revision:v.revision},
   parsed:v.parsed,summary:summary(v.parsed),intake:{...intake,size:Number(intake.byte_size)},target,proposal,
   benchEvidence:v.attempt_id&&authorize(user,'worksheet.read',{},'read')?await benchAttemptEvidence(db,v.attempt_id):null,
   candidates,autoMatch:auto?{caseId:auto.caseId,roundId:auto.round.id,attemptId:auto.attempt.id,reason:AUTO_MATCH_REASON,linksDirectly:s.linkageMode==='UNIQUE_AUTO_LINK'}:null,
   gate:v.round_id?await gateFor(db,v,'VALIDATION'):null,events:events.rows,links:links.rows,gates:gates.rows,reviews:reviews.rows,
   can:{propose:authorize(user,'result.link.manual',{},'propose')&&v.state==='Unlinked'&&!proposal,decide:!!proposal&&authorize(user,'result.link.manual',{actorId:proposal.actor_id},'approve'),
    unlink:authorize(user,'result.link.manual',{},'approve')&&['LinkConflict','Linked','ValidationBlocked','PendingCertification'].includes(v.state)&&!v.supersedes_id,
-   review:authorize(user,'result.review')&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state),certify:authorize(user,'result.release.check')&&!!v.round_id,
+   review:authorize(user,'result.review')&&!historicalReported&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state),certify:authorize(user,'result.release.check')&&!!v.round_id&&!historicalReported,
    void:authorize(user,'result.revise')&&v.state==='Unlinked',releaseAuthorized:false,
-   acceptRelease:v.origin==='EXTERNAL_READYGEN'&&operational&&authorize(user,'result.review')&&authorize(user,'result.certify')&&((await migrationResultEvidence(db,v.id)).migrated||authorize(user,'qc.accept'))&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state),
-   acceptInternal:v.origin==='INTERNAL_GENERATED'&&operational&&authorize(user,'result.review')&&authorize(user,'qc.accept')&&authorize(user,'result.certify')&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state),
+   acceptRelease:!historicalReported&&v.origin==='EXTERNAL_READYGEN'&&operational&&authorize(user,'result.review')&&authorize(user,'result.certify')&&((await migrationResultEvidence(db,v.id)).migrated||authorize(user,'qc.accept'))&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state),
+   acceptInternal:!historicalReported&&v.origin==='INTERNAL_GENERATED'&&operational&&authorize(user,'result.review')&&authorize(user,'qc.accept')&&authorize(user,'result.certify')&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state),
    attestHis:authorize(user,'his.reconcile')&&v.kind==='RESULT'&&['Linked','ValidationBlocked','PendingCertification','CertifiedReleased'].includes(v.state)&&!transfer&&!attestations.some(a=>!(a as {withdrawnAt:unknown}).withdrawnAt),
    recordFallback:v.origin==='EXTERNAL_READYGEN'&&authorize(user,'result.import')&&!fallback}};
 }
@@ -705,11 +707,15 @@ export async function ancCaseResults(db:Queryable,user:Staff,caseId:string){
   db.query<{source_round_id:string;reason_code:string;state:string;requested_at:Date}>("SELECT source_round_id,reason_code,state,requested_at FROM redraw_request WHERE case_id=$1 AND state IN ('Requested','Completed')",[c.id]),
   db.query<{id:string;round_id:string;kind:string;state:string;certified_at:Date;revised:boolean;parsed:Parsed}>("SELECT r.id,r.round_id,r.kind,r.state,r.certified_at,v.supersedes_id IS NOT NULL revised,v.parsed FROM result_release r JOIN result_report_version v ON v.id=r.version_id WHERE r.case_id=$1 AND r.state IN ('Active','Superseded','Voided') ORDER BY r.certified_at DESC",[c.id])]);
  await db.query("INSERT INTO result_access_log(actor_id,case_id,purpose) VALUES($1,$2,'ANC_RESULT_LIST')",[user.id,c.id]);
+ // A result imported from Genomic-CBH and matched to its complete PDF was already issued by the previous system (Owner 2026-11-02). It has no
+ // NIPT-CBH release, and never gets one here; ANC reads it as its own kind of result, with the exact PDF, and nothing about it is "certified" by us.
+ const legacy=(await db.query<{id:string;round_id:string;parsed:Parsed}>('SELECT h.version_id id,h.round_id,v.parsed FROM historical_reported_result h JOIN result_report_version v ON v.id=h.version_id WHERE h.case_id=$1',[c.id])).rows;
  return {currentRoundId:c.current_round_id,releaseHold:!await operationalWorkflow(db),rounds:rounds.rows.map(r=>{
   const d=redraws.rows.find(x=>x.source_round_id===r.id);const mine=releases.rows.filter(x=>x.round_id===r.id);
   return {id:r.id,number:r.round_number,state:r.state,current:r.id===c.current_round_id,collectionDate:r.collection_date,
    redraw:d?{reasonCode:d.reason_code,label:REDRAW_LABELS[d.reason_code as keyof typeof REDRAW_LABELS]??REDRAW_LABELS.OTHER,requestedAt:d.requested_at}:null,
-   result:(()=>{const x=mine.find(y=>y.kind==='RESULT'&&y.state==='Active');return x?{id:x.id,kind:x.kind,state:x.state,certified_at:x.certified_at,revised:x.revised,summary:ancSummary(x.parsed)}:null;})(),
+   result:(()=>{const x=mine.find(y=>y.kind==='RESULT'&&y.state==='Active');if(x)return {id:x.id,kind:x.kind,state:x.state,certified_at:x.certified_at,revised:x.revised,summary:ancSummary(x.parsed)};
+    const h=legacy.find(y=>y.round_id===r.id);return h?{id:h.id,kind:'RESULT',state:'HistoricalReported',certified_at:null,revised:false,historical:true as const,summary:ancSummary(h.parsed)}:null;})(),
    notices:mine.filter(x=>x.kind==='REDRAW_NOTICE'&&x.state==='Active').map(({parsed:_p,...x})=>(void _p,x)),history:mine.filter(x=>x.state!=='Active').map(x=>({id:x.id,kind:x.kind,state:x.state}))};
  })};
 }
@@ -729,6 +735,20 @@ export async function readReleasedFile(db:Queryable,user:Staff,store:FileStore,r
  const template=SETTINGS.report_output.schema.parse((await readActiveSettings(db)).report_output??SETTINGS.report_output.default).downloadNameTemplate||DEFAULT_DOWNLOAD_TEMPLATE;
  const name=renderDownloadName(template,{hisLn:r.ln,lnHalos:r.ln_halos??'',sampleId:r.parsed.identifiers.labNumber.value??r.ln_halos??r.ln,hn:r.hn??'',patientName:r.internal_patient??r.parsed.identifiers.patientName.value??'',
   reportDate:new Date(r.certified_at.getTime()+7*3600000).toISOString().slice(0,10),template:r.internal_code??r.template_kind,version:String(r.series)});
+ return {bytes:await store.get(r.sha256),sha256:r.sha256,name};
+}
+/** The exact PDF of a result already reported by the previous system (Genomic-CBH). Same permission and unit scope as a released result, same access log
+ *  purposes; it never exists for a version NIPT-CBH produced or released itself (the view excludes those), so it cannot expose an unreleased new result. */
+export async function readHistoricalReportFile(db:Queryable,user:Staff,store:FileStore,versionId:string,mode:ReleasedFileMode='VIEW'){
+ await assertSession(db,user);
+ const r=(await db.query<{case_id:string;version_id:string;sha256:string;unit_id:string|null;registration_origin:string;ln:string;ln_halos:string|null;hn:string|null;parsed:Parsed;template_kind:string;imported_at:Date}>(
+  `SELECT h.case_id,h.version_id,v.sha256,(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=h.case_id ORDER BY s.unit_id LIMIT 1) unit_id,c.registration_origin,h.ln,h.ln_halos,i.hn,v.parsed,v.template_kind,v.imported_at
+   FROM historical_reported_result h JOIN result_report_version v ON v.id=h.version_id JOIN nipt_case c ON c.id=h.case_id LEFT JOIN p2_case_identity i ON i.case_id=h.case_id WHERE h.version_id=$1`,[uuid.parse(versionId)])).rows[0];
+ if(!r||!authorize(user,'result.read.released',{unitId:r.unit_id??undefined,origin:r.registration_origin as 'ANC'},'read'))throw new LabError('NOT_FOUND',404);
+ await db.query('INSERT INTO result_access_log(actor_id,case_id,version_id,purpose) VALUES($1,$2,$3,$4)',[user.id,r.case_id,r.version_id,ACCESS_PURPOSE[mode]]);
+ const template=SETTINGS.report_output.schema.parse((await readActiveSettings(db)).report_output??SETTINGS.report_output.default).downloadNameTemplate||DEFAULT_DOWNLOAD_TEMPLATE;
+ const name=renderDownloadName(template,{hisLn:r.ln,lnHalos:r.ln_halos??'',sampleId:r.parsed.identifiers.labNumber.value??r.ln_halos??r.ln,hn:r.hn??'',patientName:r.parsed.identifiers.patientName.value??'',
+  reportDate:r.parsed.identifiers.reportedDate?.value??new Date(r.imported_at.getTime()+7*3600000).toISOString().slice(0,10),template:r.template_kind,version:'1'});
  return {bytes:await store.get(r.sha256),sha256:r.sha256,name};
 }
 /** ANC summary of the certified report: exactly the values printed on it (either origin), never a raw analysis panel. */

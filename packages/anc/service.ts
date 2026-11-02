@@ -41,7 +41,7 @@ export const factsSql=`SELECT c.created_at "registeredAt",c.id,l.ln,i.hn,CASE WH
  (SELECT v.state FROM result_report_version v WHERE v.case_id=c.id AND v.round_id=r.id AND v.kind='RESULT' AND v.state NOT IN ('Superseded','Voided','RejectedImport') ORDER BY v.state_changed_at DESC,v.id DESC LIMIT 1) "reportState",
  (SELECT count(*)::int FROM result_release rr WHERE rr.case_id=c.id AND rr.round_id=r.id AND rr.kind='RESULT' AND rr.state='Active') "activeReleaseCount",
  (SELECT count(*)::int FROM result_release rr JOIN result_report_version v ON v.id=rr.version_id WHERE rr.case_id=c.id AND rr.round_id=r.id AND rr.kind='RESULT' AND rr.state='Active' AND v.state='CertifiedReleased' AND v.kind='RESULT' AND v.case_id=c.id AND v.round_id=r.id) "certifiedReleaseCount",
- EXISTS(SELECT 1 FROM migration_record mr JOIN result_report_version hv ON hv.case_id=mr.case_id AND hv.round_id=mr.round_id AND hv.attempt_id=mr.attempt_id WHERE mr.case_id=c.id AND mr.round_id=r.id AND mr.state='IMPORTED' AND hv.kind='RESULT' AND hv.state IN ('Linked','ValidationBlocked','PendingCertification','CertifiedReleased')) "historicalResult",
+ EXISTS(SELECT 1 FROM historical_reported_result hr WHERE hr.case_id=c.id AND hr.round_id=r.id) "historicalResult",
  EXISTS(SELECT 1 FROM p2_revocation v WHERE v.case_id=c.id) "consentRevoked",
  EXISTS(SELECT 1 FROM his_intake_issue i WHERE i.case_id=c.id AND i.state IN ('Open','Proposed')) "identityIssue",
  EXISTS(SELECT 1 FROM redraw_request d WHERE d.case_id=c.id AND d.state='Requested') redraw,

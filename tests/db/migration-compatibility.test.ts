@@ -16,10 +16,10 @@ it('a fully migrated server reports compatible with every required migration and
 it('a v1.1.0 ledger (ends at 142) reports incompatible with the exact missing migrations',async()=>{
  await db.query('BEGIN');
  try{
-  await db.query("DELETE FROM schema_migration WHERE name ~ '^(16[2-9]|17[0-7])_'");
+  await db.query("DELETE FROM schema_migration WHERE name ~ '^(16[2-9]|17[0-8])_'");
   const r=await migrationCompatibility(db as never,{});
   expect(r.baselineLedgerPresent).toBe(true);expect(BASELINE_LAST_MIGRATION).toBe('142_run_release_ignores_photos.sql');
-  expect(r.missingMigrations).toHaveLength(16);expect(r.compatible).toBe(false);expect(r.reasons).toEqual(['MIGRATION_SUPPORT_MIGRATIONS_MISSING']);
+  expect(r.missingMigrations).toHaveLength(17);expect(r.compatible).toBe(false);expect(r.reasons).toEqual(['MIGRATION_SUPPORT_MIGRATIONS_MISSING']);
  }finally{await db.query('ROLLBACK');}
 });
 it('a ledger without the 1.1.0 baseline is never compatible',async()=>{

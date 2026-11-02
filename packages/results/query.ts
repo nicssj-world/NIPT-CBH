@@ -3,9 +3,9 @@ import type {Queryable} from '../db/connection';
 import {assertSession,need,audit,LabError,type Staff} from '../lab/core';
 import type {Parsed} from './parser';
 
-export const RESULT_BUCKETS={all:[],unlinked:['Unlinked'],conflict:['LinkConflict'],blocked:['ValidationBlocked'],pending:['PendingCertification'],closed:['RejectedImport','Superseded','Voided','CertifiedReleased']} as const;
+export const RESULT_BUCKETS={all:[],historical:[],unlinked:['Unlinked'],conflict:['LinkConflict'],blocked:['ValidationBlocked'],pending:['PendingCertification'],closed:['RejectedImport','Superseded','Voided','CertifiedReleased']} as const;
 const iso=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(s=>{const d=new Date(s+'T00:00:00Z');return !Number.isNaN(d.getTime())&&d.toISOString().slice(0,10)===s;});
-const schema=z.strictObject({dateField:z.enum(['IMPORTED','REPORTED']).default('IMPORTED'),q:z.string().trim().max(100).refine(s=>!/[\u0000-\u001f\u007f]/.test(s)).default(''),gender:z.enum(['ALL','Male','Female','UNKNOWN']).default('ALL'),qc:z.enum(['ALL','PASS','FAIL','UNKNOWN']).default('ALL'),from:iso.optional(),to:iso.optional(),risk:z.enum(['ALL','HIGH','LOW','UNKNOWN']).default('ALL'),bucket:z.enum(['all','unlinked','conflict','blocked','pending','closed']).default('all'),page:z.coerce.number().int().min(1).max(10000).default(1),pageSize:z.coerce.number().int().min(1).max(300).default(50)}).refine(q=>!q.from||!q.to||q.from<=q.to,{message:'DATE_RANGE_INVALID',path:['to']});
+const schema=z.strictObject({dateField:z.enum(['IMPORTED','REPORTED']).default('IMPORTED'),q:z.string().trim().max(100).refine(s=>!/[\u0000-\u001f\u007f]/.test(s)).default(''),gender:z.enum(['ALL','Male','Female','UNKNOWN']).default('ALL'),qc:z.enum(['ALL','PASS','FAIL','UNKNOWN']).default('ALL'),from:iso.optional(),to:iso.optional(),risk:z.enum(['ALL','HIGH','LOW','UNKNOWN']).default('ALL'),bucket:z.enum(['all','historical','unlinked','conflict','blocked','pending','closed']).default('all'),page:z.coerce.number().int().min(1).max(10000).default(1),pageSize:z.coerce.number().int().min(1).max(300).default(50)}).refine(q=>!q.from||!q.to||q.from<=q.to,{message:'DATE_RANGE_INVALID',path:['to']});
 export const parseResultQuery=(input:unknown)=>schema.parse(input);
 /** Patient search is permitted only in a CSRF-protected JSON POST body, never a URL. */
 export function publicResultQuery(params:URLSearchParams){if(params.has('q'))throw new LabError('PRIVATE_QUERY_REQUIRES_POST',400);return Object.fromEntries(params);}
@@ -40,7 +40,10 @@ export function resultQuerySql(q:ResultQuery){
  if(q.q){const term=param(q.q);where.push(`(${['hn','labNumber','patientName'].map(k=>`strpos(lower(coalesce(v.parsed->'identifiers'->'${k}'->>'value','')),lower(${term}))>0`).join(' OR ')})`);}
  if(q.gender!=='ALL')where.push(q.gender==='UNKNOWN'?`coalesce(${val('fetalSex')},'') NOT IN ('Male','Female')`:`${val('fetalSex')}=${param(q.gender)}`);
  if(q.qc!=='ALL')where.push(q.qc==='UNKNOWN'?`coalesce(${val('qc')},'') NOT IN ('PASS','FAIL')`:`${val('qc')}=${param(q.qc)}`);
- if(q.bucket!=='all')where.push(`v.state=ANY(${param(RESULT_BUCKETS[q.bucket])}::text[])`);
+ // Owner 2026-11-02: a result already reported by the previous system is not a blocked or pending result of this laboratory; it has its own bucket.
+ const reportedBefore='EXISTS(SELECT 1 FROM historical_reported_result h WHERE h.version_id=v.id)';
+ if(q.bucket==='historical')where.push(reportedBefore);
+ else if(q.bucket!=='all')where.push(`v.state=ANY(${param(RESULT_BUCKETS[q.bucket])}::text[])`+(q.bucket==='blocked'||q.bucket==='pending'?` AND NOT ${reportedBefore}`:''));
  if(q.risk!=='ALL')where.push(`(${riskSql})=${param(q.risk)}`);
  // P5H reports have a different evidence/lifecycle contract and do not enter the live P5 queue/export.
  where.push("(v.case_id IS NULL OR EXISTS(SELECT 1 FROM nipt_case c WHERE c.id=v.case_id AND c.registration_origin<>'HISTORICAL'))");
@@ -49,14 +52,14 @@ export function resultQuerySql(q:ResultQuery){
  const countText=`SELECT count(*)::text n FROM result_report_version v JOIN result_intake_file i ON i.id=v.intake_file_id LEFT JOIN specimen_round r ON r.id=v.round_id LEFT JOIN case_ln l ON l.id=r.case_ln_id WHERE ${where.join(' AND ')}`;
  const text=`SELECT v.id,v.origin,v.sha256,v.parser_version,v.template_version,v.parsed,v.kind,v.template_kind,v.state,v.imported_at,v.state_changed_at,i.original_name,i.relative_path,i.member_name,
  v.parsed->'identifiers'->'hn'->>'value' hn,v.parsed->'identifiers'->'labNumber'->>'value' lab,v.parsed->'identifiers'->'collectionDate'->>'value' collection,
- r.round_number,l.ln,(v.parsed->>'abnormal')::boolean abnormal,v.row_version,(${riskSql}) risk,
+ r.round_number,l.ln,(v.parsed->>'abnormal')::boolean abnormal,v.row_version,(${riskSql}) risk,EXISTS(SELECT 1 FROM historical_reported_result h WHERE h.version_id=v.id) historical,
  EXISTS(SELECT 1 FROM result_report_version o JOIN result_intake_file oi ON oi.id=o.intake_file_id WHERE o.id<>v.id AND o.sha256<>v.sha256 AND lower(coalesce(oi.member_name,oi.original_name))=lower(coalesce(i.member_name,i.original_name))) name_conflict,
  EXISTS(SELECT 1 FROM result_link_event e WHERE e.version_id=v.id AND e.event='PROPOSED' AND NOT EXISTS(SELECT 1 FROM result_link_event y WHERE y.version_id=v.id AND y.event IN ('APPROVED','REJECTED','UNLINKED') AND y.sequence>e.sequence)) proposal
  FROM result_report_version v JOIN result_intake_file i ON i.id=v.intake_file_id LEFT JOIN specimen_round r ON r.id=v.round_id LEFT JOIN case_ln l ON l.id=r.case_ln_id
  WHERE ${where.join(' AND ')} ORDER BY v.state_changed_at DESC,v.id DESC LIMIT ${param(q.pageSize+1)} OFFSET ${param((q.page-1)*q.pageSize)}`;
  return {text,values,countText,countValues};
 }
-export type ResultRow={sha256?:string;parser_version?:string;template_version?:string;parsed?:Parsed;name_conflict?:boolean;proposal?:boolean;abnormal?:boolean;row_version?:number;state_changed_at?:Date|string;kind?:string;id:string;state:string;risk:Risk;hn:string|null;lab:string|null;original_name:string;member_name:string|null;relative_path:string|null;imported_at:Date|string;template_kind:string;ln:string|null;round_number:number|null;collection:string|null};
+export type ResultRow={historical?:boolean;sha256?:string;parser_version?:string;template_version?:string;parsed?:Parsed;name_conflict?:boolean;proposal?:boolean;abnormal?:boolean;row_version?:number;state_changed_at?:Date|string;kind?:string;id:string;state:string;risk:Risk;hn:string|null;lab:string|null;original_name:string;member_name:string|null;relative_path:string|null;imported_at:Date|string;template_kind:string;ln:string|null;round_number:number|null;collection:string|null};
 export async function queryResults(db:Queryable,user:Staff,input:unknown={}){
  await assertSession(db,user);need(user,'result.review','read');
  const requested=parseResultQuery(input),counting=resultQuerySql(requested);

@@ -9,7 +9,7 @@ import {printPdfPages,renderPdfForPrint} from '../p2/print-pdf';
 const be=(iso:string)=>{try{return formatBe(iso.slice(0,10));}catch{return iso;}};
 
 type Summary={template:string;noCall:boolean;qc:string|null;t21?:string|null;t18?:string|null;t13?:string|null;fetalSex?:string|null;yChromosome?:string|null;sca?:{xo:string|null;xxx:string|null;xxy:string|null;xyy:string|null}|null;fetalFraction?:number|null};
-type Release={id:string;kind:string;state:string;certified_at:string;revised:boolean;summary?:Summary};
+type Release={id:string;kind:string;state:string;certified_at:string|null;revised:boolean;historical?:boolean;summary?:Summary};
 type Round={id:string;number:number;state:string;current:boolean;collectionDate:string|null;redraw:{reasonCode:string;label:string;requestedAt:string}|null;result:Release|null;notices:Release[];history:{id:string;kind:string;state:string}[]};
 type Data={currentRoundId:string;releaseHold:boolean;rounds:Round[]};
 const HISTORY_STATE:Record<string,string>={Superseded:"ถูกแทนด้วยฉบับแก้ไข",Voided:"ยกเลิกแล้ว — โปรดติดต่อห้องปฏิบัติการ"};
@@ -23,12 +23,12 @@ function ResultIcon({kind}:{kind:string}){return <svg viewBox="0 0 32 32" fill="
 function ResultCard({r,round}:{r:Release;round:Round}){
  const printAbort=useRef<AbortController|null>(null);useEffect(()=>()=>printAbort.current?.abort(),[]);
  const s=r.summary,frame=useRef<HTMLIFrameElement>(null),[printNote,setPrintNote]=useState("");
- const file=`/api/p5/releases/${r.id}/file`;
+ const file=r.historical?`/api/p5/historical/${r.id}/file`:`/api/p5/releases/${r.id}/file`;
  const print=async()=>{printAbort.current?.abort();const controller=new AbortController();printAbort.current=controller;setPrintNote('กำลังเตรียมหน้ารายงานสำหรับพิมพ์…');const timer=setTimeout(()=>controller.abort(),45000);
   try{const canvases=await renderPdfForPrint(file,controller.signal);if(controller.signal.aborted)throw Error('PDF_TIMEOUT');if(!frame.current)return;const invoked=await printPdfPages(canvases,frame.current,()=>setPrintNote('เปิดคำสั่งพิมพ์ของเบราว์เซอร์แล้ว'));if(!invoked)setPrintNote('หากหน้าต่างพิมพ์ไม่เปิด ให้เปิดรายงาน PDF แล้วใช้คำสั่งพิมพ์ของเบราว์เซอร์');}
   catch{if(printAbort.current===controller)setPrintNote('เตรียมเอกสารสำหรับพิมพ์ไม่สำเร็จ กรุณาเปิดรายงาน PDF แล้วใช้คำสั่งพิมพ์');}finally{clearTimeout(timer);}};
  return <div className="anc-result">
-  <header className="nipt-result-header"><span className="nipt-icon"><ResultIcon kind="file"/></span><div><h2 id="anc-results-h">ผลตรวจ NIPT</h2><p><strong>รอบที่ {round.number} (รอบปัจจุบัน)</strong>{round.collectionDate?` · เก็บตัวอย่าง ${be(round.collectionDate)}`:""}</p></div><span className={`nipt-qc ${s?.qc?.toUpperCase()==="PASS"?"good":s?.qc?.toUpperCase()==="FAIL"?"bad":"neutral"}`}>{s?.qc&&<span aria-hidden="true">{s.qc.toUpperCase()==="PASS"?"✓":s.qc.toUpperCase()==="FAIL"?"×":"?"}</span>} QC {s?.qc??"ไม่ระบุในรายงาน"}</span></header>
+  <header className="nipt-result-header"><span className="nipt-icon"><ResultIcon kind="file"/></span><div><h2 id="anc-results-h">ผลตรวจ NIPT</h2>{r.historical&&<p><span className="badge success">มีผลแล้ว · ออกรายงานแล้วจากระบบเดิม (Genomic-CBH)</span></p>}<p><strong>รอบที่ {round.number} (รอบปัจจุบัน)</strong>{round.collectionDate?` · เก็บตัวอย่าง ${be(round.collectionDate)}`:""}</p></div><span className={`nipt-qc ${s?.qc?.toUpperCase()==="PASS"?"good":s?.qc?.toUpperCase()==="FAIL"?"bad":"neutral"}`}>{s?.qc&&<span aria-hidden="true">{s.qc.toUpperCase()==="PASS"?"✓":s.qc.toUpperCase()==="FAIL"?"×":"?"}</span>} QC {s?.qc??"ไม่ระบุในรายงาน"}</span></header>
   {s?.noCall&&<p className="nipt-no-call" role="status">No Call — ไม่สามารถรายงานผลได้</p>}
   <div className="nipt-table-wrap"><table className="nipt-table"><thead><tr><th>รายการตรวจ</th><th>ผลตรวจ</th><th>สรุปความเสี่ยง</th></tr></thead><tbody>{[["Trisomy 21",s?.t21],["Trisomy 18",s?.t18],["Trisomy 13",s?.t13]].map(([label,value])=><tr key={label}><th scope="row">{label}</th><td><span className={`nipt-risk ${s?.noCall?"neutral":tone(value)}`}><span aria-hidden="true">●</span> {s?.noCall?"No Call":risk(value)}</span></td><td><span className={`nipt-risk-summary ${s?.noCall?"neutral":tone(value)}`}>{s?.noCall?"ไม่สามารถรายงานผล":riskLabel(value)}</span></td></tr>)}</tbody></table></div>
   <div className="nipt-supplement"><div><span className="nipt-icon"><ResultIcon kind="dna"/></span><dl><dt>{s?.template==="TWIN"?"Y Chromosome":"Sex chromosome (XO / XXX / XXY / XYY)"}</dt><dd>{s?.noCall?"No Call":s?.template==="TWIN"?risk(s.yChromosome):s?.sca?[s.sca.xo,s.sca.xxx,s.sca.xxy,s.sca.xyy].map(risk).join(" / "):"ไม่ระบุในรายงาน"}</dd></dl></div><div><span className="nipt-icon"><ResultIcon kind="sex"/></span><dl><dt>เพศทารก</dt><dd>{s?.noCall?"No Call":risk(s?.fetalSex)}</dd></dl></div><div><span className="nipt-icon"><ResultIcon kind="fraction"/></span><dl><dt>Fetal fraction</dt><dd>{s?.fetalFraction!=null?`${s.fetalFraction.toFixed(2)} %`:"ไม่ระบุในรายงาน"}</dd></dl></div></div>
@@ -43,7 +43,7 @@ export function AncResults({caseId,onCurrentRelease}:{caseId:string;onCurrentRel
  useEffect(()=>{let live=true;labApi<Data>(`/api/p5/cases/${caseId}/results`).then(x=>{if(live){setD(x);onCurrentRelease?.(!!x.rounds.find(r=>r.current)?.result);}}).catch(e=>{if(!live)return;if((e as {status?:number}).status===404||(e as {status?:number}).status===403)setHidden(true);else setError(failureText(e));});return()=>{live=false;};},[caseId,onCurrentRelease]);
  if(hidden)return null;
  const current=d?.rounds.find(r=>r.current),earlier=d?.rounds.filter(r=>!r.current)??[];
- const releaseLink=(r:Release,label:string)=><a className="button small secondary" href={`/api/p5/releases/${r.id}/file`} target="_blank" rel="noopener">{label}</a>;
+ const releaseLink=(r:Release,label:string)=><a className="button small secondary" href={r.historical?`/api/p5/historical/${r.id}/file`:`/api/p5/releases/${r.id}/file`} target="_blank" rel="noopener">{label}</a>;
  return <section className="anc-results-section" aria-label="ผลตรวจ NIPT">
 
   {error&&<p className="notice" role="alert">{error}</p>}
