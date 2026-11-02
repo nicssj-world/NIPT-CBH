@@ -104,7 +104,8 @@ try {
       # Owner request (no users yet; the full test suite ran and passed before the commit). Nothing else is skipped: backup, migrations, health check and rollback stay.
       Write-Host "VALIDATION SKIPPED at the owner's request: $SkipValidationReason" -ForegroundColor Yellow
       Write-NiptLog "validation skipped at owner request: $SkipValidationReason" 'WARN'
-      $steps = @([pscustomobject]@{ step = "validation skipped at owner request: $SkipValidationReason"; exitCode = 0; seconds = 0 })
+      # the dependencies are still installed (the build needs them) and the deploy contracts still run: both take about a minute
+      $steps = @(Invoke-NiptValidation $tc $wt 'quick') + @([pscustomobject]@{ step = "test run skipped at owner request: $SkipValidationReason"; exitCode = 0; seconds = 0 })
     } elseif ($reuse) {
       Write-Host "Validation of this commit already passed at $($prior.validatedAt); not repeated." -ForegroundColor Green
       $steps = @($prior.steps)
