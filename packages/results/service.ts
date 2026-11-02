@@ -491,8 +491,9 @@ export async function certifyAttempt(db:Queryable,user:Staff,input:unknown){
   await db.query("INSERT INTO result_release_completed(release_id,version_id,actor_id) VALUES($1,$2,$3)",[release.id,v.id,user.id]);
   // Task 3: an authorised "มีผลใน HIS แล้ว" attestation means HIS already holds this result: the release stays visible in NIPT/ANC
   // but no outbound delivery is queued (the P6 insert guard refuses one as well). Withdrawing the attestation queues it later.
-  outboundSuppressed=(await db.query<{attested:boolean}>('SELECT task3_his_presence_attested($1) attested',[v.id])).rows[0].attested;
-  if(outboundSuppressed)await audit(db,user,'RESULT_OUTBOUND_SUPPRESSED','RESULT_RELEASE',release.id,{reasonCode:'HIS_PRESENCE_ATTESTED'});
+  const suppression=(await db.query<{attested:boolean;eqa:boolean}>('SELECT task3_his_presence_attested($1) attested,nipt_case_is_eqa($2) eqa',[v.id,v.case_id])).rows[0];
+  outboundSuppressed=suppression.attested||suppression.eqa;
+  if(outboundSuppressed)await audit(db,user,'RESULT_OUTBOUND_SUPPRESSED','RESULT_RELEASE',release.id,{reasonCode:suppression.eqa?'EQA_NO_HIS':'HIS_PRESENCE_ATTESTED'});
   else await db.query("INSERT INTO job_outbox(kind,payload,idempotency_key) VALUES('result_release_completed',$1,$2)",[JSON.stringify({releaseId:release.id}),'release:'+release.id]);
  }
  await audit(db,user,'RESULT_CERTIFY_ATTEMPT','RESULT_VERSION',v.id,{outcome});
@@ -612,7 +613,7 @@ export async function withdrawHisAttestation(db:Queryable,user:Staff,input:unkno
  await db.query('UPDATE result_his_attestation SET withdrawn_at=clock_timestamp(),withdrawn_by=$2,withdraw_reason=$3 WHERE id=$1',[a.id,user.id,d.reason]);
  // A released result that was never sent is now queued once (the P6 unique transfer per release keeps delivery exactly-once).
  const release=(await db.query<{id:string}>("SELECT r.id FROM result_release r WHERE r.version_id=$1 AND r.state='Active' AND NOT EXISTS(SELECT 1 FROM migration_record m WHERE m.case_id=r.case_id) AND NOT EXISTS(SELECT 1 FROM p6_transfer t WHERE t.clinical_release_id=r.id)",[v.id])).rows[0];
- if(release)await db.query("INSERT INTO job_outbox(kind,payload,idempotency_key) VALUES('result_release_completed',$1,$2) ON CONFLICT(idempotency_key) DO NOTHING",[JSON.stringify({releaseId:release.id}),`release:${release.id}:attestation-withdrawn:${a.id}`]);
+ if(release&&!(await db.query<{eqa:boolean}>('SELECT nipt_case_is_eqa($1) eqa',[v.case_id])).rows[0].eqa)await db.query("INSERT INTO job_outbox(kind,payload,idempotency_key) VALUES('result_release_completed',$1,$2) ON CONFLICT(idempotency_key) DO NOTHING",[JSON.stringify({releaseId:release.id}),`release:${release.id}:attestation-withdrawn:${a.id}`]);
  await audit(db,user,'RESULT_HIS_ATTESTATION_WITHDRAWN','RESULT_VERSION',v.id,{outcome:release?'DELIVERY_QUEUED':'WITHDRAWN'});
  return {id:a.id,deliveryQueued:!!release};
 }

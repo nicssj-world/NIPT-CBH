@@ -50,7 +50,7 @@ export async function runArchiveCycle(db:Queryable,store:Pick<FileStore,'get'>,p
   SELECT w.id,r.id,v.id,r.case_id,v.sha256 FROM result_release_completed c
   JOIN result_release r ON r.id=c.release_id AND r.version_id=c.version_id
   JOIN result_report_version v ON v.id=r.version_id AND v.case_id=r.case_id AND v.round_id=r.round_id
-  JOIN nipt_case n ON n.id=r.case_id AND n.registration_origin<>'HISTORICAL'
+  JOIN nipt_case n ON n.id=r.case_id AND n.registration_origin<>'HISTORICAL' AND NOT nipt_case_is_eqa(n.id) -- EQA storage policy is not verified: fail closed
   JOIN pdf_archive_window w ON r.certified_at>w.activated_at AND c.created_at>w.activated_at AND (w.deactivated_at IS NULL OR (r.certified_at<w.deactivated_at AND c.created_at<w.deactivated_at))
   WHERE EXISTS(SELECT 1 FROM pdf_archive_config WHERE singleton AND enabled)
   AND NOT EXISTS(SELECT 1 FROM pdf_archive_job j WHERE j.release_id=r.id)

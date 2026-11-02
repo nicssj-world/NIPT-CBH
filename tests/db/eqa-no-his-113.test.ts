@@ -87,3 +87,23 @@ describe('EQA never reaches a HIS outbound pathway',()=>{
   expect(inner).toContain('migration_presence_unfiltered_release_eligible');
  });
 });
+
+describe('EQA is kept out of the patient NAS archive until a storage policy is verified',()=>{
+ it('archives a normal release but creates no archive job for an EQA release',async()=>{
+  const {runArchiveCycle}=await import('../../packages/results/archive-worker');
+  const eqa=await eqaCase(),normal=await syntheticCase(db,u,{evidence:false});
+  const a=await release(eqa.caseId,eqa.roundId),b=await release(normal.caseId,normal.roundId);
+  await db.exec('BEGIN');
+  try{
+   await db.exec('SET LOCAL session_replication_role=replica');
+   await db.query("INSERT INTO pdf_archive_window(root_path,activated_by,activated_at) VALUES('synthetic-root',$1,clock_timestamp()-interval '2 hours')",[u.staff.id]);
+   await db.query("UPDATE pdf_archive_config SET enabled=true,root_path='synthetic-root' WHERE singleton");
+   for(const r of [a,b])await db.query("INSERT INTO result_release_completed(release_id,version_id,actor_id) VALUES($1,$2,$3)",[r.releaseId,r.versionId,u.staff.id]);
+   await db.exec('COMMIT');
+  }catch(e){await db.exec('ROLLBACK');throw e;}
+  await runArchiveCycle(db,{get:async()=>{throw Error('no source read in this test');}});
+  const jobs=(await db.query<{release_id:string}>('SELECT release_id FROM pdf_archive_job')).rows.map(r=>r.release_id);
+  expect(jobs).toContain(b.releaseId);
+  expect(jobs).not.toContain(a.releaseId);
+ });
+});
