@@ -21,7 +21,8 @@ function dropTitle(token:string){
 export function nameTokens(raw:string|null|undefined){
  if(!raw)return [];
  // Dotted abbreviations (น.ส. / ด.ช. / ด.ญ.) lose their dots to the punctuation rule below, so they are removed first.
- const tokens=strip(raw).replace(/^\s*(?:น\.\s?ส\.?|นส\.|ด\.\s?ช\.?|ด\.\s?ญ\.?)\s*/,' ').replace(/[_,.;:()[\]{}"'`-]+/g,' ').split(/\s+/).filter(Boolean);
+ // HIS PET writes "<surname>^^น.ส. <given name>": "^" separates, and the dotted title sits in the middle, not only at the start.
+ const tokens=strip(raw).replace(/\^+/g,' ').replace(/(^|\s)(?:น\.\s?ส\.?|นส\.|ด\.\s?ช\.?|ด\.\s?ญ\.?)/g,'$1').replace(/^\s*(?:น\.\s?ส\.?|นส\.|ด\.\s?ช\.?|ด\.\s?ญ\.?)\s*/,' ').replace(/[_,.;:()[\]{}"'`-]+/g,' ').split(/\s+/).filter(Boolean);
  const out:string[]=[];
  for(const token of tokens){const bare=dropTitle(token).replace(/[^\p{L}\p{M}]+/gu,'').toLowerCase();if(bare)out.push(bare);}
  return out;
@@ -35,7 +36,8 @@ const digitsOf=(v:string|null|undefined)=>(v??'').replace(/\D/g,'');
 /** `<LN HIS> <name>.pdf` in any separator style. A 10-13 digit run is the HIS LN (10 digits in production); other digit runs (HN, dates) are ignored in the name. */
 export function parsePdfFileName(fileName:string|null|undefined):FileIdentity{
  if(!fileName)return {lnHis:null,lnAmbiguous:false,name:null};
- const base=strip(fileName).split(/[\\/]/).pop()!.replace(/\.pdf$/i,'');
+ // The owner's files end with the hospital name (and a "(n)" copy marker): neither is part of the patient's name.
+ const base=strip(fileName).split(/[\\/]/).pop()!.replace(/\.pdf$/i,'').replace(/\s*\(\d+\)\s*$/,'').replace(/[\s_]*chonburi[\s_]+hospital\s*$/i,'');
  const lns=[...new Set([...base.matchAll(/(?<!\d)(\d{10,13})(?!\d)/g)].map(m=>m[1]))];
  const rest=base.replace(/\d+/g,' ').replace(/_+/g,' ').replace(/\s+/g,' ').trim(),name=nameTokens(rest).length?rest:null;
  return {lnHis:lns.length===1?lns[0]:null,lnAmbiguous:lns.length>1,name};

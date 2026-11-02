@@ -49,3 +49,13 @@ it('auto-matches only when content, file name and PET name agree; Re-Library bin
  expect(matchMigrationPdf(pdf(),[t],'plain.pdf')).toMatchObject({match:null,reason:'PDF_IDENTITY_UNVERIFIED'});
  expect(matchMigrationPdf(pdf(),[target(null)],ok)).toMatchObject({match:null,reason:'PDF_IDENTITY_UNVERIFIED'});
 });
+it('reads the real HIS PET name format and the Owner file-name suffix (synthetic names)',()=>{
+ // PET: "<surname>^^<title><given name>" with the dotted title in the middle; PDF/file: title attached to the given name.
+ expect(namesAgree('ทดสอบ^^น.ส. สมหญิง','น.ส.สมหญิง ทดสอบ')).toBe(true);
+ expect(nameTokens('ทดสอบ^^นส. สมหญิง')).toEqual(['ทดสอบ','สมหญิง']);
+ expect(namesAgree('ทดสอบ^^น.ส. สมหญิง','น.ส.สมหญิง ทดลอง')).toBe(false);
+ const f=parsePdfFileName('9900000001. 000123_น.ส.สมหญิง ทดสอบ_ Chonburi hospital (2).pdf');
+ expect(f).toMatchObject({lnHis:'9900000001'});expect(namesAgree(f.name,'ทดสอบ^^น.ส. สมหญิง')).toBe(true);
+ expect(verifyPdfIdentity({fileName:'9900000001_น.ส.สมหญิง ทดสอบ_Chonburi hospital.pdf',pdfName:'น.ส.สมหญิง ทดสอบ',target:{ln:'9900000001',patientName:'ทดสอบ^^น.ส. สมหญิง'}}).status).toBe('MATCH');
+ expect(verifyPdfIdentity({fileName:'9900000001_น.ส.สมหญิง ทดสอบ_Chonburi hospital.pdf',pdfName:'น.ส.สมหญิง ทดสอบ',target:{ln:'9900000001',patientName:'ทดสอบ^^น.ส. สมศรี'}}).status).toBe('CONFLICT');
+});

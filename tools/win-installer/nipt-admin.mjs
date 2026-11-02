@@ -449,7 +449,30 @@ function ensureOperationsStatusKeys(L){
  if(existsSync(priv)||existsSync(pub))fail('OPERATIONS_STATUS_KEYS_INCOMPLETE');
  const k=operationsStatusKeyPair();writeFileSync(priv,k.privateKey,{flag:'wx',mode:0o600});writeFileSync(pub,k.publicKey,{flag:'wx',mode:0o600});
 }
-async function takeBackup(L,c,{requireReceipt=true}={}){
+/** The backup and restore tools only run as the policy's service identity, so an operator session (the upgrade) takes its pre-upgrade backup
+ *  through that identity's own scheduled backup task, then returns to the state the upgrade expects: services stopped, PostgreSQL running. */
+async function takeBackupViaServiceIdentity(L,c){
+ const marker=path.join(L.run,'last-backup.json'),before=existsSync(marker)?statSync(marker).mtimeMs:0;
+ const ref=`-TaskName ${q(backupTaskName(c))} -TaskPath ${q(TASK_PATH)}`;
+ ps(`$ErrorActionPreference='Stop';Start-ScheduledTask ${ref}`);
+ const deadline=Date.now()+45*60000;
+ for(;;){
+  await sleep(10000);
+  const state=String(ps(`(Get-ScheduledTask ${ref}).State`)).trim();
+  const fresh=existsSync(marker)&&statSync(marker).mtimeMs>before;
+  if(fresh&&state!=='Running')break;
+  if(Date.now()>deadline)fail('BACKUP_FAILED','the service identity backup task did not finish in 45 minutes');
+ }
+ const result=Number(String(ps(`(Get-ScheduledTaskInfo ${ref}).LastTaskResult`)).trim());
+ if(result!==0)fail('BACKUP_FAILED','the service identity backup task ended with result '+result);
+ const index=await readJson(path.join(c.backupRoot??L.backups,'index.json'),[]);const out=index[index.length-1];
+ if(!out?.backupBase)fail('BACKUP_FAILED','no backup recorded by the service identity task');
+ await stopServices(L,{keepDatabase:true});pgStart(L,c);
+ return out;
+}
+
+async function takeBackup(L,c,{requireReceipt=true,viaIdentity=false}={}){
+ if(viaIdentity)return takeBackupViaServiceIdentity(L,c);
  const st=stateOf(L),ops=path.join(releaseDir(L,st.current.version),'ops');
  // keys first: a service identity cannot create them, and the services must not be stopped for a backup that cannot publish its receipt
  try{ensureOperationsStatusKeys(L);}catch(e){if(requireReceipt||e.message==='OPERATIONS_STATUS_KEYS_INCOMPLETE')fail(e.message==='OPERATIONS_STATUS_KEYS_INCOMPLETE'?e.message:'OPERATIONS_STATUS_KEYS_MISSING',{hint:'run "nipt-admin start" or "restart" once from an administrator session'});}
@@ -610,7 +633,7 @@ async function upgrade(){
  if(!compat.compatibleWithDatabase)fail('UPGRADE_SCHEMA_INCOMPATIBLE',compat);
  say('pre-upgrade verified backup');
  let pre;
- try{pre=await takeBackup(L,c,{requireReceipt:false});}
+ try{pre=await takeBackup(L,c,{requireReceipt:false,viaIdentity:true});}
  catch(error){ // nothing was changed yet: leave the installed system running exactly as before
   say('pre-upgrade backup failed — restarting the installed release unchanged');
   await startServices(L,c).then(()=>waitHealthy(L,c)).catch(e=>say('restart after failed backup: '+e.message));
