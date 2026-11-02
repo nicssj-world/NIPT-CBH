@@ -451,6 +451,10 @@ function ensureOperationsStatusKeys(L){
 }
 /** The backup and restore tools only run as the policy's service identity, so an operator session (the upgrade) takes its pre-upgrade backup
  *  through that identity's own scheduled backup task, then returns to the state the upgrade expects: services stopped, PostgreSQL running. */
+/** An environment without a scheduled backup task (Staging) has no service identity to hand the backup to: the operator session takes it directly. */
+function backupTaskRegistered(c){
+ try{return String(ps(`(Get-ScheduledTask -TaskName ${q(backupTaskName(c))} -TaskPath ${q(TASK_PATH)} -ErrorAction Stop).TaskName`)).trim().length>0;}catch{return false;}
+}
 async function takeBackupViaServiceIdentity(L,c){
  const marker=path.join(L.run,'last-backup.json'),before=existsSync(marker)?statSync(marker).mtimeMs:0;
  const ref=`-TaskName ${q(backupTaskName(c))} -TaskPath ${q(TASK_PATH)}`;
@@ -633,7 +637,7 @@ async function upgrade(){
  if(!compat.compatibleWithDatabase)fail('UPGRADE_SCHEMA_INCOMPATIBLE',compat);
  say('pre-upgrade verified backup');
  let pre;
- try{pre=await takeBackup(L,c,{requireReceipt:false,viaIdentity:true});}
+ try{pre=await takeBackup(L,c,{requireReceipt:false,viaIdentity:backupTaskRegistered(c)});}
  catch(error){ // nothing was changed yet: leave the installed system running exactly as before
   say('pre-upgrade backup failed — restarting the installed release unchanged');
   await startServices(L,c).then(()=>waitHealthy(L,c)).catch(e=>say('restart after failed backup: '+e.message));
