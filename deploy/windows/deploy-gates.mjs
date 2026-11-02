@@ -143,7 +143,7 @@ export function productionGate(i){
   const applied=new Set(i.productionLedger.map(r=>r.name));
   const pending=[...known.keys()].filter(n=>!applied.has(n)).sort();
   // LOW and MEDIUM carry no schema change; a HIGH direct deployment may carry forward migrations (destructive ones still need explicit approval below)
-  if(direct&&risk!=='HIGH')add(!pending.length,'DIRECT_DEPLOY_CANNOT_CARRY_MIGRATIONS',{pending});
+  if(direct){if(risk!=='HIGH')add(!pending.length,'DIRECT_DEPLOY_CANNOT_CARRY_MIGRATIONS',{pending});}
   else{
    const rehearsed=new Map((v?.schema?.ledger??[]).map(r=>[r.name,r.checksum]));
    const notRehearsed=pending.filter(n=>rehearsed.get(n)!==rel[n]);

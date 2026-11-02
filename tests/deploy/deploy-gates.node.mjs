@@ -158,6 +158,9 @@ test('LOW and MEDIUM can never carry a database migration; HIGH goes direct on i
  const hv={...validated,risk:{level:'HIGH'}};
  const high=gate({verified:null,validated:hv,risk:{level:'HIGH'}});
  assert.ok(!codes(high).includes('STAGING_VERIFICATION_MISSING'));assert.ok(!codes(high).includes('DIRECT_DEPLOY_CANNOT_CARRY_MIGRATIONS'));
+ // a HIGH direct deployment that carries a forward migration is not asked to have rehearsed it on Staging
+ const withMig=gate({verified:null,validated:hv,risk:{level:'HIGH'},productionLedger:[{name:'001_a.sql',checksum:'h1'}],release:{migrationsSha256:'x',migrations:{'001_a.sql':'h1','002_b.sql':'h2'}},pendingSql:{'002_b.sql':'CREATE TABLE t(id int);'}});
+ assert.ok(!codes(withMig).includes('PRODUCTION_MIGRATION_NOT_REHEARSED_ON_STAGING'));assert.ok(!codes(withMig).includes('DIRECT_DEPLOY_CANNOT_CARRY_MIGRATIONS'));
  assert.ok(codes(gate({verified:null,validated:null,risk:{level:'HIGH'}})).includes('DIRECT_VALIDATION_MISSING'));
  // no risk given behaves as HIGH: exactly the earlier behaviour
  assert.ok(codes(gate({verified:null,validated})).includes('STAGING_VERIFICATION_MISSING'));
