@@ -22,3 +22,9 @@ it('paper does not hide a revoked or declined consent, an open identity issue, o
  expect(by({...paper,openIdentityIssues:1})['BG-03'].status).toBe('FAIL');
  expect(by({...paper,clinicalState:'ClinicalRejected'})['BG-06'].status).toBe('FAIL');
 });
+it('a historical case with a clinical review that only lacks data is not held; a real clinical conflict still is',()=>{
+ const h={...base,lnVerifiedByPet:false,historicalPaper:true,consentRoundEvidence:'PAPER_SELECTED' as const};
+ expect(by({...h,clinicalState:'PendingData'})['BG-06'].status).toBe('PASS');
+ expect(by({...h,clinicalState:'ClinicalDataConflict'})['BG-06'].status).toBe('FAIL');
+ expect(by({...base,clinicalState:'PendingData'})['BG-06'].status).toBe('FAIL'); // a case of NIPT-CBH keeps the gate
+});
