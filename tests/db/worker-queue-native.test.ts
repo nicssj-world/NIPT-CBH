@@ -94,7 +94,7 @@ it.skipIf(!url)('real pg-boss: a queued job is cancelled through the API; a star
   expect(overview.boss.items.some(r=>r.job_id===started&&r.job_state==='active')).toBe(true);
   expect(overview.queue.rows.find(r=>r.id===started)?.status).toBe('RECONCILIATION_REQUIRED');
   expect(overview.queue.rows.find(r=>r.id===queued)?.status).toBe('CANCELLED');
- }finally{await boss.stop({graceful:false,wait:true});}
+ }finally{await boss.stop({graceful:false});}
 });
 
 it.skipIf(!url)('web request path works as app_rw end to end and cannot change job state itself',async()=>{
