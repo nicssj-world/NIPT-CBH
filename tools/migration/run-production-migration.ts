@@ -128,8 +128,8 @@ try{
   const execution=(await db.query<{id:string}>("SELECT e.id FROM migration_execution e WHERE e.state IN ('COMPLETED','PARTIAL') AND EXISTS(SELECT 1 FROM migration_source s WHERE s.execution_id=e.id AND s.kind='GENOMIC_MAPPING' AND s.sha256=$1) ORDER BY e.created_at DESC LIMIT 1",[source.sha256])).rows[0];
   if(!execution)throw Error('NO_COMPLETED_EXECUTION_FOR_THIS_MAPPING');
   await appendAudit(db,{actorId:a.id,action:'MIGRATION_OPERATOR_RUN',resourceType:'MIGRATION',details:{outcome:'STARTED',reasonCode:'OPERATOR_SCRIPT_OWNER_AUTH_20261102_HANDOVER'}});
-  report.handover=await applyAllocatorHandover(db,a,execution.id,evidence);
-  report.nextSequence=Object.fromEntries((await db.query<{m:string;n:number}>("SELECT sequence_month::text m,last_value+1 n FROM ln_halos_monthly_sequence ORDER BY 1")).rows.map(r=>[r.m,r.n]));
+  const handedOver=await applyAllocatorHandover(db,a,execution.id,evidence);report.handover=handedOver;
+  report.nextSequence=Object.fromEntries(handedOver.months.map(m=>[String(m.month).slice(0,7),m.lastValue+1]));
  }else if(phase!=='report')throw Error('UNKNOWN_PHASE');
  // counts after every phase (and the whole content of "report")
  const c=async(sql:string)=>Number(await scalar(sql));
