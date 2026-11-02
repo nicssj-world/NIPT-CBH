@@ -154,8 +154,8 @@ it('LAB queue: a historical case still in progress waits only for the real speci
 it('central registry: hasResult is true for a reported historical case, false for one without a result, and released stays certified-only',async()=>{
  const f=await resultFixture();try{
   await activate(f,'MANUAL_REVIEWED_ONLY');const plain=await receivedCase(f);const m=await migrated(f,false);
-  const rowOf=async(id:string)=>(await f.run(t=>listP2Cases(t,f.u.staff,{pageSize:50}))) as unknown as {cases:{id:string;released:boolean;hasResult:boolean}[]};
-  const find=async(id:string)=>{const r=await rowOf(id);return r.cases.find(x=>x.id===id);};
+  const rowOf=async()=>(await f.run(t=>listP2Cases(t,f.u.staff,{pageSize:50}))) as unknown as {cases:{id:string;released:boolean;hasResult:boolean}[]};
+  const find=async(id:string)=>{const r=await rowOf();return r.cases.find(x=>x.id===id);};
   expect(await find(m.caseId)).toMatchObject({released:false,hasResult:false});
   await f.run(t=>ingestMigrationPdfs(t,f.u.staff,f.store,[{name:m.file,bytes:m.pdf()}]));
   expect(await find(m.caseId)).toMatchObject({released:false,hasResult:true});
