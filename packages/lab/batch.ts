@@ -8,6 +8,8 @@ import {isoDate} from '../domain/thai-date';
 import {pageFields,clampPage,offsetOf} from '../db/pagination';
 
 export const EDITABLE=['Draft','PlanChecked','Amended'];
+/** Standing reason recorded when a sample is made Urgent while filling a Task: marking it Urgent is the reason, so no one types one. */
+export const URGENT_FILL_REASON='ระบุเป็นงานด่วนขณะเติมตัวอย่าง';   // the database requires an event reason of at least 8 characters
 /** Never-printed Draft/PlanChecked sheets, or a printed sheet re-opened for edits (Amended). */
 export const placementEditable=(s:{state:string;placement_revision:number})=>EDITABLE.includes(s.state)&&(s.placement_revision===0||s.state==='Amended');
 export const FINALIZED=['PlacementFinalized','PreWorkIssued','InExecution','ExecutionRecorded','ExecutionVerified','CompletedIssued'];
@@ -172,7 +174,9 @@ export async function assignExact(db:Queryable,user:Staff,input:unknown){
  if(!selected||!caseVisible(user,selected))throw new LabError('NOT_FOUND',404);
  const {policy}=await pendingPolicy(db),gate=assignmentDecision(selected,policy);if(!gate.eligible)throw new LabError('ASSIGNMENT_GATE_FAILED',409,{failed:gate.failed,pending:gate.pending});
  if(d.mode==='REPEAT'&&!selected.repeat_order_id&&selected.round_number<2)throw new LabError('REPEAT_ATTEMPT_REQUIRED',422);
- if(d.mode==='URGENT'&&!selected.urgent){if(!d.queueOverrideReason)throw new LabError('URGENT_REASON_REQUIRED',422);await attemptEvent(db,user,{attemptId:selected.attempt_id,caseId:selected.case_id,type:'URGENT_SET',reason:d.queueOverrideReason});await audit(db,user,'LAB_URGENT_SET','analytical_attempt',selected.attempt_id);}
+ // Owner 2026-11-03: choosing Urgent is the reason, nobody is asked to type one. A typed reason is still kept when given; otherwise the event records the standing reason below,
+ // which also covers an overtaken FIFO queue (a non-empty urgent reason is what fifoOvertaken accepts).
+ if(d.mode==='URGENT'&&!selected.urgent){await attemptEvent(db,user,{attemptId:selected.attempt_id,caseId:selected.case_id,type:'URGENT_SET',reason:d.queueOverrideReason??URGENT_FILL_REASON});await audit(db,user,'LAB_URGENT_SET','analytical_attempt',selected.attempt_id);}
  if(d.slot===40&&d.mode!=='URGENT'&&!selected.urgent)throw new LabError('URGENT_ATTEMPT_REQUIRED',422);
  const occupied=await liveAssignment(db,b.id,d.slot);let expectedVersion=b.version;
  if(occupied){
