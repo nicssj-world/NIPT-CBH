@@ -46,3 +46,38 @@ export async function historicalRunDetail(db:Queryable,user:Staff,runLabel:strin
   samples:rows.filter(r=>r.sheet==='result'&&r.classification==='ANALYSIS').length,controls:rows.filter(r=>r.classification==='CONTROL').length,
   technicalRepeats:rows.filter(r=>r.sheet==='repeat').length,withPdf:new Set(slots.filter(s=>s.hasPdf&&s.caseId).map(s=>s.caseId)).size};
 }
+
+/** Unified Batch / Task List index: historical Runs remain read-only but share search, sort and pagination.
+ * Sort on recorded run_year / run_number, NEVER migration insert time. */
+export async function listUnifiedRunPage(db:Queryable,user:Staff,input:{q?:string;page?:string|number;pageSize?:string|number}={}){
+ await assertSession(db,user);need(user,'worksheet.read','read');
+ const q=String(input.q??'').trim().toLowerCase().slice(0,40);
+ const requestedSize=Number(input.pageSize??25);
+ const size=[10,25,50,100].includes(requestedSize)?requestedSize:25;
+ const pageRequested=Math.max(1,Math.floor(Number(input.page??1)||1));
+ const releaseColumn=(await db.query<{present:boolean}>("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='lab_batch' AND column_name='run_released_at') present")).rows[0]?.present;
+ const base=`WITH combined AS (
+  SELECT b.run_label,b.run_year,b.run_number,b.id,'CURRENT'::text source,b.state,
+    b.created_at,
+    (SELECT count(*) FROM lab_slot_assignment a WHERE a.batch_id=b.id AND a.removed_at IS NULL)::int samples,
+    ARRAY(SELECT t.state FROM lab_task_sheet t WHERE t.batch_id=b.id ORDER BY t.sheet_number) sheet_states,
+    0::int controls,0::int technical_repeats,0::int with_pdf
+  FROM lab_batch b WHERE NOT EXISTS (SELECT 1 FROM lab_batch_removal d WHERE d.batch_id=b.id) ${releaseColumn?"AND b.run_released_at IS NULL":""}
+  UNION ALL
+  SELECT h.run_label,h.run_year,h.run_number,NULL::uuid,'HISTORICAL'::text,'Historical'::text,
+    NULL::timestamptz,
+    (SELECT count(*) FROM migration_analysis a WHERE a.run_label=h.run_label AND a.sheet='result' AND a.classification='ANALYSIS')::int,
+    ARRAY[]::text[],
+    (SELECT count(*) FROM migration_analysis a WHERE a.run_label=h.run_label AND a.sheet IN ('result','repeat') AND a.classification='CONTROL')::int,
+    (SELECT count(*) FROM migration_analysis a WHERE a.run_label=h.run_label AND a.sheet='repeat')::int,
+    (SELECT count(DISTINCT m.id) FROM migration_analysis a JOIN migration_record m ON m.id=a.record_id JOIN historical_reported_result r ON r.record_id=m.id WHERE a.run_label=h.run_label AND a.sheet='result')::int
+  FROM migration_historical_run h
+ ) SELECT * FROM combined WHERE ($1::text='' OR strpos(lower(run_label),$1)>0)`;
+ const total=Number((await db.query<{n:string}>(`SELECT count(*)::text n FROM (${base}) filtered`,[q])).rows[0]?.n??0);
+ const totalPages=Math.max(1,Math.ceil(total/size));
+ const number=Math.min(pageRequested,totalPages);
+ const offset=(number-1)*size;
+ type Unified={run_label:string;run_year:number;run_number:number;id:string|null;source:'CURRENT'|'HISTORICAL';state:string;created_at:Date|null;samples:number;sheet_states:string[];controls:number;technical_repeats:number;with_pdf:number};
+ const rows=(await db.query<Unified>(`${base} ORDER BY run_year DESC,run_number DESC,CASE source WHEN 'CURRENT' THEN 0 ELSE 1 END,run_label DESC LIMIT $2 OFFSET $3`,[q,size,offset])).rows;
+ return {rows,page:{number,size,total,totalPages}};
+}
