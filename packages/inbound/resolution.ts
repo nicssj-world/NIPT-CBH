@@ -91,6 +91,6 @@ export async function resolveIssueDirect(db:Queryable,user:Principal,issueId:str
  // Mark resolved before potential PET application, in one transaction. On failure, rollback both.
  await db.query("UPDATE his_intake_issue SET state='Resolved',closed_at=now(),case_id=COALESCE(case_id,$2) WHERE id=$1",[issue.id,caseId]);
  if(d.action==='link_case')await linkCase(db,issue,caseId!,user.id,deps,'SINGLE_OPERATOR');
- await appendAudit(db,{actorId:user.id,action:'INBOUND_RESOLUTION_DIRECT',resourceType:'his_intake_issue',resourceId:issue.id,details:{outcome:d.action,reasonCode:issue.kind,previousState:issue.state,synthetic:process.env.NIPT_MODE!=='operational'}});
+ await appendAudit(db,{actorId:user.id,action:'INBOUND_RESOLUTION_DIRECT',resourceType:'his_intake_issue',resourceId:issue.id,details:{outcome:d.action,reasonCode:issue.kind,previousState:issue.state,resultingState:'Resolved',synthetic:process.env.NIPT_MODE!=='operational'}});
  return {state:'Resolved',action:d.action};
 }

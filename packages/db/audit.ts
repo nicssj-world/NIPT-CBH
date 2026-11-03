@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import {Pool} from 'pg';
 import type { Queryable } from "./connection";
-const allowed = new Set(["outcome","reasonCode","ruleVersion","origin","version","count","synthetic"]);
+const allowed = new Set(["outcome","reasonCode","ruleVersion","origin","version","count","synthetic","previousState","resultingState","photoCount"]);
 export function safeDetails(details:Record<string,unknown> = {}) { for(const [key,value] of Object.entries(details)) if(!allowed.has(key) || !["boolean","number","string"].includes(typeof value) || (typeof value === "string" && !/^[A-Za-z_][A-Za-z0-9_.-]{0,79}$/.test(value))) throw new Error("Unsafe audit details"); return Object.fromEntries(Object.entries(details).sort(([a],[b])=>a.localeCompare(b))); }
 export function auditHash(previous:string,payload:string) { return createHash("sha256").update(previous+"\n"+payload).digest("hex"); }
 type AuditEvent={actorId?:string;action:string;resourceType:string;resourceId?:string;details?:Record<string,unknown>};
