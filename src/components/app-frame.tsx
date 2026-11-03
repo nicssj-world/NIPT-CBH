@@ -6,6 +6,7 @@ import {InputSafety} from "./shared/input-safety";
 import {usePathname} from "next/navigation";
 import {OwnProfile} from "./own-profile";
 import {LogoutButton} from "./navigation";
+import "./ui-backlog-polish.css";
 
 const routeNames:Record<string,string>={"/":"ภาพรวม","/cases":"ทะเบียนกลาง","/inbound":"รับตัวอย่างจาก HIS","/lab":"งาน Lab","/lab/batches":"Batch / Task List","/sample-storage":"Sample Storage","/results":"ผลตรวจ NIPT","/historical":"นำเข้าย้อนหลัง","/doctors":"ทะเบียนแพทย์","/settings":"ตั้งค่าระบบ","/health":"สถานะระบบ"};
 
