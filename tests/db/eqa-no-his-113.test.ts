@@ -1,6 +1,6 @@
 import {afterAll,beforeAll,describe,expect,it} from 'vitest';
 import type {PGlite} from '@electric-sql/pglite';
-import {randomUUID,createHash} from 'node:crypto';
+import {randomUUID} from 'node:crypto';
 import {testDatabase} from '../helpers/database';
 import {labUsers,syntheticCase,receiveS1} from '../helpers/lab';
 
@@ -8,7 +8,6 @@ let db:PGlite,u:Awaited<ReturnType<typeof labUsers>>;
 beforeAll(async()=>{db=await testDatabase();u=await labUsers(db);});
 afterAll(async()=>{await db?.close();});
 
-const sha=()=>createHash('sha256').update(randomUUID()).digest('hex');
 const classify=(c:{caseId:string;roundId:string},o:{sample?:string;actor?:string}={})=>db.query(
  `INSERT INTO eqa_case(case_id,round_id,organizer,program_year,sample_ref,surname,first_name,dob,ga_weeks,ga_days,collection_date,pregnancy,note,registered_by)
   VALUES($1,$2,'SYNTHETIC-ORGANIZER',2026,$3,'POLSON','Tonya','1988-08-23',11,1,'2026-10-19','Singleton',NULL,$4)`,[c.caseId,c.roundId,o.sample??'S-'+randomUUID().slice(0,8),o.actor??u.staff.id]);
