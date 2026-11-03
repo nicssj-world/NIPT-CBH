@@ -202,3 +202,7 @@ GRANT SELECT ON worker_queue_retry_request TO worker_rw;
 GRANT SELECT,INSERT ON worker_queue_retry_outcome TO worker_rw;
 GRANT EXECUTE ON FUNCTION nipt_pg_boss_state_of(uuid[]) TO app_rw;
 GRANT EXECUTE ON FUNCTION nipt_his_transfer_overview() TO app_rw;
+
+-- v1.1.3 EQA own LN Halos and delete (migration 187).
+GRANT EXECUTE ON FUNCTION eqa_issue_ln_halos(uuid,text),eqa_delete_registration(uuid,uuid,text) TO app_rw;
+GRANT SELECT ON eqa_registration_deleted TO app_rw,report_ro;

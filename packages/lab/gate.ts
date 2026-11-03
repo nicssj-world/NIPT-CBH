@@ -9,7 +9,7 @@ export type PendingPolicy = "HOLD" | "PROCEED_SYNTHETIC_LABELLED";
 export const GATE_RULE_VERSION = "P4-BG-SYNTHETIC-v1";
 
 export type CommonFacts = {
-  labOperationalRoute?: boolean; eqa?: boolean;
+  labOperationalRoute?: boolean; eqa?: boolean; specimenRejected?: boolean;
   isCurrentRound: boolean; roundNumber: number; roundState: string; receivedSource: string | null; analysisStarted: boolean; isRepeatChild: boolean; previouslyFinalized: boolean;
   openIdentityIssues: number; lnVerifiedByPet: boolean; receiptIdentityAndLabel: boolean;
   consentRevoked: boolean; consentRoundEvidence: "GRANTED" | "DECLINED" | "PAPER_SELECTED" | "NONE";
@@ -35,7 +35,7 @@ export function commonPredicates(f: CommonFacts): Predicate[] {
   const bg06 = f.eqa&&!f.clinicalState ? p("BG-06","PASS","EQA_REFERRAL_CARD") : f.labOperationalRoute&&!f.clinicalState ? p("BG-06","PASS","OWNER_LAB_DIRECT_PAPER_ROUTE") : f.historicalPaper&&(!f.clinicalState||f.clinicalState==="PendingClinicalReview"||f.clinicalState==="PendingData") ? p("BG-06","PASS","HISTORICAL_PAPER_ROUTE") : f.clinicalState==='ClinicalPassed'?p('BG-06','PASS','CURRENT_CLINICAL_REVIEW_ACCEPTED'):f.clinicalState === "PendingClinicalReview" ? p("BG-06", "PENDING", "CLINICAL_RULES_NOT_APPROVED", "OD-08") : f.clinicalState ? p("BG-06", "FAIL", `CLINICAL_${f.clinicalState.replace(/[^A-Za-z]/g, "_").toUpperCase()}`) : p("BG-06", "FAIL", "CLINICAL_NOT_ASSESSED");
   const dates = new Set(f.collectionDates);
   const bg07 = dates.size === 1 ? p("BG-07", "PASS", "COLLECTION_DATE_CONSISTENT") : dates.size === 0 ? p("BG-07", "FAIL", "COLLECTION_DATE_MISSING") : p("BG-07", "FAIL", "COLLECTION_DATE_CONFLICT");
-  return [bg01, f.labOperationalRoute?p('BG-02','PASS','LAB_SPECIMEN_PRESENT'):f.receivedSource==='HIS_PET_RECEIPT'&&f.lnVerifiedByPet?p('BG-02','PASS','HIS_RECEIPT_BY_PET'):f.historicalPaper?p('BG-02','PASS','HISTORICAL_MIGRATION'):f.specimenAccepted?p('BG-02','PASS','SPECIMEN_ACCEPTED'):p("BG-02", "PENDING", "SPECIMEN_ACCEPTANCE_POLICY", "OD-01"), bg03, bg04, bg05, bg06, bg07];
+  return [bg01, f.eqa&&!f.specimenRejected?p('BG-02','PASS','EQA_RECEIVED_AND_CHECKED_AT_REGISTRATION'):f.labOperationalRoute?p('BG-02','PASS','LAB_SPECIMEN_PRESENT'):f.receivedSource==='HIS_PET_RECEIPT'&&f.lnVerifiedByPet?p('BG-02','PASS','HIS_RECEIPT_BY_PET'):f.historicalPaper?p('BG-02','PASS','HISTORICAL_MIGRATION'):f.specimenAccepted?p('BG-02','PASS','SPECIMEN_ACCEPTED'):p("BG-02", "PENDING", "SPECIMEN_ACCEPTANCE_POLICY", "OD-01"), bg03, bg04, bg05, bg06, bg07];
 }
 
 export function assignmentPredicates(f: AssignmentFacts): Predicate[] {

@@ -199,8 +199,8 @@ it('LAB-UAT-003: sample pagination and FIFO Auto-fill explicitly expose the 10,0
     received_at timestamptz NOT NULL,issue_date date NOT NULL,issue_sequence integer NOT NULL) ON COMMIT PRESERVE ROWS`);
    await db.query(`INSERT INTO task2_storage_large_fixture(n,ln,received_at,issue_date,issue_sequence)
     SELECT n,'9903'||lpad(n::text,6,'0'),
-     timestamptz '2026-10-20 01:00:00+00'+((n-1)/900)::integer*interval '1 day'+((n-1)%900)::integer*interval '1 second',
-     date '2026-10-20'+((n-1)/900)::integer,((n-1)%900)+1 FROM generate_series(1,10001) n`);
+     timestamptz '2026-10-20 01:00:00+00'+((n-1)/800)::integer*interval '1 day'+((n-1)%800)::integer*interval '1 second',
+     date '2026-10-20'+((n-1)/800)::integer,((n-1)%800)+1 FROM generate_series(1,10001) n`);
    await db.query(`INSERT INTO nipt_case(id,registration_origin,identity_key)
     SELECT case_id,'LAB_DIRECT',md5('TASK2-STORAGE-LARGE-A-'||n)||md5('TASK2-STORAGE-LARGE-B-'||n) FROM task2_storage_large_fixture`);
    await db.query(`INSERT INTO case_ln(id,case_id,ln,version,source)

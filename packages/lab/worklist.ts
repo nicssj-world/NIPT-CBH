@@ -3,7 +3,7 @@ import type {Queryable} from '../db/connection';
 import {recordPhiAccess} from '../db/phi-access';
 import {pageFields,clampPage,offsetOf,type PageMeta} from '../db/pagination';
 import {authorize} from '../security/policy';
-import {assertSession,need,attemptFacts,pendingPolicy,assignmentDecision,candidatePrintedId,caseVisible,gestationalAge,type Staff,type AttemptRow} from './core';
+import {assertSession,need,attemptFacts,pendingPolicy,assignmentDecision,candidatePrintedId,caseVisible,migrationImportedExclusion,lnHalosOrder,gestationalAge,type Staff,type AttemptRow} from './core';
 import {compareReceive} from './receive-sort';
 import {specimenDisplayCode} from './rules';
 
@@ -56,7 +56,7 @@ const ATTEMPT_IDS=`FROM analytical_attempt a JOIN nipt_case c ON c.id=a.case_id
  AND (COALESCE(${FIRST_UNIT}::text,'')||':'||c.registration_origin)=ANY($1::text[])`;
 const TWINS=`(SELECT x.pt FROM (SELECT d.created_at,d.payload->'draft'->'pregnancy'->>'type' pt FROM p2_document_revision d WHERE d.round_id=a.round_id AND d.kind='REQUEST'
    UNION ALL SELECT p.created_at,p.panel->>'pregnancyType' FROM p2_paper_review p WHERE p.round_id=a.round_id AND p.kind='REQUEST' AND p.status='Verified') x WHERE x.pt IN ('Singleton','Twins') ORDER BY x.created_at DESC LIMIT 1)='Twins'`;
-const fifoSql=(dir:'asc'|'desc')=>`r.received_at ${dir==='asc'?'ASC':'DESC'} NULLS LAST,l.ln ASC,a.id ASC`; // null receipt last in both directions, immutable tie keys (receive-sort.ts)
+const fifoSql=(dir:'asc'|'desc')=>`(SELECT n.ln_halos FROM specimen_lab_number n WHERE n.round_id=r.id ORDER BY n.ln_halos LIMIT 1) ${dir==='asc'?'ASC':'DESC'} NULLS LAST,r.received_at ${dir==='asc'?'ASC':'DESC'} NULLS LAST,l.ln ASC,a.id ASC`; // null receipt last in both directions, immutable tie keys (receive-sort.ts)
 
 /** (unit, origin) pairs this user may read, exactly as authorize() decides per case ("" = a case with no unit scope). */
 async function readableScope(db:Queryable,user:Staff){
@@ -88,8 +88,7 @@ async function readWorklist(db:Queryable,user:Staff,raw:unknown,tuning:ScanTunin
  const f=inputSchema.parse(raw);const q=f.q.toLowerCase();
  const {policy}=await pendingPolicy(db);
  const scope=await readableScope(db,user);
- const migrationPresent=(await db.query<{present:boolean}>("SELECT to_regclass('public.migration_record') IS NOT NULL present")).rows[0].present;
- const migrationExclusion=migrationPresent?" AND NOT EXISTS(SELECT 1 FROM migration_record m WHERE m.case_id=c.id AND m.round_id=a.round_id AND m.attempt_id=a.id AND m.state='IMPORTED' AND m.classification IN ('QUALIFIED_PDF_PENDING','PDF_REVIEW','CERTIFIED_RELEASED'))":"";
+ const migrationExclusion=await migrationImportedExclusion(db);
  const attemptIdsSql=ATTEMPT_IDS+migrationExclusion,attemptsSql=ATTEMPTS+migrationExclusion;
  // Counts that need no per-attempt facts.
  const c=(await db.query<{ready:number;in_batch:number;decision:number}>(`SELECT count(*) FILTER (WHERE a.state='Ready')::int ready,count(*) FILTER (WHERE a.state IN ('Assigned','InProgress'))::int in_batch,count(*) FILTER (WHERE a.state NOT IN ('Ready','Assigned','InProgress'))::int decision ${attemptIdsSql}`,[scope])).rows[0];
@@ -122,7 +121,7 @@ async function readWorklist(db:Queryable,user:Staff,raw:unknown,tuning:ScanTunin
  const visible=<T extends {unit_id:string|null;registration_origin:string}>(rows:T[])=>rows.filter(r=>caseVisible(user,r));
  if(f.tab==='READY'||f.tab==='GATE_BLOCKED'){
   const dir=f.sort,rows=ready.filter(rowMatches)
-   .sort((a,b)=>compareReceive({receivedAt:a.receivedAt,keys:[a.hisLn,a.attemptId]},{receivedAt:b.receivedAt,keys:[b.hisLn,b.attemptId]},dir));
+   .sort((a,b)=>lnHalosOrder(a.lnHalos,b.lnHalos,dir)||compareReceive({receivedAt:a.receivedAt,keys:[a.hisLn,a.attemptId]},{receivedAt:b.receivedAt,keys:[b.hisLn,b.attemptId]},dir));
   meta=clampPage(f.page,rows.length,f.pageSize);if(capped)meta={...meta,totalPages:meta.totalPages+1}; // unscanned attempts may hold more rows: keep "next" available
   const ids=rows.slice(offsetOf(meta),offsetOf(meta)+meta.size).map(x=>x.attemptId),byId=new Map((await factsOf(db,ids)).map(r=>[r.attempt_id,r]));
   attempts=ids.flatMap(id=>{const r=byId.get(id);return r&&caseVisible(user,r)?[worklistRow(r,policy)]:[];});
