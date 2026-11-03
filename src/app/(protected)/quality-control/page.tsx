@@ -6,6 +6,7 @@ import {authorize} from "../../../../packages/security/policy";
 import {readEqaRegistry,readIqc} from "../../../../packages/eqa/registry";
 import {displayBeDateTime} from "../../../../packages/domain/thai-date";
 import {EqaRegisterForm} from "../../../components/quality-control/eqa-register-form";
+import {EqaDeleteButton} from "../../../components/quality-control/eqa-delete-button";
 import {PdfActions} from "../../../components/quality-control/pdf-actions";
 
 type Search={tab?:string;q?:string;year?:string;page?:string;pageSize?:string;control?:string};
@@ -47,7 +48,7 @@ export default async function QualityControlPage({searchParams}:{searchParams:Pr
       ?<div className="stack"><span className={"badge"+(r.versionState==="CertifiedReleased"?"":" warning")}>{REPORT_STATE[r.versionState??""]??r.versionState}</span>
         <PdfActions versionId={r.versionId} certified={r.versionState==="CertifiedReleased"}/>
         <span className="help">เวอร์ชัน {r.versions} · {r.certifiedAt?`รับรอง ${fmt(r.certifiedAt)}`:`นำเข้า ${fmt(r.versionAt)}`} · <Link href={`/results/${r.versionId}`}>รายละเอียดการรับรอง</Link></span></div>
-      :<span className="muted">ยังไม่มีรายงาน</span>}</td></tr>)}</tbody>
+      :<div className="stack"><span className="muted">ยังไม่มีรายงาน</span>{canRegister&&!r.run&&<EqaDeleteButton caseId={r.caseId} sampleRef={r.sampleRef} lnHalos={r.lnHalos}/>}</div>}</td></tr>)}</tbody>
    </table></div>
    <nav className="pager" aria-label="เลือกหน้า"><span className="pager-summary">หน้า {d.page}/{d.pages} · {d.total} รายการ</span>
     <span className="pager-buttons">{d.page>1&&<Link className="button secondary" href={href({q:d.q??"",year:d.year?String(d.year):"",page:String(d.page-1),pageSize:String(d.pageSize)})}>ก่อนหน้า</Link>}

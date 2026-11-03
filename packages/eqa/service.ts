@@ -2,7 +2,7 @@ import {z} from 'zod';
 import type {Queryable} from '../db/connection';
 import {requirePermission} from '../security/policy';
 import {registerP2,P2Error} from '../p2/service';
-import type {Staff} from '../lab/core';
+import {assertSession,type Staff} from '../lab/core';
 import {appendAudit} from '../db/audit';
 import {isoDate} from '../domain/thai-date';
 
@@ -20,6 +20,8 @@ export const eqaRegistrationSchema=z.strictObject({
  gaWeeks:z.number().int().min(0).max(45),gaDays:z.number().int().min(0).max(6),
  collectionDate:isoDate,
  pregnancy:z.enum(['Singleton','Twins']),
+ // Optional: an LN Halos typed by the laboratory. It must be in the EQA number space (running number 900-999); blank = the system issues the next one.
+ lnHalos:z.string().trim().regex(/^[0-9]{2}B[0-9]{9}$/).optional(),
  note:text(200).optional()          // reference to the referral card / scheme document; not a clinical statement
 });
 export type EqaRegistration=z.infer<typeof eqaRegistrationSchema>;
@@ -39,13 +41,31 @@ export async function registerEqaCase(db:Queryable,user:Staff,raw:unknown,key:Bu
  await db.query(`INSERT INTO eqa_case(case_id,round_id,organizer,program_year,sample_ref,surname,first_name,dob,ga_weeks,ga_days,collection_date,pregnancy,note,registered_by)
   VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
   [reg.caseId,round,d.organizer,d.programYear,d.sampleRef,d.surname,d.firstName,d.dob,d.gaWeeks,d.gaDays,d.collectionDate,d.pregnancy,d.note??null,user.id]);
+ // EQA numbers come from their own space, never from the patient sequence: issue it BEFORE the receipt so the patient allocator finds a number and takes none.
+ const issued=(await db.query<{code:string}>('SELECT eqa_issue_ln_halos($1,$2) code',[round,d.lnHalos??null])).rows[0].code;
  // The organizer's specimen is physically in the laboratory: record the receipt through the existing local-receipt channel.
  await db.query(`UPDATE specimen_round SET state='ReceivedInNIPT',received_source='NIPT_LOCAL_RECEIPT',received_at=now(),received_by=$2,
   receipt_check=$3,collection_date=$4 WHERE id=$1 AND state='Expected' AND received_at IS NULL`,
   [round,user.id,JSON.stringify({identity:true,label:true,condition:'ACCEPTABLE',source:'EQA_REFERRAL_CARD'}),d.collectionDate]);
  const lnHalos=(await db.query<{ln_halos:string}>('SELECT ln_halos FROM specimen_lab_number WHERE round_id=$1',[round])).rows[0]?.ln_halos??null;
- if(!lnHalos)throw new P2Error('LN_HALOS_NOT_ISSUED',500);
+ if(!lnHalos||lnHalos!==issued)throw new P2Error('LN_HALOS_NOT_ISSUED',500);
  await db.query("INSERT INTO case_event(case_id,event_type,details) VALUES($1,'EQA_REGISTERED',$2)",[reg.caseId,JSON.stringify({actorId:user.id,programYear:d.programYear})]);
  await appendAudit(db,{actorId:user.id,action:'EQA_REGISTERED',resourceType:'nipt_case',resourceId:reg.caseId,details:{outcome:'RECEIVED_WITHOUT_PET',count:d.programYear}});
  return {caseId:reg.caseId,roundId:round,lnHalos};
+}
+
+const deleteSchema=z.strictObject({caseId:z.uuid(),reason:text(200).min(3)});
+/**
+ * Deletes an EQA registration that nothing was built on (no label, batch, result, PET or outbox). The database checks every table and refuses
+ * otherwise; a tombstone and the audit trail remain. The LN Halos number is reusable (see numberReusable).
+ */
+export async function deleteEqaRegistration(db:Queryable,user:Staff,raw:unknown){
+ await assertSession(db,user);
+ const d=deleteSchema.parse(raw);
+ const row=(await db.query<{unit_id:string|null}>('SELECT (SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=e.case_id LIMIT 1) unit_id FROM eqa_case e WHERE e.case_id=$1',[d.caseId])).rows[0];
+ if(!row)throw new P2Error('EQA_NOT_FOUND',404);
+ if(!user.roles.includes('APP_ADMIN'))requirePermission(user,'case.register.lab',{unitId:row.unit_id??undefined,origin:'LAB_DIRECT'});
+ const r=(await db.query<{r:{lnHalos:string;numberReusable:boolean}}>('SELECT eqa_delete_registration($1,$2,$3) r',[d.caseId,user.id,d.reason])).rows[0].r;
+ await appendAudit(db,{actorId:user.id,action:'EQA_REGISTRATION_DELETED',resourceType:'nipt_case',resourceId:d.caseId,details:{outcome:r.numberReusable?'NUMBER_REUSABLE':'NUMBER_GAP'}});
+ return r;
 }

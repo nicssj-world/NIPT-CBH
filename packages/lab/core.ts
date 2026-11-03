@@ -100,7 +100,7 @@ export function commonFacts(r:AttemptRow):CommonFacts{
  return {labOperationalRoute:r.lab_operational_route===true,eqa:r.eqa===true,isCurrentRound:r.current_round_id===r.round_id,roundNumber:r.round_number,roundState:r.round_state,receivedSource:r.received_source,analysisStarted:r.analysis_started,isRepeatChild:r.repeat_order_id!==null,previouslyFinalized:r.previously_finalized,
   openIdentityIssues:r.open_issues,lnVerifiedByPet:r.ln_verification==='VERIFIED_BY_PET',receiptIdentityAndLabel:check.identity===true&&check.label===true,
   consentRevoked:r.revoked,consentRoundEvidence:r.consent_ev==='GRANTED'?'GRANTED':r.consent_ev==='DECLINED'?'DECLINED':r.consent_ev==='PAPER_SELECTED'||r.lab_operational_route||r.historical_paper?'PAPER_SELECTED':'NONE',requestRoundEvidence:r.request_ev==='VERIFIED'?'VERIFIED':'NONE',historicalPaper:r.historical_paper===true,
-  clinicalState:r.clinical_state,collectionDates:dates,specimenAccepted:r.specimen_accepted===true};
+  clinicalState:r.clinical_state,collectionDates:dates,specimenAccepted:r.specimen_accepted===true,specimenRejected:r.specimen_accepted===false};
 }
 export function candidatePrintedId(r:AttemptRow){
  if(r.printed_sample_id)return {status:'YES' as const,id:r.printed_sample_id};

@@ -66,3 +66,31 @@ it.skipIf(!url)('a HIS receipt (his_order) for the EQA case is refused at the da
  const x=await open();
  try{await expect(x.query('INSERT INTO his_order(case_ln_id,inbound_file_id,his_received_at) VALUES($1,$2,now())',[lnId,file])).rejects.toThrow(/EQA_CASE_REJECTS_HIS_RECEIPT/);}finally{await x.end();}
 });
+
+it.skipIf(!url)('app_rw issues an EQA-block LN Halos and deletes an unused EQA through the SECURITY DEFINER functions; the patient range stays closed',async()=>{
+ const id=randomUUID(),round=randomUUID(),ln=randomUUID();
+ await c.query('BEGIN');await c.query('SET LOCAL session_replication_role=replica');
+ await c.query("INSERT INTO nipt_case(id,registration_origin,identity_key,current_round_id) VALUES($1,'LAB_DIRECT',$2,$3)",[id,sha(),round]);
+ await c.query("INSERT INTO case_ln(id,case_id,ln) VALUES($1,$2,'0099113002')",[ln,id]);
+ await c.query("INSERT INTO specimen_round(id,case_id,case_ln_id,round_number,state) VALUES($1,$2,$3,1,'Expected')",[round,id,ln]);
+ await c.query('COMMIT');await c.query('SET session_replication_role=origin');
+ await c.query(`INSERT INTO eqa_case(case_id,round_id,organizer,program_year,sample_ref,surname,first_name,dob,ga_weeks,ga_days,collection_date,pregnancy,note,registered_by)
+  VALUES($1,$2,'ORG',2026,'S-2','ESPOSITO','Alessia','1985-02-21',11,1,'2026-10-19','Twins',NULL,$3)`,[id,round,actor]);
+ const x=await open();
+ try{
+  await x.query('BEGIN');await x.query('SET LOCAL ROLE app_rw');
+  const code=(await x.query<{code:string}>('SELECT eqa_issue_ln_halos($1,NULL) code',[round])).rows[0].code;
+  expect(Number(code.slice(-3))).toBeGreaterThanOrEqual(900);
+  expect((await x.query('SELECT 1 FROM specimen_lab_number WHERE ln_halos=$1',[code])).rows).toHaveLength(1);
+  await expect(x.query('SAVEPOINT s').then(()=>x.query('SELECT eqa_delete_registration($1,$2,$3)',[id,actor,'ลงทะเบียนผิด']))).rejects.toThrow(/FORBIDDEN/);   // no role, no delete
+  await x.query('ROLLBACK TO s');
+  await c.query("INSERT INTO role_assignment(user_id,role,effective_from) VALUES($1,'LAB_STAFF',now()-interval '1 hour') ON CONFLICT DO NOTHING",[actor]);
+  const r=(await x.query<{r:{lnHalos:string;numberReusable:boolean}}>('SELECT eqa_delete_registration($1,$2,$3) r',[id,actor,'ลงทะเบียนผิด'])).rows[0].r;
+  expect(r).toEqual({lnHalos:code,numberReusable:true});
+  expect((await x.query('SELECT 1 FROM nipt_case WHERE id=$1',[id])).rows).toHaveLength(0);
+  expect((await x.query('SELECT 1 FROM eqa_registration_deleted WHERE case_id=$1',[id])).rows).toHaveLength(1);
+  await x.query('ROLLBACK');
+ }finally{await x.query('ROLLBACK').catch(()=>{});await x.end();}
+ // worker_rw has no business deleting or issuing.
+ expect(await as('worker_rw','SELECT eqa_delete_registration($1,$2,$3)',[id,actor,'x'])).toMatch(/permission denied/i);
+});

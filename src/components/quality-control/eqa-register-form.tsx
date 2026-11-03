@@ -10,13 +10,17 @@ type Done={caseId:string;lnHalos:string};
 const EQA_MESSAGES:Record<string,string>={
  EQA_REQUIRES_NEW_LAB_DIRECT_CASE:"เลข LN หรือ Hospital No. นี้มีอยู่ในระบบแล้ว ใช้ซ้ำไม่ได้ ตรวจเลขจากบัตร Referral อีกครั้ง",
  COLLECTION_DATE_FUTURE:"วันที่เก็บตัวอย่างเป็นวันในอนาคต",
+ EQA_LN_HALOS_FORMAT:"รูปแบบ LN Halos ไม่ถูกต้อง ตัวอย่าง 26B261103950 (ปี B วันที่ yymmdd เลขรัน 3 หลัก)",
+ EQA_LN_HALOS_RANGE_900_999:"LN Halos ของ EQA ต้องมีเลขรัน 900-999 (เลข 001-899 เป็นของผู้ป่วย)",
+ EQA_LN_HALOS_DATE_INVALID:"วันที่ใน LN Halos ไม่ถูกต้อง",
+ EQA_LN_HALOS_IN_USE:"LN Halos นี้ถูกใช้แล้ว",
  EQA_CASE_HAS_PATIENT_EVIDENCE:"รายการนี้มีข้อมูลผู้ป่วยจริงอยู่แล้ว จัดเป็น EQA ไม่ได้"
 };
 /** EQA registration from the organizer's referral card. The card is the only source: nothing is inferred (it has no EDD, so none is asked). */
 export function EqaRegisterForm({units}:{units:Unit[]}){
  const router=useRouter(),key=useRef(crypto.randomUUID()),trigger=useRef<HTMLButtonElement>(null);
  const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(""),[done,setDone]=useState<Done|null>(null);
- const [f,setF]=useState({unitId:units[0]?.id??"",organizer:"GenQA/EMQN",programYear:String(new Date().getFullYear()),sampleRef:"",ln:"",surname:"",firstName:"",dob:"",gaWeeks:"",gaDays:"",collectionDate:"",pregnancy:"Singleton"});
+ const [f,setF]=useState({unitId:units[0]?.id??"",organizer:"GenQA/EMQN",programYear:String(new Date().getFullYear()),sampleRef:"",ln:"",surname:"",firstName:"",dob:"",gaWeeks:"",gaDays:"",collectionDate:"",pregnancy:"Singleton",lnHalos:""});
  // The dialog is unmounted on close, so focus is handed back to the button that opened it (keyboard users keep their place).
  const close=()=>{setOpen(false);requestAnimationFrame(()=>trigger.current?.focus());};
  const set=(k:keyof typeof f)=>(v:string)=>setF(s=>({...s,[k]:v}));
@@ -25,7 +29,7 @@ export function EqaRegisterForm({units}:{units:Unit[]}){
   setBusy(true);setError("");
   try{
    const result=await api<Done>("/api/eqa/register",{unitId:f.unitId,idempotencyKey:key.current,organizer:f.organizer.trim(),programYear:Number(f.programYear),sampleRef:f.sampleRef.trim(),ln:f.ln.trim().replaceAll("-",""),
-    surname:f.surname.trim(),firstName:f.firstName.trim(),dob:f.dob,gaWeeks:Number(f.gaWeeks),gaDays:Number(f.gaDays),collectionDate:f.collectionDate,pregnancy:f.pregnancy});
+    surname:f.surname.trim(),firstName:f.firstName.trim(),dob:f.dob,gaWeeks:Number(f.gaWeeks),gaDays:Number(f.gaDays),collectionDate:f.collectionDate,pregnancy:f.pregnancy,...(f.lnHalos.trim()?{lnHalos:f.lnHalos.trim().toUpperCase()}:{})});
    setDone(result);router.refresh();
   }catch(e){setError((e instanceof ApiFailure&&EQA_MESSAGES[e.code])||message(e));key.current=crypto.randomUUID();}finally{setBusy(false);}
  }
@@ -51,6 +55,7 @@ export function EqaRegisterForm({units}:{units:Unit[]}){
      <Field label="อายุครรภ์ตามสแกน (สัปดาห์)" required>{id=>input("gaWeeks",id,{inputMode:"numeric",maxLength:2})}</Field>
      <Field label="อายุครรภ์ตามสแกน (วัน)" required>{id=>input("gaDays",id,{inputMode:"numeric",maxLength:1})}</Field>
      <Field label="ชนิดครรภ์" required>{id=><select id={id} className="input" value={f.pregnancy} disabled={busy} onChange={e=>set("pregnancy")(e.target.value)}><option value="Singleton">ครรภ์เดี่ยว (Singleton)</option><option value="Twins">ครรภ์แฝด (Twins)</option></select>}</Field>
+     <Field label="LN Halos (ไม่บังคับ)" help="เว้นว่างให้ระบบออกให้ (เลขรัน 900-999 แยกจากผู้ป่วย) หรือกำหนดเอง เช่น 26B261103950">{id=>input("lnHalos",id,{maxLength:12,autoCapitalize:"characters"})}</Field>
      {units.length>1&&<Field label="หน่วยงาน" required>{id=><select id={id} className="input" value={f.unitId} disabled={busy} onChange={e=>set("unitId")(e.target.value)}>{units.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select>}</Field>}
     </div>
     <div className="dialog-actions"><button type="submit" className="button" disabled={!ready||busy}>{busy?"กำลังบันทึก…":"ลงทะเบียนและรับตัวอย่าง"}</button><button type="button" className="button secondary" onClick={close} disabled={busy}>ยกเลิก</button></div>
