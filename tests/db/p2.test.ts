@@ -119,6 +119,7 @@ describe('P2 synthetic PostgreSQL integration',()=>{
   const denied:Staff={...anc,roles:['LAB_STAFF']};
   await expect(tx(()=>voidIncorrectRegistration(db,denied,bad,{expectedLn:ln,expectedHn:'009900001'}))).rejects.toThrow();
   await expect(tx(()=>voidIncorrectRegistration(db,anc,bad,{expectedLn:ln,expectedHn:'WRONG'}))).rejects.toThrow('REGISTRATION_CONFIRMATION_MISMATCH');
+  expect((await getCase(db,anc,bad)).allowedActions).toContain('case.registration.void');   // offered on the case page, not only in the registry list
   expect((await tx(()=>voidIncorrectRegistration(db,anc,bad,{expectedLn:ln,expectedHn:'009900001'}))).voided).toBe(true);
   expect((await listP2Cases(db,anc,{q:ln})).cases.some(c=>c.id===bad)).toBe(false);
   expect((await db.query("SELECT event_type FROM case_event WHERE case_id=$1 AND event_type='P2_REGISTRATION_VOIDED'",[bad])).rows).toHaveLength(1);
@@ -138,6 +139,7 @@ describe('P2 synthetic PostgreSQL integration',()=>{
   const lnRecord=(await db.query<{id:string}>('SELECT id FROM case_ln WHERE case_id=$1',[received])).rows[0].id;
   const file=(await db.query<{id:string}>("INSERT INTO his_inbound_file(sha256,state) VALUES($1,'Applied(S1)') RETURNING id",[crypto.randomUUID().replaceAll('-','').repeat(2)])).rows[0].id;
   await db.query('INSERT INTO his_order(case_ln_id,inbound_file_id,his_received_at) VALUES($1,$2,now())',[lnRecord,file]);
+  expect((await getCase(db,anc,received)).allowedActions).not.toContain('case.registration.void');   // the case page does not offer a delete the server would refuse
   await expect(tx(()=>voidIncorrectRegistration(db,anc,received,{expectedLn:receivedLn,expectedHn:'009900001'}))).rejects.toThrow('REGISTRATION_HAS_DOWNSTREAM_EVIDENCE');
   expect((await getCase(db,anc,received)).case.id).toBe(received);
  });

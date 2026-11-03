@@ -91,13 +91,8 @@ export async function registerP2(db:Queryable,user:Staff,input:unknown,key:Buffe
  const linked=await linkIntakeAtRegistration(db,user,{caseId:result.caseId,ln,hn:d.hn,identifierSource:d.identifierSource??null},{lookupKey:key,store:intake.store});
  return {...result,intake:linked};
 }
-export async function voidIncorrectRegistration(db:Queryable,user:Staff,id:string,input:unknown){
- const d=z.strictObject({expectedLn:z.string().regex(/^\d{10}$/),expectedHn:z.string().min(1).max(32)}).parse(input);
- const c=await scopedCase(db,user,id,'case.registration.void','write');
- // ANC staff remove ANC registrations; an administrator may also remove a Lab registration. The downstream-evidence block below applies to everyone.
- if((c.registration_origin!=='ANC'&&!user.roles.includes('APP_ADMIN'))||!c.hn||c.ln!==d.expectedLn||c.hn!==d.expectedHn)throw new P2Error('REGISTRATION_CONFIRMATION_MISMATCH',409);
- await lockLn(db,c.ln);await db.query('SELECT id FROM nipt_case WHERE id=$1 FOR UPDATE',[id]);
- if((await db.query('SELECT 1 FROM p2_registration_void WHERE case_id=$1',[id])).rows.length)throw new P2Error('REGISTRATION_ALREADY_VOID',409);
+/** True when anything downstream exists that makes deleting the registration unsafe (shared by the delete itself and by the case page deciding whether to offer the button). */
+async function registrationHasDownstreamEvidence(db:Queryable,id:string){
  const blocked=await db.query(`SELECT 1 WHERE
   EXISTS(SELECT 1 FROM specimen_round_current WHERE case_id=$1 AND (received_at IS NOT NULL OR analysis_started)) OR
   EXISTS(SELECT 1 FROM his_order h JOIN case_ln l ON l.id=h.case_ln_id WHERE l.case_id=$1) OR
@@ -112,7 +107,16 @@ export async function voidIncorrectRegistration(db:Queryable,user:Staff,id:strin
   EXISTS(SELECT 1 FROM clinical_snapshot WHERE case_id=$1 AND (result->>'passed'='true' OR rule_version='CBH-AUTHORIZED-REVIEW-v1')) OR
   EXISTS(SELECT 1 FROM result_report_version WHERE case_id=$1) OR
   EXISTS(SELECT 1 FROM p2_revocation WHERE case_id=$1)`,[id]);
- if(blocked.rows.length)throw new P2Error('REGISTRATION_HAS_DOWNSTREAM_EVIDENCE',409);
+ return blocked.rows.length>0;
+}
+export async function voidIncorrectRegistration(db:Queryable,user:Staff,id:string,input:unknown){
+ const d=z.strictObject({expectedLn:z.string().regex(/^\d{10}$/),expectedHn:z.string().min(1).max(32)}).parse(input);
+ const c=await scopedCase(db,user,id,'case.registration.void','write');
+ // ANC staff remove ANC registrations; an administrator may also remove a Lab registration. The downstream-evidence block below applies to everyone.
+ if((c.registration_origin!=='ANC'&&!user.roles.includes('APP_ADMIN'))||!c.hn||c.ln!==d.expectedLn||c.hn!==d.expectedHn)throw new P2Error('REGISTRATION_CONFIRMATION_MISMATCH',409);
+ await lockLn(db,c.ln);await db.query('SELECT id FROM nipt_case WHERE id=$1 FOR UPDATE',[id]);
+ if((await db.query('SELECT 1 FROM p2_registration_void WHERE case_id=$1',[id])).rows.length)throw new P2Error('REGISTRATION_ALREADY_VOID',409);
+ if(await registrationHasDownstreamEvidence(db,id))throw new P2Error('REGISTRATION_HAS_DOWNSTREAM_EVIDENCE',409);
  await db.query("INSERT INTO p2_registration_void(case_id,actor_id,reason) VALUES($1,$2,'ANC voided an incorrect registration')",[id,user.id]);
  await db.query("INSERT INTO case_event(case_id,event_type,details) VALUES($1,'P2_REGISTRATION_VOIDED',$2)",[id,{actorId:user.id,synthetic:!operationalDataEnabled()}]);
  await appendAudit(db,{actorId:user.id,action:'P2_REGISTRATION_VOIDED',resourceType:'nipt_case',resourceId:id,details:{origin:c.registration_origin,synthetic:!operationalDataEnabled()}});
@@ -139,6 +143,8 @@ export async function getCase(db:Queryable,user:Staff,id:string){
  const ancCaller=user.roles.some(role=>role==='ANC_NURSE'||role==='ANC_SUPERVISOR');
  const withdrawalUnavailable=ancCaller&&(await db.query('SELECT 1 WHERE EXISTS(SELECT 1 FROM specimen_round_current WHERE case_id=$1 AND analysis_started) OR EXISTS(SELECT 1 FROM result_report_version WHERE case_id=$1)',[id])).rows.length>0;
  const actions=['clinical.correct','request.edit','request.correct','consent.prepare','paper.verify','consent.withdraw.receive'].filter(a=>authorize(user,a,{unitId:c.unit_id,origin:c.registration_origin},'write')&&!(a==='consent.withdraw.receive'&&withdrawalUnavailable));
+ // The case page offers delete exactly when the delete itself would be accepted (same origin rule and the same downstream-evidence check).
+ if(authorize(user,'case.registration.void',{unitId:c.unit_id,origin:c.registration_origin},'write')&&!!c.hn&&(c.registration_origin==='ANC'||user.roles.includes('APP_ADMIN'))&&!(await registrationHasDownstreamEvidence(db,id)))actions.push('case.registration.void');
  const assessment=w.request_mode==='Electronic'?evaluateClinical(w.draft,await collectionConflict(db,c)):null;
  const missing=w.request_mode==='Electronic'?requestIssues(w.draft):[];
  const requestCurrent=revisions.rows.find(r=>r.kind==='REQUEST'&&(r.payload as {identity?:{roundId?:string}})?.identity?.roundId===c.current_round_id);
