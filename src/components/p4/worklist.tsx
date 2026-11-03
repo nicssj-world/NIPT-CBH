@@ -1,6 +1,7 @@
 "use client";
 import {useCallback,useEffect,useMemo,useRef,useState} from "react";
 import Link from "next/link";
+import Image from "next/image";
 import {Dialog,Ln} from "../p2/shared";
 import {SampleActionCenter} from "./action-center";
 import {formatHisLn} from "./his-ln";
@@ -163,12 +164,30 @@ export const REJECT_CAUSES:[string,string][]=[["PATIENT_DATA_MISMATCH","ข้�
 /** Exception path of the specimen after the HIS receipt. The PET is the HIS receipt, so a routine specimen needs NO confirmation here (Owner 2026-11-02); this dialog opens on "found a problem / reject" with preset causes, and still allows a recorded routine acceptance. The HIS
  *  receipt time comes from the PET and is only shown. Nothing is recorded before the button is pressed and nothing changes before the server answers. */
 export function SampleAcceptanceDialog({row,onClose,onDone}:{row:Attempt;onClose:()=>void;onDone:(msg:string)=>Promise<void>}){
- const [busy,setBusy]=useState(false),[error,setError]=useState(""),[problem,setProblem]=useState(true),[cause,setCause]=useState(""),[note,setNote]=useState("");
+ const [busy,setBusy]=useState(false),[error,setError]=useState(""),[problem,setProblem]=useState(true),[cause,setCause]=useState(""),[note,setNote]=useState(""),[photos,setPhotos]=useState<{mime:"image/png"|"image/jpeg"|"image/webp";data:string}[]>([]),[photoError,setPhotoError]=useState("");
  const sent=useRef(false);
  async function send(body:Record<string,unknown>,done:string){
   if(sent.current)return;sent.current=true;setBusy(true);setError("");
   try{const r=await labApi<{duplicate?:boolean}>("/api/p4/worklist",{action:"acceptSpecimen",roundId:row.roundId,...body});await onDone(r.duplicate?"ตัวอย่างนี้ได้รับการยืนยันรับไว้แล้ว":done);onClose();}
   catch(e){setError(failureText(e));sent.current=false;}finally{setBusy(false);}
+ }
+ async function choosePhotos(files:FileList|null){
+  setPhotoError("");
+  if(!files?.length)return;
+  const arr=Array.from(files);
+  if(arr.length+photos.length>4){setPhotoError("แนบได้สูงสุด 4 รูป กรุณาลบรูปเดิมหรือเลือกรูปให้น้อยลง");return;}
+  if(arr.some(f=>!["image/jpeg","image/png","image/webp"].includes(f.type)||f.size>1048576||f.size===0)){
+   setPhotoError("รองรับ JPG, PNG, WebP ขนาดรูปละไม่เกิน 1 MB");return;
+  }
+  try{
+   const next=await Promise.all(arr.map(file=>new Promise<{mime:"image/png"|"image/jpeg"|"image/webp";data:string}>((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>resolve({mime:file.type as "image/png"|"image/jpeg"|"image/webp",data:String(reader.result).split(",")[1]??""});
+    reader.onerror=reject;
+    reader.readAsDataURL(file);
+   })));
+   setPhotos(old=>[...old,...next].slice(0,4));
+  }catch{setPhotoError("ไม่สามารถอ่านรูปภาพได้ กรุณาเลือกอีกครั้ง");}
  }
  const rejectReady=!!cause&&(cause!=="OTHER"||note.trim().length>0);
  return <Dialog title={problem?"ปฏิเสธสิ่งส่งตรวจ":"ยืนยันรับสิ่งส่งตรวจ"} onClose={onClose}><div className="stack acceptance-dialog">
@@ -180,11 +199,18 @@ export function SampleAcceptanceDialog({row,onClose,onDone}:{row:Attempt;onClose
   <p className="help">{problem?"เลือกสาเหตุที่ไม่สามารถรับสิ่งส่งตรวจได้ ระบบจะบันทึกการปฏิเสธพร้อมผู้ดำเนินการและวันเวลา":"ตรวจชื่อ/HN และฉลากหลอดกับสิ่งส่งตรวจจริงก่อนยืนยันรับ ระบบจะบันทึกผู้ตรวจรับและวันเวลา"}</p>
   {problem&&<fieldset className="acceptance-problem"><legend>ปัญหาที่พบ</legend>{REJECT_CAUSES.map(([v,l])=><label key={v} className="check-label"><input type="radio" name="cause" checked={cause===v} onChange={()=>setCause(v)}/> {l}</label>)}
    {cause&&<div><label htmlFor="reject-note">หมายเหตุ{cause==="OTHER"?" (จำเป็น)":" (ถ้ามี)"}</label><input id="reject-note" value={note} maxLength={300} onChange={e=>setNote(e.target.value)}/></div>}</fieldset>}
+  {problem&&<div className="rejection-photos">
+   <label htmlFor="rejection-photo-files">รูปภาพประกอบ (ไม่บังคับ)</label>
+   <p className="help">แนบได้สูงสุด 4 รูป · JPG / PNG / WebP · รูปละไม่เกิน 1 MB · สามารถบันทึกโดยไม่แนบรูปได้</p>
+   <input id="rejection-photo-files" type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={busy||photos.length>=4} onChange={e=>{void choosePhotos(e.target.files);e.target.value="";}}/>
+   {!!photos.length&&<div className="rejection-photo-preview">{photos.map((p,i)=><div key={i}><Image unoptimized src={`data:${p.mime};base64,${p.data}`} alt={`รูปภาพประกอบการปฏิเสธ ${i+1}`} width={96} height={96}/><button className="button small secondary" disabled={busy} type="button" onClick={()=>setPhotos(items=>items.filter((_,j)=>j!==i))}>ลบรูป ${i+1}</button></div>)}</div>}
+   {photoError&&<p role="alert" className="notice">{photoError}</p>}
+  </div>}
   {error&&<p className="notice" role="alert">{error}</p>}
   <div className="dialog-actions">
    {!problem?<><button className="button" type="button" autoFocus disabled={busy} onClick={()=>send({condition:"ACCEPTABLE"},"ยืนยันรับสิ่งส่งตรวจแล้ว")}>{busy?"กำลังบันทึก…":"ยืนยันรับสิ่งส่งตรวจ"}</button>
      <button className="button secondary" type="button" disabled={busy} onClick={()=>setProblem(true)}>พบปัญหา / ปฏิเสธ</button></>
-    :<><button className="button danger" type="button" disabled={busy||!rejectReady} onClick={()=>send({condition:"REJECTED",reasonCode:cause,...(note.trim()?{note:note.trim()}:{})},"บันทึกการปฏิเสธสิ่งส่งตรวจแล้ว")}>{busy?"กำลังบันทึก…":"บันทึกการปฏิเสธ"}</button>
+    :<><button className="button danger" type="button" disabled={busy||!rejectReady} onClick={()=>send({condition:"REJECTED",reasonCode:cause,...(note.trim()?{note:note.trim()}:{}),...(photos.length?{photos}:{})},"บันทึกการปฏิเสธสิ่งส่งตรวจแล้ว")}>{busy?"กำลังบันทึก…":"บันทึกการปฏิเสธ"}</button>
      <button className="button secondary" type="button" disabled={busy} onClick={()=>{setProblem(false);setCause("");setNote("");}}>กลับ</button></>}
    <button className="button secondary" type="button" onClick={onClose}>ปิด</button>
   </div>
