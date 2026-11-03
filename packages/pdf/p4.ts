@@ -1,7 +1,7 @@
 import {z} from 'zod';
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
-import {chromium} from 'playwright';
+import {launchShared} from './browser';
 // F2 (Extraction & Library Task List 1–3) and F3 (QC1) worksheets — Plan §12.20, Appendix F.1/F.2/F.4.
 // The renderer receives a structured, immutable document snapshot only (never caller HTML) and builds the page itself.
 export const P4_TEMPLATE_VERSION='SYNTHETIC-P4-WORKSHEET-v1' as const;
@@ -80,7 +80,7 @@ export async function renderP4Pdf(input:P4Document){
  const font=async(file:string)=>(await readFile(path.resolve(file))).toString('base64');
  const faces=`@font-face{font-family:Thai;src:url(data:font/woff2;base64,${await font('node_modules/@fontsource/noto-sans-thai/files/noto-sans-thai-thai-400-normal.woff2')})}@font-face{font-family:Thai;font-weight:700;src:url(data:font/woff2;base64,${await font('node_modules/@fontsource/noto-sans-thai/files/noto-sans-thai-thai-700-normal.woff2')})}@font-face{font-family:Latin;src:url(data:font/woff2;base64,${await font('node_modules/@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff2')})}@font-face{font-family:Latin;font-weight:700;src:url(data:font/woff2;base64,${await font('node_modules/@fontsource/noto-sans/files/noto-sans-latin-700-normal.woff2')})}`;
  const html=worksheetHtml(doc).replace('<style>',`<style>${faces}`);
- const browser=await chromium.launch({headless:true,args:process.env.CHROMIUM_NO_SANDBOX==='true'?['--no-sandbox']:[]});
+ const browser=await launchShared({headless:true,args:process.env.CHROMIUM_NO_SANDBOX==='true'?['--no-sandbox']:[]});
  try{const page=await browser.newPage({javaScriptEnabled:false});await page.route('**/*',r=>r.abort());await page.setContent(html,{waitUntil:'load'});await page.evaluate(()=>document.fonts.ready);
   return await page.pdf({format:'A4',landscape:doc.form==='F2',printBackground:true,displayHeaderFooter:true,headerTemplate:'<span></span>',footerTemplate:footer(doc),margin:{top:'10mm',bottom:'18mm',left:'10mm',right:'10mm'}});}
  finally{await browser.close();}

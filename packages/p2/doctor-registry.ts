@@ -25,12 +25,12 @@ export async function saveDoctor(db:Queryable,user:Staff,input:unknown){
  await assertStaff(db,user);requirePermission(user,'doctor.manage',{},'write');const d=saveSchema.parse(input);
  if(!(await db.query('SELECT id FROM unit WHERE id=$1 AND active',[d.unitId])).rows.length)throw new P2Error('ACTIVE_UNIT_REQUIRED',422);
  await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,75432803))',[d.doctorKey]);
- const prior=(await db.query<{id:string;doctor_key:string;unit_id:string;signature:unknown;signature_png:string;signature_hash:string;version:number}>('SELECT * FROM p2_doctor_version WHERE doctor_key=$1 ORDER BY version DESC LIMIT 1',[d.doctorKey])).rows[0];
+ const prior=(await db.query<{id:string;doctor_key:string;unit_id:string;signature:unknown;signature_png:string|null;signature_hash:string|null;version:number}>('SELECT * FROM p2_doctor_version WHERE doctor_key=$1 ORDER BY version DESC LIMIT 1',[d.doctorKey])).rows[0];
  if(d.id?(!prior||prior.id!==d.id):!!prior)throw new P2Error('DOCTOR_RECORD_CHANGED',409);
  if(d.image&&d.vector)throw new P2Error('SIGNATURE_IMAGE_INVALID',422);
- const sig=d.image?await uploadedDoctorSignature(d.image):d.vector?deriveSignature(d.vector):prior?{vector:prior.signature,png:prior.signature_png,hash:prior.signature_hash}:null;
- if(!sig||!sig.png)throw new P2Error('DOCTOR_SIGNATURE_REQUIRED',422);
- const row=(await db.query<{id:string;version:number}>('INSERT INTO p2_doctor_version(doctor_key,version,name,unit_id,effective_from,authorization_evidence,signature,signature_png,signature_hash,created_by,synthetic) VALUES($1,$2,$3,$4,clock_timestamp(),$5,$6,$7,$8,$9,$10) RETURNING id,version',[d.doctorKey,(prior?.version??0)+1,d.name,d.unitId,operationalDataEnabled()?'REGISTERED_DIRECTLY_BY_AUTHORIZED_STAFF':'SYNTHETIC_DIRECT_STAFF_REGISTRATION',sig.vector,sig.png,sig.hash,user.id,!operationalDataEnabled()])).rows[0];
+ const sig=d.image?await uploadedDoctorSignature(d.image):d.vector?deriveSignature(d.vector):prior?.signature_png?{vector:prior.signature,png:prior.signature_png,hash:prior.signature_hash}:null;
+ // A signature is optional (Owner 2026-11-03): without one the doctor is still selectable and the documents simply carry none.
+ const row=(await db.query<{id:string;version:number}>('INSERT INTO p2_doctor_version(doctor_key,version,name,unit_id,effective_from,authorization_evidence,signature,signature_png,signature_hash,created_by,synthetic) VALUES($1,$2,$3,$4,clock_timestamp(),$5,$6,$7,$8,$9,$10) RETURNING id,version',[d.doctorKey,(prior?.version??0)+1,d.name,d.unitId,operationalDataEnabled()?'REGISTERED_DIRECTLY_BY_AUTHORIZED_STAFF':'SYNTHETIC_DIRECT_STAFF_REGISTRATION',sig?.vector??null,sig?.png??null,sig?.hash??null,user.id,!operationalDataEnabled()])).rows[0];
  await db.query('INSERT INTO p2_doctor_registration(doctor_version_id,actor_id,authorized) VALUES($1,$2,true)',[row.id,user.id]);
  await db.query("INSERT INTO p2_doctor_event(doctor_version_id,event_type,actor_id,reason) VALUES($1,'Approved',$2,'REGISTRY_SAVED_DIRECTLY')",[row.id,user.id]);
  await appendAudit(db,{actorId:user.id,action:'P2_DOCTOR_SAVED_DIRECTLY',resourceType:'p2_doctor_version',resourceId:row.id,details:{version:row.version,synthetic:!operationalDataEnabled()}});
