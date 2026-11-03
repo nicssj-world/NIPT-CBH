@@ -54,6 +54,7 @@ GRANT SELECT ON nipt_case,case_ln,specimen_round,his_order,app_user TO worker_rw
 -- Read requested redraw lineage for PET-backed S2; worker still cannot create/edit redraw requests.
 GRANT SELECT ON redraw_request TO worker_rw;
 GRANT SELECT,INSERT ON specimen_acceptance TO app_rw;
+GRANT SELECT,INSERT ON specimen_rejection_evidence TO app_rw;
 GRANT SELECT,INSERT ON task_workbook_revision,task_workbook_export TO app_rw;
 -- Operational lab/result evidence remains append-only; P5 release writes require DB review guards.
 GRANT SELECT,INSERT ON p4b_halos_export,p4b_halos_verification,result_qc5_review,result_release_completed TO app_rw;
