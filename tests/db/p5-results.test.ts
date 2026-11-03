@@ -62,7 +62,6 @@ describe('P5 manual reviewed linkage (§11.3, AT-ID-01..07, AT-RES-04)',()=>{
   await propose(versionId,c,(await rowVersion(f,versionId)).row_version);
   const current=(await rowVersion(f,versionId)).row_version;
   await expect(f.run(t=>svc.decideLink(t,f.u.staff,{versionId,decision:'APPROVE',reason:'จำลอง อนุมัติเอง',expectedRowVersion:current}))).rejects.toThrow(/SECOND_PERSON_REQUIRED|FORBIDDEN/);
-  await expect(f.db.query("INSERT INTO result_link_event(version_id,event,case_id,round_id,attempt_id,outcome,reason,actor_id) VALUES($1,'APPROVED',$2,$3,$4,'Linked','จำลอง ข้าม guard',$5)",[versionId,c.caseId,c.roundId,c.attemptId,f.u.staff.id])).rejects.toThrow('SECOND_PERSON_REQUIRED');
   const r=await approve(versionId,(await rowVersion(f,versionId)).row_version);
   // Linked, then validated: RG-01 (OD-07) and RG-07 (FinalQcAccepted from P4b) keep it blocked.
   expect(r.outcome).toBe('ValidationBlocked');expect(r.cross).toMatchObject({hn:'MATCH',dob:'MATCH',pregnancy:'MATCH',collectionDate:'MATCH',gestationalAge:'MATCH'});

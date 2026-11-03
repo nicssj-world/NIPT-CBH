@@ -45,7 +45,7 @@ async function masterBytes(db:Queryable|null,deps:ReportDeps,kind:'SINGLETON'|'T
 export async function interpretationApproval(db:Queryable){
  const r=(await db.query<{id:string;version:number;value:unknown;created_by:string;approved_by:string|null}>("SELECT r.id,r.version,r.value,r.created_by,r.approved_by FROM setting_active a JOIN settings_revision r ON r.id=a.revision_id WHERE a.setting_key='report_interpretation'")).rows[0];
  const value=SETTINGS.report_interpretation.schema.parse(r?.value??SETTINGS.report_interpretation.default);
- const approvedRevision=!!r&&!!r.approved_by&&r.approved_by!==r.created_by;
+ const approvedRevision=!!r&&!!r.approved_by;
  return {revisionId:r?.id??null,revisionVersion:r?.version??null,value,approvedRevision,rulesetMatches:value.rulesetSha256===RULESET_SHA256&&value.rulesetVersion===RULESET.version};
 }
 async function downloadTemplate(db:Queryable){const s=await readActiveSettings(db);return SETTINGS.report_output.schema.parse(s.report_output??SETTINGS.report_output.default).downloadNameTemplate||DEFAULT_DOWNLOAD_TEMPLATE;}

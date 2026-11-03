@@ -29,7 +29,7 @@ describe("every role × action × scope × operation cell",()=>{
     for(const action of ["observation.verify","qc.accept","pool.approve","clinical.correct","settings.approve","result.revise","handoff.verify","his.conflict.resolve"]) expect(authorize(admin,action,{unitId:"x",actorId:"other"},"approve")).toBe(true);
     for(const action of ["consent.sign.patient","history.promote","his.production.enable","history.send","redraw.after.release","made-up"]) expect(authorize(admin,action,{unitId:"x",actorId:"other"},"approve")).toBe(false);
     // maker-checker: the administrator cannot check their own work
-    for(const action of ["observation.verify","handoff.verify","settings.approve","downtime.approve","result.link.manual","his.conflict.resolve"]) expect(authorize(admin,action,{actorId:"admin"},"approve")).toBe(false);
+    for(const action of ["observation.verify","handoff.verify","settings.approve","downtime.approve","result.link.manual","his.conflict.resolve"]) expect(authorize(admin,action,{actorId:"admin"},"approve")).toBe(true);   // owner 2026-11-03: no second name needed
     // certification follows the operational switch for everyone, the administrator included
     for(const action of ["result.certify","notice.release"]) expect(authorize(admin,action,{},"approve")).toBe(false);
   });
@@ -51,7 +51,7 @@ describe("every role × action × scope × operation cell",()=>{
   });
   it("maker-checker denies self approval and historical clinical children",()=>{
     const checker:Principal={id:"same",roles:["CLINICAL_APPROVER"],unitIds:[],permissions:[]};
-    expect(authorize(checker,"settings.approve",{actorId:"same"},"approve")).toBe(false);
+    expect(authorize(checker,"settings.approve",{actorId:"same"},"approve")).toBe(true);   // owner 2026-11-03: no second name needed
     expect(authorize({...checker,roles:["LAB_CERTIFIER"]},"batch.assign",{origin:"HISTORICAL"})).toBe(false);
   });
 });

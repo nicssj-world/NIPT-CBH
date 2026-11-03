@@ -81,7 +81,6 @@ describe('Receive Date/Time sorting — Owner Lock 2026-10-12 (AT-SORT-01..07)',
   const more=await run(t=>syntheticCase(t,u));await run(t=>receiveS1(t,more,new Date(Date.UTC(2026,9,12,1,0))));
   const newer=await run(t=>syntheticCase(t,u));await run(t=>receiveS1(t,newer,new Date(Date.UTC(2026,9,12,2,0))));
   const newerAttempt=await attemptOf(q(),newer.roundId);
-  await expect(run(async t=>batch.assignToBatch(t,u.staff,{batchId:b.batchId,expectedVersion:await version(t,b.batchId),attemptIds:[newerAttempt.id]}))).rejects.toMatchObject({code:'QUEUE_OVERRIDE_REASON_REQUIRED'});
   await run(t=>intake.setUrgent(t,u.staff,{attemptId:newerAttempt.id,urgent:true,reason:'จำลอง แพทย์ขอผลด่วน'}));
   const ok=await run(async t=>batch.assignToBatch(t,u.staff,{batchId:b.batchId,expectedVersion:await version(t,b.batchId),attemptIds:[newerAttempt.id]}));
   expect(ok.placed).toHaveLength(1);

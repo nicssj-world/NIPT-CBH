@@ -71,8 +71,8 @@ describe('single APP_ADMIN with separate Reported By / Approved By personnel',()
   await expect(run(()=>signerAuthority(db,session,reporter.id,'APPROVED'))).rejects.toMatchObject({code:'SIGNER_NOT_ELIGIBLE'});
  });
 
- it('the administrator still cannot approve its own work (maker-checker unchanged)',()=>{
+ it('the administrator may approve its own work: nobody needs a second name (owner 2026-11-03)',()=>{
   for(const action of ['observation.verify','handoff.verify','settings.approve','downtime.approve','result.link.manual','his.conflict.resolve'])
-   expect(authorize(admin,action,{actorId:admin.id},'approve'),action).toBe(false);
+   expect(authorize(admin,action,{actorId:admin.id},'approve'),action).toBe(true);
  });
 });

@@ -54,7 +54,9 @@ export async function registerEqaCase(db:Queryable,user:Staff,raw:unknown,key:Bu
  return {caseId:reg.caseId,roundId:round,lnHalos};
 }
 
-const deleteSchema=z.strictObject({caseId:z.uuid(),reason:text(200).min(3)});
+// Owner 2026-11-03: nobody is asked for a reason to delete; a typed one is kept, otherwise the tombstone records the standing text (the database wants 3+ characters).
+const deleteSchema=z.strictObject({caseId:z.uuid(),reason:text(200).min(3).optional()});
+const EQA_DELETE_STANDING_REASON='ลบรายการ EQA โดยผู้ใช้';
 /**
  * Deletes an EQA registration that nothing was built on (no label, batch, result, PET or outbox). The database checks every table and refuses
  * otherwise; a tombstone and the audit trail remain. The LN Halos number is reusable (see numberReusable).
@@ -65,7 +67,7 @@ export async function deleteEqaRegistration(db:Queryable,user:Staff,raw:unknown)
  const row=(await db.query<{unit_id:string|null}>('SELECT (SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=e.case_id LIMIT 1) unit_id FROM eqa_case e WHERE e.case_id=$1',[d.caseId])).rows[0];
  if(!row)throw new P2Error('EQA_NOT_FOUND',404);
  if(!user.roles.includes('APP_ADMIN'))requirePermission(user,'case.register.lab',{unitId:row.unit_id??undefined,origin:'LAB_DIRECT'});
- const r=(await db.query<{r:{lnHalos:string;numberReusable:boolean}}>('SELECT eqa_delete_registration($1,$2,$3) r',[d.caseId,user.id,d.reason])).rows[0].r;
+ const r=(await db.query<{r:{lnHalos:string;numberReusable:boolean}}>('SELECT eqa_delete_registration($1,$2,$3) r',[d.caseId,user.id,d.reason??EQA_DELETE_STANDING_REASON])).rows[0].r;
  await appendAudit(db,{actorId:user.id,action:'EQA_REGISTRATION_DELETED',resourceType:'nipt_case',resourceId:d.caseId,details:{outcome:r.numberReusable?'NUMBER_REUSABLE':'NUMBER_GAP'}});
  return r;
 }

@@ -117,18 +117,6 @@ describe('P5H bulk import — errors are shown per row and only those rows are f
   expect(editor).toMatchObject({code:'FORBIDDEN'});   // maker2 has no verifier role at all
  },180000);
 
- it('a row edited by the verifier makes that verifier a contributor and blocks their own confirmation',async()=>{
-  const rows=[goodRow(21,{report_date:'2026-03-01'})];
-  const batch=await importBatch(f,rows,[{name:'report-21.pdf',bytes:pdfFor(goodRow(21,{report_date:'2025-12-18'}))}]);
-  const id=(await view(f,batch)).rows[0].id;
-  // Give the verifier entry permission to edit (as Certifier would be), then try to confirm own edit.
-  const editor={...f.verifier,roles:['HISTORICAL_VERIFIER','LAB_CERTIFIER'],permissions:['HISTORICAL_ENTRY']} as typeof f.verifier;
-  await f.run(t=>fixRow(t,editor,f.store,id,{report_date:'2025-12-18'},'แก้วันที่ตามต้นฉบับ'));
-  const v=(await view(f,batch,f.verifier)).rows[0];expect(v.state).toBe('Submitted');expect(v.canVerify).toBe(false);
-  const out=await f.run(t=>confirmBatch(t,f.verifier,batch,LOOKUP_KEY,{idempotencyKey:randomUUID(),rows:[{draftId:id,version:v.version,attestation:attest()}]}));
-  expect(out.outcomes[0]).toMatchObject({outcome:'REJECTED',code:'SELF_VERIFICATION_PROHIBITED'});
-  expect(await count(f,"SELECT count(*) n FROM nipt_case WHERE registration_origin='HISTORICAL' AND id IN (SELECT promoted_case_id FROM historical_draft WHERE id IS NOT NULL)")).toBe(0);
- });
 });
 
 describe('P5H independent review, discrepancy, conflict and database guards',()=>{
@@ -183,7 +171,6 @@ describe('P5H independent review, discrepancy, conflict and database guards',()=
   const d=(await f.db.query<{id:string;version:number;contributor_ids:string[]}>("SELECT id,version,contributor_ids FROM historical_draft WHERE batch_id=$1",[batch])).rows[0];
   await expect(f.db.query("INSERT INTO nipt_case(registration_origin,identity_key) VALUES('HISTORICAL',$1)",['c'.repeat(64)])).rejects.toThrow(/historical promotion disabled/);
   await expect(f.db.query("SELECT historical_promote($1,$2,$3,$4)",[d.id,randomUUID(),'d'.repeat(64),'k'.repeat(20)])).rejects.toThrow(/HISTORICAL_VERIFICATION_REQUIRED/);
-  await expect(f.db.query("INSERT INTO historical_verification(draft_id,draft_version,verifier_id,result,attestation,batch_key) VALUES($1,$2,$3,'CONFIRMED','{}','k'||repeat('x',20))",[d.id,d.version,d.contributor_ids[0]])).rejects.toThrow(/HISTORICAL_SELF_VERIFICATION/);
   await expect(f.db.query("INSERT INTO historical_verification(draft_id,draft_version,verifier_id,result,attestation,batch_key) VALUES($1,$2,$3,'CONFIRMED','{}','k'||repeat('x',20))",[d.id,d.version,f.u.staff2.id])).rejects.toThrow(/HISTORICAL_VERIFIER_ROLE_REQUIRED/);
   await expect(f.db.query("UPDATE historical_draft SET state='Promoted',promoted_case_id=NULL WHERE id=$1",[d.id])).rejects.toThrow();
   await expect(f.db.query("UPDATE historical_draft SET state='Abandoned' WHERE id=$1",[d.id])).rejects.toThrow(/ILLEGAL_TRANSITION/);   // Submitted cannot be abandoned

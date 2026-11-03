@@ -127,10 +127,8 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
   await expect(proposeResolution(f.db,staff,issue,{action:'keep_existing',reason:'SYNTHETIC not allowed here'})).rejects.toThrow('ACTION_NOT_ALLOWED_FOR_ISSUE');
   await proposeResolution(f.db,staff,issue,{action:'link_case',caseId,reason:'SYNTHETIC checked HIS screen'});
   const dualRole={...staff,roles:['LAB_STAFF','LAB_CERTIFIER'] as const};
-  await expect(decideResolution(f.db,dualRole,issue,{decision:'APPROVED',reason:'SYNTHETIC self approval'},f.deps)).rejects.toThrow('SECOND_PERSON_REQUIRED');
-  expect((await caseState(f.db,caseId)).rounds[0].state).toBe('Expected');
-  await expect(f.db.query("INSERT INTO his_intake_issue_event(issue_id,event,action,case_id,actor_id,reason) VALUES($1,'APPROVED','link_case',$2,$3,'SYNTHETIC direct')",[issue,caseId,staff.id])).rejects.toThrow('SECOND_PERSON_REQUIRED');
-  await decideResolution(f.db,certifier,issue,{decision:'APPROVED',reason:'SYNTHETIC second check'},f.deps);
+  // Owner 2026-11-03: nobody needs a second name; the proposer may approve their own proposal (a dual-role account here, as the role matrix still decides who may).
+  await decideResolution(f.db,dualRole,issue,{decision:'APPROVED',reason:'SYNTHETIC self approval'},f.deps);
   const s=await caseState(f.db,caseId);expect(s.rounds[0].state).toBe('ReceivedInHIS');expect(s.orders).toHaveLength(1);
   expect(await openIssues(f.db)).toEqual([]);
   expect((await rows<{event:string}>(f.db,'SELECT event FROM his_intake_issue_event WHERE issue_id=$1 ORDER BY sequence',[issue])).map(e=>e.event)).toEqual(['OPENED','PROPOSED','APPROVED']);

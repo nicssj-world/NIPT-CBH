@@ -49,7 +49,7 @@ export async function decideResolution(db:Queryable,user:Principal,issueId:strin
  const issue=await lockIssue(db,issueId);if(issue.state!=='Proposed')throw new ResolutionError('ISSUE_NOT_PROPOSED');
  const proposal=(await db.query<{action:ResolutionAction;case_id:string|null;actor_id:string}>("SELECT action,case_id,actor_id FROM his_intake_issue_event WHERE issue_id=$1 AND event='PROPOSED' ORDER BY sequence DESC LIMIT 1",[issue.id])).rows[0];
  if(!proposal)throw new ResolutionError('RESOLUTION_PROPOSAL_REQUIRED');
- if(!authorize(user,'his.conflict.resolve',{actorId:proposal.actor_id},'approve'))throw new ResolutionError(proposal.actor_id===user.id?'SECOND_PERSON_REQUIRED':'FORBIDDEN',403);
+ if(!authorize(user,'his.conflict.resolve',{actorId:proposal.actor_id},'approve'))throw new ResolutionError('FORBIDDEN',403);
  await db.query('INSERT INTO his_intake_issue_event(issue_id,event,action,case_id,actor_id,reason) VALUES($1,$2,$3,$4,$5,$6)',[issue.id,d.decision,d.decision==='APPROVED'?proposal.action:null,d.decision==='APPROVED'?proposal.case_id:null,user.id,d.reason]);
  if(d.decision==='REJECTED'){
   await db.query("UPDATE his_intake_issue SET state='Open' WHERE id=$1",[issue.id]);

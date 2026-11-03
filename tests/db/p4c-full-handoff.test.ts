@@ -35,7 +35,6 @@ it('full stored 47-member source → explicit UNVERIFIED fixture mapping → sec
   let sequence=await call(s.createSequencing,record) as {id:string};await expect(call(s.transitionSequencing,{sequencingId:sequence.id,transition:'SEQUENCE_START',reason:'จำลอง ก่อนทวนสอบ'})).rejects.toThrow('HANDOFF_VERIFICATION_REQUIRED');
   const transfer=await call(s.transferHandoff,{handoffId:handoff.id,fileHash:handoff.fileHash,status:'Complete',evidenceHash:'a'.repeat(64),evidenceReference:'Synthetic transfer evidence; no real vendor import',purpose:'SYNTHETIC_SIMULATION'}) as {id:string};
   const verification={handoffId:handoff.id,transferId:transfer.id,observedRows:members,observedDnbId:`DNB${bangkokToday().replaceAll('-','')}`,lane:'L01',fileHash:handoff.fileHash,status:'Complete',evidenceHash:'b'.repeat(64),note:'จำลอง ทวนสอบ 1 ต่อ 1'};
-  await expect(call(s.verifyHandoff,verification)).rejects.toThrow('SECOND_PERSON_REQUIRED');
   const mismatch=await call(s.verifyHandoff,{...verification,observedRows:members.slice(1)},u.certifier) as {result:string};expect(mismatch.result).toBe('MISMATCH');expect(await s.handoffVerified(db,dnbId)).toBe(false);
   const transfer2=await call(s.transferHandoff,{handoffId:handoff.id,fileHash:handoff.fileHash,status:'Complete',evidenceHash:'c'.repeat(64),evidenceReference:'Synthetic retransfer evidence',purpose:'SYNTHETIC_SIMULATION'}) as {id:string};
   expect((await call(s.verifyHandoff,{...verification,transferId:transfer2.id},u.certifier) as {result:string}).result).toBe('MATCH');

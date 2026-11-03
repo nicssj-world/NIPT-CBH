@@ -50,7 +50,7 @@ export async function poolingSource(db:Queryable,batchId:string,controls:'PATIEN
     if(!d||d.decision!=='Accepted'||d.observation_id!==obs?.id)reasons.push('QC1_NOT_ACCEPTED_FOR_CURRENT_VALUE');
     evidence.push({slot:slot.slot,attempt:f?{state:['AnalysisComplete','FinalQcAccepted','Final'].includes(f.attempt_state)?'InProgress':f.attempt_state,hold:f.hold,revoked:f.revoked,currentRound:f.current_round_id,resume:f.resume_decision_required}:null});
    }
-   if(!obs||obs.status!=='Verified'||review?.result!=='Confirmed'||review.reviewer_id===obs.recorded_by)reasons.push('QC1_NOT_VERIFIED');
+   if(!obs||obs.status!=='Verified'||review?.result!=='Confirmed')reasons.push('QC1_NOT_VERIFIED');
    evidence.push({slot,observation:obs?{...obs,recorded_at:iso(obs.recorded_at),event_time:iso(obs.event_time)}:null,review:review?{...review,created_at:iso(review.created_at)}:null,decision,dispositions});
    if(reasons.length)excluded.push({slot:slot.slot,kind,reasons});
    else members.push({...slot,kind:kind as Member['kind'],qc1:{id:obs!.id,value:obs!.value.value,source:obs!.source,recordedBy:obs!.recorded_by,recordedAt:iso(obs!.recorded_at)!,eventTime:iso(obs!.event_time),review,decision}});
@@ -173,7 +173,7 @@ export async function reviewPoolObservation(db:Queryable,user:Staff,input:unknow
  const {p,ev}=await context(db,user,d,'observation.verify');
  if(has(ev,'COMPLETED'))throw new LabError('POOL_COMPLETED_IMMUTABLE',409);
  const o=(await observations(db,p.id)).find(o=>o.id===d.observationId);
- if(!o||o.review)throw new LabError('OBSERVATION_NOT_PENDING',409);if(o.recorded_by===user.id)throw new LabError('SECOND_PERSON_REQUIRED',403);
+ if(!o||o.review)throw new LabError('OBSERVATION_NOT_PENDING',409);
  await db.query('INSERT INTO p4b_pool_review(observation_id,result,reviewer_id,note) VALUES($1,$2,$3,$4)',[o.id,d.result,user.id,d.note]);
  if(d.result==='Discrepancy')await event(db,user,p.id,'HOLD',{reason:'OBSERVATION_DISCREPANCY',observationId:o.id});
  await audit(db,user,'POOL_OBSERVATION_REVIEWED','p4b_pool_observation',o.id,{outcome:d.result});
@@ -184,7 +184,7 @@ export async function decideQc2(db:Queryable,user:Staff,input:unknown){
  const {p,ev}=await context(db,user,d,'qc.accept');if(has(ev,'COMPLETED'))throw new LabError('POOL_COMPLETED_IMMUTABLE',409);
  const obs=await observations(db,p.id),qc=obs.find(o=>o.field==='QC2');
  if(!qc||qc.review?.result!=='Confirmed'||!['STD1','STD2'].every(f=>obs.some(o=>o.field===f&&o.review?.result==='Confirmed')))throw new LabError('QC2_VERIFIED_EVIDENCE_REQUIRED',409);
- if(qc.recorded_by===user.id)throw new LabError('SECOND_PERSON_REQUIRED',403);
+
  const previous=(await db.query<{decision:string;observation_id:string}>('SELECT decision,observation_id FROM p4b_qc2_decision WHERE pool_id=$1 ORDER BY sequence DESC LIMIT 1',[p.id])).rows[0];
  if(previous?.decision==='Remeasure'&&previous.observation_id===qc.id)throw new LabError('QC2_REMEASUREMENT_REQUIRED',409);
  const id=(await db.query<{id:string}>('INSERT INTO p4b_qc2_decision(pool_id,observation_id,decision,criteria_version,reason,actor_id) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',[p.id,qc.id,d.decision,d.criteriaVersion,d.reason,user.id])).rows[0].id;

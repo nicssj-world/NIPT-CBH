@@ -131,7 +131,7 @@ export function authorize(user: Principal, action: string, resource: ResourceSco
   // P5H: history.promote is no longer hard-denied; only the matrix 'A' (approve) cell of HISTORICAL_VERIFIER grants it, and the service additionally
   // requires an active, approved historical_backfill + go_live_cutoff setting, so it stays inert (fail closed) until the Owner decides OD-18/OD-27.
   if (resource.origin === "HISTORICAL" && !["history.read", "audit.read"].includes(action)) return false;
-  if (["observation.verify", "handoff.verify", "settings.approve", "downtime.approve", "result.link.manual", "his.conflict.resolve"].includes(action) && resource.actorId === user.id) return false;
+  // Owner 2026-11-03: nobody needs a second name. The person who proposed or recorded something may also verify and approve it (the role matrix still decides who may).
   if (user.roles.includes("APP_ADMIN") && APP_ADMIN_SYSTEMWIDE_ACTIONS.has(action as Action)) return true;
   if(action==='history.draft'&&operationalDataEnabled()&&user.roles.some(role=>role==='LAB_STAFF'||role==='LAB_CERTIFIER'))return true;
   const rule = rows[action as Action];

@@ -13,7 +13,7 @@ it('Task1 exact placement, urgent displacement, controls and frozen placement wi
   const a1=await attemptOf(db,c1.roundId),a2=await attemptOf(db,c2.roundId);
   const b=await tx(db,t=>batch.createBatch(t,u.staff)),id=b.batchId,V=()=>version(db,id);
   const exact=async(attemptId:string,slot:number,mode:'MANUAL'|'URGENT'|'REPEAT'='MANUAL',queueOverrideReason?:string)=>tx(db,async t=>batch.assignExact(t,u.staff,{batchId:id,expectedVersion:await V(),attemptId,slot,mode,queueOverrideReason}));
-  await expect(exact(a2.id,9)).rejects.toThrow('QUEUE_OVERRIDE_REASON_REQUIRED');
+  expect((await tx(db,t=>batch.previewAssignment(t,u.staff,{attemptIds:[a2.id]}))).reasonRequired).toBe(false);   // owner 2026-11-03: picking out of queue order asks no reason
   await exact(a1.id,8);expect((await batch.batchDetail(db,u.staff,id)).slots[7].assignment?.attemptId).toBe(a1.id);
   await expect(exact(a2.id,1)).rejects.toThrow('CONTROL_SLOT_PROTECTED');
   await expect(exact(a2.id,25)).rejects.toThrow('CONTROL_SLOT_PROTECTED');
@@ -57,9 +57,6 @@ it('Task1 Repeat Fill uses a real child without urgency, keeps FIFO override and
   expect(child.attemptId).not.toBe(parent.id);expect(child.attemptNumber).toBe(2);
   const b=await tx(db,t=>batch.createBatch(t,u.staff)),id=b.batchId,V=()=>version(db,id);
   await tx(db,t=>batch.assignExact(t,u.staff,{batchId:id,expectedVersion:0,attemptId:occupied.id,slot:8,mode:'MANUAL'}));
-  const originalAssignment=(await db.query('SELECT * FROM lab_slot_assignment WHERE batch_id=$1 AND removed_at IS NULL',[id])).rows;
-  await expect(tx(db,async t=>batch.assignExact(t,u.staff,{batchId:id,expectedVersion:await V(),attemptId:child.attemptId,slot:8,mode:'REPEAT'}))).rejects.toThrow('QUEUE_OVERRIDE_REASON_REQUIRED');
-  expect((await db.query('SELECT * FROM lab_slot_assignment WHERE batch_id=$1 AND removed_at IS NULL',[id])).rows).toEqual(originalAssignment);
   await tx(db,async t=>batch.assignExact(t,u.staff,{batchId:id,expectedVersion:await V(),attemptId:child.attemptId,slot:8,mode:'REPEAT',queueOverrideReason:'SYNTHETIC deliberate repeat FIFO override'}));
   const after=await batch.batchDetail(db,u.staff,id);expect(after.slots[7].assignment).toMatchObject({attemptId:child.attemptId,repeat:true,urgent:false,printedSampleId:child.printedSampleId});
   expect((await db.query<{id:string;state:string}>('SELECT id,state FROM analytical_attempt WHERE id=ANY($1::uuid[]) ORDER BY id',[[occupied.id,earlier.id,parent.id]])).rows).toEqual(expect.arrayContaining([{id:occupied.id,state:'Ready'},{id:earlier.id,state:'Ready'},{id:parent.id,state:'Superseded'}]));

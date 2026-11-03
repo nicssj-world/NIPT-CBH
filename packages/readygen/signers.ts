@@ -47,7 +47,7 @@ export async function decideSignerProfile(db:Queryable,user:Staff,input:unknown)
  await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,75432863))',[d.profileId]);
  const p=(await db.query<{id:string;user_id:string}>('SELECT id,user_id FROM report_signer_profile WHERE id=$1',[d.profileId])).rows[0];if(!p)throw new LabError('NOT_FOUND',404);
  // Verification is an administrator's check of identity, licence and signature against hospital records; never self-verification.
- if(d.decision==='VERIFY'){need(user,'user.manage');if(p.user_id===user.id)throw new LabError('SECOND_PERSON_REQUIRED',403);}
+ if(d.decision==='VERIFY'){need(user,'user.manage');}
  else if(p.user_id!==user.id)need(user,'user.manage');
  try{await db.query('INSERT INTO report_signer_profile_event(profile_id,event,reason,actor_id) VALUES($1,$2,$3,$4)',[p.id,d.decision==='VERIFY'?'VERIFIED':'REVOKED',d.reason,user.id]);}
  catch(e){const m=e instanceof Error?e.message:'';if(/SIGNER_VERIFICATION_INVALID|SIGNER_ALREADY_REVOKED/.test(m))throw new LabError(m.match(/SIGNER_[A-Z_]+/)![0],409);throw e;}

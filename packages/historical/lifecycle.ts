@@ -74,7 +74,7 @@ export function decidePromotion(i:PromotionInput):PromotionDecision{
  if(!/^[A-Za-z0-9_-]{16,128}$/.test(i.idempotencyKey))return {kind:'REJECT',code:'IDEMPOTENCY_KEY_INVALID'};
  if(i.draft.state==='Promoted')return i.draft.promotedIdempotencyKey===i.idempotencyKey?{kind:'ALREADY_PROMOTED'}:{kind:'REJECT',code:'ALREADY_PROMOTED'};
  if(!i.verifier.hasHistoricalVerifierRole)return {kind:'REJECT',code:'FORBIDDEN'};
- if(i.draft.contributorIds.includes(i.verifier.id))return {kind:'REJECT',code:'SELF_VERIFICATION_PROHIBITED'};
+
  if(i.draft.state!=='Submitted')return {kind:'REJECT',code:'DRAFT_NOT_SUBMITTED'};
 
  const a=i.attestation;
@@ -97,7 +97,7 @@ export function decidePromotion(i:PromotionInput):PromotionDecision{
 export function decideRevisionVerification(i:{recordState:RecordState;editorIds:readonly string[];verifier:Verifier;matchesOriginal:boolean}):{kind:'VERIFIED'|'DISCREPANCY'}|{kind:'REJECT';code:string}{
  if(!i.verifier.hasHistoricalVerifierRole)return {kind:'REJECT',code:'FORBIDDEN'};
  if(i.recordState!=='RevisionPending')return {kind:'REJECT',code:'NO_REVISION_PENDING'};
- if(i.editorIds.includes(i.verifier.id))return {kind:'REJECT',code:'SELF_VERIFICATION_PROHIBITED'};
+
  return {kind:i.matchesOriginal?'VERIFIED':'DISCREPANCY'};
 }
 

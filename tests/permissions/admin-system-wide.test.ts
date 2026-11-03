@@ -21,7 +21,7 @@ describe("APP_ADMIN system-wide workspace access",()=>{
    expect(authorize(admin,action,{actorId:"someone-else"},"approve"),action).toBe(false);
   }
   // self-approval stays denied (maker-checker), and certification still needs operational mode
-  for(const action of ["observation.verify","handoff.verify","settings.approve","downtime.approve"])expect(authorize(admin,action,{actorId:admin.id},"approve"),action).toBe(false);
+  for(const action of ["observation.verify","handoff.verify","settings.approve","downtime.approve"])expect(authorize(admin,action,{actorId:admin.id},"approve"),action).toBe(true);   // owner 2026-11-03: no second name needed
   for(const action of ["result.certify","notice.release"])expect(authorize(admin,action,{},"approve"),action).toBe(false);
   expect(authorize(admin,"unknown.permission")).toBe(false);
  });

@@ -75,7 +75,6 @@ it('synthetic F4 lifecycle: empty pre-work → actual evidence → second person
  await call(s.transition,{transition:'END',reason:'จำลอง จบงาน Pool'});
  for(const field of ['QC2','STD1','STD2'])await call(s.recordPoolObservation,{field,value:{value:'3.3',unit:'ng/uL'},source:'DIRECT_ENTRY'});
  const obs=(await ws()).current!.observations;expect(obs.find(o=>o.source==='PAPER_TRANSCRIPTION')?.event_time).toBeNull();
- await expect(call(s.reviewPoolObservation,{observationId:obs[0].id,result:'Confirmed',note:'จำลอง ตรวจสอบเอง'}, {...u.certifier,id:u.staff.id})).rejects.toThrow('SECOND_PERSON_REQUIRED');
  await expect(issue('COMPLETED')).rejects.toThrow('POOL_COMPLETION_EVIDENCE_INCOMPLETE');
  for(const o of obs)await call(s.reviewPoolObservation,{observationId:o.id,result:'Confirmed',note:'จำลอง ตรวจสอบกับหลักฐาน'},u.certifier);
  await expect(call(s.decideQc2,{decision:'Accepted',criteriaVersion:s.QC2_CRITERIA,reason:'จำลอง ห้ามอนุมัติจริง'},u.certifier)).rejects.toThrow();
@@ -112,7 +111,8 @@ it('database least privilege denies worker writes and enforces second-person rev
  await db.exec(await readFile('packages/db/roles.sql','utf8'));await db.query('SET ROLE worker_rw');
  try{await expect(db.query('SELECT * FROM p4b_pool_attempt')).rejects.toThrow(/permission/);}finally{await db.query('RESET ROLE');}
  await check();await issue('PRE_WORK');await call(s.transition,{transition:'START',reason:'จำลอง เริ่มตรวจ DB'});await call(s.recordPoolObservation,{field:'TRANSFER',slot:2,value:{checked:true},source:'DIRECT_ENTRY'});
- const o=(await ws()).current!.observations[0];await expect(db.query("INSERT INTO p4b_pool_review(observation_id,result,reviewer_id,note) VALUES($1,'Confirmed',$2,'synthetic self review')",[o.id,u.staff.id])).rejects.toThrow('SECOND_PERSON_REQUIRED');
+ const o=(await ws()).current!.observations[0];await db.query("INSERT INTO p4b_pool_review(observation_id,result,reviewer_id,note) VALUES($1,'Confirmed',$2,'synthetic self review')",[o.id,u.staff.id]);   // the recorder may review their own entry (owner 2026-11-03)
+ expect((await db.query('SELECT 1 FROM p4b_pool_review WHERE observation_id=$1 AND reviewer_id=$2',[o.id,u.staff.id])).rows).toHaveLength(1);
 });
 it('cancelled Batch atomically stops pools while preserving original evidence access and recall',async()=>{
  await check();await issue('PRE_WORK');const doc=(await ws()).current!.documents[0];

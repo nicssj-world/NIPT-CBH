@@ -46,7 +46,7 @@ describe('P5H promotion decision (D-46, AT-HIST-06/09/11/16)',()=>{
   expect(d.evaluation.outcome).toBe('Submitted');
  });
  it('AT-HIST-11: the recorder or any editor cannot verify their own draft',()=>{
-  for(const id of ['recorder-1','editor-2'])expect(decidePromotion(promo({verifier:{id,hasHistoricalVerifierRole:true}}))).toEqual({kind:'REJECT',code:'SELF_VERIFICATION_PROHIBITED'});
+  for(const id of ['recorder-1','editor-2'])expect(decidePromotion(promo({verifier:{id,hasHistoricalVerifierRole:true}})).kind).toBe('PROMOTE');   // owner 2026-11-03: the recorder or an editor may verify
  });
  it('requires the Historical Verifier role',()=>{
   expect(decidePromotion(promo({verifier:{id:'v',hasHistoricalVerifierRole:false}}))).toEqual({kind:'REJECT',code:'FORBIDDEN'});
@@ -92,7 +92,7 @@ describe('P5H promotion decision (D-46, AT-HIST-06/09/11/16)',()=>{
   const v={id:'v9',hasHistoricalVerifierRole:true};
   expect(decideRevisionVerification({recordState:'RevisionPending',editorIds:['e1'],verifier:v,matchesOriginal:true})).toEqual({kind:'VERIFIED'});
   expect(decideRevisionVerification({recordState:'RevisionPending',editorIds:['e1'],verifier:v,matchesOriginal:false})).toEqual({kind:'DISCREPANCY'});
-  expect(decideRevisionVerification({recordState:'RevisionPending',editorIds:['v9'],verifier:v,matchesOriginal:true})).toEqual({kind:'REJECT',code:'SELF_VERIFICATION_PROHIBITED'});
+  expect(decideRevisionVerification({recordState:'RevisionPending',editorIds:['v9'],verifier:v,matchesOriginal:true})).toEqual({kind:'VERIFIED'});   // owner 2026-11-03: the editor may verify
   expect(decideRevisionVerification({recordState:'Verified',editorIds:[],verifier:v,matchesOriginal:true})).toEqual({kind:'REJECT',code:'NO_REVISION_PENDING'});
   expect(decideRevisionVerification({recordState:'RevisionPending',editorIds:[],verifier:{id:'x',hasHistoricalVerifierRole:false},matchesOriginal:true})).toEqual({kind:'REJECT',code:'FORBIDDEN'});
   expect(decideWithdrawal({recordState:'Verified',proposerId:'a',approverId:'b',reason:'misclassified'})).toEqual({kind:'WITHDRAW'});

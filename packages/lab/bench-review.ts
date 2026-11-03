@@ -21,7 +21,7 @@ export async function reviewBenchForResult(db:Queryable,user:Staff,attemptId:str
  await db.query('SELECT id FROM lab_batch WHERE id=$1 FOR UPDATE NOWAIT',[batchId]);
  const r=(await db.query<{id:string;revision:number;values:Record<string,unknown>;created_by:string;source_snapshot:{placements:{payload:PlacementPayload}[]}}>(`SELECT * FROM task_workbook_revision WHERE batch_id=$1 ORDER BY revision DESC LIMIT 1`,[batchId])).rows[0];
  if(!r||r.revision!==input.revision)throw new LabError('TASK_DRAFT_VERSION_CONFLICT',409);
- if(r.created_by===user.id)throw new LabError('SECOND_PERSON_REQUIRED',403);
+
  const master=await loadRuntimeMaster(),matrix=inspectTaskMaster(master);validateTaskValues(master,r.values);
  const missing=matrix.bindings.filter(f=>f.sheet==='Seq Task-G50'&&(r.values[f.key]===null||r.values[f.key]===undefined||f.dataType==='text'&&!String(r.values[f.key]).trim()||f.dataType==='checkbox'&&r.values[f.key]!==true)).map(f=>f.key);
  if(missing.length)throw new LabError('OWNER_SEQ_OBSERVATIONS_REQUIRED',409,{fields:missing});

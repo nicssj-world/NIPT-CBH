@@ -53,7 +53,7 @@ export async function activateSetting(db: Queryable, user: Principal, id: string
   if(r.setting_key==='doctor_registry')throw Error('SETTING_RUNTIME_CONSUMER_UNAVAILABLE');
   const regulated = ["INTEGRATION", "CLINICAL"].includes(r.risk);
   requirePermission(user, regulated ? "settings.approve" : "settings.general.change", { actorId: regulated ? r.created_by : undefined }, regulated ? "approve" : "write");
-  if (!r.test_passed || (regulated && (!r.approved_by || r.approved_by === r.created_by)) || !["Validated", "Approved"].includes(r.state)) throw new Error("SETTING_APPROVAL_REQUIRED");
+  if (!r.test_passed || (regulated && !r.approved_by) || !["Validated", "Approved"].includes(r.state)) throw new Error("SETTING_APPROVAL_REQUIRED");
   await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`settings:${r.setting_key}`]);
   await db.query("UPDATE settings_revision SET state='Archived' WHERE setting_key=$1 AND state='Active'", [r.setting_key]);
   await db.query("INSERT INTO setting_active(setting_key,revision_id) VALUES($1,$2) ON CONFLICT(setting_key) DO UPDATE SET revision_id=excluded.revision_id", [r.setting_key, id]);

@@ -126,7 +126,7 @@ export async function recordObservation(db:Queryable,user:Staff,input:unknown){c
  });}
 export async function reviewObservation(db:Queryable,user:Staff,input:unknown){const d=schema.reviewSchema.parse(input);
  return command(db,user,d,'observation.verify','REVIEW',async c=>{
-  const o=c.obs.find(o=>o.id===d.observationId);if(!o||o.review)throw new LabError('OBSERVATION_NOT_PENDING',409);if(o.recorded_by===user.id)throw new LabError('SECOND_PERSON_REQUIRED',403);
+  const o=c.obs.find(o=>o.id===d.observationId);if(!o||o.review)throw new LabError('OBSERVATION_NOT_PENDING',409);
   if(d.result==='Confirmed'&&!o.event_time)throw new LabError('UNKNOWN_EVENT_TIME_DISCREPANCY',409);
   await db.query('INSERT INTO p4c_dnb_review(observation_id,result,reviewer_id,note) VALUES($1,$2,$3,$4)',[o.id,d.result,user.id,d.note]);
   if(d.result==='Discrepancy')await appendEvent(db,user,c.dnb.id,'HOLD',{reason:'QC3_OBSERVATION_DISCREPANCY',observationId:o.id});
@@ -139,7 +139,7 @@ export async function decideQc3(db:Queryable,user:Staff,input:unknown){const d=s
  return command(db,user,d,'qc.accept','QC3_DECISION',async c=>{
   if(c.handoffs.length)throw new LabError('HANDOFF_FROZEN_NEW_DNB_REQUIRED',409);
   const qc=c.obs.find(o=>o.field==='QC3');if(!qc||!['STD1','STD2','QC3'].every(f=>c.obs.some(o=>o.field===f&&o.review?.result==='Confirmed')))throw new LabError('QC3_VERIFIED_EVIDENCE_REQUIRED',409);
-  if(qc.recorded_by===user.id)throw new LabError('SECOND_PERSON_REQUIRED',403);
+
   const previous=(await qc3Evidence(db,c.dnb.id)).decision;if(previous?.decision==='Remeasure'&&previous.observation_id===qc.id)throw new LabError('QC3_REMEASUREMENT_REQUIRED',409);
   const id=(await db.query<{id:string}>('INSERT INTO p4c_qc3_decision(dnb_id,observation_id,decision,criteria_version,reason,actor_id) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',[c.dnb.id,qc.id,d.decision,d.criteriaVersion,d.reason,user.id])).rows[0].id;
   if(['Hold','Failed'].includes(d.decision))await appendEvent(db,user,c.dnb.id,'HOLD',{reason:'QC3_'+d.decision.toUpperCase(),decisionId:id});
@@ -193,7 +193,7 @@ export function verificationErrors(expected:schema.FixtureMember[],observed:sche
 export async function verifyHandoff(db:Queryable,user:Staff,input:unknown){const d=schema.verifySchema.parse(input);
  return command(db,user,d,'handoff.verify','VERIFY_HANDOFF',async c=>{
   const h=await currentHandoff(db,c,d.handoffId),transfer=(await db.query<{id:string;actor_id:string;status:string}>('SELECT * FROM p4c_handoff_transfer WHERE handoff_id=$1 ORDER BY sequence DESC LIMIT 1',[h.id])).rows[0];
-  if(!transfer||transfer.id!==d.transferId)throw new LabError('TRANSFER_NOT_CURRENT',409);if(transfer.actor_id===user.id)throw new LabError('SECOND_PERSON_REQUIRED',403);
+  if(!transfer||transfer.id!==d.transferId)throw new LabError('TRANSFER_NOT_CURRENT',409);
   const errors=verificationErrors(h.payload.mappedMembers,d.observedRows,transfer.status==='Complete'?d.status:transfer.status,c.dnb.dnb_label,d.observedDnbId,h.file_sha256!,d.fileHash),result=errors.length?'MISMATCH':'MATCH';
   const id=(await db.query<{id:string}>('INSERT INTO p4c_handoff_verification(transfer_id,result,observed,errors,evidence_hash,reviewer_id,note) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',[transfer.id,result,JSON.stringify(d),JSON.stringify(errors),d.evidenceHash,user.id,d.note])).rows[0].id;
   await audit(db,user,'DNB_HANDOFF_VERIFIED','p4c_handoff_verification',id,{outcome:result});return {id,result,errors};
@@ -247,7 +247,7 @@ export async function reviewQc4(db:Queryable,user:Staff,input:unknown){const d=s
  if(d.result==='Accepted'&&!await operationalWorkflow(db))throw new LabError('OWNER_DECISIONS_HOLD',423);
  return command(db,user,d,'qc.accept','REVIEW_QC4',async c=>{
   const seq=c.sequences[0];if(!seq)throw new LabError('NOT_FOUND',404);const o=(await qc4Evidence(db,c.dnb.id,seq.id)).observations.find(o=>o.id===d.qc4Id);
-  if(!o||o.review)throw new LabError('QC4_NOT_PENDING',409);if(o.recorded_by===user.id)throw new LabError('SECOND_PERSON_REQUIRED',403);
+  if(!o||o.review)throw new LabError('QC4_NOT_PENDING',409);
   if(['SyntheticReviewed','Accepted'].includes(d.result)&&!o.event_time)throw new LabError('UNKNOWN_EVENT_TIME_DISCREPANCY',409);
   await db.query('INSERT INTO p4c_qc4_review(qc4_id,result,criteria_version,note,reviewer_id) VALUES($1,$2,$3,$4,$5)',[o.id,d.result,d.criteriaVersion,d.note,user.id]);
   if(['Hold','Failed'].includes(d.result))await appendEvent(db,user,c.dnb.id,'SEQUENCE_HOLD',{sequencingId:seq.id,reason:'QC4_'+d.result.toUpperCase(),qc4Id:o.id});

@@ -96,7 +96,7 @@ describe('P5-A system link of a single clean match',()=>{
   await expect(f.run(async t=>results.proposeAutoMatch(t,f.u.staff,{versionId:v,expectedRowVersion:(await rowVersion(f,v)).row_version}))).rejects.toMatchObject({code:'AUTO_MATCH_NOT_UNAMBIGUOUS',details:{reason:'HUMAN_DECISION_EXISTS'}});
   // the manual two-person path is unchanged
   await f.run(async t=>results.proposeLink(t,f.u.staff,{versionId:v,roundId:c.roundId,attemptId:c.attemptId,reason:'Reviewed identity after unlink',expectedRowVersion:(await rowVersion(f,v)).row_version}));
-  await expect(f.run(async t=>results.decideLink(t,f.u.staff,{versionId:v,decision:'APPROVE',reason:'Same person approving',expectedRowVersion:(await rowVersion(f,v)).row_version}))).rejects.toMatchObject({code:'SECOND_PERSON_REQUIRED'});
+  await expect(f.run(async t=>results.decideLink(t,f.u.staff,{versionId:v,decision:'APPROVE',reason:'Lab staff may not approve',expectedRowVersion:(await rowVersion(f,v)).row_version}))).rejects.toMatchObject({code:'FORBIDDEN'});
  });
  it('database guards: AUTO_LINKED needs evidence, an empty series, the current attempt and no human decision; AUTO_UNIQUE needs the event',async()=>{
   const c=await receivedCase(f);const r=await importReport(f,await spec(c));expect(r.outcome).toBe('Unlinked');

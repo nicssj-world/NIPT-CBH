@@ -106,7 +106,7 @@ export async function reviewObservations(db:Queryable,user:Staff,input:unknown){
   .refine(v=>v.result==='Confirmed'||(v.discrepancyKind&&v.note),{message:'DISCREPANCY_DETAIL_REQUIRED'}).parse(input);
  const rows=(await db.query<{id:string;recorded_by:string;source:string;status:string;batch_id:string}>('SELECT id,recorded_by,source,status,batch_id FROM lab_observation WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE',[d.observationIds])).rows;
  if(rows.length!==d.observationIds.length)throw new LabError('NOT_FOUND',404);
- if(rows.some(r=>r.recorded_by===user.id))throw new LabError('SECOND_PERSON_REQUIRED',403);
+
  if(rows.some(r=>r.status!=='PendingReconciliation'))throw new LabError('OBSERVATION_NOT_PENDING',409);
  for(const r of rows){
   await db.query('INSERT INTO lab_observation_review(observation_id,reviewer_id,method,result,discrepancy_kind,note) VALUES($1,$2,$3,$4,$5,$6)',[r.id,user.id,r.source==='PAPER_TRANSCRIPTION'?'PAPER_COMPARE':'DIRECT_CONFIRM',d.result,d.discrepancyKind??null,d.note??null]);
@@ -132,7 +132,7 @@ export async function confirmDisposition(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);const d=z.strictObject({dispositionId:uuid}).parse(input);
  const r=(await db.query<{id:string;proposed_by:string;confirmed_at:Date|null;batch_id:string;slot_number:number;stage:string;disposition:string}>('SELECT * FROM lab_slot_disposition WHERE id=$1 FOR UPDATE',[d.dispositionId])).rows[0];
  if(!r)throw new LabError('NOT_FOUND',404);if(r.confirmed_at)throw new LabError('ALREADY_CONFIRMED',409);
- if(!authorize(user,'slot.disposition',{actorId:r.proposed_by},'approve')||r.proposed_by===user.id)throw new LabError('SECOND_PERSON_REQUIRED',403);
+ if(!authorize(user,'slot.disposition',{actorId:r.proposed_by},'approve'))throw new LabError('FORBIDDEN',403);
  await db.query('UPDATE lab_slot_disposition SET confirmed_by=$2,confirmed_at=now() WHERE id=$1',[r.id,user.id]);
  await db.query('UPDATE lab_batch SET version=version+1 WHERE id=$1',[r.batch_id]);
  await audit(db,user,'LAB_DISPOSITION_CONFIRMED','lab_slot_disposition',r.id,{outcome:r.disposition});

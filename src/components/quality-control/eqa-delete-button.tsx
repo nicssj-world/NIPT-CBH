@@ -12,11 +12,11 @@ type Deleted={lnHalos:string;numberReusable:boolean};
 /** Deletes a mistaken EQA registration. One confirmation; the database refuses when anything was built on it. */
 export function EqaDeleteButton({caseId,sampleRef,lnHalos}:{caseId:string;sampleRef:string;lnHalos:string|null}){
  const router=useRouter(),trigger=useRef<HTMLButtonElement>(null);
- const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(""),[reason,setReason]=useState("ลงทะเบียนผิด"),[done,setDone]=useState<Deleted|null>(null);
+ const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(""),[done,setDone]=useState<Deleted|null>(null);
  const close=()=>{setOpen(false);if(done)router.refresh();else requestAnimationFrame(()=>trigger.current?.focus());};
  async function submit(){
   setBusy(true);setError("");
-  try{setDone(await api<Deleted>("/api/eqa/delete",{caseId,reason:reason.trim()}));}
+  try{setDone(await api<Deleted>("/api/eqa/delete",{caseId}));}
   catch(e){setError((e instanceof ApiFailure&&DELETE_MESSAGES[e.code])||message(e));}finally{setBusy(false);}
  }
  return <>
@@ -24,11 +24,10 @@ export function EqaDeleteButton({caseId,sampleRef,lnHalos}:{caseId:string;sample
   {open&&<Dialog title="ลบการลงทะเบียน EQA" onClose={close}>
    {done?<div className="stack"><p role="status" className="notice success">ลบแล้ว{done.lnHalos?` LN Halos ${done.lnHalos}`:""} {done.numberReusable?"ใช้เลขนี้ซ้ำได้":"เลขนี้เป็นเลขเก่าที่มีผู้ป่วยรายถัดไปแล้ว จึงไม่กลับมาใช้ซ้ำ (ไม่กระทบเลขอื่น)"}</p>
      <div className="dialog-actions"><button type="button" className="button" onClick={close}>ปิด</button></div></div>
-   :<form className="stack" onSubmit={e=>{e.preventDefault();if(reason.trim().length>=3&&!busy)void submit();}}>
+   :<form className="stack" onSubmit={e=>{e.preventDefault();if(!busy)void submit();}}>
     <p>ลบตัวอย่าง EQA <strong>{sampleRef}</strong>{lnHalos?<> (LN Halos <code>{lnHalos}</code>)</>:null} ออกจากระบบ ใช้ได้เฉพาะรายการที่ยังไม่มีงานต่อจากการลงทะเบียน ระบบเก็บบันทึกการลบไว้ตรวจสอบ</p>
     <ErrorNotice error={error}/>
-    <label>เหตุผล<input className="input" value={reason} maxLength={200} disabled={busy} onChange={e=>setReason(e.target.value)}/></label>
-    <div className="dialog-actions"><button type="submit" className="button" disabled={busy||reason.trim().length<3}>{busy?"กำลังลบ…":"ยืนยันการลบ"}</button><button type="button" className="button secondary" onClick={close} disabled={busy}>ยกเลิก</button></div>
+    <div className="dialog-actions"><button type="submit" className="button" disabled={busy}>{busy?"กำลังลบ…":"ยืนยันการลบ"}</button><button type="button" className="button secondary" onClick={close} disabled={busy}>ยกเลิก</button></div>
    </form>}
   </Dialog>}
  </>;

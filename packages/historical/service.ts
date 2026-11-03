@@ -279,7 +279,7 @@ export async function getBatch(db:Queryable,user:Staff,id:string,rawInput:unknow
   rows:rows.map(r=>({id:r.id,rowNo:r.row_no,ln:r.ln,state:r.state,version:r.version,issues:r.issues,evaluation:r.evaluation,pdfName:r.pdf_name,manualCompleted:r.manual_completed,
    identifiers:r.data.identifiers,originalLocation:r.data.originalLocation,evidence:r.data.evidence.map(e=>({id:e.id,kind:e.kind,date:e.documentDate,provenance:e.provenance})),events:r.data.events.map(e=>({id:e.id,type:e.type,date:e.date})),
    facts:r.data.facts,pastCertification:r.data.pastCertification,completeness:r.data.completeness,cells:r.data.cells,
-   canVerify:!r.contributor_ids.includes(user.id)&&r.state==='Submitted'})),
+   canVerify:r.state==='Submitted'})),
  };
 }
 

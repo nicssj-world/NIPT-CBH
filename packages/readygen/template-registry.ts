@@ -152,7 +152,7 @@ export async function approveTemplate(db:Queryable,user:Staff,raw:unknown){
  if(!r)throw new LabError('NOT_FOUND',404);
  need(user,'settings.approve','approve',{actorId:r.created_by});
  if(r.state!=='Validated'||!r.test_passed)throw new LabError('TEMPLATE_TEST_REQUIRED',409);
- if(r.created_by===user.id)throw new LabError('SECOND_PERSON_REQUIRED',403);
+
  const approved=await approvedProduct(db,r.kind),differs=!!r.product_in_template&&r.product_in_template!==approved;
  if(differs&&!d.acknowledgeProductDifference)throw new LabError('TEMPLATE_PRODUCT_ACKNOWLEDGEMENT_REQUIRED',409,{template:r.product_in_template,approved});
  await db.query("UPDATE report_template_revision SET state='Approved',approved_by=$2,approved_at=now(),product_acknowledged_by=$3 WHERE id=$1",[r.id,user.id,differs?user.id:null]);

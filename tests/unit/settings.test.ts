@@ -32,8 +32,8 @@ describe("settings lifecycle and locked architecture",()=>{
  it('unsupported global settings and installation-owned retention cannot be edited by API/service',async()=>{
   for(const key of ['doctor_registry','storage_backup'] as const)await expect(proposeSetting(db,admin,key,SETTINGS[key].default,'UNSUPPORTED_TEST')).rejects.toThrow();
   // request_consent is a clinical setting with a consumer; since the single APP_ADMIN decision (2026-11-01) the administrator may
-  // propose it, and approving it still needs a different person.
-  const consent=await proposeSetting(db,admin,'request_consent',SETTINGS.request_consent.default,'CLINICAL_TEST');await validateSetting(db,admin,consent,async()=>true);await expect(approveSetting(db,admin,consent)).rejects.toThrow(/FORBIDDEN/);
+  // propose it, and (owner 2026-11-03) also approve it: nobody needs a second name.
+  const consent=await proposeSetting(db,admin,'request_consent',SETTINGS.request_consent.default,'CLINICAL_TEST');await validateSetting(db,admin,consent,async()=>true);await approveSetting(db,admin,consent);
   await expect(proposeSetting(db,{...approver,roles:['LAB_CERTIFIER']},'laboratory',{...SETTINGS.laboratory.default,formulaVersion:'invented'},'CONTROLLED_TEST')).rejects.toThrow('CONTROLLED_METADATA_READ_ONLY');
  });
  it('always includes actual Active revisions even after more than 100 newer history entries',async()=>{
@@ -41,13 +41,12 @@ describe("settings lifecycle and locked architecture",()=>{
   for(let n=1;n<=101;n++)await db.query("INSERT INTO settings_revision(setting_key,version,category,risk,value,state,created_by,reason) VALUES('notifications',$1,'Notifications/System/Audit','GENERAL',$2,'Archived',$3,'HISTORY_TEST')",[n,SETTINGS.notifications.default,admin.id]);
   const revisions=await readSettingRevisions(db);expect(revisions.some(r=>r.id===active&&r.state==='Active')).toBe(true);expect(revisions.length).toBeGreaterThan(100);
  });
- it("production authorisation of HIS outbound still needs a checker, direct DB activation fails without approval (other system configuration is the administrator's alone, see admin-direct-settings)",async()=>{
+ it("production authorisation of HIS outbound still needs an approval record (the proposer may give it), direct DB activation fails without approval (other system configuration is the administrator's alone, see admin-direct-settings)",async()=>{
   const production={...SETTINGS.his_outbound.default,productionAuthorized:true};
   const id=await proposeSetting(db,admin,"his_outbound",production,"SYNTHETIC_INTEGRATION");
   await validateSetting(db,admin,id,async()=>true);
   await expect(db.query("INSERT INTO setting_active(setting_key,revision_id) VALUES('his_outbound',$1)",[id])).rejects.toThrow(/APPROVAL/);
-  await expect(approveSetting(db,{...approver,id:admin.id},id)).rejects.toThrow(/FORBIDDEN/);
-  await approveSetting(db,approver,id);await activateSetting(db,approver,id);
+  await approveSetting(db,{...approver,id:admin.id},id);await activateSetting(db,approver,id);   // the proposer approves their own change (owner 2026-11-03)
   expect((await readActiveSettings(db)).his_outbound).toEqual(production);
   await expect(db.query("UPDATE settings_revision SET value='{}' WHERE id=$1",[id])).rejects.toThrow(/IMMUTABLE/);
  });

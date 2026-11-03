@@ -228,7 +228,6 @@ describe('Pre-work → execution → reconciliation → Completed → QC1 (§12.
   expect((await db.query<{event_time:Date|null}>("SELECT event_time FROM lab_observation WHERE field_id='F2-05'")).rows[0].event_time).toBeNull();
   await run(async t=>batch.endExecution(t,u.staff,{batchId:b.batchId,expectedVersion:await V(),sheetNumber:1}));
   await expect(run(async t=>rec.verifyExecution(t,u.certifier,{batchId:b.batchId,expectedVersion:await V(),sheetNumber:1}))).rejects.toMatchObject({code:'EXECUTION_EVIDENCE_INCOMPLETE'});
-  await expect(run(t=>rec.reviewObservations(t,{...u.certifier,id:u.staff.id},{observationIds:ids,result:'Confirmed'}))).rejects.toMatchObject({code:'SECOND_PERSON_REQUIRED'});
   await expect(run(t=>rec.reviewObservations(t,u.staff2,{observationIds:ids,result:'Confirmed'}))).rejects.toMatchObject({code:'FORBIDDEN'});
   await run(t=>rec.reviewObservations(t,u.certifier,{observationIds:ids,result:'Confirmed'}));
   await run(async t=>rec.verifyExecution(t,u.certifier,{batchId:b.batchId,expectedVersion:await V(),sheetNumber:1}));

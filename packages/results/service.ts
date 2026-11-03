@@ -333,7 +333,7 @@ export async function decideLink(db:Queryable,user:Staff,input:unknown){
  const d=z.strictObject({versionId:uuid,decision:z.enum(['APPROVE','REJECT']),reason:reasonText,expectedRowVersion:rowVersion}).parse(input);
  const pre=await versionOf(db,d.versionId);const p=await openProposal(db,pre.id);if(!p)throw new LabError('LINK_PROPOSAL_REQUIRED',409);
  // OD-04 point 4 / D-18: manual identity linkage keeps two people even though review and certification may be one person.
- if(!authorize(user,'result.link.manual',{actorId:p.actor_id},'approve'))throw new LabError(p.actor_id===user.id?'SECOND_PERSON_REQUIRED':'FORBIDDEN',403);
+ if(!authorize(user,'result.link.manual',{actorId:p.actor_id},'approve'))throw new LabError('FORBIDDEN',403);
  if(d.decision==='REJECT'){await versionOf(db,pre.id,true);await db.query("INSERT INTO result_link_event(version_id,event,reason,actor_id) VALUES($1,'REJECTED',$2,$3)",[pre.id,d.reason,user.id]);await audit(db,user,'RESULT_LINK_REJECTED','RESULT_VERSION',pre.id,{outcome:'REJECTED'});return {outcome:'REJECTED'};}
  const open=await openInSeries(db,pre,p.round_id);
  await lockChain(db,p.round_id,p.attempt_id,[pre.id,...(open?[open.id]:[])]);

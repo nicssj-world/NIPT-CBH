@@ -2,7 +2,7 @@ import {it,expect} from 'vitest';
 import {randomUUID} from 'node:crypto';
 import {inboundFixture,register,registrar} from '../helpers/inbound';
 import {tx} from '../helpers/lab';
-import {registerEqaCase,updateEqaInfo} from '../../packages/eqa/service';
+import {registerEqaCase,updateEqaInfo,deleteEqaRegistration} from '../../packages/eqa/service';
 import {listP2Cases,getCase} from '../../packages/p2/service';
 import {dashboard} from '../../packages/anc/service';
 import * as intake from '../../packages/lab/intake';
@@ -64,5 +64,17 @@ it('the basic data can be corrected until a report exists; identity stays fixed;
   await expect(tx(f.db,()=>updateEqaInfo(f.db,lab,edit(caseId,{surname:'TOO LATE'})))).rejects.toThrow('EQA_INFO_LOCKED_AFTER_REPORT');
   await expect(f.db.query("UPDATE eqa_case SET surname='TOO LATE' WHERE case_id=$1",[caseId])).rejects.toThrow('EQA_INFO_LOCKED_AFTER_REPORT');
   expect((await getCase(f.db,lab,caseId)).eqa?.editable).toBe(false);
+ }finally{await f.close();}
+},180000);
+
+it('an EQA registration is deleted in one step, no reason typed; the tombstone records a standing reason',async()=>{
+ const f=await inboundFixture();
+ try{
+  const {unit,lab}=await registrar(f.db);
+  const e=await tx(f.db,()=>registerEqaCase(f.db,lab,card(unit,3),f.lookupKey,{store:f.store}));
+  await tx(f.db,()=>deleteEqaRegistration(f.db,lab,{caseId:e.caseId}));
+  const t=(await f.db.query<{reason:string}>('SELECT reason FROM eqa_registration_deleted WHERE case_id=$1',[e.caseId])).rows;
+  expect(t).toHaveLength(1);expect(t[0].reason.length).toBeGreaterThanOrEqual(3);
+  expect((await f.db.query('SELECT 1 FROM nipt_case WHERE id=$1',[e.caseId])).rows).toHaveLength(0);
  }finally{await f.close();}
 },180000);

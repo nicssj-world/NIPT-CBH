@@ -57,7 +57,7 @@ describe('Two PDF intake channels',()=>{
   const stored=(await f.db.query<{sha256:string;imported_by:string;imported_at:Date}>('SELECT sha256,imported_by,imported_at FROM result_report_version WHERE id=$1',[v])).rows[0];
   expect(stored).toMatchObject({sha256:check.sha256,imported_by:f.u.staff.id});expect(await f.store.get(stored.sha256)).toEqual(bytes); // original kept as uploaded
   expect((await status(c.caseId)).rounds[0].status).toBe('AWAITING_MATCH');
-  await expect(f.run(async t=>results.decideLink(t,f.u.staff,{versionId:v,decision:'APPROVE',reason:'Same person must not approve',expectedRowVersion:(await rowVersion(f,v)).row_version}))).rejects.toMatchObject({code:'SECOND_PERSON_REQUIRED'});
+  await expect(f.run(async t=>results.decideLink(t,f.u.staff,{versionId:v,decision:'APPROVE',reason:'Lab staff may not approve',expectedRowVersion:(await rowVersion(f,v)).row_version}))).rejects.toMatchObject({code:'FORBIDDEN'});
   await f.run(async t=>results.decideLink(t,f.u.certifier,{versionId:v,decision:'APPROVE',reason:'Uploaded report identity confirmed',expectedRowVersion:(await rowVersion(f,v)).row_version}));
   expect((await status(c.caseId)).rounds[0].status).toBe('AWAITING_ACCEPTANCE');
   // With P5-A on, a clean upload links to the same selected target without a second person.

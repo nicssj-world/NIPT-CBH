@@ -10,17 +10,17 @@ it('OWNER-LAB-051: an issued LN Halos is storable for Backup and Buffy without a
  const f=await histFixture();try{
   const c=await f.run(db=>syntheticCase(db,f.u,{ln:'9905100001'}));
   // Simulates a round whose LN Halos was issued while the PET receipt fields are empty (Owner lock: receipt is not a precondition).
-  await f.db.query("INSERT INTO specimen_lab_number(round_id,case_id,ln_halos,sequence_date,sequence_value,issued_on,issue_path) VALUES($1,$2,'26B261025901','2026-10-25',901,'HIS_PET_RECEIPT','RECEIPT_TRIGGER')",[c.roundId,c.caseId]);
+  await f.db.query("INSERT INTO specimen_lab_number(round_id,case_id,ln_halos,sequence_date,sequence_value,issued_on,issue_path) VALUES($1,$2,'26B261025801','2026-10-25',801,'HIS_PET_RECEIPT','RECEIPT_TRIGGER')",[c.roundId,c.caseId]);
   expect((await f.db.query<{received_at:Date|null}>('SELECT received_at FROM specimen_round WHERE id=$1',[c.roundId])).rows[0].received_at).toBeNull();
   const waiting=await f.run(db=>storageSearch(db,f.maker,{q:c.ln}));
-  expect(waiting.rows.map(r=>[r.storageType,r.waiting,r.storageLabel,r.retentionDueAt]).sort()).toEqual([['BACKUP',true,'26B261025901-3',null],['BUFFY_COAT',true,'26B261025901',null]]);
+  expect(waiting.rows.map(r=>[r.storageType,r.waiting,r.storageLabel,r.retentionDueAt]).sort()).toEqual([['BACKUP',true,'26B261025801-3',null],['BUFFY_COAT',true,'26B261025801',null]]);
   const backup=await f.run(db=>storageCommand(db,f.maker,{action:'createBox',boxType:'BACKUP'})),buffy=await f.run(db=>storageCommand(db,f.maker,{action:'createBox',boxType:'BUFFY_COAT'}));
   await f.run(db=>storageCommand(db,f.maker,{action:'place',roundId:c.roundId,storageType:'BACKUP',boxId:backup.id,slot:1}));
   await f.run(db=>storageCommand(db,f.maker,{action:'place',roundId:c.roundId,storageType:'BUFFY_COAT',boxId:buffy.id,slot:1}));
   const stored=await f.run(db=>storageSearch(db,f.maker,{q:c.ln}));
   expect(stored.rows.every(r=>!r.waiting&&r.retentionDueAt===null&&r.retentionVerified===false)).toBe(true);
   const unknown=await f.run(db=>storagePendingDestruction(db,f.maker,{view:'UNKNOWN'}));
-  expect(unknown.counts.unknown).toBe(2);expect(unknown.rows.map(r=>r.storageLabel).sort()).toEqual(['26B261025901','26B261025901-3']);
+  expect(unknown.counts.unknown).toBe(2);expect(unknown.rows.map(r=>r.storageLabel).sort()).toEqual(['26B261025801','26B261025801-3']);
  }finally{await f.close();}
 });
 
