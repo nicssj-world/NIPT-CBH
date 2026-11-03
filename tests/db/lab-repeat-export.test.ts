@@ -40,7 +40,7 @@ it('Task1 authorized RE_LIBRARY remains in both NIFTY and HALOS with internal li
   expect(await benchAttemptEvidence(f.db,crypto.randomUUID())).toBeNull();
   vi.stubEnv('NIPT_NIFTY_XLSX_TEMPLATE','C:/Users/User/Downloads/NIFTY_Test_Request_FormHNZ_filled.xlsx');
   vi.stubEnv('NIPT_HALOS_TASK_TEMPLATE','C:/Users/User/Downloads/Task Import template(3).xlsx');
-  await expect(tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:2,idempotencyKey:crypto.randomUUID()},deps))).rejects.toThrow('ACTUAL_POOLING_REQUIRED');
+  await expect(tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:2,idempotencyKey:crypto.randomUUID()},deps))).resolves.toMatchObject({files:expect.arrayContaining([expect.objectContaining({kind:'NIFTY_XLSX'}),expect.objectContaining({kind:'HALOS_TASK_XLSX'})])}); // owner decision 2026-11-03: exportable at any stage (automatic marked pooling record)
   const members=initial.slots.map(s=>({slot:s.slot,pooled:['PC','NC','PATIENT'].includes(s.kind)}));
   const actual=await tx(f.db,db=>recordActualPooling(db,u.lab,{batchId:id,revision:2,members,note:'LOCAL TEST actual physical transfer transcription'},deps));
   expect(actual.current).toBe(true);

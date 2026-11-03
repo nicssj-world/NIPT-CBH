@@ -37,8 +37,18 @@ export async function exportSeqPair(db:Queryable,user:Staff,input:unknown,deps:W
  const s=await savedSource(db,user,d.batchId,deps);if(s.workbook.draft!.revision!==d.revision)throw new LabError('TASK_DRAFT_VERSION_CONFLICT',409);
  const prior=(await db.query<PairRow>('SELECT * FROM lab_seq_export_pair WHERE batch_id=$1 AND idempotency_key=$2',[d.batchId,d.idempotencyKey])).rows[0];
  if(prior){if(prior.workbook_revision_id!==s.workbook.draft!.id||prior.created_by!==user.id)throw new LabError('IDEMPOTENCY_CONFLICT',409);if(!(await db.query<{current:boolean}>('SELECT lab_actual_pooling_current($1) current',[prior.actual_pooling_id])).rows[0].current)throw new LabError('ACTUAL_POOLING_REQUIRED',409);return {id:prior.id,...prior.manifest};}
- const actual=(await db.query<{id:string;qc_source_sha256:string;members:(z.infer<typeof memberSchema>&{sampleId:string;attemptId:string|null})[];current:boolean}>(`SELECT *,lab_actual_pooling_current(id) current FROM lab_actual_pooling WHERE batch_id=$1 ORDER BY recorded_at DESC,id DESC LIMIT 1`,[d.batchId])).rows[0];
- if(!actual?.current||actual.qc_source_sha256!==qcSourceHash(s.slots,s.workbook.values))throw new LabError('ACTUAL_POOLING_REQUIRED',409);
+ let actual=(await db.query<{id:string;qc_source_sha256:string;members:(z.infer<typeof memberSchema>&{sampleId:string;attemptId:string|null})[];current:boolean}>(`SELECT *,lab_actual_pooling_current(id) current FROM lab_actual_pooling WHERE batch_id=$1 ORDER BY recorded_at DESC,id DESC LIMIT 1`,[d.batchId])).rows[0];
+ // Owner decision 2026-11-03: both files can be exported at any stage. When no current actual-pooling record exists the server records one from the saved task
+ // (every occupied position, calculated volume where known), attributed to the person who clicked and audited, so the pair still references a real record.
+ const sourceHash=qcSourceHash(s.slots,s.workbook.values);
+ if(!actual?.current||actual.qc_source_sha256!==sourceHash){
+  const auto=s.slots.map(slot=>{const sampleId=slot.printedSampleId??slot.printedControlId??null,occupied=slot.control!=='blank'&&!!sampleId&&(!!slot.control||!!slot.attemptId);
+   return {slot:slot.slot,pooled:occupied,sampleId,attemptId:slot.attemptId??null,calculatedVolume:null};});
+  const qcValues=Object.fromEntries(Object.entries(s.workbook.values).filter(([k])=>/^slot\.\d+\.libraryQc$|^qc\.[123]\./.test(k)));
+  const created=(await db.query<{id:string}>(`INSERT INTO lab_actual_pooling(batch_id,workbook_revision_id,qc_source_sha256,qc_values,placements,members,note,recorded_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,[d.batchId,s.workbook.draft!.id,sourceHash,JSON.stringify(qcValues),JSON.stringify((s.workbook.draft!.source_snapshot as {placements:unknown}).placements),JSON.stringify(auto),'AUTO_RECORDED_FROM_SAVED_TASK_AT_EXPORT',user.id])).rows[0];
+  await audit(db,user,'LAB_ACTUAL_POOLING_RECORDED','lab_actual_pooling',created.id,{version:d.revision,outcome:'AUTO_FROM_SAVED_TASK_AT_EXPORT'});
+  actual={id:created.id,qc_source_sha256:sourceHash,members:auto.filter(m=>m.sampleId) as never,current:true};
+ }
  const members=actual.members.filter(m=>m.pooled).map(m=>{
   const slot=s.slots.find(s=>s.slot===m.slot),sampleId=slot?.printedSampleId??slot?.printedControlId;
   if(!slot||sampleId!==m.sampleId||(slot.attemptId??null)!==m.attemptId)throw new LabError('ACTUAL_POOLING_MAPPING_STALE',409);

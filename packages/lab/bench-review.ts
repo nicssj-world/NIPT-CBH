@@ -30,7 +30,7 @@ export async function reviewBenchForResult(db:Queryable,user:Staff,attemptId:str
  try{calculateOwnerPooling(master,rows);}catch(e){throw new LabError('OWNER_POOL_CALCULATION_INVALID',409,{reason:e instanceof Error?e.message:'INVALID'});}
  const ready=(await db.query<{ready:boolean}>('SELECT lab_bench_measurements_ready($1) ready',[batchId])).rows[0].ready;
  if(!ready)throw new LabError('OWNER_WORKSHEET_MEASUREMENTS_REQUIRED',409);
- const actual=(await db.query<{id:string}>(`SELECT id FROM lab_actual_pooling WHERE batch_id=$1 AND lab_bench_attempt_actually_pooled($2,id) ORDER BY recorded_at DESC,id DESC LIMIT 1`,[batchId,attemptId])).rows[0];
+ const actual=(await db.query<{id:string}>(`SELECT id FROM lab_actual_pooling WHERE batch_id=$1 AND note<>'AUTO_RECORDED_FROM_SAVED_TASK_AT_EXPORT' AND lab_bench_attempt_actually_pooled($2,id) ORDER BY recorded_at DESC,id DESC LIMIT 1`,[batchId,attemptId])).rows[0];
  if(!actual)throw new LabError('ACTUAL_POOLING_REQUIRED',409);
  const prior=(await db.query<{id:string}>(`SELECT id FROM lab_bench_review WHERE workbook_revision_id=$1 AND reviewer_id=$2 AND actual_pooling_id=$3 AND lab_bench_review_current(id)`,[r.id,user.id,actual.id])).rows[0];
  if(prior)return prior;

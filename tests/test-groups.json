@@ -10,6 +10,7 @@
       "tests/contracts/lab-owner-task-import.test.ts",
       "tests/contracts/owner-lab-054-signers-native.test.ts",
       "tests/contracts/readygen-enrich-parity.test.ts",
+      "tests/contracts/task3-export-any-stage.test.ts",
       "tests/contracts/task3-golden.test.ts",
       "tests/contracts/task3-identity-sources.test.ts",
       "tests/contracts/task3-native-concurrency.test.ts",

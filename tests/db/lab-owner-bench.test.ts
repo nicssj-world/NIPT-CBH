@@ -46,7 +46,7 @@ it('LAB-13 bench persists per-slot QC and 9 standards, uses the saved revision f
   expect(await benchAttemptEvidence(f.db,crypto.randomUUID())).toBeNull();
   vi.stubEnv('NIPT_NIFTY_XLSX_TEMPLATE','C:/Users/User/Downloads/NIFTY_Test_Request_FormHNZ_filled.xlsx');
   vi.stubEnv('NIPT_HALOS_TASK_TEMPLATE','C:/Users/User/Downloads/Task Import template(3).xlsx');
-  await expect(tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:2,idempotencyKey:crypto.randomUUID()},deps))).rejects.toThrow('ACTUAL_POOLING_REQUIRED');
+  await expect(tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:2,idempotencyKey:crypto.randomUUID()},deps))).resolves.toMatchObject({files:expect.arrayContaining([expect.objectContaining({kind:'NIFTY_XLSX'}),expect.objectContaining({kind:'HALOS_TASK_XLSX'})])}); // owner decision 2026-11-03: exportable at any stage (automatic marked pooling record)
   const members=initial.slots.map(s=>({slot:s.slot,pooled:['PC','NC','PATIENT'].includes(s.kind)}));
   const actual=await tx(f.db,db=>recordActualPooling(db,u.lab,{batchId:id,revision:2,members,note:'LOCAL TEST actual physical transfer transcription'},deps));
   expect(actual.current).toBe(true);
@@ -84,7 +84,7 @@ it('LAB-13 bench persists per-slot QC and 9 standards, uses the saved revision f
   const changed=await tx(f.db,db=>benchPooling(db,u.lab,id,deps));expect(changed.calculation.rows[1].volume).not.toBe(pool.calculation.rows[1].volume);
   expect((await tx(f.db,db=>benchWorkspace(db,u.lab,id,deps))).exports.find(e=>e.kind==='POOL_CSV')!.current).toBe(false);
   expect((await tx(f.db,db=>benchWorkspace(db,u.lab,id,deps))).actualPooling?.current).toBe(false);
-  await expect(tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:4,idempotencyKey:crypto.randomUUID()},deps))).rejects.toThrow('ACTUAL_POOLING_REQUIRED');
+  await expect(tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:4,idempotencyKey:crypto.randomUUID()},deps))).resolves.toMatchObject({files:expect.arrayContaining([expect.objectContaining({kind:'NIFTY_XLSX'}),expect.objectContaining({kind:'HALOS_TASK_XLSX'})])}); // owner decision 2026-11-03: exportable at any stage (automatic marked pooling record)
   // LAB-UAT-026/027: explicit checked-and-saved pooling confirms calculated defaults, without a mandatory reason.
   const confirmed=await tx(f.db,db=>recordActualPooling(db,u.lab,{batchId:id,revision:4,members},deps));expect(confirmed.current).toBe(true);
   const verified=members.map(m=>m.slot===2?{...m,actualVolume:1.5,reason:'LOCAL TEST separately measured physical transfer'}:m);

@@ -17,7 +17,7 @@ export async function benchAttemptEvidence(db:Queryable,attemptId:string){
  if(!slot)return null;
  const current=(await db.query<{id:string;content_hash:string}>(`SELECT DISTINCT ON(t.sheet_number) p.id,p.content_hash FROM lab_placement_snapshot p JOIN lab_task_sheet t ON t.id=p.sheet_id WHERE t.batch_id=$1 ORDER BY t.sheet_number,p.revision DESC`,[a.batch_id])).rows;
  const placementCurrent=current.length===frozen.length&&current.every(p=>frozen.some(f=>f.id===p.id&&f.content_hash===p.content_hash));
- const actualPooling=(await db.query<{id:string;current:boolean;pooled:boolean}>(`SELECT id,lab_actual_pooling_current(id) current,lab_bench_attempt_actually_pooled($1,id) pooled FROM lab_actual_pooling WHERE batch_id=$2 ORDER BY recorded_at DESC,id DESC LIMIT 1`,[attemptId,a.batch_id])).rows[0]??null;
+ const actualPooling=(await db.query<{id:string;current:boolean;pooled:boolean}>(`SELECT id,lab_actual_pooling_current(id) current,lab_bench_attempt_actually_pooled($1,id) pooled FROM lab_actual_pooling WHERE batch_id=$2 AND note<>'AUTO_RECORDED_FROM_SAVED_TASK_AT_EXPORT' ORDER BY recorded_at DESC,id DESC LIMIT 1`,[attemptId,a.batch_id])).rows[0]??null;
  const values=draft.values,concentration=values[`slot.${a.slot_number}.libraryQc`];
  const exports=(await db.query<{id:string;kind:string;file_sha256:string}>(`SELECT id,kind,file_sha256 FROM lab_bench_export WHERE workbook_revision_id=$1 ORDER BY created_at`,[draft.id])).rows;
  return {batchId:a.batch_id,runLabel:a.run_label,slot:a.slot_number,attemptId,roundId:slot.roundId,printedSampleId:slot.printedSampleId,ownerPaperRoute:a.owner_paper_route,

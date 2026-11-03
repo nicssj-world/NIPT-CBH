@@ -167,7 +167,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
    <div className="bench-section-head"><h2 id="seq-title"><LabIcon name="dna"/>Seq Task-G50</h2>
     <div className="bench-actions"><button className="button secondary" type="button" disabled={busy||!saved} onClick={()=>openPdf('SEQ','Seq Task-G50')}><LabIcon name="printer"/>ดูตัวอย่าง / พิมพ์</button>
      <button className="button secondary" type="button" disabled={busy||!saved} onClick={()=>void downloadNifty()}><LabIcon name="download"/>ส่งออกไฟล์ข้อมูล (NIFTY)</button>
-     <button className="button" type="button" disabled={busy||!saved||!data.finalized||!data.actualPooling?.current} onClick={()=>void exportPair()}><LabIcon name="download"/>ส่งออก XLSX 2 ไฟล์</button>
+     <button className="button" type="button" disabled={busy||!saved} onClick={()=>void exportPair()}><LabIcon name="download"/>ส่งออก XLSX 2 ไฟล์</button>
      <Link className="button secondary" href="/results"><LabIcon name="upload"/>นำเข้า PDF Result</Link></div></div>
    <div className="seq-groups">{SEQ_GROUPS.map(g=><fieldset key={g.title} className="seq-group"><legend><LabIcon name={g.icon}/>{g.title}</legend><div className="seq-fields">{g.fields.map(f=>{const id=`seq-${f.key}`;
     return <div key={f.key} className="field"><label htmlFor={id}>{f.label}</label>{f.type==='text'?<input id={id} type="text" disabled={!canWrite||busy||data.automaticKeys.includes(f.key)} value={String(values[f.key]??'')} onChange={e=>change(f.key,e.target.value)} aria-describedby={f.hint?`${id}-hint`:undefined}/>
