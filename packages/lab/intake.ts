@@ -14,13 +14,24 @@ import {migrationRerunAttempts} from '../migration/rerun';
 export {labWorklist,labWorklistPage,worklistRow,WORKLIST_TABS,READY_SCAN_LIMIT} from './worklist';
 export type {QueueCategory,WorklistAttempt,WorklistPage,WorklistTab} from './worklist';
 
+const rejectionPhoto=z.strictObject({mime:z.enum(['image/png','image/jpeg','image/webp']),data:z.string().min(1).max(1400000).regex(/^[A-Za-z0-9+/]+={0,2}$/)});
+function photoBytes(photo:z.infer<typeof rejectionPhoto>){
+ const b=Buffer.from(photo.data,'base64');
+ if(b.length<12||b.length>1048576||b.toString('base64')!==photo.data)throw new LabError('REJECTION_PHOTO_INVALID',422);
+ const png=b.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
+ const jpg=b.subarray(0,3).equals(Buffer.from([255,216,255]));
+ const webp=b.subarray(0,4).toString('ascii')==='RIFF'&&b.subarray(8,12).toString('ascii')==='WEBP';
+ if(!(photo.mime==='image/png'&&png||photo.mime==='image/jpeg'&&jpg||photo.mime==='image/webp'&&webp))throw new LabError('REJECTION_PHOTO_INVALID',422);
+ return b;
+}
 export async function acceptSpecimen(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);
  // Routine acceptance (Owner 2026-11-02) is ONE confirmation by the person who checked the patient and the tube: the press records who and when, and the
  // policy reference and the reason are system text, not typed. A rejection names a preset cause; free text is needed only for "other".
  const d=z.strictObject({roundId:uuid,condition:z.enum(['ACCEPTABLE','REJECTED']),reasonCode:z.enum(REJECT_CAUSES).optional(),note:z.string().trim().max(300).refine(s=>!/[\u0000-\u001f\u007f]/.test(s)).optional(),
   // older callers may still send these; they are accepted and ignored in favour of the system text
-  identityChecked:z.boolean().optional(),labelChecked:z.boolean().optional(),criteriaReference:z.string().optional(),reason:z.string().optional()}).parse(input);
+  identityChecked:z.boolean().optional(),labelChecked:z.boolean().optional(),criteriaReference:z.string().optional(),reason:z.string().optional(),photos:z.array(rejectionPhoto).max(4).optional()}).parse(input);
+ if(d.condition!=='REJECTED'&&(d.photos?.length??0)>0)throw new LabError('REJECTION_PHOTO_REJECT_ONLY',422);
  if(d.condition==='REJECTED'&&!d.reasonCode)throw new LabError('REJECT_CAUSE_REQUIRED',422);
  if(d.reasonCode==='OTHER'&&!d.note)throw new LabError('REJECT_NOTE_REQUIRED',422);
  const r=await lockedRound(db,user,d.roundId);need(user,'round.receive','write',{unitId:r.unit_id??undefined,origin:r.registration_origin as 'ANC'});
@@ -38,7 +49,14 @@ export async function acceptSpecimen(db:Queryable,user:Staff,input:unknown){
  const label=d.reasonCode?REJECT_LABELS[d.reasonCode]:'';
  const reason=d.condition==='ACCEPTABLE'?'ACCEPTED_ROUTINE_CHECK: confirmed by the person who checked patient and tube':`REJECTED: ${d.reasonCode} ${label}${d.note?' - '+d.note:''}`.slice(0,500);
  const id=(await db.query<{id:string}>('INSERT INTO specimen_acceptance(round_id,identity_checked,label_checked,condition,criteria_reference,reason,actor_id) VALUES($1,true,true,$2,$3,$4,$5) RETURNING id',[r.id,d.condition,ACCEPTANCE_POLICY_REFERENCE,reason,user.id])).rows[0].id;
- await audit(db,user,'SPECIMEN_ACCEPTANCE_RECORDED','specimen_acceptance',id,{outcome:d.condition,...(d.reasonCode?{reasonCode:d.reasonCode}:{})});return {id,condition:d.condition,duplicate:false as const};
+ if(d.condition==='REJECTED'){
+  for(const [index,photo] of (d.photos??[]).entries()){
+   const bytes=photoBytes(photo);
+   const digest=createHash('sha256').update(bytes).digest('hex');
+   await db.query('INSERT INTO specimen_rejection_evidence(acceptance_id,sequence,media_type,content,sha256,actor_id) VALUES($1,$2,$3,$4,$5,$6)',[id,index+1,photo.mime,bytes,digest,user.id]);
+  }
+ }
+ await audit(db,user,'SPECIMEN_ACCEPTANCE_RECORDED','specimen_acceptance',id,{outcome:d.condition,...(d.reasonCode?{reasonCode:d.reasonCode}:{}),photoCount:d.photos?.length??0});return {id,condition:d.condition,duplicate:false as const,photoCount:d.photos?.length??0};
 }
 /** The acceptance policy the system applies (a reference, not typed per specimen) and the preset rejection causes. */
 const ACCEPTANCE_POLICY_REFERENCE='POLICY:SPECIMEN_ACCEPTANCE_ROUTINE_V1';
