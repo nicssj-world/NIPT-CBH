@@ -8,7 +8,7 @@ import {lnHnKey,type RegistrantIdentitySource} from '../../packages/inbound/iden
 import {discoverInbound} from '../../packages/inbound/discovery';
 import {processPending} from '../../packages/inbound/process';
 import {intakePresence,linkIntakeAtRegistration} from '../../packages/inbound/registration-link';
-import {proposeResolution,decideResolution} from '../../packages/inbound/resolution';
+import {proposeResolution,decideResolution,resolveIssueDirect} from '../../packages/inbound/resolution';
 import {inboundQueue} from '../../packages/inbound/queue';
 import {inboundHealth} from '../../packages/inbound/health';
 import {testInboundConnection} from '../../packages/inbound/connection-test';
@@ -134,6 +134,24 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
   const s=await caseState(f.db,caseId);expect(s.rounds[0].state).toBe('ReceivedInHIS');expect(s.orders).toHaveLength(1);
   expect(await openIssues(f.db)).toEqual([]);
   expect((await rows<{event:string}>(f.db,'SELECT event FROM his_intake_issue_event WHERE issue_id=$1 ORDER BY sequence',[issue])).map(e=>e.event)).toEqual(['OPENED','PROPOSED','APPROVED']);
+ });
+
+ it('UI-008 single authorized operator resolves a proposed identity issue without a typed reason, preserving PET gates and actor evidence',async()=>{
+  const caseId=await register(f,{ln:LN,hn:'9900009999'});
+  await writePet(f.root,DAY,{ln:LN,hn:HN,receivedAt:'20261012090000'});await cycle(f,{now:NOW});
+  const issue=(await rows<{id:string}>(f.db,"SELECT id FROM his_intake_issue WHERE kind='IDENTITY_MISMATCH'"))[0].id;
+  const staff=await addUser(f.db,'LAB_STAFF','synthetic.p3.direct');
+  const anc=await addUser(f.db,'ANC_NURSE','synthetic.p3.anc-direct');
+  await expect(resolveIssueDirect(f.db,anc,issue,{action:'link_case',caseId},f.deps)).rejects.toThrow('FORBIDDEN');
+  await expect(resolveIssueDirect(f.db,staff,issue,{action:'keep_existing'},f.deps)).rejects.toThrow('ACTION_NOT_ALLOWED_FOR_ISSUE');
+  await proposeResolution(f.db,staff,issue,{action:'link_case',caseId,reason:'SYNTHETIC old proposal'});
+  const result=await resolveIssueDirect(f.db,staff,issue,{action:'link_case',caseId},f.deps);
+  expect(result).toMatchObject({state:'Resolved',action:'link_case'});
+  expect((await caseState(f.db,caseId)).rounds[0].state).toBe('ReceivedInHIS');
+  expect(await openIssues(f.db)).toEqual([]);
+  const events=await rows<{event:string;reason:string|null;actor_id:string}>(f.db,'SELECT event,reason,actor_id FROM his_intake_issue_event WHERE issue_id=$1 ORDER BY sequence',[issue]);
+  expect(events.map(e=>e.event)).toEqual(['OPENED','PROPOSED','RESOLVED_DIRECT']);
+  expect(events.at(-1)).toMatchObject({reason:null,actor_id:staff.id});
  });
 
  it('AT-HISIN-07 broken CP874, section-60 11-digit LN and non-70096 orders: nothing applied, non-NIPT never stored',async()=>{
