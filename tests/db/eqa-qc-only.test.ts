@@ -78,3 +78,15 @@ it('an EQA registration is deleted in one step, no reason typed; the tombstone r
   expect((await f.db.query('SELECT 1 FROM nipt_case WHERE id=$1',[e.caseId])).rows).toHaveLength(0);
  }finally{await f.close();}
 },180000);
+
+it('an EQA whose request check / clinical evaluation was saved can still be deleted (migration 193)',async()=>{
+ const f=await inboundFixture();
+ try{
+  const {unit,lab}=await registrar(f.db);
+  const e=await tx(f.db,()=>registerEqaCase(f.db,lab,card(unit,4),f.lookupKey,{store:f.store}));
+  await f.db.query("INSERT INTO clinical_snapshot(case_id,round_id,rule_version,input_snapshot,result) VALUES($1,$2,'SYNTHETIC-v1','{}','{}')",[e.caseId,e.roundId]);
+  await tx(f.db,()=>deleteEqaRegistration(f.db,lab,{caseId:e.caseId}));
+  expect((await f.db.query('SELECT 1 FROM clinical_snapshot WHERE case_id=$1',[e.caseId])).rows).toHaveLength(0);
+  expect((await f.db.query('SELECT 1 FROM nipt_case WHERE id=$1',[e.caseId])).rows).toHaveLength(0);
+ }finally{await f.close();}
+},180000);
