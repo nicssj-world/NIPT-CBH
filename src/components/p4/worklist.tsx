@@ -96,7 +96,7 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
        {a.gate?.syntheticPendingAccepted&&<p className="small muted">ผ่านด้วยนโยบายจำลอง: {a.gate.pending.map(gateText).join(", ")}</p>}</td>
       <td>{a.labels.prints?<span className="status good">พิมพ์แล้ว {a.labels.prints}</span>:<span className="status warning">ยังไม่พิมพ์</span>}</td>
       <td>{a.placement?<Link href={`/lab/batches/${a.placement.batchId}${a.placement.slot?`?task=${getSheetNumber(a.placement.slot)}`:""}`}>{a.placement.runLabel} · {a.placement.slot?`Task List ${getSheetNumber(a.placement.slot)} · `:""}ตน. {a.placement.slot}</Link>:"—"}</td>
-      <td>{data.operational&&can.receive&&a.attemptState==='Ready'&&<button className="button small" onClick={()=>setDialog({type:'accept',row:a})}>พบปัญหา / ปฏิเสธ</button>}<RowActions a={a} can={can} open={(type)=>setDialog({type,row:a})}/></td>
+      <td><div className="lab-operations"><RowActions a={a} can={can} open={(type)=>setDialog({type,row:a})}/>{data.operational&&can.receive&&a.attemptState==='Ready'&&<div className="lab-operation-risk"><button className="button small secondary" onClick={()=>setDialog({type:'accept',row:a})}>พบปัญหา / ปฏิเสธ</button></div>}</div></td>
      </tr>)}</tbody></table></div>}
    {pager}</>}
   </section>
@@ -171,13 +171,13 @@ export function SampleAcceptanceDialog({row,onClose,onDone}:{row:Attempt;onClose
   catch(e){setError(failureText(e));sent.current=false;}finally{setBusy(false);}
  }
  const rejectReady=!!cause&&(cause!=="OTHER"||note.trim().length>0);
- return <Dialog title="รับสิ่งส่งตรวจ" onClose={onClose}><div className="stack acceptance-dialog">
+ return <Dialog title={problem?"ปฏิเสธสิ่งส่งตรวจ":"ยืนยันรับสิ่งส่งตรวจ"} onClose={onClose}><div className="stack acceptance-dialog">
   <dl className="acceptance-facts">
    <div><dt>LN</dt><dd className="mono">{row.hisLn}</dd></div><div><dt>HN</dt><dd className="mono">{row.hn??"—"}</dd></div>
    <div><dt>LN Halos</dt><dd className="mono">{row.lnHalos??"ยังไม่ออก"}</dd></div><div><dt>รอบตัวอย่าง</dt><dd>{row.roundNumber}</dd></div>
    <div><dt>รับใน HIS</dt><dd>{row.receivedAt?bkk(row.receivedAt):"—"}</dd></div>
   </dl>
-  <p className="help">ตรวจชื่อ/HN และฉลากหลอดกับตัวสิ่งส่งตรวจจริงแล้วจึงกดยืนยัน การกดยืนยันบันทึกว่าคุณเป็นผู้ตรวจรับ พร้อมวันเวลา</p>
+  <p className="help">{problem?"เลือกสาเหตุที่ไม่สามารถรับสิ่งส่งตรวจได้ ระบบจะบันทึกการปฏิเสธพร้อมผู้ดำเนินการและวันเวลา":"ตรวจชื่อ/HN และฉลากหลอดกับสิ่งส่งตรวจจริงก่อนยืนยันรับ ระบบจะบันทึกผู้ตรวจรับและวันเวลา"}</p>
   {problem&&<fieldset className="acceptance-problem"><legend>ปัญหาที่พบ</legend>{REJECT_CAUSES.map(([v,l])=><label key={v} className="check-label"><input type="radio" name="cause" checked={cause===v} onChange={()=>setCause(v)}/> {l}</label>)}
    {cause&&<div><label htmlFor="reject-note">หมายเหตุ{cause==="OTHER"?" (จำเป็น)":" (ถ้ามี)"}</label><input id="reject-note" value={note} maxLength={300} onChange={e=>setNote(e.target.value)}/></div>}</fieldset>}
   {error&&<p className="notice" role="alert">{error}</p>}
