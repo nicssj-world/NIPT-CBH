@@ -1,5 +1,6 @@
 import {authorize} from '../security/policy';
 import {readFile} from 'node:fs/promises';
+import {ownerTemplatePath} from './owner-templates';
 import {z} from 'zod';
 import type {Queryable} from '../db/connection';
 import {recordPhiAccess} from '../db/phi-access';
@@ -57,11 +58,11 @@ export async function benchExport(db:Queryable,user:Staff,input:unknown,deps:Wor
  if(s.workbook.draft!.revision!==d.revision)throw new LabError('TASK_DRAFT_VERSION_CONFLICT',409);
  let bytes:Buffer,mapping:unknown=[],sourceHash:string;
  if(d.kind==='POOL_CSV'){
-  const template=process.env.NIPT_POOL_CSV_TEMPLATE;if(!template)throw new LabError('POOL_CSV_TEMPLATE_REQUIRED',409);
+  const template=ownerTemplatePath('NIPT_POOL_CSV_TEMPLATE');if(!template)throw new LabError('POOL_CSV_TEMPLATE_REQUIRED',409);
   const pool=await benchPooling(db,user,d.batchId,deps);bytes=exportOwnerPoolingCsv(await readFile(template),pool.calculation);sourceHash=pool.sourceSha256;
  }else{
   need(user,'handoff.create');
-  const template=process.env.NIPT_NIFTY_XLSX_TEMPLATE;if(!template)throw new LabError('NIFTY_TEMPLATE_REQUIRED',409);
+  const template=ownerTemplatePath('NIPT_NIFTY_XLSX_TEMPLATE');if(!template)throw new LabError('NIFTY_TEMPLATE_REQUIRED',409);
   const rows:VendorRow[]=[];
   for(const slot of s.slots){
    if(slot.control==='blank'||!slot.control&&!slot.attemptId)continue;

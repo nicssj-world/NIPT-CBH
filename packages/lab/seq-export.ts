@@ -1,4 +1,5 @@
 import {readFile} from 'node:fs/promises';
+import {ownerTemplatePath} from './owner-templates';
 import {z} from 'zod';
 import type {Queryable} from '../db/connection';
 import {need,uuid,LabError,audit,type Staff} from './core';
@@ -54,7 +55,7 @@ export async function exportSeqPair(db:Queryable,user:Staff,input:unknown,deps:W
   if(!slot||sampleId!==m.sampleId||(slot.attemptId??null)!==m.attemptId)throw new LabError('ACTUAL_POOLING_MAPPING_STALE',409);
   return {slot:m.slot,sampleId,attemptId:slot.attemptId,roundId:slot.roundId,caseId:slot.caseId,overallOrdinal:slot.overallOrdinal??null};
  });
- const template=process.env.NIPT_HALOS_TASK_TEMPLATE;if(!template)throw new LabError('TASK_IMPORT_TEMPLATE_REQUIRED',409);
+ const template=ownerTemplatePath('NIPT_HALOS_TASK_TEMPLATE');if(!template)throw new LabError('TASK_IMPORT_TEMPLATE_REQUIRED',409);
  const halos=exportOwnerTaskImport(await readFile(template),members,clickedAt);
  // Both records and the pair manifest commit atomically. A failure cannot report two successful files.
  const nifty=await benchExport(db,user,{batchId:d.batchId,revision:d.revision,kind:'NIFTY_XLSX'},deps),halosHash=await deps.store.put(halos.bytes);
