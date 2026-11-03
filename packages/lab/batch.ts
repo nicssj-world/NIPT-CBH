@@ -228,9 +228,14 @@ export async function moveSlot(db:Queryable,user:Staff,input:unknown){
  const urgent40=(await db.query<{enabled:boolean}>('SELECT lab_urgent40_enabled($1) enabled',[b.id])).rows[0].enabled;
  if([d.fromSlot,d.toSlot].some(slot=>!!controlTypeOf(slot)&&!(slot===40&&urgent40)))throw new LabError('CONTROL_SLOT_PROTECTED',409);
  const sheets=[getSheetNumber(d.fromSlot),getSheetNumber(d.toSlot)];
- for(const n of sheets){const s=await sheetOf(db,b.id,n);if(!placementEditable(s))throw new LabError('PLACEMENT_LOCKED',409);if(s.state==='PlanChecked'&&!d.reason)throw new LabError('REASON_REQUIRED_AFTER_PLAN_CHECK',422);}
+ // Owner 2026-11-03: dragging a sample to another position (move or swap) asks for no reason, whatever the plan state.
+ for(const n of sheets){const s=await sheetOf(db,b.id,n);if(!placementEditable(s))throw new LabError('PLACEMENT_LOCKED',409);}
  const from=await liveAssignment(db,b.id,d.fromSlot);if(!from)throw new LabError('SLOT_EMPTY',409);
  const to=await liveAssignment(db,b.id,d.toSlot);
+ // Measurements belong to a position number, so a position that already holds values cannot give its sample away or take another one.
+ for(const slot of [d.fromSlot,d.toSlot])if(await hasRecordedBenchWorkAtSlot(db,b.id,slot))throw new LabError('MOVE_ONLY_BEFORE_BENCH_WORK',409);
+ // The Blank control position (40) is open only to an Urgent sample, as in the exact fill.
+ for(const [slot,incoming] of [[d.toSlot,from],[d.fromSlot,to]] as const)if(slot===40&&incoming&&!(await attemptFacts(db,'a.id=$1',[incoming.attempt_id]))[0]?.urgent)throw new LabError('URGENT_ATTEMPT_REQUIRED',422);
  for(const x of [from,to].filter(Boolean))await db.query("UPDATE lab_slot_assignment SET removed_at=now(),removed_by=$2,removed_reason='MOVED' WHERE id=$1",[x!.id,user.id]);
  await db.query('INSERT INTO lab_slot_assignment(batch_id,slot_number,attempt_id,assigned_by) VALUES($1,$2,$3,$4)',[b.id,d.toSlot,from.attempt_id,user.id]);
  if(to)await db.query('INSERT INTO lab_slot_assignment(batch_id,slot_number,attempt_id,assigned_by) VALUES($1,$2,$3,$4)',[b.id,d.fromSlot,to.attempt_id,user.id]);

@@ -87,3 +87,9 @@
 /* Login has no page content to follow: pin the footer to the viewport corner instead. */
 .app-footer.app-footer-floating{position:fixed;right:0;bottom:0;max-width:100%;}
 .anc-case-workspace>.case-pet-evidence{order:9}
+
+/* Task List positions: drag a sample row onto another position to move or swap it. */
+.plate-table tr.can-drag{cursor:grab;}
+.plate-table tr.dragging{opacity:.45;cursor:grabbing;}
+.plate-table tr.drop-over>*{background:color-mix(in srgb,var(--color-brand) 14%,transparent);}
+.plate-table tr.drop-over{outline:2px dashed var(--color-brand);outline-offset:-2px;}

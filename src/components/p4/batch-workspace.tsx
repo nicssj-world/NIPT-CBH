@@ -47,7 +47,7 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
  const [w,setW]=useState(initial),[sheetNo,setSheetNoState]=useState(()=>[1,2,3].includes(requested)?requested:initial.sheets.find(s=>s.state!=="Draft"||initial.slots.some(x=>x.sheet===s.sheet_number&&x.assignment))?.sheet_number??1);
  // The selected Task is kept in the URL (?task=N) so reload/share returns to the same Task without a navigation.
  const setSheetNo=(n:number)=>{setSheetNoState(n);const url=new URL(window.location.href);url.searchParams.set("task",String(n));window.history.replaceState(window.history.state,"",url);};
- const [msg,setMsg]=useState<{ok:boolean;text:string;details?:unknown;warnings?:string[]}|null>(null),[busy,setBusy]=useState(false),[dialog,setDialog]=useState<null|{type:string;slot?:number}>(null);
+ const [msg,setMsg]=useState<{ok:boolean;text:string;details?:unknown;warnings?:string[]}|null>(null),[busy,setBusy]=useState(false),[dragSlot,setDragSlot]=useState<number|null>(null),[overSlot,setOverSlot]=useState<number|null>(null),[dialog,setDialog]=useState<null|{type:string;slot?:number}>(null);
  // Unsaved PlanForm edits belong to one Task only: switching Task never carries them over (RC1).
  const [planDirty,setPlanDirty]=useState(false),[pendingSheet,setPendingSheet]=useState<number|null>(null);
  const selectSheet=(n:number)=>{if(n===sheetNo)return;if(planDirty){setPendingSheet(n);return;}setPendingSheet(null);setSheetNo(n);};
@@ -59,6 +59,18 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
  };
  const sheet=w.sheets[sheetNo-1],slots=w.slots.filter(s=>s.sheet===sheetNo),comp=w.completeness[sheetNo-1];
  const editable=EDITABLE.includes(sheet.state)&&(sheet.placement_revision===0||sheet.state==="Amended")&&w.batch.state!=="Cancelled",started=STARTED.includes(sheet.state);
+ // Drag and drop (owner 2026-11-03): drag a sample row onto another position of this Task to move it (empty) or swap it (occupied). Controls are fixed; the Blank 40 takes only an Urgent sample.
+ // The "ย้าย/สลับ" button stays for keyboard use. The server decides (measured positions, locks); a refusal shows as a message.
+ const draggable=editable&&w.allowed.draft&&!busy;
+ const dropOk=(target:{slot:number;control:unknown})=>draggable&&dragSlot!==null&&dragSlot!==target.slot&&!target.control;
+ const dnd=(s:{slot:number;control:unknown;assignment:unknown})=>({
+  draggable:draggable&&!!s.assignment&&!s.control,
+  onDragStart:(e:React.DragEvent)=>{if(!draggable||!s.assignment||s.control){e.preventDefault();return;}e.dataTransfer.effectAllowed="move";e.dataTransfer.setData("text/plain",String(s.slot));setDragSlot(s.slot);},
+  onDragEnd:()=>{setDragSlot(null);setOverSlot(null);},
+  onDragOver:(e:React.DragEvent)=>{if(dropOk(s)){e.preventDefault();e.dataTransfer.dropEffect="move";if(overSlot!==s.slot)setOverSlot(s.slot);}},
+  onDragLeave:()=>{if(overSlot===s.slot)setOverSlot(null);},
+  onDrop:(e:React.DragEvent)=>{e.preventDefault();const from=dragSlot;setDragSlot(null);setOverSlot(null);if(from!==null&&from!==s.slot&&!s.control)void act("move",{fromSlot:from,toSlot:s.slot},"ย้าย/สลับตำแหน่งแล้ว");}
+ });
  const stateText=(state:string)=>(w.operational?OPERATIONAL_STATE[state]:undefined)??STEP_TEXT[state]??state;
  const [pdfView,setPdfView]=useState<string|null>(null);
  const reload=async()=>setW(await labApi<Workspace>(`/api/p4/batches/${w.batch.id}`));
@@ -116,9 +128,10 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
    {w.operational&&sheet.state==="Amended"&&sheet.placement_revision>0&&<p className="notice warning-notice" role="note">แก้ไขหลังพิมพ์ — Task List ฉบับที่ {sheet.placement_revision} ที่พิมพ์ไว้ใช้ไม่ได้แล้ว พิมพ์ใหม่เพื่อใช้ฉบับที่ {sheet.placement_revision+1}</p>}
    {editable&&w.allowed.assign&&<ExactFill w={w} sheetNo={sheetNo} busy={busy} act={act}/>}
    {!w.operational&&!editable&&w.allowed.assign&&sheet.state!=="Cancelled"&&<p className="notice" role="note">Task List {sheetNo} ล็อกตำแหน่งแล้ว จึงไม่สามารถเพิ่มหรือแทนที่ตัวอย่างใน Task นี้ได้ หากมี Task List อื่นที่ยังแก้ไขได้ ให้เลือก Task นั้นจากแท็บด้านบนเพื่อจัดตำแหน่ง โดยไม่ปลดล็อก Task ที่ล็อกแล้ว</p>}
+   {draggable&&<p className="help">ลากแถวตัวอย่างไปวางที่ตำแหน่งอื่นเพื่อย้าย (ถ้ามีตัวอย่างอยู่จะสลับกัน) — Control ย้ายไม่ได้</p>}
    <div className="plate" role="region" aria-label={`ตำแหน่งตัวอย่าง Task List ${sheetNo}`} tabIndex={0}>{[0,1].map(strip=><table key={strip} className="data-table plate-table"><caption>Strip {strip===0?"S1":"S2"} (ตำแหน่ง {(sheetNo-1)*16+1+strip*8}–{(sheetNo-1)*16+8+strip*8})</caption>
     <thead><tr><th scope="col">ตน. / Plate</th><th scope="col">Barcode</th><th scope="col">Sample ID / Control</th><th scope="col">{started?"✓ ตรวจก่อน/หลังดูด":"จัดการ"}</th></tr></thead>
-    <tbody>{slots.slice(strip*8,strip*8+8).map(s=><tr key={s.slot} className={s.control==="positive"?"control-row row-pc":s.control==="negative"?"control-row row-nc":s.control==="blank"?"control-row row-blank":s.assignment?"":"empty-row"}>
+    <tbody>{slots.slice(strip*8,strip*8+8).map(s=><tr key={s.slot} {...dnd(s)} className={`${s.control==="positive"?"control-row row-pc":s.control==="negative"?"control-row row-nc":s.control==="blank"?"control-row row-blank":s.assignment?"":"empty-row"}${draggable&&s.assignment&&!s.control?" can-drag":""}${dragSlot===s.slot?" dragging":""}${dragSlot!==null&&overSlot===s.slot&&dropOk(s)?" drop-over":""}`}>
      <th scope="row">{s.slot}<div className="small muted">{s.plate}</div></th><td className="mono">{s.barcode}</td>
      <td>{s.control?<><span className="badge">{s.controlLabel}</span> <span className="mono">{s.controlCode??"(ต้องระบุวันที่ปฏิบัติงาน)"}</span></>:s.assignment?<><span className={`mono strong${s.assignment.exceptional?" task-exceptional":""}`}>{s.assignment.printedSampleId}</span><div className="small">LN {s.assignment.hisLn} · HN {s.assignment.hn??"—"} · รอบที่ {s.assignment.roundNumber}{s.assignment.repeat?" · ตรวจซ้ำ":""}{s.assignment.attemptState==="Stopped"?" · หยุด":""} {gaBadge(s.assignment.ga)}{s.assignment.labelPrints===0&&<span className="badge warning" title="แจ้งเตือนเท่านั้น — จัดตำแหน่งต่อได้ พิมพ์ฉลากจากคิวงาน Lab ก่อนเริ่มปฏิบัติงาน">ยังไม่พิมพ์ฉลาก</span>}</div></>:<span className="muted">ว่าง</span>}</td>
      <td>{editable&&s.assignment&&w.allowed.draft?<div className="row-actions"><button className="button small secondary" type="button" onClick={()=>setDialog({type:"move",slot:s.slot})}>ย้าย/สลับ</button><button className="button small secondary" type="button" onClick={()=>setDialog({type:"remove",slot:s.slot})}>ถอดออก</button></div>
@@ -301,10 +314,10 @@ function WorkspaceDialog({dialog,w,sheetNo,busy,act,close,setMsg,reload}:{dialog
  if(dialog.type==="plancheck")return <Dialog title={`ยืนยันแผนตำแหน่ง Task List ${sheetNo}`} onClose={close}><div className="stack"><p>ตรวจบนจอ — <strong>ไม่ใช่การยืนยันว่าดูดตัวอย่างแล้ว</strong></p>
   {[["controls","Control อยู่ตาม Template (PC 1 / NC 25 / Blank 40) และรหัส Control ถูกต้อง"],["ids","Sample ID / LN Halos / ป้ายรอบ / Barcode index ตรงกับตัวอย่างที่เลือก"],["dup","ไม่มี ID ซ้ำ"]].map(([k,l])=><label key={k} className="check-label"><input type="checkbox" checked={checks[k as keyof typeof checks]} onChange={e=>setChecks({...checks,[k]:e.target.checked})}/> {l}</label>)}
   <div className="dialog-actions"><button className="button" type="button" disabled={busy||!checks.controls||!checks.ids||!checks.dup} onClick={()=>run("planCheck",{sheetNumber:sheetNo,confirm:{controlsAtTemplate:true,identifiersMatch:true,noDuplicates:true}},"ยืนยันแผนตำแหน่งแล้ว")}>ยืนยันแผน</button></div></div></Dialog>;
- if(dialog.type==="move"&&slot){const targets=w.slots.filter(s=>!s.control&&s.slot!==slot.slot&&EDITABLE.includes(w.sheets[s.sheet-1].state)&&(w.sheets[s.sheet-1].placement_revision===0||w.sheets[s.sheet-1].state==="Amended"));const needReason=[sheet.state,w.sheets[Math.ceil(Number(target||slot.slot)/16)-1].state].includes("PlanChecked");
+ if(dialog.type==="move"&&slot){const targets=w.slots.filter(s=>!s.control&&s.slot!==slot.slot&&EDITABLE.includes(w.sheets[s.sheet-1].state)&&(w.sheets[s.sheet-1].placement_revision===0||w.sheets[s.sheet-1].state==="Amended"));
   return <Dialog title={`ย้าย/สลับตำแหน่ง ${slot.slot}`} onClose={close}><div className="stack"><label htmlFor="target">ไปยังตำแหน่ง (ถ้ามีตัวอย่างอยู่จะสลับกัน)</label><select id="target" value={target} onChange={e=>setTarget(e.target.value)}><option value="">เลือกตำแหน่ง</option>{targets.map(s=><option key={s.slot} value={s.slot}>ตน. {s.slot} ({s.plate}) {s.assignment?`— สลับกับ ${s.assignment.printedSampleId}`:"— ว่าง"}</option>)}</select>
-   {needReason&&<><label htmlFor="mv-reason">เหตุผล (ยืนยันแผนแล้ว)</label><input id="mv-reason" value={reason} onChange={e=>setReason(e.target.value)}/></>}
-   <div className="dialog-actions"><button className="button" type="button" disabled={busy||!target||(needReason&&reason.trim().length<8)} onClick={()=>run("move",{fromSlot:slot.slot,toSlot:Number(target),...(reason.trim()?{reason:reason.trim()}:{})},"ย้ายตำแหน่งแล้ว")}>ยืนยัน</button></div></div></Dialog>;}
+
+   <div className="dialog-actions"><button className="button" type="button" disabled={busy||!target} onClick={()=>run("move",{fromSlot:slot.slot,toSlot:Number(target)},"ย้ายตำแหน่งแล้ว")}>ยืนยัน</button></div></div></Dialog>;}
  if(dialog.type==="remove"&&slot){const need=sheet.state!=="Draft"||sheet.placement_revision>0;return <Dialog title={`ถอดตัวอย่างออกจากตำแหน่ง ${slot.slot}`} onClose={close}><div className="stack"><p>{slot.assignment?.printedSampleId} จะกลับไปที่คิวพร้อมเข้าตรวจ (ประวัติการจัดยังเก็บไว้)</p>
   {need&&<><label htmlFor="rm-reason">เหตุผล</label><input id="rm-reason" value={reason} onChange={e=>setReason(e.target.value)}/></>}
   <div className="dialog-actions"><button className="button" type="button" disabled={busy||(need&&reason.trim().length<8)} onClick={()=>run("remove",{slot:slot.slot,...(reason.trim()?{reason:reason.trim()}:{})},"ถอดออกแล้ว")}>ถอดออก</button></div></div></Dialog>;}
