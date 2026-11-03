@@ -115,7 +115,7 @@ export async function applyHisPaths(db:Queryable,user:Principal,raw:unknown){
  * a folder that cannot be used refuses the save with its real error, and a usable change becomes Active at once. No draft, no worker test queue,
  * no mandatory reason. HIS inbound/outbound go through the system-setting save; the external-PDF folder keeps its path-only rule in the database guard.
  */
-export async function saveHisPaths(db:Queryable,user:Principal,raw:unknown,deps:{resultFolderValid:(path:string)=>Promise<boolean>;check:(key:'his_inbound'|'his_outbound',value:Record<string,unknown>)=>Promise<void>}){
+export async function saveHisPaths(db:Queryable,user:Principal,raw:unknown,deps:{resultFolderValid:(path:string)=>Promise<boolean>;check:(key:'his_inbound'|'his_outbound',value:Record<string,unknown>,changedPathFields?:readonly string[])=>Promise<void>}){
  requirePermission(user,'integration.configure',{},'write');
  const input=(raw??{}) as {paths?:Partial<Record<HisPathName,unknown>>;reason?:unknown};
  const reason=String(input.reason??'').trim()||'ตั้งค่าโฟลเดอร์ HIS';if(reason.length>200)throw Error('REASON_TOO_LONG');
