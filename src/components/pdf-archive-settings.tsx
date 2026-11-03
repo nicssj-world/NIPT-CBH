@@ -14,10 +14,14 @@ export function PdfArchiveSettings(){
  const tested=status?.probe?.id===probeId&&status?.probe?.state==='PASSED'&&status?.probe?.retry_job_id==null;
  return <section className="panel"><h2>NAS PDF Archive</h2><p>เก็บสำเนาเฉพาะรายงานที่รับรองหลังเปิดใช้งาน สถานะนี้แยกจากผลทางคลินิกและ HIS</p>
   <label htmlFor="archive-root">NAS UNC Path</label><input id="archive-root" value={root} onChange={event=>{setRoot(event.target.value);setProbeId(null);}} spellCheck={false}/>
-  <div><button className="button secondary" disabled={busy||!root} onClick={()=>void action('test')}>Test Connection</button>{' '}
-  <button className="button" disabled={busy||!tested} onClick={()=>void action('enable')}>Save &amp; Enable</button>{' '}
-  <button className="button secondary" disabled={busy||!status?.config.enabled} onClick={()=>void action('disable')}>ปิดใช้งาน</button></div>
-  <p role="status">{message} {status?.config.enabled?'เปิดใช้งาน':'ปิดใช้งาน'}</p>
+  <div className="archive-controls" role="group" aria-label="ทดสอบและบันทึกปลายทาง NAS">
+    <div className="archive-controls-primary">
+      <button className="button secondary" disabled={busy||!root} onClick={()=>void action('test')}>ทดสอบการเชื่อมต่อ</button>
+      <button className="button" disabled={busy||!tested} onClick={()=>void action('enable')}>บันทึกและเปิดใช้งาน</button>
+    </div>
+    <div className="archive-controls-danger"><button className="button secondary" disabled={busy||!status?.config.enabled} onClick={()=>void action('disable')}>ปิดใช้งาน</button></div>
+  </div>
+  <p role="status" className="archive-state"><span className={status?.config.enabled?'badge success':'badge'}>{status?.config.enabled?'เปิดใช้งาน':'ปิดใช้งาน'}</span>{message&&<span>{message}</span>}</p>
   {probeId&&status?.probe?.id===probeId&&<p>ผลทดสอบ: {status.probe.state} {status.probe.error_code?`${probeError[status.probe.error_code]??'ทดสอบไม่สำเร็จ กรุณาตรวจเครือข่ายและสิทธิ์บัญชี Worker'} (${status.probe.error_code})`:''} {status.probe.worker_account?` · Worker: ${status.probe.worker_account}`:''}</p>}
   <p>งาน Archive: {status?.counts.length?status.counts.map(x=>`${x.state}: ${x.count}`).join(' · '):'ไม่มีรายการ'}</p>
   {!!status?.errors.length&&<ul>{status.errors.map(error=><li key={error.id}>{error.state} · {error.last_error} · ครั้งที่ {error.attempts} {error.state==='FAILED'&&<>{' '}<button className="button secondary" disabled={busy||!status?.config.enabled} onClick={()=>void action('retry',error.id)}>ตรวจ NAS และลองจัดเก็บใหม่</button></>}</li>)}</ul>}
