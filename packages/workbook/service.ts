@@ -97,6 +97,14 @@ export async function exportWorkbook(db:Queryable,user:Staff,input:unknown,deps:
   let bytes=generated.bytes,manifest:Record<string,unknown>={masterSha256:MASTER_SHA256,sourceSha256:current.sha256,revision:d.revision,metadataSha256:digest(current.metadata),metadata:current.metadata,exceptionalSlots,xlsxSha256:generated.sha256,formulaCount:149,calculation:'native Excel recalculation required'};
   if(d.format==='PDF') {
     if(!d.sheet)throw new LabError('TASK_SHEET_REQUIRED',422);
+    // The native render (Excel) takes about half a minute. The same revision, sheet, master, source and metadata give the same PDF, so a retry or a second look reuses the one already made.
+    const reusable=(await db.query<{id:string;file_sha256:string;manifest:Record<string,unknown>}>(`SELECT id,file_sha256,manifest FROM task_workbook_export WHERE revision_id=$1 AND format='PDF' AND sheet=$2
+      AND manifest->>'masterSha256'=$3 AND manifest->>'sourceSha256'=$4 AND manifest->>'metadataSha256'=$5 ORDER BY created_at DESC LIMIT 1`,[draft.id,d.sheet,MASTER_SHA256,current.sha256,String(manifest.metadataSha256)])).rows[0];
+    const stored=reusable?await deps.store.get(reusable.file_sha256).catch(()=>null):null;
+    if(reusable&&stored){
+      await appendAudit(db,{actorId:user.id,action:'TASK_WORKBOOK_EXPORTED',resourceType:'task_workbook_export',resourceId:reusable.id,details:{outcome:'PDF_REUSED',version:d.revision}});
+      return {id:reusable.id,bytes:stored,sha256:reusable.file_sha256,manifest:reusable.manifest};
+    }
     const pdfs=await deps.render(generated.bytes,[d.sheet]),pdf=pdfs.find(p=>p.sheet===d.sheet);if(!pdf)throw new LabError('TASK_NATIVE_PDF_MISSING',500);
     bytes=pdf.bytes;const {bytes:_,...evidence}=pdf;void _;manifest={...manifest,...evidence};
   }
