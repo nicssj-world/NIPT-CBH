@@ -36,3 +36,18 @@ export async function saveDoctor(db:Queryable,user:Staff,input:unknown){
  await appendAudit(db,{actorId:user.id,action:'P2_DOCTOR_SAVED_DIRECTLY',resourceType:'p2_doctor_version',resourceId:row.id,details:{version:row.version,synthetic:!operationalDataEnabled()}});
  return {...row,status:'Approved'};
 }
+
+const statusSchema=z.strictObject({action:z.literal('status'),id:z.uuid(),active:z.boolean()});
+/** Toggle only the current doctor version. Historical requests keep their version reference. */
+export async function setDoctorStatus(db:Queryable,user:Staff,input:unknown){
+ await assertStaff(db,user);requirePermission(user,'doctor.manage',{},'write');const d=statusSchema.parse(input);
+ const row=(await db.query<{id:string;doctor_key:string}>('SELECT id,doctor_key FROM p2_doctor_version WHERE id=$1',[d.id])).rows[0];
+ if(!row)throw new P2Error('DOCTOR_NOT_FOUND',404);
+ await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,75432803))',[row.doctor_key]);
+ const latest=(await db.query<{id:string}>('SELECT id FROM p2_doctor_version WHERE doctor_key=$1 ORDER BY version DESC LIMIT 1',[row.doctor_key])).rows[0];
+ if(latest?.id!==d.id)throw new P2Error('DOCTOR_RECORD_CHANGED',409);
+ const event=d.active?'Approved':'Suspended';
+ await db.query('INSERT INTO p2_doctor_event(doctor_version_id,event_type,actor_id,reason) VALUES($1,$2,$3,$4)',[d.id,event,user.id,d.active?'REGISTRY_REACTIVATED':'REGISTRY_DEACTIVATED']);
+ await appendAudit(db,{actorId:user.id,action:d.active?'P2_DOCTOR_REACTIVATED':'P2_DOCTOR_DEACTIVATED',resourceType:'p2_doctor_version',resourceId:d.id,details:{synthetic:!operationalDataEnabled()}});
+ return {id:d.id,status:event,active:d.active};
+}
