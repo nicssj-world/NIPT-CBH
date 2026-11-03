@@ -15,7 +15,7 @@ it("UI-005 doctor Active/Inactive is an audited reversible event and preserves s
   await expect(activeDoctor(db,id,unit)).rejects.toThrow("DOCTOR_NOT_AVAILABLE");
   await doctorAction(db,admin,{action:"status",id,active:true});
   expect((await listDoctors(db,admin)).find(d=>"id" in d&&d.id===id)?.active).toBe(true);
-  expect((await db.query("SELECT count(*)::int n FROM p2_doctor_event WHERE doctor_version_id=$1 AND event_type IN ('Suspended','Approved')",[id])).rows[0].n).toBeGreaterThanOrEqual(3);
-  expect((await db.query("SELECT count(*)::int n FROM p2_doctor_version WHERE id=$1",[id])).rows[0].n).toBe(1);
+  expect((await db.query<{n:number}>("SELECT count(*)::int n FROM p2_doctor_event WHERE doctor_version_id=$1 AND event_type IN ('Suspended','Approved')",[id])).rows[0].n).toBeGreaterThanOrEqual(3);
+  expect((await db.query<{n:number}>("SELECT count(*)::int n FROM p2_doctor_version WHERE id=$1",[id])).rows[0].n).toBe(1);
  }finally{await db.close();}
 },120000);
