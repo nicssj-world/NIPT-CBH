@@ -114,7 +114,14 @@ export function assignmentDecision(r:AttemptRow,policy:PendingPolicy){
 }
 /** FIFO = the Ready Queue display order: specimen-round receipt time ASC (Repeat keeps the original receipt time), immutable tie keys.
  * OD-A (Owner 2026-10-18): Urgent is a badge and never jumps the queue by itself; it only lets its own recorded reason stand for a manual override. */
-export const fifo=(a:AttemptRow,b:AttemptRow)=>compareReceive({receivedAt:a.received_at,keys:[a.ln,a.attempt_id]},{receivedAt:b.received_at,keys:[b.ln,b.attempt_id]},READY_QUEUE_DEFAULT_SORT);
+/** Imported historical results (PDF pending/under review/certified) are never queued for a new run. One definition for the worklist and the Task fill, so both offer the same samples (needs aliases a, c). */
+export async function migrationImportedExclusion(db:{query:(sql:string)=>Promise<{rows:{present:boolean}[]}>}){
+ const present=(await db.query("SELECT to_regclass('public.migration_record') IS NOT NULL present")).rows[0].present;
+ return present?" AND NOT EXISTS(SELECT 1 FROM migration_record m WHERE m.case_id=c.id AND m.round_id=a.round_id AND m.attempt_id=a.id AND m.state='IMPORTED' AND m.classification IN ('QUALIFIED_PDF_PENDING','PDF_REVIEW','CERTIFIED_RELEASED'))":'';
+}
+/** Owner 2026-11-03: the ready queue and every Task fill run in LN Halos order (fixed-width YYBYYMMDDNNN sorts as text); no LN Halos = last. Receipt time and the immutable keys only break ties. */
+export const fifo=(a:AttemptRow,b:AttemptRow)=>lnHalosOrder(a.ln_halos,b.ln_halos)||compareReceive({receivedAt:a.received_at,keys:[a.ln,a.attempt_id]},{receivedAt:b.received_at,keys:[b.ln,b.attempt_id]},READY_QUEUE_DEFAULT_SORT);
+export const lnHalosOrder=(a:string|null|undefined,b:string|null|undefined,dir:'asc'|'desc'='asc')=>!a&&!b?0:!a?1:!b?-1:a===b?0:(a<b?-1:1)*(dir==='asc'?1:-1);
 /** GA ≥ 22+0 notice (Owner: warning only). EDD from the latest verified Request of this round; collection date from the HIS receipt
  * evidence when present, otherwise the Request. Same arithmetic as P2 `calculations()`. Display only: no gate, FIFO, urgent or override reads it. */
 export const GA_WARNING_DAYS=22*7;
