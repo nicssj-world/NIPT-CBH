@@ -92,18 +92,22 @@ export async function registerP2(db:Queryable,user:Staff,input:unknown,key:Buffe
  return {...result,intake:linked};
 }
 /** True when anything downstream exists that makes deleting the registration unsafe (shared by the delete itself and by the case page deciding whether to offer the button). */
-async function registrationHasDownstreamEvidence(db:Queryable,id:string){
+async function registrationHasDownstreamEvidence(db:Queryable,id:string,administrator=false){
+ // Owner decision 2026-11-03: an administrator may delete a specimen that is received but not yet analysed.
+ // Everyone else keeps the original rule: nothing may have happened at all. Analysis, results, reports, signed consent, resampling and repeats block everyone.
+ // An EQA registration is never removed here: it is deleted through eqa_delete_registration, which also returns its LN Halos.
  const blocked=await db.query(`SELECT 1 WHERE
-  EXISTS(SELECT 1 FROM specimen_round_current WHERE case_id=$1 AND (received_at IS NOT NULL OR analysis_started)) OR
-  EXISTS(SELECT 1 FROM his_order h JOIN case_ln l ON l.id=h.case_ln_id WHERE l.case_id=$1) OR
+  EXISTS(SELECT 1 FROM eqa_case WHERE case_id=$1) OR
+  EXISTS(SELECT 1 FROM specimen_round_current WHERE case_id=$1 AND (${administrator?'':'received_at IS NOT NULL OR '}analysis_started)) OR
+  ${administrator?'':`EXISTS(SELECT 1 FROM his_order h JOIN case_ln l ON l.id=h.case_ln_id WHERE l.case_id=$1) OR
   EXISTS(SELECT 1 FROM p2_document_revision WHERE case_id=$1) OR
+  EXISTS(SELECT 1 FROM p2_paper_review WHERE case_id=$1) OR
+  EXISTS(SELECT 1 FROM specimen_lab_number WHERE case_id=$1) OR`}
   EXISTS(SELECT 1 FROM p2_final_consent f JOIN p2_document_revision d ON d.id=f.document_id WHERE d.case_id=$1) OR
   EXISTS(SELECT 1 FROM p2_consent_signature s JOIN p2_document_revision d ON d.id=s.document_id WHERE d.case_id=$1) OR
-  EXISTS(SELECT 1 FROM p2_paper_review WHERE case_id=$1) OR
   EXISTS(SELECT 1 FROM redraw_request WHERE case_id=$1) OR
   EXISTS(SELECT 1 FROM repeat_work_order WHERE case_id=$1) OR
-  EXISTS(SELECT 1 FROM specimen_lab_number WHERE case_id=$1) OR
-  EXISTS(SELECT 1 FROM analytical_attempt a JOIN specimen_round_current r ON r.id=a.round_id WHERE r.case_id=$1) OR
+  EXISTS(SELECT 1 FROM analytical_attempt a JOIN specimen_round_current r ON r.id=a.round_id WHERE r.case_id=$1${administrator?" AND (a.state NOT IN ('Ready','Cancelled') OR a.attempt_number>1)":''}) OR
   EXISTS(SELECT 1 FROM clinical_snapshot WHERE case_id=$1 AND (result->>'passed'='true' OR rule_version='CBH-AUTHORIZED-REVIEW-v1')) OR
   EXISTS(SELECT 1 FROM result_report_version WHERE case_id=$1) OR
   EXISTS(SELECT 1 FROM p2_revocation WHERE case_id=$1)`,[id]);
@@ -116,10 +120,13 @@ export async function voidIncorrectRegistration(db:Queryable,user:Staff,id:strin
  if((c.registration_origin!=='ANC'&&!user.roles.includes('APP_ADMIN'))||!c.hn||c.ln!==d.expectedLn||c.hn!==d.expectedHn)throw new P2Error('REGISTRATION_CONFIRMATION_MISMATCH',409);
  await lockLn(db,c.ln);await db.query('SELECT id FROM nipt_case WHERE id=$1 FOR UPDATE',[id]);
  if((await db.query('SELECT 1 FROM p2_registration_void WHERE case_id=$1',[id])).rows.length)throw new P2Error('REGISTRATION_ALREADY_VOID',409);
- if(await registrationHasDownstreamEvidence(db,id))throw new P2Error('REGISTRATION_HAS_DOWNSTREAM_EVIDENCE',409);
- await db.query("INSERT INTO p2_registration_void(case_id,actor_id,reason) VALUES($1,$2,'ANC voided an incorrect registration')",[id,user.id]);
+ const administrator=user.roles.includes('APP_ADMIN');
+ if(await registrationHasDownstreamEvidence(db,id,administrator))throw new P2Error('REGISTRATION_HAS_DOWNSTREAM_EVIDENCE',409);
+ await db.query("INSERT INTO p2_registration_void(case_id,actor_id,reason) VALUES($1,$2,$3)",[id,user.id,administrator?'Administrator removed a registration before analysis':'ANC voided an incorrect registration']);
  await db.query("INSERT INTO case_event(case_id,event_type,details) VALUES($1,'P2_REGISTRATION_VOIDED',$2)",[id,{actorId:user.id,synthetic:!operationalDataEnabled()}]);
  await appendAudit(db,{actorId:user.id,action:'P2_REGISTRATION_VOIDED',resourceType:'nipt_case',resourceId:id,details:{origin:c.registration_origin,synthetic:!operationalDataEnabled()}});
+ // A received specimen already holds a Ready attempt: it leaves every queue. Its own LN Halos stays with the tombstone (a patient number left behind is a gap; EQA registrations are deleted through eqa_delete_registration, which returns the number).
+ if(administrator)await db.query("UPDATE analytical_attempt SET state='Cancelled' WHERE case_id=$1 AND state='Ready'",[id]);
  return {id,voided:true};
 }
 export async function getCase(db:Queryable,user:Staff,id:string){
@@ -144,7 +151,7 @@ export async function getCase(db:Queryable,user:Staff,id:string){
  const withdrawalUnavailable=ancCaller&&(await db.query('SELECT 1 WHERE EXISTS(SELECT 1 FROM specimen_round_current WHERE case_id=$1 AND analysis_started) OR EXISTS(SELECT 1 FROM result_report_version WHERE case_id=$1)',[id])).rows.length>0;
  const actions=['clinical.correct','request.edit','request.correct','consent.prepare','paper.verify','consent.withdraw.receive'].filter(a=>authorize(user,a,{unitId:c.unit_id,origin:c.registration_origin},'write')&&!(a==='consent.withdraw.receive'&&withdrawalUnavailable));
  // The case page offers delete exactly when the delete itself would be accepted (same origin rule and the same downstream-evidence check).
- if(authorize(user,'case.registration.void',{unitId:c.unit_id,origin:c.registration_origin},'write')&&!!c.hn&&(c.registration_origin==='ANC'||user.roles.includes('APP_ADMIN'))&&!(await registrationHasDownstreamEvidence(db,id)))actions.push('case.registration.void');
+ if(authorize(user,'case.registration.void',{unitId:c.unit_id,origin:c.registration_origin},'write')&&!!c.hn&&(c.registration_origin==='ANC'||user.roles.includes('APP_ADMIN'))&&!(await registrationHasDownstreamEvidence(db,id,user.roles.includes('APP_ADMIN'))))actions.push('case.registration.void');
  const assessment=w.request_mode==='Electronic'?evaluateClinical(w.draft,await collectionConflict(db,c)):null;
  const missing=w.request_mode==='Electronic'?requestIssues(w.draft):[];
  const requestCurrent=revisions.rows.find(r=>r.kind==='REQUEST'&&(r.payload as {identity?:{roundId?:string}})?.identity?.roundId===c.current_round_id);

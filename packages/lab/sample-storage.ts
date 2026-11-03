@@ -53,7 +53,7 @@ function sampleSource(scope:string){return `WITH received_samples AS (
    ORDER BY (lr.round_id=r.id) DESC,lr.created_at DESC LIMIT 1
  ) lab_registration ON true
  -- OWNER-LAB-051: storable once the LN Halos is issued; a PET receipt is not a precondition.
- WHERE c.registration_origin<>'HISTORICAL' AND n.ln_halos IS NOT NULL AND ${scope}
+ WHERE c.registration_origin<>'HISTORICAL' AND n.ln_halos IS NOT NULL AND NOT EXISTS(SELECT 1 FROM p2_registration_void removed WHERE removed.case_id=c.id) AND ${scope}
 ), sample_labels AS (
  SELECT received_samples.*,
   ln_halos||CASE WHEN pregnancy='Twins' THEN 'D' ELSE '' END||CASE WHEN is_resampling THEN 'R' ELSE '' END display_code
