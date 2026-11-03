@@ -14,9 +14,11 @@ const EQA_MESSAGES:Record<string,string>={
 };
 /** EQA registration from the organizer's referral card. The card is the only source: nothing is inferred (it has no EDD, so none is asked). */
 export function EqaRegisterForm({units}:{units:Unit[]}){
- const router=useRouter(),key=useRef(crypto.randomUUID());
+ const router=useRouter(),key=useRef(crypto.randomUUID()),trigger=useRef<HTMLButtonElement>(null);
  const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(""),[done,setDone]=useState<Done|null>(null);
  const [f,setF]=useState({unitId:units[0]?.id??"",organizer:"GenQA/EMQN",programYear:String(new Date().getFullYear()),sampleRef:"",ln:"",surname:"",firstName:"",dob:"",gaWeeks:"",gaDays:"",collectionDate:"",pregnancy:"Singleton"});
+ // The dialog is unmounted on close, so focus is handed back to the button that opened it (keyboard users keep their place).
+ const close=()=>{setOpen(false);requestAnimationFrame(()=>trigger.current?.focus());};
  const set=(k:keyof typeof f)=>(v:string)=>setF(s=>({...s,[k]:v}));
  const input=(k:keyof typeof f,id:string,extra:Record<string,unknown>={})=><input id={id} className="input" value={f[k]} disabled={busy} onChange={e=>set(k)(e.target.value)} {...extra}/>;
  async function submit(){
@@ -29,11 +31,11 @@ export function EqaRegisterForm({units}:{units:Unit[]}){
  }
  const ready=!!(f.unitId&&f.organizer.trim()&&f.sampleRef.trim()&&f.ln.trim()&&f.surname.trim()&&f.firstName.trim()&&f.dob&&f.collectionDate&&f.gaWeeks!==""&&f.gaDays!=="");
  return <>
-  <button type="button" className="button" onClick={()=>{setOpen(true);setDone(null);setError("");key.current=crypto.randomUUID();}}>ลงทะเบียน EQA</button>
-  {open&&<Dialog title="ลงทะเบียนตัวอย่าง EQA" onClose={()=>setOpen(false)} dirty={!done&&!!(f.sampleRef||f.surname)}>
+  <button ref={trigger} type="button" className="button" onClick={()=>{setOpen(true);setDone(null);setError("");key.current=crypto.randomUUID();}}>ลงทะเบียน EQA</button>
+  {open&&<Dialog title="ลงทะเบียนตัวอย่าง EQA" onClose={close} dirty={!done&&!!(f.sampleRef||f.surname)}>
    {done?<div className="stack"><p role="status" className="notice success">ลงทะเบียนและรับตัวอย่างแล้ว LN Halos <strong>{done.lnHalos}</strong></p>
      <p className="help">ขั้นต่อไปเหมือนผู้ป่วยปกติ: รับตัวอย่าง (กดยืนยันครั้งเดียว) แล้วจัดเข้า Task List</p>
-     <div className="dialog-actions"><Link className="button" href={`/cases/${done.caseId}`}>ดูรายละเอียดตัวอย่าง</Link><button type="button" className="button secondary" onClick={()=>setOpen(false)}>ปิด</button></div></div>
+     <div className="dialog-actions"><Link className="button" href={`/cases/${done.caseId}`}>ดูรายละเอียดตัวอย่าง</Link><button type="button" className="button secondary" onClick={close}>ปิด</button></div></div>
    :<form className="stack" onSubmit={e=>{e.preventDefault();if(ready&&!busy)void submit();}}>
     <p className="help">กรอกตามบัตร Referral ของผู้จัดเท่านั้น ระบบไม่เดาค่าที่ไม่มีในบัตร (เช่น EDD) และไม่มีการส่งผลไปยัง HIS</p>
     <ErrorNotice error={error}/>
@@ -51,7 +53,7 @@ export function EqaRegisterForm({units}:{units:Unit[]}){
      <Field label="ชนิดครรภ์" required>{id=><select id={id} className="input" value={f.pregnancy} disabled={busy} onChange={e=>set("pregnancy")(e.target.value)}><option value="Singleton">ครรภ์เดี่ยว (Singleton)</option><option value="Twins">ครรภ์แฝด (Twins)</option></select>}</Field>
      {units.length>1&&<Field label="หน่วยงาน" required>{id=><select id={id} className="input" value={f.unitId} disabled={busy} onChange={e=>set("unitId")(e.target.value)}>{units.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select>}</Field>}
     </div>
-    <div className="dialog-actions"><button type="submit" className="button" disabled={!ready||busy}>{busy?"กำลังบันทึก…":"ลงทะเบียนและรับตัวอย่าง"}</button><button type="button" className="button secondary" onClick={()=>setOpen(false)} disabled={busy}>ยกเลิก</button></div>
+    <div className="dialog-actions"><button type="submit" className="button" disabled={!ready||busy}>{busy?"กำลังบันทึก…":"ลงทะเบียนและรับตัวอย่าง"}</button><button type="button" className="button secondary" onClick={close} disabled={busy}>ยกเลิก</button></div>
    </form>}
   </Dialog>}
  </>;

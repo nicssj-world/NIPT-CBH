@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import {redirect} from 'next/navigation';
+import '../../../../components/worker-queue.css';
 import {currentUser} from '../../../../server/http';
 import {pool} from '../../../../../packages/db/connection';
 import {readWorkerQueueOverview,readPgBossQueueOverview} from '../../../../../packages/jobs/admin-center';
