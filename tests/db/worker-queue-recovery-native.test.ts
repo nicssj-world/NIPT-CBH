@@ -17,7 +17,7 @@ const KIND='synthetic_scan';
 let setup:Client,admin:string;
 const open=async()=>{const c=new Client({connectionString:url});await c.connect();return c;};
 const principal=()=>({id:admin,roles:['APP_ADMIN' as const],unitIds:[],permissions:[]});
-const newBoss=async()=>{const b=new PgBoss(url!);b.on('error',()=>undefined);await b.start();await b.createQueue(KIND,{retryLimit:0});return b;};
+const newBoss=async()=>{const b=new PgBoss(url!);b.on('error',()=>undefined);await b.start();await b.createQueue(KIND);await b.updateQueue(KIND,{retryLimit:0});return b;};   // updateQueue: the queue may already exist from another test file with default retries
 const outbox=async()=>(await setup.query<{id:string}>("INSERT INTO job_outbox(kind,payload,idempotency_key,state) VALUES($1,'{}',gen_random_uuid()::text,'Dispatched') RETURNING id",[KIND])).rows[0].id;
 const status=async(id:string)=>{const c=await open();try{await c.query('BEGIN');await c.query('SET LOCAL ROLE app_rw');const d=await readWorkerQueueOverview(c,principal(),{pageSize:100});await c.query('ROLLBACK');return d.rows.find(r=>r.id===id)?.status;}finally{await c.end();}};
 const inTx=async<T>(role:string,fn:(c:Client)=>Promise<T>)=>{const c=await open();try{await c.query('BEGIN');await c.query(`SET LOCAL ROLE ${role}`);const r=await fn(c);await c.query('COMMIT');return r;}catch(e){await c.query('ROLLBACK').catch(()=>{});throw e;}finally{await c.end();}};
