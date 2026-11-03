@@ -1,6 +1,6 @@
 import {it,expect,vi} from 'vitest';
 import {randomUUID} from 'node:crypto';
-import {writeFileSync,mkdirSync} from 'node:fs';
+import {writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {task3Fixture,halosWorkbook,signerSetup,approveInterpretation,recordPaperRequest,masters} from '../helpers/task3';
 import {previewHalosImport,decideHalosImport} from '../../packages/readygen/halos-import';
