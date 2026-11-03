@@ -8,5 +8,6 @@ it('the Task page offers one "เพิ่มตัวอย่าง" panel (no
  expect(src).not.toContain("เหตุผลงานด่วน / แทรกคิว");                                          // the Urgent reason prompt is gone
  expect(area).toContain('งานด่วน (Urgent)');                                                    // a tick instead
  expect(area).toContain("mode==='REPEAT'?'REPEAT':makesUrgent?'URGENT':'MANUAL'");              // the old server modes are still what is sent
- expect(area).toContain("action:'previewAssignment'");                                          // a reason is asked only when a normal sample would jump the queue
+ expect(area).not.toContain('previewAssignment');                                                  // nothing asks the server whether a reason is needed: none ever is
+ expect(area).toContain("mode==='REPEAT'&&reason.trim()");                                         // only Repeat keeps an optional note; the merged panel sends no reason
 });

@@ -215,10 +215,10 @@ export async function cancelRedraw(db:Queryable,user:Staff,input:unknown){
 }
 
 export async function setUrgent(db:Queryable,user:Staff,input:unknown){
- await assertSession(db,user);const d=z.strictObject({attemptId:uuid,urgent:z.boolean(),reason:reasonText}).parse(input);
+ await assertSession(db,user);const d=z.strictObject({attemptId:uuid,urgent:z.boolean(),reason:reasonText.optional()}).parse(input);   // owner 2026-11-03: Urgent is its own reason; the event still needs 8+ characters, so a standing text is used when none is typed
  const a=await lockedAttempt(db,user,d.attemptId);need(user,'batch.assign','write');
  if(a.urgent===d.urgent)return {urgent:a.urgent};
- await attemptEvent(db,user,{attemptId:a.attempt_id,caseId:a.case_id,type:d.urgent?'URGENT_SET':'URGENT_CLEARED',reason:d.reason});
+ await attemptEvent(db,user,{attemptId:a.attempt_id,caseId:a.case_id,type:d.urgent?'URGENT_SET':'URGENT_CLEARED',reason:d.reason??(d.urgent?'ระบุเป็นงานด่วน':'ยกเลิกงานด่วน')});
  await audit(db,user,d.urgent?'LAB_URGENT_SET':'LAB_URGENT_CLEARED','analytical_attempt',a.attempt_id);
  return {urgent:d.urgent};
 }

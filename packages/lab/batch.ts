@@ -9,6 +9,7 @@ import {pageFields,clampPage,offsetOf} from '../db/pagination';
 
 export const EDITABLE=['Draft','PlanChecked','Amended'];
 /** Standing reason recorded when a sample is made Urgent while filling a Task: marking it Urgent is the reason, so no one types one. */
+export const QUEUE_OVERRIDE_STANDING_REASON='เลือกตัวอย่างเองนอกลำดับคิว';
 export const URGENT_FILL_REASON='ระบุเป็นงานด่วนขณะเติมตัวอย่าง';   // the database requires an event reason of at least 8 characters
 /** Never-printed Draft/PlanChecked sheets, or a printed sheet re-opened for edits (Amended). */
 export const placementEditable=(s:{state:string;placement_revision:number})=>EDITABLE.includes(s.state)&&(s.placement_revision===0||s.state==='Amended');
@@ -119,7 +120,7 @@ export async function previewAssignment(db:Queryable,user:Staff,input:unknown){
  const selected=await attemptFacts(db,'a.id=ANY($1::uuid[])',[d.attemptIds]);
  if(selected.length!==d.attemptIds.length||selected.some(r=>!caseVisible(user,r)))throw new LabError('NOT_FOUND',404);
  const {overtaken,urgentReasonCovers}=await fifoOvertaken(db,user,d.attemptIds,policy);
- return {overtaken:overtaken.length,reasonRequired:overtaken.length>0&&!urgentReasonCovers,urgentReasonReused:urgentReasonCovers};
+ return {overtaken:overtaken.length,reasonRequired:false,urgentReasonReused:urgentReasonCovers};   // a reason is never required (owner 2026-11-03)
 }
 /** Assignment Gate (BG-01..07 + BG-08A/09A) per attempt, in this transaction; FIFO proposal skips control slots. */
 export async function assignToBatch(db:Queryable,user:Staff,input:unknown){
@@ -132,8 +133,8 @@ export async function assignToBatch(db:Queryable,user:Staff,input:unknown){
  const selected=await attemptFacts(db,'a.id=ANY($1::uuid[])',[d.attemptIds]);
  if(selected.length!==d.attemptIds.length||selected.some(r=>!caseVisible(user,r)))throw new LabError('NOT_FOUND',404);
  // FIFO is a proposal, not a rule — overtaking eligible earlier work needs a recorded reason (§12.9 ขั้น 3–4).
- const {head,overtaken,urgentReasonCovers}=await fifoOvertaken(db,user,d.attemptIds,policy);
- if(overtaken.length&&!d.queueOverrideReason&&!urgentReasonCovers)throw new LabError('QUEUE_OVERRIDE_REASON_REQUIRED',422,{overtaken:overtaken.length});
+ const {head,overtaken}=await fifoOvertaken(db,user,d.attemptIds,policy);
+ // Owner 2026-11-03: nobody is asked for a reason to pick a sample out of queue order or to make it Urgent; the choice is the reason. A typed reason is still kept; otherwise the event records the standing reason.
  // OD-G: the user may choose the destination Task; slot, control and eligibility rules are unchanged.
  if(d.sheetNumber&&!EDITABLE.includes((await sheetOf(db,b.id,d.sheetNumber)).state))throw new LabError('PLACEMENT_LOCKED',409);
  const free=(await db.query<{slot_number:number;sheet_number:number}>(`SELECT s.slot_number,s.sheet_number FROM lab_batch_slot s JOIN lab_task_sheet t ON t.batch_id=s.batch_id AND t.sheet_number=s.sheet_number
@@ -151,7 +152,7 @@ export async function assignToBatch(db:Queryable,user:Staff,input:unknown){
   await db.query('INSERT INTO lab_slot_assignment(batch_id,slot_number,attempt_id,assigned_by) VALUES($1,$2,$3,$4)',[b.id,slot.slot_number,r.attempt_id,user.id]);
   await setAttemptState(db,user,{id:r.attempt_id,case_id:r.case_id,state:r.attempt_state},'Assigned',{batchId:b.id,slot:slot.slot_number,gateRuleVersion:GATE_RULE_VERSION,syntheticPendingAccepted:g.syntheticPendingAccepted,pending:g.pending});
   if(r.repeat_order_id)await db.query("UPDATE repeat_work_order SET state='RepeatInProgress' WHERE id=$1 AND state='RepeatPendingBatch'",[r.repeat_order_id]);
-  if(overtaken.length&&!head.includes(r.attempt_id))await attemptEvent(db,user,{attemptId:r.attempt_id,caseId:r.case_id,type:'QUEUE_OVERRIDE',reason:d.queueOverrideReason??r.urgent_reason??undefined,details:{batchId:b.id,overtaken:overtaken.length,...(d.queueOverrideReason?{}:{reasonSource:'URGENT_REASON'})}});
+  if(overtaken.length&&!head.includes(r.attempt_id))await attemptEvent(db,user,{attemptId:r.attempt_id,caseId:r.case_id,type:'QUEUE_OVERRIDE',reason:d.queueOverrideReason??r.urgent_reason??QUEUE_OVERRIDE_STANDING_REASON,details:{batchId:b.id,overtaken:overtaken.length,...(d.queueOverrideReason?{}:{reasonSource:'URGENT_REASON'})}});
   await caseEvent(db,user,r.case_id,'LAB_ASSIGNED_TO_BATCH',{runLabel:b.run_label,slot:slot.slot_number});
   placed.push({attemptId:r.attempt_id,slot:slot.slot_number,printedSampleId:id.id!});
  }

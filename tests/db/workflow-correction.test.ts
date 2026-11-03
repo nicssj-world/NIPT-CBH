@@ -41,9 +41,9 @@ it('GA ≥ 22+0 is a warning only: shown on the worklist and slot, never changes
  expect(by(newer.roundId).ga).toEqual({days:154,weeks:22,remainder:0,warning:true,collectionBasis:'HIS_RECEIPT'});
  expect(by(none.roundId).ga).toBeNull(); // no EDD → unknown, not a warning
  expect(w.attempts.map(a=>[a.roundId,a.category])).toEqual(before); // same order and same gate outcome
- // Overtaking still needs a reason with or without the GA warning; the FIFO head needs none.
+ // Overtaking needs no reason (owner 2026-11-03) with or without the GA warning; the FIFO head needs none.
  const b=await run(t=>batch.createBatch(t,u.staff));const newerAttempt=await attemptOf(q(),newer.roundId);
- expect(await run(t=>batch.previewAssignment(t,u.staff,{attemptIds:[newerAttempt.id]}))).toEqual({overtaken:1,reasonRequired:true,urgentReasonReused:false});
+ expect(await run(t=>batch.previewAssignment(t,u.staff,{attemptIds:[newerAttempt.id]}))).toEqual({overtaken:1,reasonRequired:false,urgentReasonReused:false});
  const placed=await run(t=>batch.assignToBatch(t,u.staff,{batchId:b.batchId,expectedVersion:0,attemptIds:[newerAttempt.id],queueOverrideReason:'จำลอง ผู้ใช้เลือกแทรกคิว'}));
  const slot=(await run(t=>batch.batchDetail(t,u.staff,b.batchId))).slots.find(s=>s.slot===placed.placed[0].slot)!;
  expect(slot.assignment?.ga).toMatchObject({weeks:22,remainder:0,warning:true});

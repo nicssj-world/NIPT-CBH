@@ -134,10 +134,10 @@ describe('Ready queue, gates and FIFO (§12.9, §5.9.1)',()=>{
   // Receive Date Sorting Owner Lock: display stays receive-time ASC; Urgent is a visible, audited flag (not a silent re-sort).
   w=await run(t=>intake.labWorklist(t,u.staff));expect(w.attempts.map(a=>a.roundId)).toEqual([old.roundId,mid.roundId,late.roundId]);expect(w.attempts[2]).toMatchObject({urgent:true,urgentReason:'จำลอง แพทย์ขอเร่งด่วน'});
   const b=await run(t=>batch.createBatch(t,u.staff));const midAttempt=await attemptOf(q(db),mid.roundId);
-  await expect(run(t=>batch.assignToBatch(t,u.staff,{batchId:b.batchId,expectedVersion:0,attemptIds:[midAttempt.id]}))).rejects.toMatchObject({code:'QUEUE_OVERRIDE_REASON_REQUIRED'});
-  const r=await run(t=>batch.assignToBatch(t,u.staff,{batchId:b.batchId,expectedVersion:0,attemptIds:[midAttempt.id],queueOverrideReason:'จำลอง ตัวอย่างนี้พร้อมก่อน'}));
+  // Owner 2026-11-03: nobody is asked for a reason to pick a sample out of queue order; the standing reason is recorded.
+  const r=await run(t=>batch.assignToBatch(t,u.staff,{batchId:b.batchId,expectedVersion:0,attemptIds:[midAttempt.id]}));
   expect(r.placed).toEqual([{attemptId:midAttempt.id,slot:2,printedSampleId:(await lnHalos(mid.roundId))+'-1'}]);
-  expect((await db.query("SELECT reason FROM attempt_event WHERE attempt_id=$1 AND event_type='QUEUE_OVERRIDE'",[midAttempt.id])).rows).toEqual([{reason:'จำลอง ตัวอย่างนี้พร้อมก่อน'}]);
+  expect((await db.query("SELECT reason FROM attempt_event WHERE attempt_id=$1 AND event_type='QUEUE_OVERRIDE'",[midAttempt.id])).rows).toEqual([{reason:batch.QUEUE_OVERRIDE_STANDING_REASON}]);
  });
 });
 

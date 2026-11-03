@@ -3,6 +3,7 @@ import type {PGlite} from '@electric-sql/pglite';
 import {testDatabase} from '../helpers/database';
 import {tx,labUsers,setPendingPolicy,syntheticCase,receiveS1,attemptOf,version} from '../helpers/lab';
 import * as batch from '../../packages/lab/batch';
+import * as intake from '../../packages/lab/intake';
 import type {Queryable} from '../../packages/db/connection';
 
 // Owner 2026-11-03: marking a sample Urgent is its own reason; nobody is asked to type one. The standing reason is recorded on the Urgent event.
@@ -35,4 +36,16 @@ it("Urgent fill needs no typed reason, records the standing reason, and replaces
  await expect(exact(id,first.id,40,'MANUAL')).rejects.toThrow('URGENT_ATTEMPT_REQUIRED');               // a normal sample still cannot
  await exact(id,first.id,40,'URGENT');                                                                   // an Urgent one takes the Blank position, no reason typed
  expect((await db.query<{slot_number:number}>('SELECT slot_number FROM lab_slot_assignment WHERE attempt_id=$1 AND removed_at IS NULL',[first.id])).rows[0].slot_number).toBe(40);
+});
+
+it("nobody is asked for a reason: a normal sample picked out of queue order is accepted (standing reason recorded), and Urgent can be set without typing one",async()=>{
+ await setPendingPolicy(q(),u,'PROCEED_SYNTHETIC_LABELLED');
+ const older=await received(500),newer=await received(100),third=await received(50);
+ const b=await run(t=>batch.createBatch(t,u.staff)),id=b.batchId;
+ await exact(id,newer.id,2,'MANUAL');                                                    // overtakes the older ready sample, no reason typed
+ const ev=(await db.query<{reason:string|null}>("SELECT reason FROM attempt_event WHERE attempt_id=$1 AND event_type='QUEUE_OVERRIDE'",[newer.id])).rows;
+ expect(ev.map(r=>r.reason)).toEqual([batch.QUEUE_OVERRIDE_STANDING_REASON]);
+ expect((await run(t=>batch.previewAssignment(t,u.staff,{attemptIds:[third.id]}))).reasonRequired).toBe(false);   // the screens never ask
+ await run(t=>intake.setUrgent(t,u.staff,{attemptId:older.id,urgent:true}));            // Urgent without a typed reason
+ expect((await db.query<{reason:string}>("SELECT reason FROM attempt_event WHERE attempt_id=$1 AND event_type='URGENT_SET'",[older.id])).rows[0].reason.length).toBeGreaterThanOrEqual(8);
 });

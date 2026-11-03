@@ -77,10 +77,12 @@ describe('OD-A / OD-G — urgent reason reuse, no automatic jump, chosen Task',(
   // The FIFO head is still the oldest sample (urgent never jumps the queue by itself).
   expect(await run(t=>batch.previewAssignment(t,u.staff,{attemptIds:[attempts[0].id]}))).toEqual({overtaken:0,reasonRequired:false,urgentReasonReused:false});
   expect(await run(t=>batch.previewAssignment(t,u.staff,{attemptIds:[attempts[3].id]}))).toEqual({overtaken:3,reasonRequired:false,urgentReasonReused:true});
-  expect(await run(t=>batch.previewAssignment(t,u.staff,{attemptIds:[attempts[2].id,attempts[3].id]}))).toEqual({overtaken:2,reasonRequired:true,urgentReasonReused:false});
+  expect(await run(t=>batch.previewAssignment(t,u.staff,{attemptIds:[attempts[2].id,attempts[3].id]}))).toEqual({overtaken:2,reasonRequired:false,urgentReasonReused:false});
   const b=await run(t=>batch.createBatch(t,u.staff));
-  await expect(run(t=>batch.assignToBatch(t,u.staff,{batchId:b.batchId,expectedVersion:0,attemptIds:[attempts[2].id]}))).rejects.toMatchObject({code:'QUEUE_OVERRIDE_REASON_REQUIRED'});
-  const r=await run(t=>batch.assignToBatch(t,u.staff,{batchId:b.batchId,expectedVersion:0,attemptIds:[attempts[3].id],sheetNumber:2}));
+  const noReason=await run(t=>batch.assignToBatch(t,u.staff,{batchId:b.batchId,expectedVersion:0,attemptIds:[attempts[2].id]}));   // owner 2026-11-03: no reason is asked; the standing one is recorded
+  expect(noReason.placed).toHaveLength(1);
+  expect((await db.query<{reason:string}>("SELECT reason FROM attempt_event WHERE attempt_id=$1 AND event_type='QUEUE_OVERRIDE'",[attempts[2].id])).rows).toEqual([{reason:batch.QUEUE_OVERRIDE_STANDING_REASON}]);
+  const r=await run(async t=>batch.assignToBatch(t,u.staff,{batchId:b.batchId,expectedVersion:await V(b.batchId),attemptIds:[attempts[3].id],sheetNumber:2}));
   expect(r.placed).toMatchObject([{attemptId:attempts[3].id,slot:17}]);
   expect((await db.query<{reason:string;details:{reasonSource?:string}}>("SELECT reason,details FROM attempt_event WHERE attempt_id=$1 AND event_type='QUEUE_OVERRIDE'",[attempts[3].id])).rows)
    .toEqual([expect.objectContaining({reason:'จำลอง แพทย์ขอผลด่วน',details:expect.objectContaining({reasonSource:'URGENT_REASON'})})]);
