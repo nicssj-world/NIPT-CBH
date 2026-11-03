@@ -39,7 +39,7 @@ async function autoClose(db:Queryable,fileId:string,kind:IssueKind,reasonCode:st
 }
 
 /** S1 only (LD-02/LD-04): his_order + VERIFIED_BY_PET (trigger) + round 1 ReceivedInHIS at immutable P[23] component 2. Caller holds the LN lock. */
-export async function applyS1(db:Queryable,file:{id:string},pet:Pet,target:Target,via:'AUTOMATIC'|'REGISTRATION'|'TWO_PERSON',actorId?:string){
+export async function applyS1(db:Queryable,file:{id:string},pet:Pet,target:Target,via:'AUTOMATIC'|'REGISTRATION'|'TWO_PERSON'|'SINGLE_OPERATOR',actorId?:string){
  const before=target.origin==='ANC'?await currentPatient(db,target.case_id):null;
  await db.query("UPDATE his_inbound_file SET state='Applied(S1)',case_id=$2,processed_at=now(),error_code=NULL WHERE id=$1",[file.id,target.case_id]);
  await db.query('INSERT INTO his_order(case_ln_id,inbound_file_id,his_received_at) VALUES($1,$2,$3)',[target.case_ln_id,file.id,pet.receivedAt]);
