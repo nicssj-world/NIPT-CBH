@@ -76,3 +76,13 @@
 .rejection-history-grid a:focus-visible{outline:3px solid var(--color-focus);outline-offset:2px}
 .rejection-history-grid figcaption{font-size:13px;line-height:1.4;color:var(--color-ink);margin-top:6px}
 .rejection-history-grid figcaption small{display:block;color:var(--color-muted);margin-top:4px}
+
+/* Page footer: copyright + release version, bottom-right of the page content (after the content, never over it). */
+.shell-content,.anc-shell-content{display:flex;flex-direction:column;}
+.shell-content>main,.anc-shell-content>.shell-content{flex:1 0 auto;}
+.app-footer{margin-top:auto;padding:var(--space-4) var(--space-6);display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:baseline;gap:var(--space-2) var(--space-4);text-align:right;color:var(--color-muted);font-size:.8125rem;line-height:1.5;}
+.app-footer-version{font-variant-numeric:tabular-nums;white-space:nowrap;}
+@media print{.app-footer{display:none;}}
+@media(max-width:900px){.app-footer{padding:var(--space-4);}}
+/* Login has no page content to follow: pin the footer to the viewport corner instead. */
+.app-footer.app-footer-floating{position:fixed;right:0;bottom:0;max-width:100%;}
