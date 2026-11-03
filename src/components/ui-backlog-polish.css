@@ -86,3 +86,4 @@
 @media(max-width:900px){.app-footer{padding:var(--space-4);}}
 /* Login has no page content to follow: pin the footer to the viewport corner instead. */
 .app-footer.app-footer-floating{position:fixed;right:0;bottom:0;max-width:100%;}
+.anc-case-workspace>.case-pet-evidence{order:9}

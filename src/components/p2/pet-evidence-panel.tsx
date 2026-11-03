@@ -14,8 +14,8 @@ const COUNTS:[keyof CasePetEvidence["counts"],string,string][]=[
 
 /** Read-only provenance. Four different counts are shown separately because a scan, a file, a receipt and a specimen are different things. */
 export function PetEvidencePanel({evidence}:{evidence:CasePetEvidence}){
- return <section className="panel case-pet-evidence" aria-labelledby="pet-evidence-title">
-  <h2 id="pet-evidence-title">หลักฐาน PET จาก HIS</h2>
+  return <details className="panel case-pet-evidence">
+  <summary id="pet-evidence-title">หลักฐาน PET จาก HIS</summary>
   {evidence.evidence==="NONE"
    ?<p className="muted">ไม่มีไฟล์ PET ในระบบสำหรับเคสนี้ (เช่นเคสนำเข้าจากระบบเดิมหรือยังไม่ได้รับ PET) ระบบไม่คาดเดาจำนวน</p>
    :<>
@@ -29,5 +29,5 @@ export function PetEvidencePanel({evidence}:{evidence:CasePetEvidence}){
       <td><span className={"badge"+(["Conflict","ParseError","S1IntegrityEvent"].includes(f.state)?" danger":"")}>{FILE_STATE[f.state]??f.state}</span>{f.verifiedReceipt&&" · ใบรับ HIS"}</td>
       <td>{f.pathVersion??"—"}</td><td>{f.sightings>1?f.sightings-1:0}</td><td><code>{f.sha256Prefix??"—"}</code></td></tr>)}</tbody>
     </table></div></>}
- </section>;
+  </details>;
 }
