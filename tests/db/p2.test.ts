@@ -114,6 +114,12 @@ describe('P2 synthetic PostgreSQL integration',()=>{
  it('PDF preview/download/print are identical session-bound bytes and access logs each read',async()=>{const doc=(await db.query<{id:string}>("SELECT id FROM p2_document_revision WHERE case_id=$1 AND kind='REQUEST'",[caseId])).rows[0];const p=await tx(()=>createDocumentPreview(db,anc,caseId,doc.id,async()=>Buffer.from('%PDF-SYNTHETIC-ONLY')));const first=await tx(()=>readDocumentPreview(db,anc,p.id,'preview'));const download=await tx(()=>readDocumentPreview(db,anc,p.id,'download'));const print=await tx(()=>readDocumentPreview(db,anc,p.id,'print'));expect(first.bytes).toEqual(download.bytes);expect(first.bytes).toEqual(print.bytes);await expect(readDocumentPreview(db,{...anc,sessionId:crypto.randomUUID()},p.id,'print')).rejects.toThrow('PREVIEW_EXPIRED_OR_UNAUTHORIZED');expect((await db.query('SELECT * FROM p2_document_access')).rows).toHaveLength(4);expect((await db.query('SELECT * FROM file_asset')).rows).toHaveLength(0);});
  it('unexpected ambiguous Consent evidence refuses PDF rendering rather than choosing a row',async()=>{const doc=(await db.query<{id:string}>("SELECT id FROM p2_document_revision WHERE case_id=$1 AND kind='REQUEST'",[caseId])).rows[0];const query:import('../../packages/db/connection').Queryable={query:async<T>(sql:string,values?:unknown[])=>{if(sql==='SELECT payload,content_hash FROM p2_final_consent WHERE document_id=$1')return {rows:[{payload:{},content_hash:'a'.repeat(64)},{payload:{},content_hash:'b'.repeat(64)}] as T[]};return db.query<T>(sql,values);}};let rendered=false;await expect(createDocumentPreview(query,anc,caseId,doc.id,async()=>{rendered=true;return Buffer.from('%PDF-SYNTHETIC');})).rejects.toThrow('AMBIGUOUS_CONSENT_EVIDENCE_REQUIRES_GOVERNANCE');expect(rendered).toBe(false);});
 
+ it('an untouched Lab-registered case offers delete to APP_ADMIN only (policy: Lab staff and ANC cannot remove a Lab registration)',async()=>{
+  const c=await newCase('9900001777','LAB_DIRECT',lab);
+  expect((await getCase(db,admin,c)).allowedActions).toContain('case.registration.void');
+  expect((await getCase(db,lab,c)).allowedActions).not.toContain('case.registration.void');
+  expect((await getCase(db,anc,c)).allowedActions).not.toContain('case.registration.void');
+ });
  it('ANC can void an incorrect untouched registration, preserve its audit, and reuse the same LN with a new version',async()=>{
   const ln='9900001191',bad=await newCase(ln);
   const denied:Staff={...anc,roles:['LAB_STAFF']};
