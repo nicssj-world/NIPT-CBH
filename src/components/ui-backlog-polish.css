@@ -51,3 +51,28 @@
  .acceptance-dialog .acceptance-facts{grid-template-columns:minmax(0,1fr)}
  .acceptance-dialog .dialog-actions .button{width:100%}
 }
+
+/* HIS issue evidence: compact, readable feedback without hiding the case's result status. */
+.anc-issue-trigger{cursor:pointer;border:1px solid var(--color-line);font:inherit;min-height:40px}
+.anc-issue-trigger:focus-visible{outline:3px solid var(--color-focus);outline-offset:2px}
+.anc-identity-issue{position:relative;min-width:0}
+.anc-issue-detail{background:var(--color-surface);color:var(--color-ink);font-size:13px;line-height:1.6;min-width:min(340px,90vw);max-width:440px;padding:14px;border:1px solid var(--color-line);border-radius:12px;box-shadow:0 8px 24px color-mix(in srgb,var(--color-ink) 14%,transparent);margin-top:8px;white-space:normal}
+.anc-issue-detail>div+div{border-top:1px solid var(--color-line);padding-top:10px;margin-top:10px}
+.anc-issue-detail p{margin:4px 0;color:var(--color-muted)}
+.anc-issue-detail strong{font-weight:650}
+.doctor-row-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.doctor-row-actions .button{width:auto;min-height:44px}
+.rejection-photos{border-top:1px solid var(--color-line);padding-top:14px}
+.rejection-photos label{display:block;font-weight:600;margin-bottom:6px}
+.rejection-photos input[type=file]{max-width:100%;min-height:44px}
+.rejection-photo-preview{display:flex;gap:12px;flex-wrap:wrap;padding:12px 0}
+.rejection-photo-preview>div{width:112px;display:flex;flex-direction:column;gap:6px;align-items:stretch}
+.rejection-photo-preview img{width:100%;height:96px;border:1px solid var(--color-line);border-radius:8px;object-fit:cover}
+.rejection-photo-preview .button{width:100%;min-height:36px;white-space:normal}
+.rejection-history-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px;margin-top:14px}
+.rejection-history-grid figure{margin:0;min-width:0}
+.rejection-history-grid img{width:100%;height:120px;object-fit:cover;border:1px solid var(--color-line);border-radius:10px}
+.rejection-history-grid a{display:block;min-height:44px}
+.rejection-history-grid a:focus-visible{outline:3px solid var(--color-focus);outline-offset:2px}
+.rejection-history-grid figcaption{font-size:13px;line-height:1.4;color:var(--color-ink);margin-top:6px}
+.rejection-history-grid figcaption small{display:block;color:var(--color-muted);margin-top:4px}
