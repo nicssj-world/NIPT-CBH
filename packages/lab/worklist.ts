@@ -96,7 +96,7 @@ async function readWorklist(db:Queryable,user:Staff,raw:unknown,tuning:ScanTunin
  const expectedFrom=`FROM specimen_round_current r JOIN nipt_case c ON c.id=r.case_id AND c.current_round_id=r.id JOIN case_ln l ON l.id=r.case_ln_id JOIN redraw_request d ON d.id=r.redraw_request_id
   WHERE r.round_number>=2 AND r.state='Expected' AND (COALESCE(${FIRST_UNIT}::text,'')||':'||c.registration_origin)=ANY($1::text[])`;
  const missingFrom=`FROM specimen_round_current r JOIN nipt_case c ON c.id=r.case_id AND c.current_round_id=r.id JOIN case_ln l ON l.id=r.case_ln_id
-  WHERE r.received_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM specimen_lab_number n WHERE n.round_id=r.id) AND (COALESCE(${FIRST_UNIT}::text,'')||':'||c.registration_origin)=ANY($1::text[])`;
+  WHERE r.received_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM p2_registration_void removed WHERE removed.case_id=c.id) AND NOT EXISTS(SELECT 1 FROM specimen_lab_number n WHERE n.round_id=r.id) AND (COALESCE(${FIRST_UNIT}::text,'')||':'||c.registration_origin)=ANY($1::text[])`;
  const cnt=async(from:string)=>Number((await db.query<{n:string}>(`SELECT count(*)::text n ${from}`,[scope])).rows[0].n);
  const counts:Record<WorklistTab,number>={READY:0,GATE_BLOCKED:0,IN_BATCH:c.in_batch,DECISION:c.decision,REDRAW_EXPECTED:await cnt(expectedFrom),LN_HALOS_MISSING:await cnt(missingFrom)};
  // Ready/Gate: classify the Ready attempts (FIFO order) by the Owner-locked gate, in bounded chunks.
