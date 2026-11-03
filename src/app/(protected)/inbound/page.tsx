@@ -34,7 +34,7 @@ export default async function InboundPage({searchParams}:{searchParams:Promise<R
  // The lists page independently; each pager keeps the other pages, the page size and the search.
  const keep=()=>({q:queue.search.q||undefined,issuesPage:String(queue.review.page.number),unlinkedPage:String(queue.unlinked.page.number),filesPage:String(queue.files.page.number),runsPage:String(queue.runs.page.number)});
  const canScan=authorize(user,"his.scan",{},"write"),canConfigure=authorize(user,"integration.configure",{},"write");
- const canPropose=authorize(user,"his.conflict.resolve",{},"propose"),canApprove=authorize(user,"his.conflict.resolve",{actorId:"another-person"},"approve");
+ const canPropose=authorize(user,"his.conflict.resolve",{},"propose");
  // OWNER-LAB-020: green only for a verified, fresh state; never-scanned or stale is "unknown", not healthy.
  const lastSuccessAge=health.LastSuccess?ageMs(health.LastSuccess):null,fresh=lastSuccessAge!==null&&lastSuccessAge<=Math.max(3*settings.intervalSeconds,90)*1000;
  const scanTone:Tone=!settings.enabled?"unknown":health.healthy&&health.Alive&&fresh?"good":!health.LastSuccess?"unknown":"bad";
@@ -62,12 +62,12 @@ export default async function InboundPage({searchParams}:{searchParams:Promise<R
   </section>}
   {queue.search.enabled&&<section className="panel" aria-label="ค้นหา LN"><form className="search-form" role="search" method="get" action="/inbound"><div className="field"><label htmlFor="inbound-q">ค้นหา LN</label><input id="inbound-q" name="q" type="search" defaultValue={queue.search.q} maxLength={40} autoComplete="off"/></div><input type="hidden" name="pageSize" value={queue.review.page.size}/><button className="button">ค้นหา</button>{queue.search.q&&<a className="button secondary" href={`/inbound?pageSize=${queue.review.page.size}`}>ล้าง</a>}</form></section>}
   <section className="panel" aria-labelledby="inbound-issues"><h2 id="inbound-issues">รายการที่ต้องตรวจ ({queue.review.page.total})</h2>
-   <p className="help">ตรวจกับหน้าจอ HIS และเอกสาร/หลอดเลือดโดยตรง การแก้ไขต้องมีผู้เสนอและผู้รับรองคนละคน</p>
+   <p className="help">ตรวจกับหน้าจอ HIS และเอกสาร/หลอดเลือดโดยตรง ผู้มีสิทธิ์สามารถดำเนินการรายการนี้ให้เสร็จในขั้นตอนเดียว</p>
    {review.length?<ul className="registry">{review.map(i=><li className="registry-row" key={i.id}>
     <div><span className="registry-label">LN</span><strong className="mono">{i.ln}</strong></div>
     <div><span className="registry-label">ชนิด</span>{KIND[i.kind]??i.kind}</div>
-    <div><span className="registry-label">ข้อมูลที่ต่างกัน</span>{i.fields.length?i.fields.map(x=>FIELD[x]??x).join(", "):"—"}{i.proposal&&<><br/><span className="status">เสนอแล้ว: {actionLabel(i.proposal.action)}</span></>}</div>
-    <details><summary className="min-h-11 cursor-pointer py-2">ดำเนินการ<span className="sr-only"> LN {i.ln}</span></summary><IssueActions issueId={i.id} ln={i.ln??""} allowedActions={i.allowedActions} caseId={i.caseId} proposal={i.proposal} canPropose={canPropose} canApprove={canApprove}/></details>
+    <div><span className="registry-label">ข้อมูลที่ต่างกัน</span>{i.fields.length?i.fields.map(x=>FIELD[x]??x).join(", "):"—"}{i.proposal&&<><br/><span className="status">ข้อเสนอเดิม: {actionLabel(i.proposal.action)}</span></>}</div>
+    <details><summary className="min-h-11 cursor-pointer py-2">ดำเนินการ<span className="sr-only"> LN {i.ln}</span></summary><IssueActions issueId={i.id} ln={i.ln??""} allowedActions={i.allowedActions} caseId={i.caseId} proposal={i.proposal} canPropose={canPropose}/></details>
    </li>)}</ul>:<p>{queue.search.q?"ไม่มีรายการที่ตรงกับ LN ที่ค้น":"ไม่มีรายการค้าง"}</p>}
    <Pager label="รายการที่ต้องตรวจ" basePath="/inbound" params={keep()} pageParam="issuesPage" page={queue.review.page.number} pageSize={queue.review.page.size} total={queue.review.page.total} totalPages={queue.review.page.totalPages}/>
   </section>
@@ -75,8 +75,8 @@ export default async function InboundPage({searchParams}:{searchParams:Promise<R
    <p className="help">เชื่อมอัตโนมัติเมื่อลงทะเบียน LN นั้นและตัวระบุที่กรอกตรงกัน</p>
    {unlinked.length?<ul className="registry">{unlinked.map(i=><li className="registry-row" key={i.id}>
     <div><span className="registry-label">LN</span><strong className="mono">{i.ln}</strong></div><div><span className="registry-label">พบเมื่อ</span>{when(i.createdAt)}</div>
-    <div>{i.proposal&&<span className="status">เสนอแล้ว: {actionLabel(i.proposal.action)}</span>}</div>
-    <details><summary className="min-h-11 cursor-pointer py-2">ปิดรายการ<span className="sr-only"> LN {i.ln}</span></summary><IssueActions issueId={i.id} ln={i.ln??""} allowedActions={i.allowedActions} caseId={i.caseId} proposal={i.proposal} canPropose={canPropose} canApprove={canApprove}/></details>
+    <div>{i.proposal&&<span className="status">ข้อเสนอเดิม: {actionLabel(i.proposal.action)}</span>}</div>
+    <details><summary className="min-h-11 cursor-pointer py-2">ปิดรายการ<span className="sr-only"> LN {i.ln}</span></summary><IssueActions issueId={i.id} ln={i.ln??""} allowedActions={i.allowedActions} caseId={i.caseId} proposal={i.proposal} canPropose={canPropose}/></details>
    </li>)}</ul>:<p>{queue.search.q?"ไม่มีรายการที่ตรงกับ LN ที่ค้น":"ไม่มีไฟล์รอลงทะเบียน"}</p>}
    <Pager label="รอลงทะเบียน" basePath="/inbound" params={keep()} pageParam="unlinkedPage" page={queue.unlinked.page.number} pageSize={queue.unlinked.page.size} total={queue.unlinked.page.total} totalPages={queue.unlinked.page.totalPages}/>
   </section>
