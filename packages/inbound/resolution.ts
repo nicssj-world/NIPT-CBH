@@ -64,15 +64,33 @@ export async function decideResolution(db:Queryable,user:Principal,issueId:strin
 }
 
 /** Manual linkage (D-18): same LN only, S1 not yet received, never HISTORICAL. LN correction belongs to P2 registration. */
-async function linkCase(db:Queryable,issue:Issue,caseId:string,actorId:string,deps:InboundDeps){
+async function linkCase(db:Queryable,issue:Issue,caseId:string,actorId:string,deps:InboundDeps,via:'TWO_PERSON'|'SINGLE_OPERATOR'='TWO_PERSON'){
  const file=(await db.query<{id:string;sha256:string;filename:string;ln:string;state:string}>('SELECT id,sha256,filename,ln,state FROM his_inbound_file WHERE id=$1 FOR UPDATE',[issue.inbound_file_id])).rows[0];
  if(!file||file.state!=='Unlinked')throw new ResolutionError('INTAKE_NOT_UNLINKED');
  const target=await lockedTarget(db,issue.ln);
  if(!target||target.case_id!==caseId)throw new ResolutionError('CASE_LN_MISMATCH',422);
  if(target.origin==='HISTORICAL')throw new ResolutionError('HISTORICAL_LINK_PROHIBITED',422);
  if((await db.query('SELECT 1 FROM his_order WHERE case_ln_id=$1',[target.case_ln_id])).rows.length)throw new ResolutionError('S1_ALREADY_RECEIVED');
- // Other open identity issues of the same intake are superseded by this two-person decision.
+ // Other open identity issues of the same intake are superseded by the validated linkage decision.
  const others=await db.query<{id:string}>("UPDATE his_intake_issue SET state='AutoClosed',closed_at=now() WHERE inbound_file_id=$1 AND id<>$2 AND state IN ('Open','Proposed') RETURNING id",[file.id,issue.id]);
- for(const o of others.rows)await db.query("INSERT INTO his_intake_issue_event(issue_id,event,details) VALUES($1,'AUTO_CLOSED',$2)",[o.id,JSON.stringify({reasonCode:'TWO_PERSON_LINK'})]);
- await applyS1(db,file,await readPet(deps.store,file),target,'TWO_PERSON',actorId);
+ for(const o of others.rows)await db.query("INSERT INTO his_intake_issue_event(issue_id,event,details) VALUES($1,'AUTO_CLOSED',$2)",[o.id,JSON.stringify({reasonCode:via==='SINGLE_OPERATOR'?'SINGLE_OPERATOR_LINK':'TWO_PERSON_LINK'})]);
+ await applyS1(db,file,await readPet(deps.store,file),target,via,actorId);
+}
+
+/** Owner-approved single-operator resolution. The authority still requires an authorized HIS operator;
+ * all issue-kind/action, LN matching, case and S1 guards remain in place.
+ * The audit event is append-only and has actor+time+action without a typed reason. */
+export async function resolveIssueDirect(db:Queryable,user:Principal,issueId:string,input:unknown,deps:InboundDeps){
+ const d=z.strictObject({action:z.enum(RESOLUTION_ACTIONS),caseId:z.uuid().nullable().optional()}).parse(input);
+ if(!authorize(user,'his.conflict.resolve',{},'propose'))throw new ResolutionError('FORBIDDEN',403);
+ const issue=await lockIssue(db,issueId);
+ if(!['Open','Proposed'].includes(issue.state))throw new ResolutionError('ISSUE_NOT_OPEN');
+ const caseId=d.caseId??null;
+ validate(issue,d.action,caseId);
+ await db.query("INSERT INTO his_intake_issue_event(issue_id,event,action,case_id,actor_id,details) VALUES($1,'RESOLVED_DIRECT',$2,$3,$4,$5)",[issue.id,d.action,caseId,user.id,JSON.stringify({fromState:issue.state,workflow:'SINGLE_OPERATOR'})]);
+ // Mark resolved before potential PET application, in one transaction. On failure, rollback both.
+ await db.query("UPDATE his_intake_issue SET state='Resolved',closed_at=now(),case_id=COALESCE(case_id,$2) WHERE id=$1",[issue.id,caseId]);
+ if(d.action==='link_case')await linkCase(db,issue,caseId!,user.id,deps,'SINGLE_OPERATOR');
+ await appendAudit(db,{actorId:user.id,action:'INBOUND_RESOLUTION_DIRECT',resourceType:'his_intake_issue',resourceId:issue.id,details:{outcome:d.action,reasonCode:issue.kind,previousState:issue.state,synthetic:process.env.NIPT_MODE!=='operational'}});
+ return {state:'Resolved',action:d.action};
 }
