@@ -34,8 +34,8 @@ export async function formSources(db:Queryable,user:Staff,caseId:string){
  // The ordering doctor is the Doctor Registry version the ANC nurse selected on this round's request; never the user's own name.
  const doctorId=draft.ordering?.doctorVersionId??null;
  const doctor=doctorId?(await db.query<{id:string;name:string;doctor_key:string;active:boolean}>(`SELECT v.id,v.name,v.doctor_key,
-   -- Match the shared selector: latest signed registry record, not explicitly suspended, and effective.
-   (v.effective_from<=now() AND v.signature_png IS NOT NULL
+   -- Match the shared selector: latest registry record (a stored signature is not required), not explicitly suspended, and effective.
+   (v.effective_from<=now()
     AND (SELECT e.event_type FROM p2_doctor_event e WHERE e.doctor_version_id=v.id ORDER BY e.created_at DESC,e.id DESC LIMIT 1) IS DISTINCT FROM 'Suspended'
     AND NOT EXISTS(SELECT 1 FROM p2_doctor_version n WHERE n.doctor_key=v.doctor_key AND n.version>v.version AND n.effective_from<=now())) active
    FROM p2_doctor_version v WHERE v.id=$1`,[doctorId])).rows[0]??null:null;

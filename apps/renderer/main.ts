@@ -8,6 +8,7 @@ import {renderF5Pdf,f5Schema} from '../../packages/pdf/f5';
 import {renderF4Pdf,f4Schema} from '../../packages/pdf/f4';
 import {renderP4Pdf,p4DocumentSchema} from '../../packages/pdf/p4';
 import {renderAncOverlay,overlaySchema,joinPdfs} from '../../packages/pdf/anc-overlay';
+import {warmUpRenderBrowsers} from '../../packages/pdf/browser';
 export async function startRenderer(){
  const token=process.env.RENDERER_TOKEN_FILE?(await readFile(process.env.RENDERER_TOKEN_FILE,'utf8')).trim():process.env.RENDERER_TOKEN;
  if(!token||token.length<32)throw Error('RENDERER_TOKEN_REQUIRED');
@@ -37,7 +38,8 @@ export async function startRenderer(){
    res.writeHead(200,{'content-type':'application/pdf','cache-control':'no-store'}).end(bytes);
   }catch{res.writeHead(400).end('INVALID_SYNTHETIC_REQUEST');}
  });
- await new Promise<void>(resolve=>server.listen(Number(process.env.RENDERER_PORT||3001),process.env.RENDERER_HOST||'127.0.0.1',resolve));
+  await new Promise<void>(resolve=>server.listen(Number(process.env.RENDERER_PORT||3001),process.env.RENDERER_HOST||'127.0.0.1',resolve));
+ void warmUpRenderBrowsers();
  const shutdown=()=>server.close(error=>{if(error)process.exitCode=1;});
  const removeShutdownHandlers=()=>{process.off('SIGTERM',shutdown);process.off('SIGINT',shutdown);};
  process.once('SIGTERM',shutdown);process.once('SIGINT',shutdown);server.once('close',removeShutdownHandlers);

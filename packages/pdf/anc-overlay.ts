@@ -1,7 +1,7 @@
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {z} from 'zod';
-import {chromium} from 'playwright';
+import {launchShared,renderLaunchOptions} from './browser';
 import {PDFDocument,rgb} from 'pdf-lib';
 import type {OverlayPage} from '../forms/layout';
 
@@ -43,7 +43,7 @@ export async function renderAncOverlay(input:z.infer<typeof overlaySchema>):Prom
  const font=(await readFile(path.resolve('node_modules/@fontsource/noto-sans-thai/files/noto-sans-thai-thai-400-normal.woff2'))).toString('base64');
  // On Windows the default headless-shell is a console executable. Full Chromium uses
  // the Windows GUI subsystem with headless mode, avoiding a console on every ANC preview.
- const browser=await chromium.launch({headless:true,...(process.platform==='win32'?{channel:'chromium'}:{}),args:process.env.CHROMIUM_NO_SANDBOX==='true'?['--no-sandbox']:[]});
+ const browser=await launchShared(renderLaunchOptions(true));
  try{
   const out:Buffer[]=[];
   for(const p of s.pages as OverlayPage[]){

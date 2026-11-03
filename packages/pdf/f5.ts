@@ -1,7 +1,7 @@
 import {z} from 'zod';
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
-import {chromium} from 'playwright';
+import {launchShared} from './browser';
 import {displayBeDateTime} from '../domain/thai-date';
 const short=z.string().max(200),text=z.string().max(4000);
 export const F5_FIELDS=[
@@ -37,7 +37,7 @@ export function f5Html(input:F5Document){const d=f5Schema.parse(input);return `<
  ${d.evidence.length?`<h2>หลักฐานปฏิบัติ / Source / ผู้ทวนสอบ</h2><table class="evidence"><thead><tr><th>Field</th><th>Actual evidence</th></tr></thead><tbody>${d.evidence.map(v=>`<tr><td>${e(v.fieldId)}</td><td>${e(v.text)}</td></tr>`).join('')}</tbody></table>`:''}</body></html>`;}
 export async function renderF5Pdf(input:F5Document){const d=f5Schema.parse(input),font=await readFile(path.resolve('node_modules/@fontsource/noto-sans-thai/files/noto-sans-thai-thai-400-normal.woff2'));
  const html=f5Html(d).replace('<style>',`<style>@font-face{font-family:Thai;src:url(data:font/woff2;base64,${font.toString('base64')})}`);
- const browser=await chromium.launch({headless:true,args:process.env.CHROMIUM_NO_SANDBOX==='true'?['--no-sandbox']:[]});
+ const browser=await launchShared({headless:true,args:process.env.CHROMIUM_NO_SANDBOX==='true'?['--no-sandbox']:[]});
  try{const page=await browser.newPage({javaScriptEnabled:false});await page.route('**/*',r=>r.abort());await page.setContent(html);await page.evaluate(()=>document.fonts.ready);
  const footer=`<div style="font:7px Arial;width:100%;margin:0 10mm">${e(d.runLabel)} / F5 ${e(d.kind)} / ${e(d.docId)} Rev ${d.revision}<br>${e(d.templateVersion)} / FS-10-v1 / SEED_UNVERIFIED / ${e(displayBeDateTime(d.issuedAt))} / ${e(d.issuedBy)} / SYNTHETIC ONLY / <span class="pageNumber"></span>/<span class="totalPages"></span>${d.copy?`<br>${e(d.copy.kind)} #${d.copy.number} / ${e(d.copy.status)} / Original SHA256 ${e(d.copy.originalHash)} / ${e(d.copy.actor)} / ${e(d.copy.at)}`:''}</div>`;
  return await page.pdf({format:'A4',printBackground:true,displayHeaderFooter:true,headerTemplate:'<span></span>',footerTemplate:footer,margin:{top:'10mm',bottom:'23mm',left:'10mm',right:'10mm'}});
