@@ -20,7 +20,9 @@ export async function probeInbound(value:Record<string,unknown>){
 }
 
 /** Rejects (with a stable share error code) when a folder of the saved HIS setting cannot be used. */
-export async function checkHisSetting(key:'his_inbound'|'his_outbound',value:Record<string,unknown>):Promise<void>{
+/** `changedPathFields` (a path-only Save) limits the outbound probe to the destinations that actually changed, so an unrelated unreachable
+ *  destination does not block saving another. Without it (readiness before a transfer, every other caller) all three are probed. Unknown names fail closed. */
+export async function checkHisSetting(key:'his_inbound'|'his_outbound',value:Record<string,unknown>,changedPathFields?:readonly string[]):Promise<void>{
  if(key==='his_inbound'){
   const report=await probeInbound(value);
   // A readable PET root with no day folder / pair yet is a valid folder (new server, just after midnight); unreadable or unparsable files are not.
@@ -32,8 +34,11 @@ export async function checkHisSetting(key:'his_inbound'|'his_outbound',value:Rec
  const s=SETTINGS.his_outbound.schema.parse(value);
  // Synthetic runtime: destinations are simulator folders checked when the sandbox transfer runs; real shares are probed with a read/write/readback file.
  if(!operationalDataEnabled())return;
+ const outbound={resDestinationPath:s.resDestinationPath,pdfDestinationPath:s.pdfDestinationPath,backupPath:s.backupPath} as const;
+ if(changedPathFields?.some(f=>!(f in outbound)))throw Error('INVALID_HIS_PATH_FIELD');
+ const targets=Object.entries(outbound).filter(([field])=>!changedPathFields||changedPathFields.includes(field)).map(([,path])=>path);
  try{
-  for(const input of [s.resDestinationPath,s.pdfDestinationPath,s.backupPath]){
+  for(const input of targets){
    const directory=await withTimeout(openAuthorizedDirectory(input,'OUTBOUND',s.secretRef)),name='.nipt-connection-probe-'+randomUUID();
    const filename=await directory.file(name,true),bytes=Buffer.from('NIPT CONNECTION PROBE\n');let created=false;
    try{const h=await fs.open(filename,'wx',0o600);created=true;try{await h.writeFile(bytes);await h.sync();}finally{await h.close();}

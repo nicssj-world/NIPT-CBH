@@ -181,3 +181,23 @@ GRANT EXECUTE ON FUNCTION migration_repair_twin_attachments(uuid) TO app_rw;
 GRANT SELECT ON historical_reported_result TO app_rw,worker_rw;
 
 GRANT EXECUTE ON FUNCTION migration_reserve_original_number(uuid,uuid) TO app_rw;
+
+-- v1.1.3 Worker Queue (migrations 181-182): web may only request a clear and read outcomes; the Worker applies and records them.
+GRANT SELECT,INSERT ON worker_queue_clear_request TO app_rw;
+GRANT SELECT ON worker_queue_clear_outcome TO app_rw;
+GRANT SELECT ON worker_queue_clear_request TO worker_rw;
+GRANT SELECT,INSERT ON worker_queue_clear_outcome TO worker_rw;
+GRANT EXECUTE ON FUNCTION nipt_pg_boss_counts(),nipt_pg_boss_recent(integer) TO app_rw;
+
+-- v1.1.3 EQA (migration 183): classification is insert-only for web; the guards read it through SECURITY DEFINER functions.
+GRANT SELECT,INSERT ON eqa_case TO app_rw;
+GRANT SELECT ON eqa_case TO worker_rw,report_ro;
+GRANT EXECUTE ON FUNCTION nipt_case_is_eqa(uuid),p6_release_eligible(uuid,integer) TO app_rw,worker_rw;
+
+-- v1.1.3 Worker Queue retry (migration 186).
+GRANT SELECT,INSERT ON worker_queue_retry_request TO app_rw;
+GRANT SELECT ON worker_queue_retry_outcome TO app_rw;
+GRANT SELECT ON worker_queue_retry_request TO worker_rw;
+GRANT SELECT,INSERT ON worker_queue_retry_outcome TO worker_rw;
+GRANT EXECUTE ON FUNCTION nipt_pg_boss_state_of(uuid[]) TO app_rw;
+GRANT EXECUTE ON FUNCTION nipt_his_transfer_overview() TO app_rw;

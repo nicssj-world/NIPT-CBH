@@ -41,6 +41,7 @@ it('a real worker probe requeues only a FAILED job whose original window matches
     ALTER TABLE pdf_archive_job ADD COLUMN last_error text;
     ALTER TABLE pdf_archive_job ADD COLUMN claim_token uuid;
     ALTER TABLE pdf_archive_job ADD COLUMN claimed_until timestamptz;
+    ALTER TABLE pdf_archive_job ADD COLUMN cancellation_requested_at timestamptz;
     ALTER TABLE pdf_archive_job ADD COLUMN updated_at timestamptz NOT NULL DEFAULT clock_timestamp();
     ALTER TABLE pdf_archive_probe ADD COLUMN requested_at timestamptz NOT NULL DEFAULT clock_timestamp();
     ALTER TABLE pdf_archive_probe ADD COLUMN claim_token uuid;

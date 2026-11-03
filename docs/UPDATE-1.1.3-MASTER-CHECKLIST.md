@@ -1,0 +1,34 @@
+# NIPT-CBH v1.1.3 — Master Checklist (final status)
+
+Branch `feat/v113-integrated`, worktree `D:\NIPT-CBH-v113`. **Release candidate (source): `12458fbf4331c4f405ab3c94f87d2b5cf5d5149c`** = Production `c59d559` + v1.1.3.
+Migrations **181–186 (6 files)**; Production range ends at 180. Nothing merged to main, nothing deployed. This file and its evidence are the only change after the candidate.
+
+## Release gates (Owner: four only)
+| # | Gate | Result | Evidence at 12458fb |
+|---|---|---|---|
+| 1 | `release:preflight` for the release commit, base = Production c59d559 | **PASS** | 19 steps PASS in 1425 s: clean revision, dependencies, pinned assets, environment identity, signing prerequisite, migration inventory, **migration rehearsal on a synthetic DB (11 checks, 6 pending)**, destructive-SQL detection, rollback class, TypeScript, ESLint (0 warnings), 11 deployment contracts, related tests (57 changed source files), production build + provenance stamp. Risk class HIGH (database migration, schema/roles). |
+| 2 | Migrations 181–186 reviewed; trustworthy backup/restore | **PASS** | Destructive detection flags exactly 181 and 184 — both swap CHECK constraints on `pdf_archive_job` / `specimen_round` (intended; the replacement rules are enforced by triggers and tested). Native pg_dump/pg_restore tests: certified EQA PDF restored with identical SHA-256, EQA classification kept, all six no-HIS triggers and the eligibility wrapper present and still refusing in the restored database; archive backup/restore also passes. **Application-only rollback is impossible after these migrations; recovery is the verified pre-upgrade backup restore** (the deploy engine takes and verifies it). |
+| 3 | No new Critical/High regression (clinical safety, patient results, HIS) | **PASS** | Full regression 1949 passed / 38 skipped / 0 failed (226 files). Native PostgreSQL 58/58 (12 files incl. concurrency, no-call, task3 native, `p6-native` HIS transfer). P7 clinical-safety native 1/1. Word/PDF contracts (normal patient and EQA) pass. |
+| 4 | Windows Production package builds and verifies | **PASS** | `build-package --profile production --app-only --requires-installed-revision c59d559…`: 22,016 files, Ed25519 manifest verified by the installer's own `verify-package`; revision 12458fb; migrations 181–186 present; no `.env`, PET/RES files, seed password or private key in the package. Signed with a local test key for this check; the real package is signed with the production key by the deploy engine. |
+
+**READY FOR PRODUCTION: yes — Owner authorization is the only remaining step.**
+
+## What changed in v1.1.3 (all tested; see commits)
+- **Worker Queue:** immutable clear/retry requests; the Worker decides; dispatched jobs are cancelled only on pg-boss proof; unknown outcomes stay `RECONCILIATION_REQUIRED`; Retry only for retry-safe kinds and failed queue jobs, never with a receipt or clear request; HIS transfers have no Clear and are never retried when the outcome is unknown. Real pg-boss tests: crash mid-job, retry once under concurrent clicks/Workers, queue job lost.
+- **PET case history:** five separate counters read from existing immutable records; raw scan history untouched.
+- **EQA:** immutable classification; registration + receipt without PET; the normal Task List/QC/HALOS/ReadyGen/Word PDF/certification path; database guards make HIS outbound impossible (transfer, outbox, HIS receipt, eligibility); excluded from the patient NAS archive. The certified PDF is the report; viewing, download and print use the existing authorised endpoint.
+- **Quality Control:** EQA registry (search, year, paging, report access) and IQC PC/NC from the latest workbook revision; no invented thresholds.
+- **HIS path:** a path-only Save probes only the changed destinations (verify-only found an unrelated unreachable destination blocked it); full readiness before a transfer unchanged.
+- **Archive:** cancel/publish races, crash after write then idempotent retry, no replace of a different file — all tested.
+
+## Known issues (not release blockers; Owner decisions recorded)
+1. **`task15-native` fails identically on Production-baseline `5bd9bf4`** (proved with a clean worktree). Cause: the test still expects `previewLabels` to reject an unrecorded pregnancy type, but the Owner decided on 2026-11-02 that an unrecorded type is Singleton by default with a `pregnancy_defaulted` flag (`lab/core.ts`). Not a safety issue. Label printing remains covered by tests that pass in the full run (`p4-lab`, `task1-lineage`, `label-print-layout`, `label-fit-render`, `owner-lab-code128`); the part of `task15-native` after the stale assertion (PDF readback of a label from a PET-registered case) is not exercised. Test should be updated on main.
+2. **Skipped tests (38):** environment-gated (Excel/ANC-form assets, E2E needing an installed stack). The database-gated ones were run through the native harness (see above). `p7-safety-native` was run and passes.
+3. **HIS reconciliation of an unknown outcome** has no automatic resolution (by design): the transfer stays `RECONCILIATION_REQUIRED`/awaiting, is never retried or marked sent without evidence; a person must check with HIS. No duplicate-transmission path was found: retry exists only for `RETRY_PENDING` with its guard, and a retried queue job needs pg-boss `failed` with no receipt.
+4. **EQA submission to GenQA/EMQN:** Owner decision — submit the certified report as is; any copy for the provider is prepared outside the system without altering the certified original. The provider's instructions ask for laboratory logo/authorisation to be removed and the provider reference added; this is recorded as the Owner's accepted compliance risk.
+5. **EQA EDD:** the referral card has no EDD; an internal anchor is derived (collection date + 280 − GA by scan), never stored as patient data or printed.
+6. **UX UI Pro Max / Impeccable** skills were unavailable; UX was checked against `DESIGN.md` and in a real browser: axe WCAG 2.1 AA 0 violations on every new page/dialog, keyboard focus and Escape verified. The Owner's own inspection of the real EQA PDFs (Singleton and DCDA twins) is still theirs to do (`.local/pdf/` produced by `NIPT_DUMP_EQA_PDF`).
+7. App version label stays `1.1.2-<time>.<sha>` as in the last two releases (`deploy/windows/app-version.json` unchanged); a bump to 1.1.3 is a one-line change if wanted.
+
+## After Owner authorization — procedure and smoke test
+Deploy with the standard Production workflow (`deploy-production.ps1`, administrator, verified backup first). Then check: login and roles; LAB/ANC; PET case history panel; EQA registration and report viewing; Quality Control (EQA/IQC); patient result/PDF; Worker Queue (all four tabs); EQA no-HIS (no outbox/transfer for an EQA release); patient HIS outbound; NAS/backup; migration ledger (181–186 applied) and health. On a Critical failure stop the affected function and restore the pre-upgrade backup.

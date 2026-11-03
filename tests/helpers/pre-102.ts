@@ -20,6 +20,7 @@ CREATE TABLE lab_operational_registration(round_id uuid,case_id uuid,paper_reque
 -- migrated, so empty stand-ins keep every version on the ordinary non-migration path.
 CREATE TABLE migration_record(id uuid,execution_id uuid,case_id uuid,round_id uuid,attempt_id uuid,ln text,ln_halos text,classification text,his_pdf_exists boolean,state text,row_version integer);
 CREATE TABLE migration_analysis(id uuid,record_id uuid,attempt_id uuid,source_id uuid,run_label text,sample_raw text,attempt_number integer,is_current boolean,advice_status text,classification text,values jsonb,interpretation jsonb);
+CREATE TABLE eqa_case(case_id uuid,round_id uuid,dob date,collection_date date,ga_weeks integer,ga_days integer,pregnancy text,surname text,first_name text,sample_ref text);
 CREATE TABLE migration_source(id uuid,sha256 text);
 CREATE TABLE migration_historical_run(run_label text,source_sha256 text);
 CREATE FUNCTION migration_result_source_current(vid uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$;

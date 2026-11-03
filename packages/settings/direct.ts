@@ -26,7 +26,7 @@ export type SaveOptions={
  /** The administrator has seen the first-scan scope and confirmed switching Auto Scan on. */
  confirmFirstScan?:boolean;
  /** Synchronous reachability check for the folders of a HIS setting; throws a stable code when a folder cannot be used. */
- check?:(key:'his_inbound'|'his_outbound',value:Record<string,unknown>)=>Promise<void>;
+ check?:(key:'his_inbound'|'his_outbound',value:Record<string,unknown>,changedPathFields?:readonly string[])=>Promise<void>;
 };
 export type SaveResult={saved:boolean;unchanged?:boolean;key:string;version:number;revisionId:string|null;active:true;changedFields:string[]};
 
@@ -55,7 +55,7 @@ export async function saveSystemSetting(db:Queryable,user:Principal,key:string,v
  // Switching Auto Scan on starts reading the HIS folder; the administrator must have seen what will be scanned.
  if(key==='his_inbound'&&next.enabled===true&&before.enabled!==true&&options.confirmFirstScan!==true)throw Error('SCAN_SCOPE_CONFIRMATION_REQUIRED');
  // Folders are checked now, in this request; a folder that cannot be used refuses the save instead of saving something that cannot work.
- if((key==='his_inbound'||key==='his_outbound')&&options.check&&changedFields.some(f=>PATH_FIELDS[key].includes(f)))await options.check(key,next);
+ if((key==='his_inbound'||key==='his_outbound')&&options.check&&changedFields.some(f=>PATH_FIELDS[key].includes(f)))await options.check(key,next,changedFields.filter(f=>PATH_FIELDS[key].includes(f)));
  const inserted=(await db.query<{id:string;version:number}>(`INSERT INTO settings_revision(setting_key,version,category,risk,value,state,created_by,reason,previous_revision_id,test_passed)
   VALUES($1,(SELECT COALESCE(max(version),0)+1 FROM settings_revision WHERE setting_key=$1),$2,$3,$4,'Validated',$5,$6,$7,true) RETURNING id,version`,
   [key,d.category,d.risk,JSON.stringify(next),user.id,reason,active?.id??null])).rows[0];

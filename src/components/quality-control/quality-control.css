@@ -1,0 +1,6 @@
+/* Quality Control: two-column card form that collapses to one column on narrow screens; tokens come from the existing design system. */
+.qc-form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:var(--space-4) var(--space-6);}
+.qc-form-grid .input{width:100%;}
+.qc-actions{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center;}
+/* Hidden frame used only to print the authorised PDF; a class, because the page CSP forbids inline styles. */
+.qc-print-frame{position:fixed;right:0;bottom:0;width:0;height:0;border:0;}

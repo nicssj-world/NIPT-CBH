@@ -8,7 +8,7 @@ import {OwnProfile} from "./own-profile";
 import {LogoutButton} from "./navigation";
 import "./ui-backlog-polish.css";
 
-const routeNames:Record<string,string>={"/":"ภาพรวม","/cases":"ทะเบียนกลาง","/inbound":"รับตัวอย่างจาก HIS","/lab":"งาน Lab","/lab/batches":"Batch / Task List","/sample-storage":"Sample Storage","/results":"ผลตรวจ NIPT","/historical":"นำเข้าย้อนหลัง","/doctors":"ทะเบียนแพทย์","/settings":"ตั้งค่าระบบ","/health":"สถานะระบบ"};
+const routeNames:Record<string,string>={"/":"ภาพรวม","/cases":"ทะเบียนกลาง","/inbound":"รับตัวอย่างจาก HIS","/lab":"งาน Lab","/lab/batches":"Batch / Task List","/sample-storage":"Sample Storage","/results":"ผลตรวจ NIPT","/quality-control":"Quality Control","/historical":"นำเข้าย้อนหลัง","/doctors":"ทะเบียนแพทย์","/settings":"ตั้งค่าระบบ","/health":"สถานะระบบ"};
 
 function subscribeTheme(notify:()=>void){window.addEventListener("nipt-theme-change",notify);return ()=>window.removeEventListener("nipt-theme-change",notify);}
 export function ThemeButton(){
