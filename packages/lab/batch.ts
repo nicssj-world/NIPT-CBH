@@ -240,6 +240,8 @@ export async function removeFromBatch(db:Queryable,user:Staff,input:unknown){
  const b=await lockBatch(db,d.batchId,d.expectedVersion);const s=await sheetOf(db,b.id,getSheetNumber(d.slot));
  if(!placementEditable(s))throw new LabError('PLACEMENT_LOCKED',409);if((s.state!=='Draft'||s.placement_revision>0)&&!d.reason)throw new LabError('REASON_REQUIRED_AFTER_PLAN_CHECK',422);
  const a=await liveAssignment(db,b.id,d.slot);if(!a)throw new LabError('SLOT_EMPTY',409);
+ // A printed Task may be reopened at any stage and filled; what is already measured in a position is never taken out from under its values.
+ if(await hasRecordedBenchWorkAtSlot(db,b.id,d.slot))throw new LabError('REMOVE_ONLY_BEFORE_BENCH_WORK',409);
  await db.query("UPDATE lab_slot_assignment SET removed_at=now(),removed_by=$2,removed_reason=$3 WHERE id=$1",[a.id,user.id,d.reason??'REMOVED_IN_DRAFT']);
  await setAttemptState(db,user,{id:a.attempt_id,case_id:a.case_id,state:a.state},'Ready',{batchId:b.id,slot:d.slot,reason:d.reason??null});
  if(a.repeat_order_id)await db.query("UPDATE repeat_work_order SET state='RepeatPendingBatch' WHERE id=$1 AND state='RepeatInProgress'",[a.repeat_order_id]);
@@ -335,21 +337,6 @@ async function hasRecordedBenchWorkAtSlot(db:Queryable,batchId:string,slot:numbe
   WHERE r.batch_id=$1 AND ((e.key IN ($2,$3) AND jsonb_typeof(e.value)='number') OR (e.key=$4 AND e.value='"✓"'::jsonb))) recorded`,
  [batchId,`${keyPrefix}libraryQc`,`${keyPrefix}extractionQc`,`${keyPrefix}transferChecked`])).rows[0].recorded;
 }
-/** Owner 2026-11-03: a printed Task List with empty positions can be reopened and filled while no bench work is recorded for THAT Task.
- * Evidence of the Task itself blocks: its own slot measurements, its own QC strip, a checked transfer in its slots. Later stages feed on all 48 positions,
- * so once pooling or sequencing has anything recorded (or an actual pooling / export exists) every Task stays locked. */
-async function hasRecordedBenchWorkForSheet(db:Queryable,batchId:string,sheetNumber:number){
- const schema=(await db.query<{present:boolean}>("SELECT to_regclass('public.task_workbook_revision') IS NOT NULL present")).rows[0].present;
- if(!schema)return false;
- const slots=(await db.query<{slot_number:number}>('SELECT slot_number FROM lab_batch_slot WHERE batch_id=$1 AND sheet_number=$2',[batchId,sheetNumber])).rows.map(r=>r.slot_number);
- const own=[...slots.flatMap(n=>[`slot.${n}.libraryQc`,`slot.${n}.extractionQc`]),...['standard1','standard2','standard2Concentration'].map(k=>`qc.${sheetNumber}.${k}`)];
- const checked=slots.map(n=>`slot.${n}.transferChecked`);
- const laterStage='^(pool\\.(concentration|standard1|standard2|standard2Concentration|dilutionC1)|seq\\.(standard1|standard2|standard2Concentration|dnbConcentration|dilutedConcentration|driveMemoryTb|negativePressureKpa|loadedDnb|q30|bic|fit))$';
- const workbook=(await db.query<{recorded:boolean}>(`SELECT EXISTS(SELECT 1 FROM task_workbook_revision r CROSS JOIN LATERAL jsonb_each(r.values) e WHERE r.batch_id=$1
-   AND ((jsonb_typeof(e.value)='number' AND (e.key=ANY($2::text[]) OR e.key ~ $3)) OR (e.key=ANY($4::text[]) AND e.value='"✓"'::jsonb))) recorded`,[batchId,own,laterStage,checked])).rows[0].recorded;
- if(workbook)return true;
- return (await db.query<{recorded:boolean}>('SELECT (EXISTS(SELECT 1 FROM lab_actual_pooling WHERE batch_id=$1) OR EXISTS(SELECT 1 FROM lab_bench_export WHERE batch_id=$1) OR EXISTS(SELECT 1 FROM lab_seq_export_pair WHERE batch_id=$1)) recorded',[batchId])).rows[0].recorded;
-}
 export async function amendSheet(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'batch.amend');
  const d=z.strictObject({batchId:uuid,expectedVersion:z.number().int().min(0),sheetNumber:z.number().int().min(1).max(3),reason:reasonText}).parse(input);
@@ -444,14 +431,13 @@ export async function printTaskList(db:Queryable,user:Staff,input:unknown){
  const r=await finalizeSheet(db,user,{batchId:b.id,expectedVersion:version,sheetNumber:d.sheetNumber});
  return {version:r.version,revision:r.revision,finalizedNow:true,previousRevision:s.placement_revision||null};
 }
-/** OWNER-LAB-031: edit a printed sheet before any bench work is recorded. The printed revision becomes obsolete when the
+/** OWNER-LAB-031 (relaxed 2026-11-03): a printed Task can be reopened at any stage to fill empty positions; occupied positions that already hold measurements stay protected (removeFromBatch). The printed revision becomes obsolete when the
  *  sheet is printed again (a new immutable snapshot); earlier snapshots and events are never changed. */
 export async function reopenPlacement(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'batch.draft');
  const d=z.strictObject({batchId:uuid,expectedVersion:z.number().int().min(0),sheetNumber:z.number().int().min(1).max(3)}).parse(input);
  const b=await lockBatch(db,d.batchId,d.expectedVersion);const s=await sheetOf(db,b.id,d.sheetNumber);
  if(s.state!=='PlacementFinalized')throw new LabError('REOPEN_ONLY_PRINTED_SHEET',409);
- if(await hasRecordedBenchWorkForSheet(db,b.id,d.sheetNumber))throw new LabError('REOPEN_ONLY_BEFORE_BENCH_WORK',409);
  await db.query("UPDATE lab_task_sheet SET state='Amended',plan_checked_by=NULL,plan_checked_at=NULL,plan_checked_version=NULL,placement_version=placement_version+1 WHERE id=$1",[s.id]);
  const version=(await db.query<{version:number}>('UPDATE lab_batch SET version=version+1 WHERE id=$1 RETURNING version',[b.id])).rows[0].version;
  await batchEvent(db,user,b.id,'PLACEMENT_REOPENED',d.sheetNumber,null,{revision:s.placement_revision});
