@@ -87,8 +87,8 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
   await labApi(api,{action:'recordActualPooling',revision,members:currentTransfers,note:''});await reload();setTransfers(null);setSeqFiles(null);setNotice('บันทึก Pooling จริงแล้ว');
  });
  const exportPair=()=>run(async()=>{const result=await labApi<SeqFiles>(api,{action:'exportSeqPair',revision:data!.revision,idempotencyKey:crypto.randomUUID()});if(result.files.length!==2)throw Error('สร้างไฟล์ไม่ครบสองไฟล์');setSeqFiles(result);setNotice('สร้างไฟล์ครบ 2 ไฟล์แล้ว');});
- async function fetchExport(kind:'POOL_CSV'|'QC'|'POOL'|'SEQ'){
-  const isWorkbook=kind!=='POOL_CSV',sheet=kind==='QC'?'QC measurements':kind==='POOL'?'Pooling Table':'Seq Task-G50';
+ async function fetchExport(kind:'POOL_CSV'|'NIFTY_XLSX'|'QC'|'POOL'|'SEQ'){
+  const isWorkbook=kind!=='POOL_CSV'&&kind!=='NIFTY_XLSX',sheet=kind==='QC'?'QC measurements':kind==='POOL'?'Pooling Table':'Seq Task-G50';
   const response=await fetch(isWorkbook?workbookApi:api,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','x-csrf-token':csrf()},body:JSON.stringify(isWorkbook?{action:'export',revision:data!.revision,format:'PDF',sheet}:{action:'export',revision:data!.revision,kind})});
   if(!response.ok){const e=await response.json().catch(()=>({}));throw Error(e.error??e.code??'ออกเอกสารไม่สำเร็จ');}
   return response.blob();
@@ -99,6 +99,8 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
   setPreview({title,url:null,retry:load});load();
  }
  const downloadCsv=()=>run(async()=>{const url=URL.createObjectURL(await fetchExport('POOL_CSV'));const a=document.createElement('a');a.href=url;a.download=`${data!.runLabel.replace('/','-')}-POOL_CSV.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);});
+ /** Sample-info (NIFTY Test Request) file: needs only the saved task, not finalized QC or recorded actual pooling, so it can be exported at any stage. The HALOS file stays in the two-file pair because it lists the positions actually pooled. */
+ const downloadNifty=()=>run(async()=>{const url=URL.createObjectURL(await fetchExport('NIFTY_XLSX'));const a=document.createElement('a');a.href=url;a.download=`${data!.runLabel.replace('/','-')}-NIFTY-Test-Request.xlsx`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);setNotice('สร้างไฟล์ข้อมูลตัวอย่าง (NIFTY) แล้ว');});
  const subjectOf=(row:Slot):ActionCenterSubject|null=>row.kind==='PATIENT'&&row.attemptId&&row.caseId&&row.roundId&&row.hisLn&&row.roundNumber?{attemptId:row.attemptId,caseId:row.caseId,roundId:row.roundId,hisLn:row.hisLn,hn:row.hn,roundNumber:row.roundNumber,sampleId:row.sampleId,attemptState:row.attemptState??'',overallOrdinal:row.overallOrdinal,attemptNumber:row.attemptNumber,outcomeStatus:row.outcomeStatus}:null;
  const sampleCell=(row:Slot)=>{const subject=subjectOf(row);
   return <>{subject?<button type="button" className={`bench-sample-button mono${row.exceptional?' bench-exceptional':''}`} onClick={()=>setCenter(subject)} aria-haspopup="dialog">{row.sampleId}</button>
@@ -128,7 +130,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
   {!data&&!error&&<p role="status">กำลังโหลดใบงาน…</p>}
   {data&&tab==='QC'&&<section aria-labelledby="qc-title" className="bench-section">
    <div className="bench-section-head"><h2 id="qc-title"><LabIcon name="flask"/>QC Measurements</h2>
-    <button className="button secondary" type="button" disabled={busy||!saved} onClick={()=>openPdf('QC','QC measurements')}><LabIcon name="printer"/>ดูตัวอย่าง / พิมพ์ QC</button></div>
+    <button className="button secondary" type="button" disabled={busy||!saved} onClick={()=>openPdf('QC','QC measurements')}><LabIcon name="printer"/>ดูตัวอย่าง / พิมพ์ QC</button><button className="button secondary" type="button" disabled={busy||!saved} onClick={()=>void downloadNifty()}><LabIcon name="download"/>ส่งออกไฟล์ข้อมูล (NIFTY)</button></div>
    <div className="bench-criteria" role="note"><p>ตัวอย่าง, Positive control และ Negative control ควรมีความเข้มข้น ≥ 2.0 ng/µL หากไม่เป็นไปตามเกณฑ์ให้เริ่มสกัดใหม่อีกครั้ง</p><p>Blank control ควรมีความเข้มข้น ≤ 0.6 ng/µL</p></div>
    <div className="lab-bench-standards">{[1,2,3].map(strip=><fieldset key={strip}><legend>Strip {strip}/3</legend>{QC_STANDARDS.map(([key,label])=><label key={key}><span>{label}</span><NumberField label={`Strip ${strip}/3 ${label}`} value={values[`qc.${strip}.${key}`]} disabled={!canWrite||busy} onChange={v=>change(`qc.${strip}.${key}`,v)}/></label>)}</fieldset>)}</div>
    <div className="table-wrap" role="region" aria-label="QC 48 ตำแหน่ง" tabIndex={0}><table className="bench-table qc-table"><colgroup><col className="col-slot"/><col/><col className="col-value"/><col className="col-flag"/></colgroup>
@@ -140,7 +142,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
   </section>}
   {data&&tab==='POOL'&&<section aria-labelledby="pool-title" className="bench-section">
    <div className="bench-section-head"><h2 id="pool-title"><LabIcon name="layers"/>Pooling Table</h2>
-    <div className="bench-actions"><button className="button secondary" type="button" disabled={busy||!saved||!pool} onClick={()=>openPdf('POOL','Pooling Table')}><LabIcon name="printer"/>ดูตัวอย่าง / พิมพ์ Pooling Table</button><button className="button secondary" type="button" disabled={busy||!saved||!pool} onClick={()=>void downloadCsv()}><LabIcon name="download"/>ส่งออก Pooling CSV</button></div></div>
+    <div className="bench-actions"><button className="button secondary" type="button" disabled={busy||!saved||!pool} onClick={()=>openPdf('POOL','Pooling Table')}><LabIcon name="printer"/>ดูตัวอย่าง / พิมพ์ Pooling Table</button><button className="button secondary" type="button" disabled={busy||!saved} onClick={()=>void downloadNifty()}><LabIcon name="download"/>ส่งออกไฟล์ข้อมูล (NIFTY)</button><button className="button secondary" type="button" disabled={busy||!saved||!pool} onClick={()=>void downloadCsv()}><LabIcon name="download"/>ส่งออก Pooling CSV</button></div></div>
    {!saved&&<p className="notice" role="note">บันทึกค่า QC ก่อน แล้วระบบจะคำนวณ Pooling จากค่าที่บันทึก</p>}
    {data.actualPooling&&!data.actualPooling.current&&<p role="alert" className="notice warning-notice">ค่า QC หรือตำแหน่งเปลี่ยน — คำนวณใหม่แล้ว กรุณาตรวจและบันทึก Pooling จริงอีกครั้ง</p>}
    {pool&&<>
@@ -164,6 +166,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
   {data&&tab==='SEQ'&&<section aria-labelledby="seq-title" className="bench-section">
    <div className="bench-section-head"><h2 id="seq-title"><LabIcon name="dna"/>Seq Task-G50</h2>
     <div className="bench-actions"><button className="button secondary" type="button" disabled={busy||!saved} onClick={()=>openPdf('SEQ','Seq Task-G50')}><LabIcon name="printer"/>ดูตัวอย่าง / พิมพ์</button>
+     <button className="button secondary" type="button" disabled={busy||!saved} onClick={()=>void downloadNifty()}><LabIcon name="download"/>ส่งออกไฟล์ข้อมูล (NIFTY)</button>
      <button className="button" type="button" disabled={busy||!saved||!data.finalized||!data.actualPooling?.current} onClick={()=>void exportPair()}><LabIcon name="download"/>ส่งออก XLSX 2 ไฟล์</button>
      <Link className="button secondary" href="/results"><LabIcon name="upload"/>นำเข้า PDF Result</Link></div></div>
    <div className="seq-groups">{SEQ_GROUPS.map(g=><fieldset key={g.title} className="seq-group"><legend><LabIcon name={g.icon}/>{g.title}</legend><div className="seq-fields">{g.fields.map(f=>{const id=`seq-${f.key}`;
