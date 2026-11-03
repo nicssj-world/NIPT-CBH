@@ -90,3 +90,15 @@ it('an EQA whose request check / clinical evaluation was saved can still be dele
   expect((await f.db.query('SELECT 1 FROM nipt_case WHERE id=$1',[e.caseId])).rows).toHaveLength(0);
  }finally{await f.close();}
 },180000);
+
+it('an EQA that was opened (view-log rows exist) can be deleted (migration 194)',async()=>{
+ const f=await inboundFixture();
+ try{
+  const {unit,lab}=await registrar(f.db);
+  const e=await tx(f.db,()=>registerEqaCase(f.db,lab,card(unit,5),f.lookupKey,{store:f.store}));
+  await f.db.query("INSERT INTO phi_access_log(actor_id,case_id,purpose) VALUES($1,$2,'CASE_DETAIL_VIEW')",[lab.id,e.caseId]);
+  await tx(f.db,()=>deleteEqaRegistration(f.db,lab,{caseId:e.caseId}));
+  expect((await f.db.query('SELECT 1 FROM phi_access_log WHERE case_id=$1',[e.caseId])).rows).toHaveLength(0);
+  expect((await f.db.query('SELECT 1 FROM nipt_case WHERE id=$1',[e.caseId])).rows).toHaveLength(0);
+ }finally{await f.close();}
+},180000);
