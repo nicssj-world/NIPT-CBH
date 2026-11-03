@@ -3,6 +3,7 @@ import {useRef,useState} from 'react';
 import {useRouter} from 'next/navigation';
 import {csrf} from './p2/shared';
 import {STATUS_LABEL,CLEARABLE,RETRYABLE,statusTone} from './worker-queue-labels';
+import {RETRY_SAFE_KINDS} from '../../packages/jobs/retry-kinds';
 
 
 type Row={id:string;kind:string;status:string};
@@ -13,7 +14,8 @@ export function WorkerQueueActions({scope,rows,counts}:{scope:'OUTBOX'|'ARCHIVE'
  const [busy,setBusy]=useState(false),[message,setMessage]=useState<{ok:boolean;text:string}|null>(null);
  const canClear=scope!=='HIS_TRANSFER';   // a HIS transmission is never cleared from here
  const clearable=canClear?rows.filter(r=>CLEARABLE.includes(r.status)):[];
- const retryOk=(r:Row)=>RETRYABLE[scope].includes(r.status);
+ // Offered only for a retry-safe kind; the Worker checks again and may still refuse.
+ const retryOk=(r:Row)=>RETRYABLE[scope].includes(r.status)&&(scope!=='OUTBOX'||(RETRY_SAFE_KINDS as readonly string[]).includes(r.kind));
  const retryable=rows.filter(r=>retryOk(r)&&selected.includes(r.id));
  const allCount=canClear?CLEARABLE.reduce((n,s)=>n+(counts[s]??0),0):0;
  const toggle=(id:string)=>setSelected(s=>s.includes(id)?s.filter(x=>x!==id):[...s,id]);

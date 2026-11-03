@@ -1,5 +1,5 @@
 import type {Queryable} from '../db/connection';
-import {RETRY_SAFE_KINDS} from './queue-retry';
+import {RETRY_SAFE_KINDS} from './retry-kinds';
 
 /** pg-boss calls used. All are supported public APIs of pg-boss 12; internal tables are never written. */
 export type RetryBossLike={

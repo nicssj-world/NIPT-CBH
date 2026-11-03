@@ -1,5 +1,7 @@
 import {it,expect,vi} from 'vitest';
 import {randomUUID} from 'node:crypto';
+import {writeFileSync,mkdirSync} from 'node:fs';
+import path from 'node:path';
 import {task3Fixture,halosWorkbook,signerSetup,approveInterpretation,recordPaperRequest,masters} from '../helpers/task3';
 import {previewHalosImport,decideHalosImport} from '../../packages/readygen/halos-import';
 import {reportCandidate,finalizeReports} from '../../packages/readygen/reports';
@@ -36,7 +38,10 @@ it('EQA follows the normal report pathway (no PET, no patient consent) and never
   // One authoritative certified PDF per EQA case, produced by the normal engine, with the card's identity and no EQA mark.
   for(const [c,name,hn] of [[eqaS,'Tonya POLSON','03NIPT26'],[eqaT,'Alessia ESPOSITO','07NIPT26']] as const){
    const ir=(await f.db.query<{pdf_sha256:string}>('SELECT pdf_sha256 FROM internal_report WHERE attempt_id=$1',[c.attemptId])).rows[0];
-   const text=(await pdfText(await f.store.get(ir.pdf_sha256))).text;
+   const pdfBytes=await f.store.get(ir.pdf_sha256);
+   // Owner review aid: NIPT_DUMP_EQA_PDF=<dir> writes the certified PDFs so the real content can be inspected. Off by default.
+   if(process.env.NIPT_DUMP_EQA_PDF)writeFileSync(path.join(process.env.NIPT_DUMP_EQA_PDF,'eqa-'+(c===eqaS?'singleton':'twins')+'.pdf'),pdfBytes);
+   const text=(await pdfText(pdfBytes)).text;
    expect(text).toContain(name);expect(text).toContain(hn);expect(text).toContain(c.printed);expect(text).toContain('17W 6D');
    expect(text).not.toMatch(/EQA|GenQA|EMQN|\$\{/i);
   }
