@@ -7,14 +7,14 @@ import {WorkerQueueActions} from '../../../../components/worker-queue-actions';
 import {STATUS_LABEL} from '../../../../components/worker-queue-labels';
 
 type Search={scope?:string;status?:string;page?:string;pageSize?:string};
-const SCOPES=[['OUTBOX','HIS Outbox'],['ARCHIVE','NAS PDF Archive'],['PGBOSS','pg-boss (อ่านอย่างเดียว)']] as const;
+const SCOPES=[['OUTBOX','HIS Outbox'],['HIS_TRANSFER','HIS Transfer'],['ARCHIVE','NAS PDF Archive'],['PGBOSS','pg-boss (อ่านอย่างเดียว)']] as const;
 const fmt=(v:string|Date)=>new Date(v).toLocaleString('th-TH',{timeZone:'Asia/Bangkok',calendar:'buddhist'});
 
 export default async function WorkerQueuePage({searchParams}:{searchParams:Promise<Search>}){
  const user=(await currentUser())!;
  if(!user.roles.includes('APP_ADMIN'))redirect('/');
  const q=await searchParams;
- const scope=SCOPES.some(s=>s[0]===q.scope)?q.scope as 'OUTBOX'|'ARCHIVE'|'PGBOSS':'OUTBOX';
+ const scope=SCOPES.some(s=>s[0]===q.scope)?q.scope as 'OUTBOX'|'ARCHIVE'|'HIS_TRANSFER'|'PGBOSS':'OUTBOX';
  const href=(o:Search)=>{const p=new URLSearchParams();for(const [k,v] of Object.entries({scope,...o}))if(v)p.set(k,String(v));return '/settings/worker-queue?'+p;};
  let content;
  if(scope==='PGBOSS'){
@@ -46,6 +46,7 @@ export default async function WorkerQueuePage({searchParams}:{searchParams:Promi
     </span>
    </nav>
    {scope==='OUTBOX'&&<p className="help">“ส่งเข้าคิวแล้ว” ไม่ได้หมายถึง HIS รับข้อมูลแล้ว ต้องดูใบรับ (สถานะ “เสร็จสิ้น”) เท่านั้น</p>}
+   {scope==='HIS_TRANSFER'&&<p className="help">การส่งผลไป HIS ไม่มีปุ่มเคลียร์ ระบบ Retry ให้เฉพาะสถานะ “รอลองใหม่” ส่วน “ต้องตรวจสอบปลายทาง” หรือ “ส่งแล้ว รอ HIS ยืนยัน” อาจถึง HIS แล้ว ระบบจะไม่ส่งซ้ำเอง ต้องตรวจกับ HIS ก่อน</p>}
    {scope==='ARCHIVE'&&<p className="help">ตรวจข้อผิดพลาดของ NAS เพิ่มเติมที่ <Link href="/settings/operations">งานผิดพลาด / PDF Audit</Link></p>}
   </>;
  }

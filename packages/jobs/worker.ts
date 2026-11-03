@@ -26,6 +26,7 @@ import {runP6Cycle} from '../p6/worker';
 import {runArchiveCycle,runArchiveProbeCycle} from '../results/archive-worker';
 import {createArchiveRunner} from '../results/archive-runner';
 import {applyQueueClearRequests} from './queue-clear-worker';
+import {applyQueueRetryRequests} from './queue-retry-worker';
 import {STAGE_JOB_KIND,runHistoricalJob} from '../historical/service';
 import {cancelObsoleteInboundScans,cancelObsoleteInboundScansAtStartup,withInboundConfigurationLease} from './obsolete-scans';
 export async function persistJobResult(db:Queryable,id:string,result:Record<string,unknown>){await db.query('INSERT INTO integration_job_receipt(outbox_id,result) VALUES($1,$2) ON CONFLICT DO NOTHING',[id,result]);const stored=(await db.query<{result:Record<string,unknown>}>('SELECT result FROM integration_job_receipt WHERE outbox_id=$1',[id])).rows[0];if(!stored)throw Error('JOB_RECEIPT_MISSING');return stored.result;}
@@ -49,6 +50,8 @@ export async function startWorker(){const url=process.env.DATABASE_URL||'';asser
   if(operationalDataEnabled()||process.env.NIPT_P6_SANDBOX_ENABLED==='yes')await runP6Cycle(pool());
   // Admin queue-clear requests are applied only here, by the Worker, with the pg-boss API for dispatched jobs.
   await withTransaction(client=>applyQueueClearRequests(client,boss));
+  // Retries run after clears so a cleared job is never retried; every refusal is recorded with its reason.
+  await withTransaction(client=>applyQueueRetryRequests(client,boss));
   await withTransaction(async client=>{await cancelObsoleteInboundScans(client);const rows=await client.query("SELECT id,kind FROM job_outbox WHERE state='Pending' ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 20");for(const row of rows.rows){if(!(JOB_KINDS as readonly string[]).includes(row.kind))throw Error('JOB_KIND_PROHIBITED');await boss.send(row.kind,{outboxId:row.id},{id:row.id,singletonKey:row.id,db:{executeSql:async(text,values)=>{const r=await client.query(text,values);return {rows:r.rows};}}});await client.query("UPDATE job_outbox SET state='Dispatched' WHERE id=$1",[row.id]);}});await heartbeat();}catch(e){lastError=e instanceof Error&&/^[A-Z0-9_]+$/.test(e.message)?e.message:'CYCLE_FAILED';await heartbeat();}finally{busy=false;}};
  const archiveRunner=createArchiveRunner(async()=>{try{await runArchiveProbeCycle(pool());await runArchiveCycle(pool(),store);}catch{process.stderr.write('ARCHIVE_CYCLE_FAILED\n');}});
  const archiveTimer=setInterval(()=>void archiveRunner.cycle(),10000);void archiveRunner.cycle();

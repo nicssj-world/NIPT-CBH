@@ -2,18 +2,20 @@
 import {useRef,useState} from 'react';
 import {useRouter} from 'next/navigation';
 import {csrf} from './p2/shared';
-import {STATUS_LABEL,CLEARABLE,statusTone} from './worker-queue-labels';
+import {STATUS_LABEL,CLEARABLE,RETRYABLE,statusTone} from './worker-queue-labels';
 
 
 type Row={id:string;kind:string;status:string};
-export function WorkerQueueActions({scope,rows,counts}:{scope:'OUTBOX'|'ARCHIVE';rows:Row[];counts:Record<string,number>}){
+export function WorkerQueueActions({scope,rows,counts}:{scope:'OUTBOX'|'ARCHIVE'|'HIS_TRANSFER';rows:Row[];counts:Record<string,number>}){
  const router=useRouter(),dialog=useRef<HTMLDialogElement>(null);
  const [selected,setSelected]=useState<string[]>([]);
  const [mode,setMode]=useState<'SELECTED'|'ALL'>('SELECTED');
  const [busy,setBusy]=useState(false),[message,setMessage]=useState<{ok:boolean;text:string}|null>(null);
- const clearable=rows.filter(r=>CLEARABLE.includes(r.status));
- const retryable=rows.filter(r=>scope==='ARCHIVE'&&r.status==='FAILED'&&selected.includes(r.id));
- const allCount=CLEARABLE.reduce((n,s)=>n+(counts[s]??0),0);
+ const canClear=scope!=='HIS_TRANSFER';   // a HIS transmission is never cleared from here
+ const clearable=canClear?rows.filter(r=>CLEARABLE.includes(r.status)):[];
+ const retryOk=(r:Row)=>RETRYABLE[scope].includes(r.status);
+ const retryable=rows.filter(r=>retryOk(r)&&selected.includes(r.id));
+ const allCount=canClear?CLEARABLE.reduce((n,s)=>n+(counts[s]??0),0):0;
  const toggle=(id:string)=>setSelected(s=>s.includes(id)?s.filter(x=>x!==id):[...s,id]);
  const open=(m:'SELECTED'|'ALL')=>{setMode(m);dialog.current?.showModal();};
  async function post(body:unknown,success:(r:Record<string,number>)=>string){
@@ -28,21 +30,22 @@ export function WorkerQueueActions({scope,rows,counts}:{scope:'OUTBOX'|'ARCHIVE'
  }
  const confirm=()=>post(mode==='ALL'?{action:'CLEAR_ALL',scope}:{action:'CLEAR_SELECTED',scope,ids:selected},
   r=>`บันทึกคำขอเคลียร์ ${r.requested} รายการ${r.alreadyRequested?` (มีคำขออยู่แล้ว ${r.alreadyRequested})`:''} — Worker จะตรวจแต่ละรายการและบันทึกผล ยังไม่ถือว่ายกเลิกสำเร็จจนกว่าสถานะจะเปลี่ยน`);
- const retry=()=>post({action:'RETRY_SELECTED',scope:'ARCHIVE',ids:retryable.map(r=>r.id)},
-  r=>`ขอให้ Worker ทดสอบ NAS ก่อน Retry ${r.requested} รายการ — ยังไม่ถือว่าจัดเก็บสำเร็จจนกว่า Worker ตรวจจริง`);
+ const retry=()=>post({action:'RETRY_SELECTED',scope,ids:retryable.map(r=>r.id)},
+  r=>scope==='ARCHIVE'?`ขอให้ Worker ทดสอบ NAS ก่อน Retry ${r.requested} รายการ — ยังไม่ถือว่าจัดเก็บสำเร็จจนกว่า Worker ตรวจจริง`
+   :`บันทึกคำขอ Retry ${r.requested} รายการ${r.alreadyRequested?` (มีคำขออยู่แล้ว ${r.alreadyRequested})`:''} — Worker จะตรวจก่อน และปฏิเสธหากอาจมีการส่งออกไปแล้ว`);
  const count=mode==='ALL'?allCount:selected.length;
  return <>
   <div className="row" role="toolbar" aria-label="จัดการคิว">
-   <button type="button" className="button secondary" disabled={busy||selected.length===0} onClick={()=>open('SELECTED')}>ขอเคลียร์ที่เลือก ({selected.length})</button>
-   <button type="button" className="button secondary" disabled={busy||allCount===0} onClick={()=>open('ALL')}>ขอเคลียร์ทั้งหมดในหมวดนี้ ({allCount})</button>
-   {scope==='ARCHIVE'&&<button type="button" className="button secondary" disabled={busy||retryable.length===0||retryable.length!==selected.length} onClick={()=>void retry()}>ตรวจ NAS แล้ว Retry ({retryable.length})</button>}
+   {canClear&&<button type="button" className="button secondary" disabled={busy||selected.length===0} onClick={()=>open('SELECTED')}>ขอเคลียร์ที่เลือก ({selected.length})</button>}
+   {canClear&&<button type="button" className="button secondary" disabled={busy||allCount===0} onClick={()=>open('ALL')}>ขอเคลียร์ทั้งหมดในหมวดนี้ ({allCount})</button>}
+   <button type="button" className="button secondary" disabled={busy||retryable.length===0||retryable.length!==selected.length} onClick={()=>void retry()}>{scope==='ARCHIVE'?'ตรวจ NAS แล้ว Retry':'Retry'} ({retryable.length})</button>
   </div>
   {message&&<p role="status" className={message.ok?'notice success':'notice'}>{message.text}</p>}
   <div className="table-wrap"><table className="table data-table">
    <caption className="sr-only">รายการงานในคิว</caption>
    <thead><tr><th scope="col"><span className="sr-only">เลือก</span></th><th scope="col">ประเภท</th><th scope="col">สถานะ</th><th scope="col">รหัสงาน</th></tr></thead>
    <tbody>{rows.length===0?<tr><td colSpan={4} className="muted">ไม่มีรายการตามตัวกรองนี้</td></tr>:rows.map(r=>{
-    const can=CLEARABLE.includes(r.status);
+    const can=(canClear&&CLEARABLE.includes(r.status))||retryOk(r);
     return <tr key={r.id}>
      <td><input type="checkbox" aria-label={`เลือกงาน ${r.id.slice(0,8)}`} disabled={busy||!can} checked={selected.includes(r.id)} onChange={()=>toggle(r.id)}/></td>
      <td>{r.kind}</td>
