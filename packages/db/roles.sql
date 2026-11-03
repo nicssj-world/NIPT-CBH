@@ -192,6 +192,7 @@ GRANT EXECUTE ON FUNCTION nipt_pg_boss_counts(),nipt_pg_boss_recent(integer) TO 
 
 -- v1.1.3 EQA (migration 183): classification is insert-only for web; the guards read it through SECURITY DEFINER functions.
 GRANT SELECT,INSERT ON eqa_case TO app_rw;
+GRANT UPDATE(surname,first_name,dob,ga_weeks,ga_days,collection_date,pregnancy,note) ON eqa_case TO app_rw;
 GRANT SELECT ON eqa_case TO worker_rw,report_ro;
 GRANT EXECUTE ON FUNCTION nipt_case_is_eqa(uuid),p6_release_eligible(uuid,integer) TO app_rw,worker_rw;
 

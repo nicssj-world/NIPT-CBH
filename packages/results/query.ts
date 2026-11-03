@@ -46,7 +46,7 @@ export function resultQuerySql(q:ResultQuery){
  else if(q.bucket!=='all')where.push(`v.state=ANY(${param(RESULT_BUCKETS[q.bucket])}::text[])`+(q.bucket==='blocked'||q.bucket==='pending'?` AND NOT ${reportedBefore}`:''));
  if(q.risk!=='ALL')where.push(`(${riskSql})=${param(q.risk)}`);
  // P5H reports have a different evidence/lifecycle contract and do not enter the live P5 queue/export.
- where.push("(v.case_id IS NULL OR EXISTS(SELECT 1 FROM nipt_case c WHERE c.id=v.case_id AND c.registration_origin<>'HISTORICAL'))");
+ where.push("(v.case_id IS NULL OR EXISTS(SELECT 1 FROM nipt_case c WHERE c.id=v.case_id AND c.registration_origin<>'HISTORICAL' AND NOT EXISTS(SELECT 1 FROM eqa_case eqa WHERE eqa.case_id=c.id)))");
  // Same FROM/WHERE for the exact total (filter parameters only: LIMIT/OFFSET are appended below).
  const countValues=[...values];
  const countText=`SELECT count(*)::text n FROM result_report_version v JOIN result_intake_file i ON i.id=v.intake_file_id LEFT JOIN specimen_round r ON r.id=v.round_id LEFT JOIN case_ln l ON l.id=r.case_ln_id WHERE ${where.join(' AND ')}`;

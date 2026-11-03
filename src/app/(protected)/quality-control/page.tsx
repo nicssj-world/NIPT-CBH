@@ -7,6 +7,7 @@ import {readEqaRegistry,readIqc} from "../../../../packages/eqa/registry";
 import {displayBeDateTime} from "../../../../packages/domain/thai-date";
 import {EqaRegisterForm} from "../../../components/quality-control/eqa-register-form";
 import {EqaDeleteButton} from "../../../components/quality-control/eqa-delete-button";
+import {NativeReports} from "../../../components/p5/native-reports";
 import {PdfActions} from "../../../components/quality-control/pdf-actions";
 
 type Search={tab?:string;q?:string;year?:string;page?:string;pageSize?:string;control?:string};
@@ -53,7 +54,8 @@ export default async function QualityControlPage({searchParams}:{searchParams:Pr
    <nav className="pager" aria-label="เลือกหน้า"><span className="pager-summary">หน้า {d.page}/{d.pages} · {d.total} รายการ</span>
     <span className="pager-buttons">{d.page>1&&<Link className="button secondary" href={href({q:d.q??"",year:d.year?String(d.year):"",page:String(d.page-1),pageSize:String(d.pageSize)})}>ก่อนหน้า</Link>}
      {d.page<d.pages&&<Link className="button secondary" href={href({q:d.q??"",year:d.year?String(d.year):"",page:String(d.page+1),pageSize:String(d.pageSize)})}>ถัดไป</Link>}</span></nav>
-   <p className="help">EQA ไม่ถูกส่งไป HIS ทุกกรณี รายงานเป็นไฟล์ PDF ภายในที่รับรองด้วยขั้นตอนเดียวกับผู้ป่วย การส่งให้ผู้จัด (GenQA/EMQN) ทำเองผ่านเว็บไซต์ของผู้จัด ระบบยังไม่บันทึกสถานะการส่งเพราะยังไม่มีหลักฐานที่ระบบตรวจสอบได้</p></>;
+   <p className="help">EQA ไม่ถูกส่งไป HIS ทุกกรณี รายงานเป็นไฟล์ PDF ภายในที่รับรองด้วยขั้นตอนเดียวกับผู้ป่วย การส่งให้ผู้จัด (GenQA/EMQN) ทำเองผ่านเว็บไซต์ของผู้จัด ระบบยังไม่บันทึกสถานะการส่งเพราะยังไม่มีหลักฐานที่ระบบตรวจสอบได้</p>
+   <NativeReports canImport={false} scope="EQA"/></>;
  }else{
   const d=await readIqc(pool(),user,{page:q.page,pageSize:q.pageSize,control:q.control});
   body=<>

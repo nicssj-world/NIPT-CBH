@@ -186,22 +186,23 @@ function ReportDialog({rows,onClose,onDone}:{rows:Row[];onClose:()=>void;onDone:
  </Dialog>;
 }
 
-export function NativeReports({canImport}:{canImport:boolean}){
+/** scope="EQA" is the Quality Control view: the same report worklist, only for EQA specimens (they are not shown on the Results page), without the HALOS import. */
+export function NativeReports({canImport,scope="PATIENT"}:{canImport:boolean;scope?:"PATIENT"|"EQA"}){
  const [q,setQ]=useState(""),[status,setStatus]=useState("ALL"),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50);
  const [data,setData]=useState<Worklist|null>(null),[loading,setLoading]=useState(false),[error,setError]=useState("");
  const [selected,setSelected]=useState<Set<string>>(new Set()),[dialog,setDialog]=useState<Row[]|null>(null);
  const seq=useRef(0);
- const load=useCallback(async()=>{const n=++seq.current;setLoading(true);try{const d=await labApi<Worklist>(`/api/task3/reports?q=${encodeURIComponent(q)}&status=${status}&page=${page}&pageSize=${pageSize}`);if(n===seq.current){setData(d);setError("");}}
-  catch(e){if(n===seq.current)setError(failureText(e));}finally{if(n===seq.current)setLoading(false);}},[q,status,page,pageSize]);
+ const load=useCallback(async()=>{const n=++seq.current;setLoading(true);try{const d=await labApi<Worklist>(`/api/task3/reports?q=${encodeURIComponent(q)}&status=${status}&page=${page}&pageSize=${pageSize}&scope=${scope}`);if(n===seq.current){setData(d);setError("");}}
+  catch(e){if(n===seq.current)setError(failureText(e));}finally{if(n===seq.current)setLoading(false);}},[q,status,page,pageSize,scope]);
  // Realtime search: typing filters after a short pause; no submit button needed.
  useEffect(()=>{const t=setTimeout(()=>{void load();},q?300:0);return()=>clearTimeout(t);},[load,q]);
  const ready=useMemo(()=>(data?.rows??[]).filter(r=>r.status==="READY"),[data]);
  const toggle=(id:string,on:boolean)=>setSelected(s=>{const n=new Set(s);if(on)n.add(id);else n.delete(id);return n;});
  return <section className="panel" aria-labelledby="native-h">
-  <h2 id="native-h">รายงานจากผล HALOS</h2>
+  <h2 id="native-h">{scope==="EQA"?"รายงาน EQA จากผล HALOS":"รายงานจากผล HALOS"}</h2>
   <p className="help t3-links">นำเข้าไฟล์ผลจาก HALOS แล้วออกรายงานตามแบบฟอร์มของโรงพยาบาล (FM-WI-T-BM-17-07 ครรภ์เดี่ยว / FM-WI-T-BM-17-08 ครรภ์แฝด) — หนึ่ง PDF ต่อผู้ป่วย ผ่านการตรวจรับและส่งผลชุดเดียวกับ PDF ภายนอก
    {" "}· <Link href="/results/signers">ผู้ลงนามรายงาน</Link></p>
-  {canImport&&<details className="t3-import" open={!data||(data.page.total===0)}><summary>นำเข้าไฟล์ผล HALOS</summary><HalosImport onConfirmed={()=>{setStatus("ALL");setPage(1);void load();}}/></details>}
+  {canImport&&scope==="PATIENT"&&<details className="t3-import" open={!data||(data.page.total===0)}><summary>นำเข้าไฟล์ผล HALOS</summary><HalosImport onConfirmed={()=>{setStatus("ALL");setPage(1);void load();}}/></details>}
   <form className="search-form t3-search" role="search" aria-label="ค้นหารายการออกรายงาน" onSubmit={e=>e.preventDefault()}>
    <div className="field"><label htmlFor="t3-q">ค้นหา LN / HN / LN Halos / รหัส HALOS</label><input id="t3-q" type="search" autoComplete="off" maxLength={40} value={q} onChange={e=>{setQ(e.target.value);setPage(1);}}/></div>
    {q&&<button type="button" className="button secondary" onClick={()=>{setQ("");setPage(1);}}>ล้างคำค้น</button>}

@@ -59,7 +59,7 @@ export const factsSql=`SELECT c.created_at "registeredAt",c.id,l.ln,i.hn,CASE WH
   ORDER BY older_round.round_number DESC LIMIT 1
  ) patient_history ON true
  LEFT JOIN LATERAL(SELECT x.id FROM analytical_attempt x WHERE x.round_id=r.id AND x.state<>'Cancelled' ORDER BY x.attempt_number DESC LIMIT 1) a ON true
- WHERE c.registration_origin IN ('ANC','LAB_DIRECT') AND r.state IS DISTINCT FROM 'Cancelled'
+ WHERE c.registration_origin IN ('ANC','LAB_DIRECT') AND r.state IS DISTINCT FROM 'Cancelled' AND NOT EXISTS(SELECT 1 FROM eqa_case eqa WHERE eqa.case_id=c.id)
  AND EXISTS(SELECT 1 FROM case_unit_scope s WHERE s.case_id=c.id AND s.unit_id=ANY($1::uuid[]))
  AND NOT EXISTS(SELECT 1 FROM p2_registration_void removed WHERE removed.case_id=c.id)`;
 

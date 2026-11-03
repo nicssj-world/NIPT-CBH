@@ -33,7 +33,8 @@ it('registers an EQA card, receives it without PET, issues a genuine LN Halos, a
   expect(by['BG-06']).toMatchObject({status:'PASS',reason:'EQA_REFERRAL_CARD'});
   expect(by['BG-07']).toMatchObject({status:'PASS'});
   // The classification and identity are immutable and nothing can be queued to HIS.
-  await expect(f.db.query("UPDATE eqa_case SET surname='X' WHERE case_id=$1",[r.caseId])).rejects.toThrow(/append-only/i);
+  // The registration identity stays append-only (owner 2026-11-03 allows only the basic data - name, DOB, GA, collection date, pregnancy, note - to be corrected, until a report exists).
+  await expect(f.db.query("UPDATE eqa_case SET sample_ref='X' WHERE case_id=$1",[r.caseId])).rejects.toThrow(/append-only/i);
   await expect(f.db.query("INSERT INTO job_outbox(kind,payload,idempotency_key) VALUES('result_release_completed',$1,'x1')",[JSON.stringify({caseId:r.caseId})])).rejects.toThrow(/EQA_NO_HIS_OUTBOUND/);
  }finally{await f.close();}
 });

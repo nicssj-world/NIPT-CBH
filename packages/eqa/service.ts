@@ -69,3 +69,38 @@ export async function deleteEqaRegistration(db:Queryable,user:Staff,raw:unknown)
  await appendAudit(db,{actorId:user.id,action:'EQA_REGISTRATION_DELETED',resourceType:'nipt_case',resourceId:d.caseId,details:{outcome:r.numberReusable?'NUMBER_REUSABLE':'NUMBER_GAP'}});
  return r;
 }
+
+const infoSchema=z.strictObject({
+ caseId:z.uuid(),
+ surname:text(120),firstName:text(120),
+ dob:isoDate,
+ gaWeeks:z.number().int().min(0).max(45),gaDays:z.number().int().min(0).max(6),
+ collectionDate:isoDate,
+ pregnancy:z.enum(['Singleton','Twins']),
+ note:z.union([text(200),z.literal('')]).optional()
+});
+type EqaInfoRow={surname:string;first_name:string;dob:string;ga_weeks:number;ga_days:number;collection_date:string;pregnancy:string;note:string|null;unit_id:string|null};
+/**
+ * Owner 2026-11-03: the basic data of an EQA specimen is typed on its own page and printed on the report. It can be corrected until a report exists
+ * (the database refuses afterwards). Each change is recorded on the case with the fields touched and the values before and after.
+ */
+export async function updateEqaInfo(db:Queryable,user:Staff,raw:unknown){
+ await assertSession(db,user);
+ const d=infoSchema.parse(raw);
+ const row=(await db.query<EqaInfoRow>(`SELECT e.surname,e.first_name,e.dob::text,e.ga_weeks,e.ga_days,e.collection_date::text,e.pregnancy,e.note,
+   (SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=e.case_id LIMIT 1) unit_id FROM eqa_case e WHERE e.case_id=$1 FOR UPDATE`,[d.caseId])).rows[0];
+ if(!row)throw new P2Error('EQA_NOT_FOUND',404);
+ if(!user.roles.includes('APP_ADMIN'))requirePermission(user,'case.register.lab',{unitId:row.unit_id??undefined,origin:'LAB_DIRECT'});
+ if(d.collectionDate>new Date().toISOString().slice(0,10))throw new P2Error('COLLECTION_DATE_FUTURE',422);
+ if((await db.query('SELECT 1 FROM result_report_version WHERE case_id=$1 LIMIT 1',[d.caseId])).rows.length)throw new P2Error('EQA_INFO_LOCKED_AFTER_REPORT',409);
+ const next={surname:d.surname,first_name:d.firstName,dob:d.dob,ga_weeks:d.gaWeeks,ga_days:d.gaDays,collection_date:d.collectionDate,pregnancy:d.pregnancy,note:d.note?d.note:null};
+ const before:Record<string,unknown>={},after:Record<string,unknown>={};
+ for(const key of Object.keys(next) as (keyof typeof next)[])if(String(row[key]??'')!==String(next[key]??'')){before[key]=row[key];after[key]=next[key];}
+ const changed=Object.keys(after);
+ if(!changed.length)return {changed:[] as string[]};
+ await db.query(`UPDATE eqa_case SET surname=$2,first_name=$3,dob=$4,ga_weeks=$5,ga_days=$6,collection_date=$7,pregnancy=$8,note=$9 WHERE case_id=$1`,
+  [d.caseId,next.surname,next.first_name,next.dob,next.ga_weeks,next.ga_days,next.collection_date,next.pregnancy,next.note]);
+ await db.query("INSERT INTO case_event(case_id,event_type,details) VALUES($1,'EQA_INFO_EDITED',$2)",[d.caseId,JSON.stringify({actorId:user.id,fields:changed,before,after})]);
+ await appendAudit(db,{actorId:user.id,action:'EQA_INFO_EDITED',resourceType:'nipt_case',resourceId:d.caseId,details:{outcome:'EDITED',count:changed.length}});
+ return {changed};
+}
