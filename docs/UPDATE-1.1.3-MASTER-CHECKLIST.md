@@ -64,7 +64,8 @@ Observations, not caused by this work: Next dev server logs 33 CSP "inline style
 |---|---|---|
 | ce9a477 + uncommitted results/archive edits | `tests/db`+`tests/unit`+`tests/permissions` | 1915 passed, 43 skipped, 0 failed (227 files) |
 | 64b6aae | same + 2 native Word contracts | 1928 passed, 34 skipped, 2 failed (migration-099/100 pinned-prefix fixtures lacked the new `eqa_case`); fixed in test scaffolding `pre-102.ts`, both pass |
-| final (see report) | full ESLint, db+unit+permissions+native contracts, native PostgreSQL | recorded in the final report |
+| 59e4e1f (final, clean tree) | full ESLint 0 problems; typecheck clean; tests/db+tests/unit+tests/permissions+task3-native-pathway+eqa-native-pathway-113 | 223 files passed, 8 skipped; 1932 tests passed, 34 skipped, 0 failed |
+| 59e4e1f | native PostgreSQL 17 (worker-queue-native, eqa-no-his-native, archive-native) | 3 files, 10/10 passed |
 
 ## Open items that block a Release GO
 - **HIS duplicate-transfer risk (Q9 / Q11):** in-flight HIS transmissions are only flagged, never reconciled; Worker restart recovery is untested. **EQA HIS bypass risk is closed by database guards and tests; keep it under review for any new outbound path.**
