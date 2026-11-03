@@ -59,8 +59,8 @@ function within1(a:string,b:string):boolean{
  return a.slice(i+1)===b.slice(i+1)||a.slice(i+1)===b.slice(i)||a.slice(i)===b.slice(i+1);
 }
 export type RegistryImportResult={names:number;registryDoctorsAdded:number;registryDoctorsExisting:number;namesMapped:number;mergedSpellings:number};
-/** The historical doctors become ordinary registry entries (p2_doctor_version): same page, search and edit as any doctor. No unit and no signature are invented, so
- *  an entry is listed but not selectable on a request until an administrator adds the signature. Spellings of one doctor that differ by at most one letter
+/** The historical doctors become ordinary registry entries (p2_doctor_version): same page, search and edit as any doctor. No unit and no signature are invented; a doctor without a signature is still selectable on a request (Owner 2026-11-03),
+ *  and an administrator may add the signature later. Spellings of one doctor that differ by at most one letter
  *  or mark map to the most frequently written spelling. Idempotent. */
 export async function registerHistoricalDoctors(db:Queryable,user:Staff):Promise<RegistryImportResult>{
  await assertSession(db,user);need(user,'doctor.manage','write');
