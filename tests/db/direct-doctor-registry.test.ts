@@ -44,3 +44,10 @@ it('validates bytes, MIME, image dimensions and base64 instead of trusting exten
  await expect(uploadedDoctorSignature({mime:'image/png',data:Buffer.from('<svg/>').toString('base64')})).rejects.toMatchObject({code:'SIGNATURE_IMAGE_INVALID'});
  const bomb=Buffer.from(fixture.png,'base64');bomb.writeUInt32BE(90000,16);await expect(uploadedDoctorSignature({mime:'image/png',data:bomb.toString('base64')})).rejects.toMatchObject({code:'SIGNATURE_IMAGE_SIZE'});
 });
+it('saves a doctor without a signature; the doctor is active and usable, and a later signature is an ordinary new version',async()=>{
+ const saved=await tx(()=>doctorAction(db,anc,{action:'save',doctorKey:'SYNTHETIC-NO-SIGNATURE',name:'SYNTHETIC Doctor Unsigned',unitId:unit}));
+ expect((await listDoctors(db,anc)).find(d=>'id' in d&&d.id===saved.id)).toMatchObject({active:true,has_signature:false});
+ expect(await activeDoctor(db,String(saved.id),unit)).toMatchObject({signature_png:null,signature_hash:null});
+ const signed=await tx(()=>doctorAction(db,anc,{action:'save',id:saved.id,doctorKey:'SYNTHETIC-NO-SIGNATURE',name:'SYNTHETIC Doctor Unsigned',unitId:unit,image:{mime:'image/png',data:fixture.png}}));
+ expect(signed.version).toBe(2);expect(await activeDoctor(db,String(signed.id),unit)).toMatchObject({signature_png:fixture.png});
+});
