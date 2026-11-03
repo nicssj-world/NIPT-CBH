@@ -43,7 +43,8 @@ describe('P5H bulk import — 47 cases in three steps (synthetic)',()=>{
   expect(v.rows[0].evaluation?.outcome).toBe('Submitted');
   expect(v.rows[0].completeness).toMatchObject({profile:'OD18_B_BALANCED',status:'COMPLETE'});
   expect(v.batch.issues).toEqual([]);
-  expect((await view(f,batch,f.maker)).rows.every(r=>!r.canVerify)).toBe(true);        // the importer can never be the second person
+  // owner 2026-11-03: nobody needs a second name - the person who staged the batch may confirm it too
+  expect((await view(f,batch,f.maker)).rows.every(r=>r.canVerify)).toBe(true);
   expect((await view(f,batch,f.verifier)).rows.every(r=>r.canVerify)).toBe(true);
   const key=randomUUID();
   const result=await confirmAll(f,batch,f.verifier,key);
