@@ -1,5 +1,9 @@
 import {expect,it} from 'vitest';
-import {nextInstalledJourneyPatientStart} from '../../tools/operational/journey-patient-range';
+import {INSTALLED_JOURNEY_SCAN_INTERVAL_SECONDS,nextInstalledJourneyPatientStart} from '../../tools/operational/journey-patient-range';
+
+it('leaves enough time for the installed worker to finish each inbound scan',()=>{
+ expect(INSTALLED_JOURNEY_SCAN_INTERVAL_SECONDS).toBeGreaterThanOrEqual(30);
+});
 
 it('selects the first unused 45-patient block for a repeat installed journey',()=>{
  expect(nextInstalledJourneyPatientStart([])).toBe(7701);

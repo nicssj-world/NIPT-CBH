@@ -11,6 +11,8 @@ import {lookbackFolders} from '../../packages/inbound/discovery';
 import {workerServiceAccount} from '../../packages/integrations/authorized-share';
 import {proposeSetting,approveSetting,activateSetting} from '../../packages/settings/service';
 import {requestHisTest} from '../../packages/settings/his';
+import {assertDatabaseMode} from '../../packages/db/connection';
+import {requestWorkerQueueClear} from '../../packages/jobs/queue-clear';
 import {SETTINGS} from '../../packages/settings/catalog';
 import {paperSchema,emptyRequest} from '../../packages/p2/schema';
 import {doctorAction} from '../../packages/p2/service';
@@ -23,6 +25,7 @@ import type {Principal} from '../../packages/security/policy';
 import type {PoolRow,Member} from '../../packages/pooling/service';
 import {MASTER_SHA256,SHEETS} from '../../packages/workbook/master';
 import {operationalTestPetBytes} from './test-pet-fixture';
+import {INSTALLED_JOURNEY_SCAN_INTERVAL_SECONDS} from './journey-patient-range';
 // The fixture transport accepts heterogeneous JSON endpoints; assertions validate the responses at each workflow step.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Context={workflowOnly?:boolean;anc?:boolean;patientStart?:number;localOutboundRoot?:string;db:Pool;base:string;inbound:string;policy:string;unit:string;lab:Page;certifier:Page;reviewer:Page;users:Record<string,Principal>;api:(page:Page,url:string,body?:unknown)=>Promise<any>;waitFor:(fn:()=>Promise<boolean>,label:string,timeout?:number)=>Promise<void>;events:string[];workerInboundRoot?:string;workerOutboundRoot?:string;workerServiceAccountName?:string};
@@ -49,8 +52,30 @@ export async function positiveJourney(c:Context){
  const workerInboundRoot=c.workerInboundRoot??inbound,workerOutboundRoot=c.workerOutboundRoot??outbound,serviceAccount=c.workerServiceAccountName??workerServiceAccount(),workerOutboundPath=(name:string)=>c.workerOutboundRoot?path.posix.join(workerOutboundRoot,name):path.join(outbound,name);
  await fs.writeFile(policy,JSON.stringify({version:1,grants:[{root:workerInboundRoot,purposes:['INBOUND'],serviceAccount,secretRef:null,mode:'operational'},{root:workerOutboundRoot,purposes:['OUTBOUND'],serviceAccount,secretRef:null,mode:'operational'}]}));
  await pet(patientIdentity(0),s1ReceivedTime);
- const config=await proposeSetting(db,users['test.admin'],'his_inbound',{...SETTINGS.his_inbound.default,enabled:true,basePath:workerInboundRoot,intervalSeconds:5},'LOCAL TEST policy only');
+ const config=await proposeSetting(db,users['test.admin'],'his_inbound',{...SETTINGS.his_inbound.default,enabled:true,basePath:workerInboundRoot,intervalSeconds:INSTALLED_JOURNEY_SCAN_INTERVAL_SECONDS},'LOCAL TEST policy only');
  const check=await requestHisTest(db,users['test.admin'],config);await waitFor(async()=>!!(await db.query('SELECT 1 FROM integration_job_receipt WHERE outbox_id=$1',[check.jobId])).rowCount,'INBOUND_TEST');await requestHisTest(db,users['test.admin'],config);await approveSetting(db,users['test.reviewer'],config);await activateSetting(db,users['test.reviewer'],config);
+ // Failed journeys can leave redundant interval scans ahead of this run. They only rediscover the same
+ // local PET directory, so ask the audited Worker to cancel jobs it proves have not started, then wait
+ // for active scans to finish before writing the next cohort.
+ for(let pass=0;pass<20;pass++){
+  const ids=(await db.query<{id:string}>(`SELECT j.id FROM job_outbox j
+   JOIN nipt_pg_boss_state_of(ARRAY(SELECT x.id FROM job_outbox x WHERE x.kind='synthetic_scan' AND x.state='Dispatched'
+    AND NOT EXISTS(SELECT 1 FROM integration_job_receipt r WHERE r.outbox_id=x.id))) b ON b.job_id=j.id
+   WHERE j.kind='synthetic_scan' AND j.state='Dispatched' AND b.job_state IN ('created','retry')
+   ORDER BY j.created_at,j.id LIMIT 300`)).rows.map(r=>r.id);
+  if(!ids.length)break;
+  const tx=await db.connect();try{
+   await tx.query('BEGIN');await tx.query('SELECT pg_advisory_xact_lock_shared(75432804)');await assertDatabaseMode(tx);
+   await requestWorkerQueueClear(tx,users['test.admin'],{action:'CLEAR_SELECTED',scope:'OUTBOX',ids});await tx.query('COMMIT');
+  }catch(error){await tx.query('ROLLBACK');throw error;}finally{tx.release();}
+  await waitFor(async()=>Number((await db.query(`SELECT count(*)::int n FROM worker_queue_clear_request q
+   LEFT JOIN worker_queue_clear_outcome o ON o.request_id=q.id WHERE q.scope='OUTBOX' AND q.job_id=ANY($1::uuid[]) AND o.request_id IS NULL`,[ids])).rows[0].n)===0,'STALE_SCAN_CLEAR',60000);
+ }
+ await waitFor(async()=>Number((await db.query(`SELECT count(*)::int n FROM job_outbox j
+  JOIN nipt_pg_boss_state_of(ARRAY(SELECT x.id FROM job_outbox x WHERE x.kind='synthetic_scan' AND x.state='Dispatched'
+   AND NOT EXISTS(SELECT 1 FROM integration_job_receipt r WHERE r.outbox_id=x.id))) b ON b.job_id=j.id
+  WHERE j.kind='synthetic_scan' AND j.state='Dispatched' AND b.job_state IN ('created','retry','active')`)).rows[0].n)===0,'STALE_SCAN_DRAIN',120000);
+ events.push('STALE_SYNTHETIC_SCANS_DRAINED');
  const out=await proposeSetting(db,users['test.admin'],'his_outbound',{...SETTINGS.his_outbound.default,enabled:true,target:'AUTHORIZED_SHARE',productionAuthorized:true,resDestinationPath:workerOutboundPath('res'),pdfDestinationPath:workerOutboundPath('pdf'),backupPath:workerOutboundPath('backup'),resProfile:{...syntheticProfile,syntheticOnly:false,version:'LOCAL-TEST-ONLY'},round2SpecimenDatePolicy:'CURRENT_ROUND',certifierHisMappings:{[users['test.certifier'].id]:'LOCALTEST^Test Certifier'},confirmationTimeoutSeconds:3600},'Disposable local operational test only');
  const outCheck=await requestHisTest(db,users['test.admin'],out);await waitFor(async()=>!!(await db.query('SELECT 1 FROM integration_job_receipt WHERE outbox_id=$1',[outCheck.jobId])).rowCount,'OUTBOUND_ACL_TEST');await requestHisTest(db,users['test.admin'],out);await approveSetting(db,users['test.reviewer'],out);await activateSetting(db,users['test.reviewer'],out);
  // Test doctor governance preparation uses existing maker/checker service; never a real person or signature.

@@ -1,4 +1,5 @@
 const FIRST_START=7701,STEP=100,COUNT=45,MAX_START=999901;
+export const INSTALLED_JOURNEY_SCAN_INTERVAL_SECONDS=30;
 
 /** Installed UAT persists synthetic evidence, so every rerun needs a fresh, non-overlapping patient block. */
 export function nextInstalledJourneyPatientStart(occupied:Iterable<number>,previouslyImported:Iterable<number>=[]){
