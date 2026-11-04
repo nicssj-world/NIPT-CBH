@@ -8,7 +8,7 @@ import {Pager} from "../../../../components/shared/pager";
 
 const STATE:Record<string,string>={Draft:"ร่าง",InPreparation:"เตรียมงาน",ExtractionLibrary:"Extraction/Library เสร็จ",QC1Complete:"QC1 บันทึกครบ",Cancelled:"ยกเลิก"};
 /** Bench progress is shown beside the Batch state; the state itself only follows the F2/F3 documents. */
-const benchProgress=(r:{pooling_recorded:boolean;seq_files_exported:boolean})=>r.seq_files_exported?"Pooling / Sequencing เสร็จ":r.pooling_recorded?"Pooling เสร็จ":null;
+const benchProgress=(r:{pooling_recorded:boolean;seq_files_exported:boolean})=>r.seq_files_exported?"ส่งออกไฟล์ Sequencing แล้ว":r.pooling_recorded?"บันทึก Pooling แล้ว":null;
 const SHEET:Record<string,string>={Draft:"ร่าง",PlanChecked:"ยืนยันแผน",PlacementFinalized:"ล็อกตำแหน่ง",PreWorkIssued:"ออกใบงาน",Amended:"แก้แผน",InExecution:"กำลังปฏิบัติ",ExecutionRecorded:"บันทึกจบ",ExecutionVerified:"ทวนสอบแล้ว",CompletedIssued:"เสร็จ",Cancelled:"ยกเลิก"};
 export default async function BatchesPage({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}){
  const sp=await searchParams,one=(k:string)=>{const v=sp[k];return Array.isArray(v)?v[0]:v;};

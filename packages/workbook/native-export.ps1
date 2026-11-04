@@ -48,9 +48,25 @@ try {
     if($selected -contains $index){$sheet.Select($true);$sheet.ExportAsFixedFormat(0,$target,0,$true,$false)}
     $formulaCount=0
     $formulaErrors=@()
-    foreach($cell in $sheet.UsedRange.Cells){
-      if($cell.HasFormula){$formulaCount++;if($cell.Text -match '^#(REF!|DIV/0!|VALUE!|N/A|NAME\?|NUM!|NULL!)$'){$formulaErrors+=@{cell=$cell.Address();error=$cell.Text}}}
-      [Runtime.InteropServices.Marshal]::FinalReleaseComObject($cell)|Out-Null
+    # Ask Excel for formula cells in one COM call. Visiting every formatted cell
+    # costs thousands of cross-process calls even when only one sheet is printed.
+    # Keep the formula count/error evidence for ALL six sheets as before.
+    $usedRange=$null
+    $formulaCells=$null
+    try {
+      $usedRange=$sheet.UsedRange
+      try {$formulaCells=$usedRange.SpecialCells(-4123)} # xlCellTypeFormulas
+      catch {
+        # Excel reports "No cells were found" as 0x800A03EC on a formula-free sheet.
+        if($_.Exception.GetBaseException().HResult -ne -2146827284){throw}
+      }
+      if($null -ne $formulaCells){foreach($cell in $formulaCells.Cells){
+        try {$formulaCount++;if($cell.Text -match '^#(REF!|DIV/0!|VALUE!|N/A|NAME\?|NUM!|NULL!)$'){$formulaErrors+=@{cell=$cell.Address();error=$cell.Text}}}
+        finally {[Runtime.InteropServices.Marshal]::FinalReleaseComObject($cell)|Out-Null}
+      }}
+    } finally {
+      if($null -ne $formulaCells){[Runtime.InteropServices.Marshal]::FinalReleaseComObject($formulaCells)|Out-Null}
+      if($null -ne $usedRange){[Runtime.InteropServices.Marshal]::FinalReleaseComObject($usedRange)|Out-Null}
     }
     $poolingCalculation=$null
     if($index -eq 5){$poolingCalculation=@{D52=$sheet.Range('D52').Value2;F52=$sheet.Range('F52').Value2;D55=$sheet.Range('D55').Value2;F52Formula=$sheet.Range('F52').Formula;D55Formula=$sheet.Range('D55').Formula}}
