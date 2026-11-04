@@ -3,13 +3,20 @@ import {existsSync,readFileSync} from 'node:fs';
 import {PDFDocument} from 'pdf-lib';
 import {getDocument} from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {readArchive,sha256} from '../../packages/workbook/archive';
-import {MASTER_SHA256,SHEETS} from '../../packages/workbook/master';
+import {generateTaskWorkbook,MASTER_SHA256,SHEETS} from '../../packages/workbook/master';
 import {buildDraftTaskWorkbook,renderDraftTaskPdf} from '../../packages/workbook/draft-preview';
 
 const masterPath=process.env.NIPT_TASK_MASTER_PATH??'.local/lab-owner-evidence/lab-combined-master.xlsx';
 const input={sheetNumber:1,runLabel:'Run999/2026',plan:{workDate:'18/10/2569',operator:'SYNTHETIC OPERATOR',extractionLot:'',extractionExpiry:'',libraryLot:'LOT-SYN',libraryExpiry:'20/10/2569'},rows:[{slot:1,printedId:'26N120261018-1'},{slot:2,printedId:'26B261018001-1'}],previewedAt:'2026-10-19T00:00:00Z',previewedBy:'synthetic-user'};
 
 describe.skipIf(!existsSync(masterPath))('native uncontrolled Task draft preview (external approved Master)',()=>{
+ it('retains the Master filename placeholder when no CSV filename has been entered',()=>{
+  const master=readFileSync(masterPath);
+  const before=readArchive(master).get('xl/worksheets/sheet5.xml')!.toString();
+  const after=readArchive(generateTaskWorkbook(master,{'pool.instrumentCsvFileStem':''}).bytes).get('xl/worksheets/sheet5.xml')!.toString();
+  const filenameCell=(xml:string)=>/<c\b[^>]*r="C20"[^>]*>[\s\S]*?<\/c>/.exec(xml)?.[0];
+  expect(filenameCell(after)).toBe(filenameCell(before));
+ });
  it('starts from the checked Master, fills live plan/slots, clears unknown inputs and retains the two-page print setup',()=>{
   const master=readFileSync(masterPath),out=buildDraftTaskWorkbook(master,input),parts=readArchive(out);
   expect(sha256(master)).toBe(MASTER_SHA256);

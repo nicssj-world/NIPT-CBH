@@ -61,7 +61,9 @@ try {
         if($_.Exception.GetBaseException().HResult -ne -2146827284){throw}
       }
       if($null -ne $formulaCells){foreach($cell in $formulaCells.Cells){
-        try {$formulaCount++;if($cell.Text -match '^#(REF!|DIV/0!|VALUE!|N/A|NAME\?|NUM!|NULL!)$'){$formulaErrors+=@{cell=$cell.Address();error=$cell.Text}}}
+        # SpecialCells includes the subordinate cells of a merged formula range.
+        # Only its formula-bearing anchor is evidence, as in the original scan.
+        try {if($cell.HasFormula){$formulaCount++;if($cell.Text -match '^#(REF!|DIV/0!|VALUE!|N/A|NAME\?|NUM!|NULL!)$'){$formulaErrors+=@{cell=$cell.Address();error=$cell.Text}}}}
         finally {[Runtime.InteropServices.Marshal]::FinalReleaseComObject($cell)|Out-Null}
       }}
     } finally {

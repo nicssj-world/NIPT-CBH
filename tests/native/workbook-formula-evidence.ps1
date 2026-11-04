@@ -24,6 +24,8 @@ try {
     $sheet.Range("B2:B$lastRow").Formula='=1+1'
     $sheet.Range('B3').Formula='=1/0'
     $sheet.Range('B4').Formula='=NA()'
+    # The approved Master contains merged formula cells, unlike a plain grid.
+    $sheet.Range('B2:D2').Merge()
    }
   } finally {[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($sheet)}
  }

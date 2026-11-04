@@ -91,6 +91,9 @@ export function generateTaskWorkbook(master: Buffer, values: Record<string,unkno
     let xml=original;
     for(const d of defs.filter(d=>d.sheet===SHEETS[sheet-1])) {
       const value=values[d.key]; if(value===undefined||value===null)continue;
+      // An unentered CSV name keeps the Master's instruction placeholder.
+      // Empty rich-text runs make Excel reject the entire generated workbook.
+      if(d.rendering==='filename'&&typeof value==='string'&&!value.trim())continue;
       const c=cells(xml).find(c=>c.ref===d.cell); if(!c||/<f\b/.test(c.body))throw new Error(`TASK_FIELD_PROTECTED:${d.key}`);
       let attrs=c.attrs.replace(/\s+t="[^"]*"/g,'');
       if(d.dataType==='text'&&!d.rendering&&String(value).length){const fitted=fitting.style(Number(/\bs="(\d+)"/.exec(attrs)?.[1]??0),/^task\.\d+\.(?:extractionLotExp|libraryLotExp)$/.test(d.key));attrs=/\bs="\d+"/.test(attrs)?attrs.replace(/\bs="\d+"/,`s="${fitted}"`):attrs+` s="${fitted}"`;}

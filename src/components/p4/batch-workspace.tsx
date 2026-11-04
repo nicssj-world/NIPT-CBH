@@ -12,6 +12,7 @@ import {PdfPreview} from "../shared/pdf-preview";
 import {LabelDialog} from "./label-dialog";
 import {LabIcon} from "../shared/lab-icons";
 import {gaBadge,type Ga} from "./ga-badge";
+import {batchStatusText} from "./batch-status";
 
 type Sheet={id:string;sheet_number:number;state:string;planned_work_date:string|null;planned_operator:string|null;planned_extraction_lot:string|null;planned_extraction_expiry:string|null;planned_library_lot:string|null;planned_library_expiry:string|null;placement_revision:number;plan_checked_at:string|null;execution_started_at:string|null;execution_ended_at:string|null;verified_at:string|null};
 type Slot={slot:number;sheet:number;plate:string;barcode:number;control:string|null;controlLabel:string|null;controlCode:string|null;assignment:null|{attemptId:string;roundId:string;caseId:string;roundNumber:number;hisLn:string;hn:string|null;lnHalos:string|null;labelCode:string|null;printedSampleId:string|null;attemptState:string;repeat:boolean;urgent:boolean;exceptional?:boolean;ga:Ga;labelPrints:number}};
@@ -20,7 +21,7 @@ type Obs={id:string;sheetId:string|null;slot:number|null;fieldId:string;item:str
 type Field={id:string;item:string;form:string;scope:string;kind:string;cls:string;label:string;source:string;sheets:number[]};
 type Disp={id:string;slot_number:number;stage:string;disposition:string;reason_code:string;note:string;proposer:string;proposed_by:string;confirmer:string|null;confirmed_at:string|null};
 type Copy={id:string;document_id:string;kind:string;copy_number:number|null;created_at:string;recalled_at:string|null;actor:string;document_status:string;doc_code:string;revision:number};
-export type Workspace={urgent40?:boolean;operational?:boolean;batch:{id:string;runLabel:string;state:string;version:number;templateVersion:string;formulaVersion:string;cancelReason:string|null};sheets:Sheet[];slots:Slot[];documents:Doc[];events:{event_type:string;sheet_number:number|null;reason:string|null;created_at:string;actor:string}[];snapshots:{id:string;sheet_number:number;revision:number;content_hash:string;created_at:string}[];
+export type Workspace={urgent40?:boolean;operational?:boolean;progress?:{pooling_recorded:boolean;seq_files_exported:boolean};batch:{id:string;runLabel:string;state:string;version:number;templateVersion:string;formulaVersion:string;cancelReason:string|null};sheets:Sheet[];slots:Slot[];documents:Doc[];events:{event_type:string;sheet_number:number|null;reason:string|null;created_at:string;actor:string}[];snapshots:{id:string;sheet_number:number;revision:number;content_hash:string;created_at:string}[];
  observations:Obs[];dispositions:Disp[];copies:Copy[];completeness:{sheet:number;ready:boolean;missingFields:{id:string;item:string;label:string}[];slots:{slot:number;status:string}[];open:number}[];policy:string;
  qc:{ready:boolean;rows:{slot:number;status:string;decision:string|null;observationId:string|null;attemptId:string|null}[];standards:({id:string;status:string}|null)[];operator:{id:string;status:string}|null};fields:Field[];criteria:{code:string;label:string}[];dispositionReasons:string[];
  allowed:{metadata?:boolean}&Record<"draft"|"assign"|"finalize"|"amend"|"unlock"|"execute"|"transcribe"|"verify"|"qcRecord"|"qcAccept"|"dispositionPropose"|"dispositionConfirm"|"recall"|"obsoletePrint"|"labels",boolean>};
@@ -31,7 +32,6 @@ const STEP_TEXT:Record<string,string>={Draft:"ร่างแผน",PlanChecked
 const OPERATIONAL_STATE:Record<string,string>={Draft:"ร่าง",PlanChecked:"ร่าง",PlacementFinalized:"พิมพ์แล้ว",Amended:"แก้ไขหลังพิมพ์",Cancelled:"ยกเลิก"};
 const EDITABLE=["Draft","PlanChecked","Amended"],STARTED=["InExecution","ExecutionRecorded","ExecutionVerified","CompletedIssued"];
 const DOC_STATUS:Record<string,string>={Issued:"มีผล",StopUse:"ระงับใช้",Superseded:"ถูกแทนที่",Cancelled:"ยกเลิก"};
-const BATCH_STATE:Record<string,string>={Draft:"ร่าง",InPreparation:"เตรียมงาน",ExtractionLibrary:"Extraction/Library เสร็จ",QC1Complete:"QC1 บันทึกครบ",Cancelled:"ยกเลิก"};
 const DISP_TEXT:Record<string,string>={MEASURED:"ทำแล้ว (ทวนสอบ)",REQUIRED_PENDING:"รอบันทึก",NOT_APPLICABLE:"ไม่มีตัวอย่าง",NOT_PERFORMED:"ไม่ได้ทำ",EXCLUDED:"ถอดออก",STOPPED:"หยุด",AWAITING_DECISION:"รอตัดสิน QC1"};
 const OUTCOME:Record<string,string>={WITHIN:"อยู่ในช่วง",BELOW_MIN:"ต่ำกว่าช่วง",ABOVE_MAX:"สูงกว่าช่วง",NOT_APPLICABLE:"ไม่ใช้กับแถวนี้"};
 /** Non-blocking server warnings (records.ts) that must be shown, never swallowed (RC7). */
@@ -103,7 +103,7 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
  const finalizedAny=w.sheets.some(s=>s.placement_revision>0&&s.state!=="Cancelled"&&!EDITABLE.includes(s.state));
  const qcOpen=w.sheets.some(s=>["ExecutionRecorded","ExecutionVerified","CompletedIssued"].includes(s.state));
  return <>
-  <header className="page-header"><div><p className="muted"><Link href="/lab/batches">Batch / Task List</Link></p><h1>{w.batch.runLabel}</h1><p className="muted">สถานะ Batch: <strong>{BATCH_STATE[w.batch.state]??w.batch.state}</strong> · ฉบับ {w.batch.version}{!w.operational&&<> · Template {w.batch.templateVersion} · Formula {w.batch.formulaVersion}</>}</p></div>
+  <header className="page-header"><div><p className="muted"><Link href="/lab/batches">Batch / Task List</Link></p><h1>{w.batch.runLabel}</h1><p className="muted">สถานะ Batch: <strong>{batchStatusText({...w.batch,...w.progress})}</strong> · ฉบับ {w.batch.version}{!w.operational&&<> · Template {w.batch.templateVersion} · Formula {w.batch.formulaVersion}</>}</p></div>
    {w.batch.state!=="Cancelled"&&(w.allowed.draft||w.allowed.unlock)&&<button className="button danger-outline icon-only" type="button" aria-label={`ลบ / ยกเลิก ${w.batch.runLabel}`} title="ลบ / ยกเลิก Batch" onClick={()=>setDialog({type:"cancel"})}><LabIcon name="trash" size={22}/></button>}</header>
   {w.batch.cancelReason&&<p className="notice" role="note">Batch ถูกยกเลิก: {w.batch.cancelReason}</p>}
   <nav className="action-bar" aria-label="งานประจำ Run">{w.operational&&<><Link className="button" href={`/lab/batches/${w.batch.id}/bench`}>QC Measurements</Link><Link className="button secondary" href={`/lab/batches/${w.batch.id}/pooling`}>Pooling / QC2 / F4</Link><Link className="button secondary" href={`/lab/batches/${w.batch.id}/sequencing`}>DNB / Sequencing / F5</Link></>}<Link className="button secondary" href={`/lab/batches/${w.batch.id}/workbook`}>ใบงาน Excel / PDF</Link></nav>
