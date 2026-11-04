@@ -71,10 +71,13 @@ export async function positiveJourney(c:Context){
   await waitFor(async()=>Number((await db.query(`SELECT count(*)::int n FROM worker_queue_clear_request q
    LEFT JOIN worker_queue_clear_outcome o ON o.request_id=q.id WHERE q.scope='OUTBOX' AND q.job_id=ANY($1::uuid[]) AND o.request_id IS NULL`,[ids])).rows[0].n)===0,'STALE_SCAN_CLEAR',60000);
  }
+ // A configuration change marks superseded scans Cancelled in the outbox, but their pg-boss jobs stay queued ahead of the
+ // new interval scans until the Worker reaches them, so the drain must watch the queue and not only Dispatched rows.
  await waitFor(async()=>Number((await db.query(`SELECT count(*)::int n FROM job_outbox j
-  JOIN nipt_pg_boss_state_of(ARRAY(SELECT x.id FROM job_outbox x WHERE x.kind='synthetic_scan' AND x.state='Dispatched'
-   AND NOT EXISTS(SELECT 1 FROM integration_job_receipt r WHERE r.outbox_id=x.id))) b ON b.job_id=j.id
-  WHERE j.kind='synthetic_scan' AND j.state='Dispatched' AND b.job_state IN ('created','retry','active')`)).rows[0].n)===0,'STALE_SCAN_DRAIN',120000);
+  JOIN nipt_pg_boss_state_of(ARRAY(SELECT x.id FROM job_outbox x WHERE x.kind='synthetic_scan' AND x.state IN ('Dispatched','Cancelled')
+   AND x.created_at>now()-interval '1 day' AND NOT EXISTS(SELECT 1 FROM integration_job_receipt r WHERE r.outbox_id=x.id)
+   ORDER BY x.created_at DESC LIMIT 4000)) b ON b.job_id=j.id
+  WHERE j.kind='synthetic_scan' AND j.state IN ('Dispatched','Cancelled') AND b.job_state IN ('created','retry','active')`)).rows[0].n)===0,'STALE_SCAN_DRAIN',600000);
  events.push('STALE_SYNTHETIC_SCANS_DRAINED');
  const out=await proposeSetting(db,users['test.admin'],'his_outbound',{...SETTINGS.his_outbound.default,enabled:true,target:'AUTHORIZED_SHARE',productionAuthorized:true,resDestinationPath:workerOutboundPath('res'),pdfDestinationPath:workerOutboundPath('pdf'),backupPath:workerOutboundPath('backup'),resProfile:{...syntheticProfile,syntheticOnly:false,version:'LOCAL-TEST-ONLY'},round2SpecimenDatePolicy:'CURRENT_ROUND',certifierHisMappings:{[users['test.certifier'].id]:'LOCALTEST^Test Certifier'},confirmationTimeoutSeconds:3600},'Disposable local operational test only');
  const outCheck=await requestHisTest(db,users['test.admin'],out);await waitFor(async()=>!!(await db.query('SELECT 1 FROM integration_job_receipt WHERE outbox_id=$1',[outCheck.jobId])).rowCount,'OUTBOUND_ACL_TEST');await requestHisTest(db,users['test.admin'],out);await approveSetting(db,users['test.reviewer'],out);await activateSetting(db,users['test.reviewer'],out);
