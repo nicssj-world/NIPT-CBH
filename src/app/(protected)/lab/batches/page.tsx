@@ -7,6 +7,8 @@ import {CreateBatchButton} from "../../../../components/p4/create-batch";
 import {Pager} from "../../../../components/shared/pager";
 
 const STATE:Record<string,string>={Draft:"ร่าง",InPreparation:"เตรียมงาน",ExtractionLibrary:"Extraction/Library เสร็จ",QC1Complete:"QC1 บันทึกครบ",Cancelled:"ยกเลิก"};
+/** Bench progress is shown beside the Batch state; the state itself only follows the F2/F3 documents. */
+const benchProgress=(r:{pooling_recorded:boolean;seq_files_exported:boolean})=>r.seq_files_exported?"Pooling / Sequencing เสร็จ":r.pooling_recorded?"Pooling เสร็จ":null;
 const SHEET:Record<string,string>={Draft:"ร่าง",PlanChecked:"ยืนยันแผน",PlacementFinalized:"ล็อกตำแหน่ง",PreWorkIssued:"ออกใบงาน",Amended:"แก้แผน",InExecution:"กำลังปฏิบัติ",ExecutionRecorded:"บันทึกจบ",ExecutionVerified:"ทวนสอบแล้ว",CompletedIssued:"เสร็จ",Cancelled:"ยกเลิก"};
 export default async function BatchesPage({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}){
  const sp=await searchParams,one=(k:string)=>{const v=sp[k];return Array.isArray(v)?v[0]:v;};
@@ -25,7 +27,7 @@ export default async function BatchesPage({searchParams}:{searchParams:Promise<R
     <thead><tr><th scope="col">Run</th><th scope="col">สถานะ</th><th scope="col">ตัวอย่าง</th><th scope="col">รายละเอียด / Task List 1–3</th><th scope="col">สร้างเมื่อ</th></tr></thead>
     <tbody>{rows.map(r=><tr key={r.source+":"+r.run_label}>
      <td><Link className="mono strong" href={r.source==="HISTORICAL"?`/lab/historical-runs/${r.run_label.replace("/","-")}`:`/lab/batches/${r.id}`}>{r.run_label}</Link></td>
-     <td>{r.source==="HISTORICAL"?<span className="badge">ย้อนหลัง · อ่านอย่างเดียว</span>:<span className="badge">{STATE[r.state]??r.state}</span>}</td>
+     <td>{r.source==="HISTORICAL"?<span className="badge">ย้อนหลัง · อ่านอย่างเดียว</span>:<><span className="badge">{STATE[r.state]??r.state}</span>{benchProgress(r)&&<> <span className="badge">{benchProgress(r)}</span></>}</>}</td>
      <td>{r.samples}</td>
      <td>{r.source==="HISTORICAL"?`Control ${r.controls} · ตรวจซ้ำ ${r.technical_repeats} · มี PDF ${r.with_pdf}`:r.sheet_states.map(s=>SHEET[s]??s).join(" / ")}</td>
      <td>{r.created_at?new Date(r.created_at).toLocaleString("th-TH",{timeZone:"Asia/Bangkok",dateStyle:"short",timeStyle:"short"}):"—"}</td>

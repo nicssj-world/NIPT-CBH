@@ -61,7 +61,10 @@ export async function listUnifiedRunPage(db:Queryable,user:Staff,input:{q?:strin
     b.created_at,
     (SELECT count(*) FROM lab_slot_assignment a WHERE a.batch_id=b.id AND a.removed_at IS NULL)::int samples,
     ARRAY(SELECT t.state FROM lab_task_sheet t WHERE t.batch_id=b.id ORDER BY t.sheet_number) sheet_states,
-    0::int controls,0::int technical_repeats,0::int with_pdf
+    0::int controls,0::int technical_repeats,0::int with_pdf,
+    -- The bench (QC / Pooling / Sequencing) records on its own worksheet and never moves lab_batch.state, so the list reads it directly.
+    COALESCE((SELECT lab_actual_pooling_current(p.id) FROM lab_actual_pooling p WHERE p.batch_id=b.id AND p.note<>'AUTO_RECORDED_FROM_SAVED_TASK_AT_EXPORT' ORDER BY p.recorded_at DESC,p.id DESC LIMIT 1),false) pooling_recorded,
+    EXISTS(SELECT 1 FROM lab_bench_export e WHERE e.batch_id=b.id AND e.kind='HALOS_TASK_XLSX') seq_files_exported
   FROM lab_batch b WHERE NOT EXISTS (SELECT 1 FROM lab_batch_removal d WHERE d.batch_id=b.id) ${releaseColumn?"AND b.run_released_at IS NULL":""}
   UNION ALL
   SELECT h.run_label,h.run_year,h.run_number,NULL::uuid,'HISTORICAL'::text,'Historical'::text,
@@ -70,14 +73,15 @@ export async function listUnifiedRunPage(db:Queryable,user:Staff,input:{q?:strin
     ARRAY[]::text[],
     (SELECT count(*) FROM migration_analysis a WHERE a.run_label=h.run_label AND a.sheet IN ('result','repeat') AND a.classification='CONTROL')::int,
     (SELECT count(*) FROM migration_analysis a WHERE a.run_label=h.run_label AND a.sheet='repeat')::int,
-    (SELECT count(DISTINCT m.id) FROM migration_analysis a JOIN migration_record m ON m.id=a.record_id JOIN historical_reported_result r ON r.record_id=m.id WHERE a.run_label=h.run_label AND a.sheet='result')::int
+    (SELECT count(DISTINCT m.id) FROM migration_analysis a JOIN migration_record m ON m.id=a.record_id JOIN historical_reported_result r ON r.record_id=m.id WHERE a.run_label=h.run_label AND a.sheet='result')::int,
+    false,false
   FROM migration_historical_run h
  ) SELECT * FROM combined WHERE ($1::text='' OR strpos(lower(run_label),$1)>0)`;
  const total=Number((await db.query<{n:string}>(`SELECT count(*)::text n FROM (${base}) filtered`,[q])).rows[0]?.n??0);
  const totalPages=Math.max(1,Math.ceil(total/size));
  const number=Math.min(pageRequested,totalPages);
  const offset=(number-1)*size;
- type Unified={run_label:string;run_year:number;run_number:number;id:string|null;source:'CURRENT'|'HISTORICAL';state:string;created_at:Date|null;samples:number;sheet_states:string[];controls:number;technical_repeats:number;with_pdf:number};
+ type Unified={run_label:string;run_year:number;run_number:number;id:string|null;source:'CURRENT'|'HISTORICAL';state:string;created_at:Date|null;samples:number;sheet_states:string[];controls:number;technical_repeats:number;with_pdf:number;pooling_recorded:boolean;seq_files_exported:boolean};
  const rows=(await db.query<Unified>(`${base} ORDER BY run_year DESC,run_number DESC,CASE source WHEN 'CURRENT' THEN 0 ELSE 1 END,run_label DESC LIMIT $2 OFFSET $3`,[q,size,offset])).rows;
  return {rows,page:{number,size,total,totalPages}};
 }
