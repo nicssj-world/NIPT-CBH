@@ -15,7 +15,7 @@ import {parseReport,isNoCallReport} from '../results/parser';
 import {roundRequest,registerInternalVersion,acceptInternalAndRelease} from '../results/service';
 import {writeArchive,sha256} from '../workbook/archive';
 import {interpretRow,productCodeOf,halosGaDays,TEMPLATES,RULESET,RULESET_SHA256,type Interpretation,type Hold} from './interpretation';
-import {resolveSample} from './halos-import';
+import {isReportablePatientEvidence} from './halos-import';
 import {fillReport,DocxError,type ReportValues,type SignerSlot} from './docx';
 import {renderDocxBatch,type RenderedPdf} from './native-word';
 import {activeTemplate} from './template-active';
@@ -89,10 +89,7 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  const eqa=(await db.query<{surname:string;first_name:string;dob:string;sample_ref:string;ga_weeks:number;ga_days:number;collection_date:string;received_at:Date|null}>(
   `SELECT e.surname,e.first_name,e.dob::text,e.sample_ref,e.ga_weeks,e.ga_days,e.collection_date::text,r.received_at FROM eqa_case e JOIN specimen_round r ON r.id=e.round_id WHERE e.case_id=$1`,[s.case_id])).rows[0]??null;
  if(s.import_state!=='Confirmed')h('HALOS_IMPORT_NOT_CONFIRMED');
- if(s.classification!=='PATIENT')h('ROW_NOT_REPORTABLE',{raw:`${s.classification}/${s.reason}`});
- // The frozen export is re-resolved now: a later re-pooling, new attempt or batch change makes an earlier import stale.
- const now=await resolveSample(db,s.sample_key);
- if(now.classification!=='PATIENT'||now.attemptId!==s.attempt_id)h('MATCH_CHANGED_SINCE_IMPORT',{raw:`${now.classification}/${now.reason}`});
+ if(!isReportablePatientEvidence({classification:s.classification,attemptId:s.attempt_id,roundId:s.round_id,caseId:s.case_id}))h('ROW_NOT_REPORTABLE',{raw:`${s.classification}/${s.reason}`});
  if(s.newer_row)h('NEWER_HALOS_RESULT_EXISTS');
  if(s.printed_sample_id!==s.sample_key)h('SAMPLE_ID_DIFFERS_FROM_ATTEMPT_PRINTED_ID',{raw:s.printed_sample_id??'(none)'});
  // Owner Task 1 decision 2: a No Call is reported in the SAME normal master with an explicit "Result = No Call"; it is never interpreted.
@@ -336,7 +333,7 @@ export async function reportWorklist(db:Queryable,user:Staff,deps:ReportDeps,inp
  const out:{status:WorklistStatus;[key:string]:unknown}[]=[];
  for(const r of rows){
   let status:WorklistStatus,holds:Hold[]=[],template=r.template_kind;
-  if(r.classification!=='PATIENT')status='NOT_REPORTABLE';
+  if(!isReportablePatientEvidence({classification:r.classification,attemptId:r.attempt_id,roundId:r.round_id,caseId:r.case_id}))status='NOT_REPORTABLE';
   else if(r.release_id)status='RELEASED';
   else if(r.internal_state==='Final')status='FINAL';
   else{const p=await prepareReport(db,user,deps,{rowId:r.row_id}).catch(e=>{if(e instanceof LabError)return null;throw e;});holds=p?.holds??[{code:'ROW_NOT_AVAILABLE'}];template=p?.template??null;status=holds.length?'HOLD':'READY';}

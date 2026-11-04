@@ -73,7 +73,7 @@ export async function batchDetail(db:Queryable,user:Staff,batchId:string){
  const identities=new Map((await db.query<{case_id:string;hn:string}>('SELECT case_id,hn FROM p2_case_identity WHERE case_id=ANY($1::uuid[])',[facts.map(f=>f.case_id)])).rows.map(i=>[i.case_id,i.hn]));
  const urgent40=(await db.query<{enabled:boolean}>('SELECT lab_urgent40_enabled($1) enabled',[b.id])).rows[0].enabled;
  const frozen=(await db.query<{payload:PlacementPayload}>(`SELECT DISTINCT ON(sheet_id) payload FROM lab_placement_snapshot WHERE batch_id=$1 ORDER BY sheet_id,revision DESC`,[b.id])).rows.flatMap(p=>p.payload.slots);
- const slots:SlotView[]=Array.from({length:48},(_,i)=>{const slot=i+1,sheet=getSheetNumber(slot),control=slot===40&&urgent40?null:controlTypeOf(slot),f=bySlot.get(slot),date=sheets[sheet-1].planned_work_date;
+ const slots:SlotView[]=Array.from({length:48},(_,i)=>{const slot=i+1,sheet=getSheetNumber(slot),f=bySlot.get(slot),control=slot===40&&urgent40&&f?null:controlTypeOf(slot),date=sheets[sheet-1].planned_work_date;
   return {slot,sheet,plate:getPlatePosition(slot),barcode:slot,control,controlLabel:control?CONTROL_LABEL[control]:null,controlCode:control?(frozen.find(s=>s.slot===slot)?.printedControlId??(date?formatPrintedControlId(control,date):null)):null,
    assignment:f&&caseVisible(user,f)?{attemptId:f.attempt_id,caseId:f.case_id,roundId:f.round_id,roundNumber:f.round_number,hisLn:f.ln,hn:identities.get(f.case_id)??null,lnHalos:f.ln_halos,labelCode:f.migration_original_ln_halos??(f.ln_halos?specimenDisplayCode(f.ln_halos,f.pregnancy,f.ln_halos_resampling):f.ln_halos),printedSampleId:f.printed_sample_id,attemptState:f.attempt_state,outcomeStatus:f.no_call_selected?'รอรับ PDF No Call':f.overall_ordinal>=4&&f.attempt_state==='QcFailed'?'รอพิจารณาหลังครบ 4 ครั้ง':null,overallOrdinal:f.overall_ordinal,attemptNumber:f.attempt_number,exceptional:f.overall_ordinal>=5,repeat:f.repeat_order_id!==null,urgent:f.urgent,ga:gestationalAge(f),labelPrints:f.label_prints}:null};});
  const documents=(await db.query('SELECT d.id,d.form,d.kind,d.revision,d.doc_code,d.status,d.status_reason,d.file_sha256,d.issued_at,u.display_name issued_by,t.sheet_number,(SELECT count(*) FROM lab_document_copy c WHERE c.document_id=d.id AND c.kind=\'WORKING_COPY\')::int working_copies,(SELECT count(*) FROM lab_document_copy c WHERE c.document_id=d.id AND c.kind=\'WORKING_COPY\' AND c.recalled_at IS NULL)::int unrecalled FROM lab_document d JOIN app_user u ON u.id=d.issued_by LEFT JOIN lab_task_sheet t ON t.id=d.sheet_id WHERE d.batch_id=$1 ORDER BY d.issued_at',[b.id])).rows;
@@ -309,7 +309,7 @@ export async function finalizeSheet(db:Queryable,user:Staff,input:unknown){
  const payload={synthetic:true,batchId:b.id,runLabel:b.run_label,sheetNumber:d.sheetNumber,placementRevision:revision,templateVersion:b.template_version,formulaVersion:b.formula_version,
   plan:{workDate:date,operator:s.planned_operator,extractionLot:s.planned_extraction_lot,extractionExpiry:s.planned_extraction_expiry,libraryLot:s.planned_library_lot,libraryExpiry:s.planned_library_expiry},
   planCheck:{by:users.get(s.plan_checked_by!)??null,at:s.plan_checked_at?.toISOString()??null},finalizedBy:users.get(user.id),gate:{ruleVersion:GATE_RULE_VERSION,policy,pendingAccepted:[...new Set(results.flatMap(x=>x.g.syntheticPendingAccepted?x.g.pending:[]))]},
-  slots:Array.from({length:16},(_,i)=>{const slot=lo+i,control=slot===40&&urgent40?null:controlTypeOf(slot),x=bySlot.get(slot);
+  slots:Array.from({length:16},(_,i)=>{const slot=lo+i,x=bySlot.get(slot),control=slot===40&&urgent40&&x?null:controlTypeOf(slot);
    return {slot,plate:getPlatePosition(slot),barcode:slot,control,controlCode:control?formatControlCode(control,date):null,printedControlId:control?formatPrintedControlId(control,date):null,
     attemptId:x?.f.attempt_id??null,caseId:x?.f.case_id??null,roundId:x?.f.round_id??null,roundNumber:x?.f.round_number??null,lnHalos:x&&x.f.ln_halos&&x.f.pregnancy?effectiveLnHalos(x.f.ln_halos,x.f.pregnancy):null,printedSampleId:x?.f.printed_sample_id??null,overallOrdinal:x?.f.overall_ordinal??null,exceptional:(x?.f.overall_ordinal??0)>=5,repeat:x?x.f.repeat_order_id!==null:false};})};
  if(payload.slots.some(x=>x.attemptId&&!x.printedSampleId))throw new LabError('PRINTED_ID_MISSING',409);
@@ -423,7 +423,7 @@ export async function deleteEmptyDraft(db:Queryable,user:Staff,input:unknown){
 export async function setUrgentSlot40(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'batch.draft');
  const d=z.strictObject({batchId:uuid,expectedVersion:z.number().int().min(0),enabled:z.boolean()}).parse(input),b=await lockBatch(db,d.batchId,d.expectedVersion);
- const s=await sheetOf(db,b.id,3);if(!EDITABLE.includes(s.state)||s.placement_revision)throw new LabError('SLOT40_MODE_LOCKED',409);
+ const s=await sheetOf(db,b.id,3);if(!placementEditable(s))throw new LabError('SLOT40_MODE_LOCKED',409);
  if(await liveAssignment(db,b.id,40))throw new LabError('SLOT40_MODE_LOCKED',409);
  await db.query('INSERT INTO lab_slot40_mode(batch_id,enabled,actor_id) VALUES($1,$2,$3)',[b.id,d.enabled,user.id]);
  const version=await touch(db,b.id,[3]);await batchEvent(db,user,b.id,'SLOT40_MODE_CHANGED',3,null,{urgentPatient:d.enabled});return {version};

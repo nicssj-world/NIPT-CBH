@@ -10,6 +10,11 @@ import {readHalosWorkbook,HalosAdapterError,type HalosRow,type HalosIssue} from 
 export const HALOS_MAX_BYTES=8*1024*1024;
 type Resolution={classification:'PATIENT'|'CONTROL'|'UNMATCHED'|'AMBIGUOUS'|'STALE_EXPORT'|'SUPERSEDED_ATTEMPT';reason:string;
  attemptId:string|null;roundId:string|null;caseId:string|null;exportKind:'LAB_SEQ_EXPORT_PAIR'|'P4B_HALOS_EXPORT'|null;exportId:string|null;mapping:Record<string,unknown>|null;vendorSampleId:string|null};
+type PatientIdentity={classification:string;attemptId:string|null;roundId:string|null;caseId:string|null};
+/** The paired frozen NIFTY/HALOS export is the identity evidence; later bench state does not invalidate a completed analysis. */
+export function isReportablePatientEvidence(value:PatientIdentity){
+ return ['PATIENT','STALE_EXPORT'].includes(value.classification)&&!!value.attemptId&&!!value.roundId&&!!value.caseId;
+}
 type Candidate={exportKind:'LAB_SEQ_EXPORT_PAIR'|'P4B_HALOS_EXPORT';exportId:string;createdAt:Date;current:boolean;entry:{attemptId:string|null;roundId:string|null;caseId:string|null;physicalSlot:number|null};vendorSampleId:string|null;batchId:string|null};
 const CONTROL_ID=/^\d{2}N\d/;
 async function candidatesFor(db:Queryable,key:string):Promise<Candidate[]>{
@@ -38,7 +43,6 @@ export async function resolveSample(db:Queryable,key:string):Promise<Resolution>
  const chosen=[...found].sort((a,b)=>Number(b.current)-Number(a.current)||b.createdAt.getTime()-a.createdAt.getTime())[0];
  const base={exportKind:chosen.exportKind,exportId:chosen.exportId,vendorSampleId:chosen.vendorSampleId,mapping:{...chosen.entry,exportKind:chosen.exportKind,exportId:chosen.exportId,batchId:chosen.batchId,vendorSampleId:chosen.vendorSampleId}};
  if(!chosen.entry.attemptId)return {...base,attemptId:null,roundId:null,caseId:null,classification:'CONTROL',reason:'EXPORT_CONTROL_POSITION'};
- if(!chosen.current)return {...base,attemptId:chosen.entry.attemptId,roundId:chosen.entry.roundId,caseId:chosen.entry.caseId,classification:'STALE_EXPORT',reason:'EXPORT_POOLING_NO_LONGER_CURRENT'};
  const a=(await db.query<{state:string;latest:boolean;current_round:boolean;removed:boolean;round_id:string;case_id:string}>(
   `SELECT a.state,a.attempt_number=(SELECT max(b.attempt_number) FROM analytical_attempt b WHERE b.round_id=a.round_id) latest,c.current_round_id=a.round_id current_round,a.round_id,a.case_id,
     NOT EXISTS(SELECT 1 FROM lab_slot_assignment s WHERE s.attempt_id=a.id AND s.removed_at IS NULL) removed
@@ -48,7 +52,6 @@ export async function resolveSample(db:Queryable,key:string):Promise<Resolution>
  if(['Superseded','BatchCancelled','Stopped','Cancelled'].includes(a.state))return {...r,classification:'SUPERSEDED_ATTEMPT',reason:`ATTEMPT_${a.state.toUpperCase()}`};
  if(!a.latest)return {...r,classification:'SUPERSEDED_ATTEMPT',reason:'LATER_ATTEMPT_EXISTS'};
  if(!a.current_round)return {...r,classification:'SUPERSEDED_ATTEMPT',reason:'ROUND_NOT_CURRENT'};
- if(a.removed&&chosen.exportKind==='LAB_SEQ_EXPORT_PAIR')return {...r,classification:'STALE_EXPORT',reason:'ATTEMPT_REMOVED_FROM_BATCH'};
  return {...r,classification:'PATIENT',reason:'FROZEN_EXPORT_MEMBER'};
 }
 

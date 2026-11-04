@@ -17,13 +17,24 @@ it('LAB-06 deletes only empty draft, preserves audit/run allocation and excludes
   await expect(tx(db,d=>deleteEmptyDraft(d,users.staff,{batchId:next.batchId,expectedVersion:0}))).rejects.toThrow('ONLY_EMPTY_DRAFT_BATCH_CAN_BE_REMOVED');
  }finally{await db.close();}
 });
-it('LAB-09 defaults to BLANK, permits explicit urgent40 mode only on editable placement and retains PC/NC',async()=>{
+it('LAB-09 keeps BLANK at slot 40 until an urgent patient occupies it and retains PC/NC',async()=>{
  const db=await testDatabase();try{
   const users=await labUsers(db),b=await tx(db,d=>createBatch(d,users.staff));
   let w=await batchDetail(db,users.staff,b.batchId);expect(w.slots[39].control).toBe('blank');
   await tx(db,d=>setUrgentSlot40(d,users.staff,{batchId:b.batchId,expectedVersion:0,enabled:true}));
-  w=await batchDetail(db,users.staff,b.batchId);expect(w.slots[39].control).toBeNull();expect(w.slots[0].control).toBe('positive');expect(w.slots[24].control).toBe('negative');
+  w=await batchDetail(db,users.staff,b.batchId);expect(w.slots[39].control).toBe('blank');expect(w.slots[0].control).toBe('positive');expect(w.slots[24].control).toBe('negative');
   expect((await db.query("SELECT control_type FROM lab_batch_slot WHERE batch_id=$1 AND slot_number=40",[b.batchId])).rows[0]).toEqual({control_type:'blank'});
   await expect(db.query('DELETE FROM lab_slot40_mode')).rejects.toThrow();
+ }finally{await db.close();}
+});
+it('LAB-09 allows clearing unused urgent slot 40 during controlled amendment',async()=>{
+ const db=await testDatabase();try{
+  const users=await labUsers(db),b=await tx(db,d=>createBatch(d,users.staff));
+  const enabled=await tx(db,d=>setUrgentSlot40(d,users.staff,{batchId:b.batchId,expectedVersion:0,enabled:true}));
+  await db.query("UPDATE lab_task_sheet SET state='PlanChecked' WHERE batch_id=$1 AND sheet_number=3",[b.batchId]);
+  await db.query("UPDATE lab_task_sheet SET state='PlacementFinalized',placement_revision=1 WHERE batch_id=$1 AND sheet_number=3",[b.batchId]);
+  await db.query("UPDATE lab_task_sheet SET state='Amended' WHERE batch_id=$1 AND sheet_number=3",[b.batchId]);
+  await tx(db,d=>setUrgentSlot40(d,users.staff,{batchId:b.batchId,expectedVersion:enabled.version,enabled:false}));
+  const w=await batchDetail(db,users.staff,b.batchId);expect(w.urgent40).toBe(false);expect(w.slots[39].control).toBe('blank');
  }finally{await db.close();}
 });
