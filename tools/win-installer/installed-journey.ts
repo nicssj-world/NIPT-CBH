@@ -47,7 +47,10 @@ try{
  assert.equal((await labContext.cookies()).find(c=>c.name==='nipt_session')?.secure,true);events.push('INSTALLED_HTTPS_LOGIN_SECURE_COOKIES');
  async function api(page:Page,url:string,body?:unknown){const res=await page.evaluate(async({url,body})=>{const token=document.cookie.split('; ').find(x=>x.startsWith('nipt_csrf='))?.split('=').slice(1).join('=')??'';const r=await fetch(url,{method:body===undefined?'GET':'POST',headers:{'content-type':'application/json','x-csrf-token':token},...(body===undefined?{}:{body:JSON.stringify(body)})});return {status:r.status,data:await r.json()};},{url,body});if(res.status>=400)throw Error('API_'+res.status+'_'+JSON.stringify(res.data));return res.data;}
  // the installed Worker may run under a dedicated service identity (deploy\windows\provision-identities.ps1): the share grants must name it, not this process's user
- const requestedStart=arg('patient-start'),patientStart=requestedStart?Number(requestedStart):nextInstalledJourneyPatientStart((await db.query<{n:number}>("SELECT substring(ln from 4)::int n FROM case_ln WHERE ln ~ '^990[0-9]{7}$'")).rows.map(r=>r.n));
+ const requestedStart=arg('patient-start'),patientStart=requestedStart?Number(requestedStart):nextInstalledJourneyPatientStart(
+  (await db.query<{n:number}>("SELECT substring(ln from 4)::int n FROM case_ln WHERE ln ~ '^990[0-9]{7}$'")).rows.map(r=>r.n),
+  (await db.query<{n:number}>("SELECT DISTINCT substring(ln from 4)::int n FROM his_inbound_file WHERE ln ~ '^990[0-9]{7}$'")).rows.map(r=>r.n),
+ );
  await positiveJourney({patientStart,...(process.env.NIPT_WORKER_SERVICE_ACCOUNT?{workerServiceAccountName:process.env.NIPT_WORKER_SERVICE_ACCOUNT}:{}),anc:process.argv.includes('--anc'),workflowOnly:process.argv.includes('--workflow-only'),db,base:out,inbound:L.inbound,policy:path.join(L.config,'share-policy.json'),localOutboundRoot:L.outbound,unit,lab,certifier,reviewer,users,api,waitFor,events});
  assert.deepEqual(browserErrors,[],'installed browser pages must have no runtime/resource errors');
  const counts=(await db.query<{cases:string;releases:string;transfers:string}>('SELECT (SELECT count(*) FROM nipt_case)::text cases,(SELECT count(*) FROM result_release)::text releases,(SELECT count(*) FROM p6_transfer)::text transfers')).rows[0];
