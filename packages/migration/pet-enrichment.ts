@@ -10,14 +10,26 @@ import type {FileStore} from '../storage';
 import {readPetArchive,scanHistoricalPetFolder,reconcilePetCandidates,type PetCandidate} from './pet-source';
 import {assertSession,type Staff} from '../lab/core';
 import {migrationAdmin} from './service';
+import {emptyRequest} from '../p2/schema';
 
-export async function bindMigrationPet(db:Queryable,user:Staff,recordId:string,c:PetCandidate,store:FileStore,key:Buffer,wardMappings:Record<string,string>={}){
+export async function bindMigrationPet(db:Queryable,user:Staff,recordId:string,c:PetCandidate,store:FileStore,key:Buffer,wardMappings:Record<string,string>={},options:{storedOnly?:boolean}={}){
  migrationAdmin(user);if(key.length!==32)throw Error('IDENTITY_LOOKUP_KEY_INVALID');
  return transactional(db)(async d=>{
   await assertSession(d,user);
+  const identity=(await d.query<{ln:string}>('SELECT ln FROM migration_record WHERE id=$1',[recordId])).rows[0];
+  if(!identity)return {outcome:'ALREADY_BOUND'};
+  await lockLn(d,identity.ln);
   const r=(await d.query<{id:string;ln:string;ln_halos:string;case_id:string|null;round_id:string|null;classification:string}>('SELECT * FROM migration_record WHERE id=$1 FOR UPDATE',[recordId])).rows[0];if(!r||r.case_id)return {outcome:'ALREADY_BOUND'};
   if((await d.query<{state:string}>('SELECT x.state FROM migration_execution x JOIN migration_record r ON r.execution_id=x.id WHERE r.id=$1',[recordId])).rows[0]?.state==='CANCELLED')return {outcome:'CANCELLED'};
-  if(r.ln!==c.pet.ln)throw Error('MIGRATION_PET_LN_MISMATCH');await lockLn(d,r.ln);
+  if(r.ln!==c.pet.ln)throw Error('MIGRATION_PET_LN_MISMATCH');
+  let storedFileId:string|undefined;
+  if(options.storedOnly){
+   const candidates=(await d.query<{id:string;sha256:string}>(`SELECT f.id,f.sha256 FROM his_inbound_file f WHERE f.ln=$1 AND f.state IN ('Ready','Unlinked')
+    AND NOT EXISTS(SELECT 1 FROM his_intake_issue i WHERE i.inbound_file_id=f.id AND i.state IN ('Open','Proposed') AND (i.kind<>'UNLINKED' OR i.state<>'Open'))
+    ORDER BY f.id FOR UPDATE OF f`,[r.ln])).rows;
+   if(candidates.length!==1||candidates[0].sha256!==c.sha256)throw Error('STORED_PET_CHANGED');
+   storedFileId=candidates[0].id;
+  }
   if(r.ln_halos.slice(12).includes('R'))throw Error('MIGRATION_RESAMPLING_LINEAGE_REVIEW_REQUIRED');
   const units=(await d.query<{id:string;code:string}>('SELECT id,code FROM unit WHERE ($1::uuid IS NOT NULL AND id=$1) OR ($1::uuid IS NULL AND code=$2)',[wardMappings[c.pet.ward]??null,c.pet.ward])).rows;
   if(units.length!==1||!c.pet.ward)throw Error('MIGRATION_PET_WARD_UNMAPPED');const unit=units[0];
@@ -28,14 +40,15 @@ export async function bindMigrationPet(db:Queryable,user:Staff,recordId:string,c
   await d.query('INSERT INTO case_unit_scope(case_id,unit_id) VALUES($1,$2)',[caseId,unit.id]);
   await d.query('INSERT INTO p2_case_identity(case_id,hn,synthetic) VALUES($1,$2,NOT nipt_operational_enabled())',[caseId,c.pet.hn]);
   await d.query('UPDATE migration_record SET case_id=$2,round_id=$3 WHERE id=$1',[r.id,caseId,round.id]);
+  if(options.storedOnly)await d.query("INSERT INTO p2_workspace(round_id,case_id,draft,request_mode,consent_mode,updated_by) VALUES($1,$2,$3,'Paper','Paper',$4) ON CONFLICT DO NOTHING",[round.id,caseId,JSON.stringify(emptyRequest),user.id]);
   const base=/^(\d{2}B(\d{2})(\d{2})(\d{2})(\d{3}))(?:D?R?)(?:-[12])?$/.exec(r.ln_halos);if(!base)throw Error('MIGRATION_IDENTIFIER_LINEAGE_REVIEW_REQUIRED');
   // Reserve the original before applying PET, so its normal receipt trigger returns it unchanged.
   await d.query('SELECT migration_reserve_original_number($1,$2)',[r.id,user.id]);
   const sha=await store.put(c.bytes);
   await d.query("INSERT INTO file_asset(sha256,byte_size,media_type,storage_key) VALUES($1,$2,'application/octet-stream',$3) ON CONFLICT(sha256) DO NOTHING",[sha,c.bytes.length,`sha256/${sha.slice(0,2)}/${sha.slice(2,4)}/${sha}`]);
   const logicalPath=`inbound/${c.pet.receivedAt.slice(0,10).replaceAll('-','')}/${c.pet.filename}`;
-  const file=(await d.query<{id:string}>("INSERT INTO his_inbound_file(sha256,state,filename,parsed,ln,source_path,path_version,byte_size,parser_version) VALUES($1,'Ready',$2,$3,$4,NULL,1,$5,$6) ON CONFLICT(sha256) DO UPDATE SET sha256=excluded.sha256 RETURNING id",[sha,c.pet.filename,JSON.stringify(redactPet(c.pet,key)),c.pet.ln,c.bytes.length,PARSER_VERSION])).rows[0];
-  await d.query('INSERT INTO his_inbound_source(source_id,source_path,sha256,inbound_file_id,byte_size) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING',['MIGRATION_ARCHIVE',logicalPath,sha,file.id,c.bytes.length]);
+  const file=storedFileId?{id:storedFileId}:(await d.query<{id:string}>("INSERT INTO his_inbound_file(sha256,state,filename,parsed,ln,source_path,path_version,byte_size,parser_version) VALUES($1,'Ready',$2,$3,$4,NULL,1,$5,$6) ON CONFLICT(sha256) DO UPDATE SET sha256=excluded.sha256 RETURNING id",[sha,c.pet.filename,JSON.stringify(redactPet(c.pet,key)),c.pet.ln,c.bytes.length,PARSER_VERSION])).rows[0];
+  if(!storedFileId)await d.query('INSERT INTO his_inbound_source(source_id,source_path,sha256,inbound_file_id,byte_size) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING',['MIGRATION_ARCHIVE',logicalPath,sha,file.id,c.bytes.length]);
   await applyS1(d,{id:file.id},c.pet,{case_ln_id:round.case_ln_id,case_id:caseId,origin:'LAB_DIRECT'},'REGISTRATION',user.id);
   await d.query('INSERT INTO migration_pet_binding(record_id,inbound_file_id,source_sha256,ward,unit_id) VALUES($1,$2,$3,$4,$5)',[r.id,file.id,sha,c.pet.ward,unit.id]);
   const analyses=(await d.query<{id:string;sample_raw:string;attempt_number:number;is_current:boolean}>("SELECT * FROM migration_analysis WHERE record_id=$1 AND classification='ANALYSIS' ORDER BY attempt_number,id",[r.id])).rows;

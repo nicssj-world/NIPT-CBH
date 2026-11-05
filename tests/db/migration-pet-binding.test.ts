@@ -5,7 +5,8 @@ import {simpleXlsx} from '../../packages/workbook/simple-xlsx';import {FileStore
 import {buildMigrationPlan} from '../../packages/migration/planner';import {executeMigration} from '../../packages/migration/service';
 import {bindMigrationPet} from '../../packages/migration/pet-enrichment';import {buildSyntheticPet} from '../../packages/inbound/wire';import {parsePet} from '../../packages/integrations/pet';
 import {halosWorkbook} from '../../tools/task3-uat/halos-fixture';
-import {previewLabels} from '../../packages/lab/intake';
+import {labWorklistPage,previewLabels} from '../../packages/lab/intake';
+import {assignmentDecision,attemptFacts} from '../../packages/lab/core';
 describe('source-backed operational migration binding',()=>{
  it.each([false,true])('uses verified PET ward and preserves history without invented repeat requests (historical rerun=%s)',async historical=>{
   const db=await testDatabase(),root=await mkdtemp(path.join(os.tmpdir(),'migration-pet-'));vi.stubEnv('NIPT_MODE','operational');vi.stubEnv('APP_ORIGIN','https://127.0.0.1:20368');
@@ -25,6 +26,13 @@ describe('source-backed operational migration binding',()=>{
    expect((await db.query('SELECT * FROM analytical_attempt')).rows).toHaveLength(historical?2:1);
    const roundId=(await db.query<{round_id:string}>('SELECT round_id FROM migration_record')).rows[0].round_id;
    const labels=await previewLabels(db,admin,{roundIds:[roundId],includeName:false});expect(labels.codes).toEqual(['26B261026152']);
+   if(!historical){
+    const attempts=await attemptFacts(db,'a.round_id=$1',[roundId]);
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]).toMatchObject({round_state:'ReceivedInHIS',received_source:'HIS_PET_RECEIPT',ln_verification:'VERIFIED_BY_PET',ln_halos:'26B261026152',attempt_state:'Ready'});
+    expect(assignmentDecision(attempts[0],'HOLD')).toMatchObject({eligible:true,failed:[],pending:[]});
+    expect((await labWorklistPage(db,admin,{tab:'READY'})).attempts.map(a=>a.attemptId)).toContain(attempts[0].attempt_id);
+   }
   }finally{vi.unstubAllEnvs();await db.close();await rm(root,{recursive:true,force:true});}
  });
 });

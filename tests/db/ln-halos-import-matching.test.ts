@@ -1,0 +1,57 @@
+import {expect,it,vi} from 'vitest';
+import {mkdtemp,rm} from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {testDatabase,addUser} from '../helpers/database';
+import {configureOperational} from '../../tools/configure-operational';
+import {simpleXlsx} from '../../packages/workbook/simple-xlsx';
+import {FileStore} from '../../packages/storage';
+import {buildSyntheticPet,redactPet} from '../../packages/inbound/wire';
+import {parsePet} from '../../packages/integrations/pet';
+import {commitLnHalosImport} from '../../packages/migration/ln-halos-commit';
+import {executeMigration} from '../../packages/migration/service';
+import {buildMigrationPlan} from '../../packages/migration/planner';
+import {reconcilePendingLnImports} from '../../packages/migration/ln-halos-matching';
+import {bindMigrationPet} from '../../packages/migration/pet-enrichment';
+import {labWorklistPage} from '../../packages/lab/intake';
+import {migrationWorklist} from '../../packages/migration/worklist';
+
+it('matches a previously unlinked stored PET and makes its original LN Halos ready for the task list',async()=>{
+ const db=await testDatabase(),root=await mkdtemp(path.join(os.tmpdir(),'ln-match-'));
+ vi.stubEnv('NIPT_MODE','operational');vi.stubEnv('APP_ORIGIN','https://127.0.0.1:20368');
+ try{
+  await configureOperational(db);const user=await addUser(db),store=new FileStore(root),key=Buffer.alloc(32,3);
+  await db.query("INSERT INTO unit(code,name) VALUES('MIGRATION-WARD','Synthetic')");
+  const source={name:'mapping.xlsx',bytes:simpleXlsx('Mapping',[['LN','LN Halos'],['9900099001','26B261026152']])};
+  const deps={store,verifyBackup:async()=>({manifestSha256:'a'.repeat(64),verification:'CREATION_VERIFIED',at:new Date().toISOString()})};
+  const oldInput={mapping:source,halos:[]};const oldPlan=buildMigrationPlan(oldInput);
+  await executeMigration(db,user,oldInput,{planDigest:oldPlan.digest,uncheckedAcknowledged:true},deps);
+  const imported=await commitLnHalosImport(db,user,source,{sourceFrozen:true},deps);
+  expect(imported.imported).toBe(0);
+  expect(await reconcilePendingLnImports(db,store,key)).toMatchObject({matched:0,pending:0});
+  const made=buildSyntheticPet({ln:'9900099001',hn:'9900012345',name:'SYNTHETIC^^นาง SYNTHETIC',receivedAt:'20261026090000',specimenAt:'20261026080000',ward:'MIGRATION-WARD'});
+  const pet=parsePet(made.bytes,made.filename),sha=await store.put(made.bytes);
+  await db.query("INSERT INTO file_asset(sha256,byte_size,media_type,storage_key) VALUES($1,$2,'application/octet-stream',$3)",[sha,made.bytes.length,`sha256/${sha.slice(0,2)}/${sha.slice(2,4)}/${sha}`]);
+  const file=(await db.query<{id:string}>("INSERT INTO his_inbound_file(sha256,state,filename,parsed,ln,byte_size,parser_version) VALUES($1,'Unlinked',$2,$3,$4,$5,'test') RETURNING id",[sha,made.filename,JSON.stringify(redactPet(pet,key)),pet.ln,made.bytes.length])).rows[0];
+  await db.query("INSERT INTO his_intake_issue(inbound_file_id,ln,kind) VALUES($1,$2,'UNLINKED')",[file.id,pet.ln]);
+  const record=(await db.query<{id:string}>('SELECT record_id id FROM migration_execution_record WHERE execution_id=$1',[imported.executionId])).rows[0];
+  await db.query("UPDATE his_inbound_file SET state='Conflict' WHERE id=$1",[file.id]);
+  await expect(bindMigrationPet(db,user,record.id,{sourceName:'stored',relativePath:made.filename,sha256:sha,byteLength:made.bytes.length,bytes:made.bytes,pet},store,key,{}, {storedOnly:true})).rejects.toThrow('STORED_PET_CHANGED');
+  expect((await db.query<{case_id:string|null}>('SELECT case_id FROM migration_record WHERE id=$1',[record.id])).rows[0].case_id).toBeNull();
+  await db.query("UPDATE his_inbound_file SET state='Unlinked' WHERE id=$1",[file.id]);
+  await db.query('UPDATE app_user SET enabled=false WHERE id=$1',[user.id]);
+  expect(await reconcilePendingLnImports(db,store,key)).toMatchObject({matched:0,issues:1});
+  expect((await db.query<{code:string}>("SELECT details->>'code' code FROM migration_record_event WHERE record_id=$1 AND event='PET_MATCH_WARNING' ORDER BY created_at DESC LIMIT 1",[record.id])).rows[0].code).toBe('IMPORT_AUTHORITY_INACTIVE');
+  const replacement=await addUser(db,'APP_ADMIN','synthetic.replacement');
+  expect((await migrationWorklist(db,replacement)).rows.find(r=>r.id===record.id)?.match_issue).toBe('IMPORT_AUTHORITY_INACTIVE');
+  expect((await commitLnHalosImport(db,replacement,source,{sourceFrozen:true},deps)).replayed).toBe(true);
+  expect(await reconcilePendingLnImports(db,store,key)).toMatchObject({matched:1,pending:0});
+  expect((await db.query("SELECT state FROM his_inbound_file WHERE id=$1",[file.id])).rows).toEqual([{state:'Applied(S1)'}]);
+  expect((await db.query("SELECT r.state,r.received_source FROM migration_record m JOIN specimen_round r ON r.id=m.round_id WHERE m.id=$1",[record.id])).rows).toEqual([{state:'ReceivedInHIS',received_source:'HIS_PET_RECEIPT'}]);
+  const workspace=(await db.query<{request_mode:string;consent_mode:string}>("SELECT w.request_mode,w.consent_mode FROM p2_workspace w JOIN migration_record m ON m.round_id=w.round_id WHERE m.id=$1",[record.id])).rows;
+  expect(workspace).toEqual([{request_mode:'Paper',consent_mode:'Paper'}]);
+  const queue=await labWorklistPage(db,replacement,{tab:'READY'});
+  expect(queue.attempts.some(a=>a.lnHalos==='26B261026152')).toBe(true);
+  expect((await db.query<{n:number}>("SELECT count(*)::int n FROM his_inbound_source WHERE source_id='MIGRATION_ARCHIVE'")).rows[0].n).toBe(0);
+ }finally{vi.unstubAllEnvs();await db.close();await rm(root,{recursive:true,force:true});}
+},120000);
