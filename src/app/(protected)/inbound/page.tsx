@@ -3,7 +3,7 @@ import {authorize} from "../../../../packages/security/policy";
 import {redirect} from "next/navigation";
 import {inboundPageData} from "../../../server/p3/inbound";
 import {ScanButton} from "../../../components/system-actions";
-import {TestConnectionButton,DeepScanForm,IssueActions,actionLabel} from "../../../components/p3/inbound-actions";
+import {TestConnectionButton,DeepScanForm,IssueActions,ParseErrorActions,actionLabel} from "../../../components/p3/inbound-actions";
 import {Pager} from "../../../components/shared/pager";
 import {LabIcon,type LabIconName} from "../../../components/shared/lab-icons";
 import "./inbound.css";
@@ -29,11 +29,12 @@ const ageMs=(iso:string|Date)=>Date.now()-new Date(iso).getTime();
 export default async function InboundPage({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}){
  const user=(await currentUser())!;if(!authorize(user,"his.scan",{},"read"))redirect("/");
  const sp=await searchParams,one=(k:string)=>{const v=sp[k];return Array.isArray(v)?v[0]:v;};
- const {settings,health,queue,lastTest}=await inboundPageData(user,{issuesPage:one("issuesPage"),unlinkedPage:one("unlinkedPage"),filesPage:one("filesPage"),runsPage:one("runsPage"),pageSize:one("pageSize"),q:one("q")});
- const review=queue.review.rows,unlinked=queue.unlinked.rows;
+ const {settings,health,queue,lastTest}=await inboundPageData(user,{issuesPage:one("issuesPage"),unlinkedPage:one("unlinkedPage"),filesPage:one("filesPage"),closedFilesPage:one("closedFilesPage"),runsPage:one("runsPage"),pageSize:one("pageSize"),q:one("q")});
+ const review=queue.review.rows,unlinked=queue.unlinked.rows,closedFiles=queue.closedFiles.rows;
  // The lists page independently; each pager keeps the other pages, the page size and the search.
- const keep=()=>({q:queue.search.q||undefined,issuesPage:String(queue.review.page.number),unlinkedPage:String(queue.unlinked.page.number),filesPage:String(queue.files.page.number),runsPage:String(queue.runs.page.number)});
+ const keep=()=>({q:queue.search.q||undefined,issuesPage:String(queue.review.page.number),unlinkedPage:String(queue.unlinked.page.number),filesPage:String(queue.files.page.number),closedFilesPage:String(queue.closedFiles.page.number),runsPage:String(queue.runs.page.number)});
  const canScan=authorize(user,"his.scan",{},"write"),canConfigure=authorize(user,"integration.configure",{},"write");
+ const canReviewParseErrors=canScan,parseErrorNotice=one("parseErrorNotice");
  const canPropose=authorize(user,"his.conflict.resolve",{},"propose");
  // OWNER-LAB-020: green only for a verified, fresh state; never-scanned or stale is "unknown", not healthy.
  const lastSuccessAge=health.LastSuccess?ageMs(health.LastSuccess):null,fresh=lastSuccessAge!==null&&lastSuccessAge<=Math.max(3*settings.intervalSeconds,90)*1000;
@@ -50,6 +51,8 @@ export default async function InboundPage({searchParams}:{searchParams:Promise<R
    <StatusCard icon="clock" label="รอไฟล์ .ok" tone={health.waitingOkOverdue?"bad":queue.waiting.total?"warn":"good"} value={`${queue.waiting.total} ไฟล์`} detail={`ค้างเกิน 15 นาที ${health.waitingOkOverdue} ไฟล์`} next={health.waitingOkOverdue?"แจ้ง IT ตรวจการส่งไฟล์ .ok จาก HIS":undefined}/>
   </section>
   {health.alerts.length>0&&<ul className="notice warning-notice inbound-alerts" aria-label="การแจ้งเตือน">{health.alerts.map(a=><li key={a}>{ALERT[a]??a}</li>)}</ul>}
+  {parseErrorNotice==="deleted"&&<p className="notice" role="status">ลบแถวรายการแล้ว ระบบจะข้ามเนื้อหาเดิมและเก็บ audit/tombstone ไว้; LN ยังถูกบล็อกจนกว่าจะมีไฟล์รุ่นใหม่จาก path เดิมที่อ่านผ่าน</p>}
+  {parseErrorNotice==="restored"&&<p className="notice" role="status">นำรายการกลับมาไว้ในไฟล์ล่าสุดแล้ว</p>}
   {(canScan||canConfigure)&&<section className="panel inbound-actions" aria-labelledby="inbound-actions"><h2 id="inbound-actions">คำสั่ง</h2>
    <div className="inbound-action-grid">
     {canScan&&<div className="inbound-action"><h3>สแกนทันที</h3><ScanButton/></div>}
@@ -82,14 +85,32 @@ export default async function InboundPage({searchParams}:{searchParams:Promise<R
   </section>
   {queue.waiting.total>0&&<section className="panel" aria-labelledby="inbound-waiting"><h2 id="inbound-waiting">ไฟล์ที่ยังไม่มี .ok ({queue.waiting.total})</h2><p className="help">ระบบจะไม่อ่านไฟล์จนกว่า HIS จะสร้าง .ok คู่กัน</p>
    <ul className="registry">{queue.waiting.rows.map(w=><li className="registry-row" key={w.dayFolder+w.ln}><div><span className="registry-label">LN</span><span className="mono">{w.ln}</span></div><div><span className="registry-label">โฟลเดอร์วัน</span>{w.dayFolder}</div><div><span className="registry-label">พบครั้งแรก</span>{when(w.firstSeenAt)}</div><div/></li>)}</ul></section>}
-  <section className="panel" aria-labelledby="inbound-files"><h2 id="inbound-files">ไฟล์ล่าสุด ({queue.files.page.total})</h2>
-   {queue.files.rows.length?<div className="table-wrap" role="region" aria-label="ไฟล์ล่าสุด" tabIndex={0}><table className="data-table"><thead><tr><th scope="col">LN</th><th scope="col">โฟลเดอร์วัน / รุ่น</th><th scope="col">สถานะ</th><th scope="col">พบเมื่อ</th></tr></thead>
-    <tbody>{queue.files.rows.map(x=><tr key={x.id}><td className="mono">{x.ln}</td><td>{x.dayFolder} · v{x.pathVersion}</td><td><span className={`status ${x.state==="Applied(S1)"?"good":x.state==="ParseError"||x.state==="Conflict"?"bad":""}`}>{STATE[x.state]??x.state}</span>{x.errorCode&&<> · รหัส {x.errorCode}</>}</td><td>{when(x.discoveredAt)}</td></tr>)}</tbody></table></div>:<p>{queue.search.q?"ไม่มีไฟล์ที่ตรงกับ LN ที่ค้น":"ยังไม่มีไฟล์จาก HIS"}</p>}
+  <section className="panel" aria-labelledby="inbound-files"><h2 id="inbound-files">ไฟล์ไม่ซ้ำที่พบ ({queue.files.page.total})</h2>
+   {queue.files.rows.length?<div className="table-wrap" role="region" aria-label="ไฟล์ไม่ซ้ำที่พบ" tabIndex={0}><table className="data-table"><thead><tr><th scope="col">LN</th><th scope="col">โฟลเดอร์วัน / รุ่น</th><th scope="col">สถานะ</th><th scope="col">พบเมื่อ</th></tr></thead>
+    <tbody>{queue.files.rows.map(x=><tr key={x.id}><td className="mono">{x.ln}</td><td>{x.dayFolder} · v{x.pathVersion}</td><td><span className={`status ${x.state==="Applied(S1)"?"good":x.state==="ParseError"||x.state==="Conflict"?"bad":""}`}>{STATE[x.state]??x.state}</span>
+{x.state==="ParseError"?<div className="stack help">
+  <p><strong>{x.errorCode==="INVALID_PATIENT_IDENTITY"?"ข้อมูลผู้ป่วยในไฟล์ PET ไม่ผ่านการตรวจรูปแบบ":"ระบบอ่านไฟล์ PET นี้ไม่ผ่าน"}</strong>{x.errorCode==="INVALID_PATIENT_IDENTITY"?" — รูปแบบ HN ชื่อ เพศ หรือเลขประจำตัวไม่ผ่าน ระบบเก็บเฉพาะรหัส จึงระบุช่องที่ผิดไม่ได้ และยังรับหรือจับคู่ไฟล์นี้ไม่ได้":" — ต้องแก้ไฟล์ที่ต้นทางก่อนจึงจะนำเข้าได้"}</p>
+      <p>ให้ผู้ดูแล HIS ตรวจและส่งไฟล์ .pet พร้อม .ok ชุดใหม่จากต้นทาง แล้วจึงสแกนอีกครั้ง ไฟล์ที่ลบจะไม่ถูกนำเข้าอีกเมื่อเนื้อหาเดิมยังเหมือนเดิม ส่วนไฟล์ที่แก้แล้วจะแสดงเป็นรุ่นใหม่</p>
+      <a className="button small secondary" href="#inbound-actions">ไปที่คำสั่งสแกนทันที</a>
+      {canReviewParseErrors&&<ParseErrorActions fileId={x.id} action="delete"/>}
+      {x.errorCode&&<details><summary className="min-h-11 cursor-pointer py-2">รหัสสำหรับผู้ดูแล HIS/IT</summary><code>{x.errorCode}</code></details>}
+     </div>:x.errorCode&&<> · รหัส {x.errorCode}</>}</td><td>{when(x.discoveredAt)}</td></tr>)}</tbody></table></div>:null}
+   {!queue.files.rows.length&&<p>{queue.search.q?"ไม่มีไฟล์ที่ตรงกับ LN ที่ค้น":queue.closedFiles.page.total?"ไม่มีไฟล์ที่ต้องแสดงในรายการล่าสุด — ดูรายการที่ปิดแล้วด้านล่าง":"ยังไม่มีไฟล์ใหม่ที่ไม่ซ้ำจาก HIS"}</p>}
    <Pager label="ไฟล์ล่าสุด" basePath="/inbound" params={keep()} pageParam="filesPage" page={queue.files.page.number} pageSize={queue.files.page.size} total={queue.files.page.total} totalPages={queue.files.page.totalPages}/>
   </section>
+  {closedFiles.length>0&&<details className="panel" aria-labelledby="inbound-closed-files"><summary id="inbound-closed-files" className="min-h-11 cursor-pointer py-2">รายการอ่านไฟล์ไม่ได้ที่ปิดแล้ว ({queue.closedFiles.page.total})</summary>
+   <p className="help">รายการที่ปิดด้วยมือยังไม่ถูกนำเข้า และยังต้องแก้ที่ HIS ก่อนใช้งาน; รายการที่ปิดอัตโนมัติหมายถึงมีไฟล์รุ่นใหม่จาก path และ LN เดียวกันอ่านผ่านแล้ว</p>
+   <ul className="registry">{closedFiles.map(x=><li className="registry-row" key={x.id}>
+    <div><span className="registry-label">LN</span><span className="mono">{x.ln??"—"}</span></div>
+    <div><span className="registry-label">ไฟล์ / รุ่น</span>{x.dayFolder??"—"} · v{x.pathVersion??"—"}</div>
+    <div><span className="registry-label">การปิด</span>{x.reviewEvent==="SUPERSEDED"?"ระบบปิดเมื่ออ่านไฟล์รุ่นใหม่ผ่าน":`ปิดโดย ${x.reviewActorName??"ผู้มีสิทธิ์"}`} · {when(x.reviewAt)}{x.errorCode&&<div className="help">รหัส {x.errorCode}</div>}</div>
+    <div>{x.reviewEvent==="DISMISSED"&&canReviewParseErrors?<div className="pager-buttons"><ParseErrorActions fileId={x.id} action="restore"/><ParseErrorActions fileId={x.id} action="delete"/></div>:<span className="status good">อ่านรุ่นใหม่ผ่านแล้ว</span>}</div>
+   </li>)}</ul>
+   <Pager label="รายการอ่านไฟล์ไม่ได้ที่ปิดแล้ว" basePath="/inbound" params={keep()} pageParam="closedFilesPage" page={queue.closedFiles.page.number} pageSize={queue.closedFiles.page.size} total={queue.closedFiles.page.total} totalPages={queue.closedFiles.page.totalPages}/>
+  </details>}
   <details className="panel" aria-labelledby="inbound-runs"><summary id="inbound-runs" className="min-h-11 cursor-pointer py-2">ข้อมูลแก้ปัญหา · เหตุการณ์การสแกน ({queue.runs.page.total})</summary><p className="help">แสดงไฟล์ใหม่ การเปลี่ยนสถานะ ข้อผิดพลาด และการสแกนที่สั่งเอง รอบอัตโนมัติที่ไม่มีการเปลี่ยนแปลงอัปเดตเฉพาะสถานะล่าสุด</p>
-   {queue.runs.rows.length?<div className="table-wrap" role="region" aria-label="ประวัติการสแกน" tabIndex={0}><table className="data-table"><thead><tr><th scope="col">เวลา</th><th scope="col">ชนิด</th><th scope="col">ผล</th><th scope="col">ไฟล์ใหม่ / อ่านไม่ได้</th></tr></thead>
-    <tbody>{queue.runs.rows.map(r=><tr key={r.id}><td>{when(r.finishedAt)}</td><td>{TRIGGER[r.trigger]??r.trigger}</td><td><span className={`status ${r.outcome==="SUCCESS"?"good":r.outcome==="PARTIAL"||r.outcome==="SKIPPED_BACKOFF"?"warning":"bad"}`}>{RUN[r.outcome]??r.outcome}</span>{r.errorCode?` · ${r.errorCode}`:""}</td><td>{r.counts.stored??0} / {r.counts.parseError??0}</td></tr>)}</tbody></table></div>:<p>ยังไม่มีการสแกน</p>}
+   {queue.runs.rows.length?<div className="table-wrap" role="region" aria-label="ประวัติการสแกน" tabIndex={0}><table className="data-table"><thead><tr><th scope="col">เวลา</th><th scope="col">ชนิด</th><th scope="col">ผล</th><th scope="col">ใหม่ / อ่านไม่ได้ / ซ้ำที่ข้าม</th></tr></thead>
+    <tbody>{queue.runs.rows.map(r=><tr key={r.id}><td>{when(r.finishedAt)}</td><td>{TRIGGER[r.trigger]??r.trigger}</td><td><span className={`status ${r.outcome==="SUCCESS"?"good":r.outcome==="PARTIAL"||r.outcome==="SKIPPED_BACKOFF"?"warning":"bad"}`}>{RUN[r.outcome]??r.outcome}</span>{r.errorCode?` · ${r.errorCode}`:""}</td><td>{r.counts.stored??0} / {r.counts.parseError??0} / {r.counts.sameContent??0}</td></tr>)}</tbody></table></div>:<p>ยังไม่มีการสแกน</p>}
    <Pager label="ประวัติการสแกน" basePath="/inbound" params={keep()} pageParam="runsPage" page={queue.runs.page.number} pageSize={queue.runs.page.size} total={queue.runs.page.total} totalPages={queue.runs.page.totalPages}/>
   </details>
  </div>;

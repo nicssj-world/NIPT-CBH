@@ -31,7 +31,10 @@ export async function lookupRegistrationPet(db:Queryable,user:Staff,input:unknow
    LEFT JOIN his_order_current o ON o.round_id=r.id WHERE l.ln=$1 AND l.verification<>'RETIRED'
    AND NOT EXISTS(SELECT 1 FROM p2_registration_void v WHERE v.case_id=c.id)`,[file.ln])).rows;
   if(existing.length&&!existing.some(c=>c.registration_origin!=='HISTORICAL'&&authorize(user,'case.read',{unitId:c.unit_id,origin:c.registration_origin},'read')))throw new P2Error('PET_NOT_ELIGIBLE',409);
-  const blocked=(await db.query(`SELECT 1 FROM his_inbound_file f WHERE f.ln=$1 AND f.state IN ('ParseError','Conflict','IntegrityEvent','HistoricalIntake')
+ const blocked=(await db.query(`SELECT 1 FROM his_inbound_file f WHERE f.ln=$1 AND f.state IN ('ParseError','Conflict','IntegrityEvent','HistoricalIntake')
+  AND NOT (f.state='ParseError' AND (SELECT e.event FROM his_inbound_file_event e WHERE e.inbound_file_id=f.id ORDER BY e.sequence DESC LIMIT 1)='SUPERSEDED')
+   UNION ALL SELECT 1 FROM his_inbound_file_purge p WHERE p.ln=$1
+    AND NOT EXISTS(SELECT 1 FROM his_inbound_file_purge_event e WHERE e.sha256=p.sha256 AND e.event='SUPERSEDED')
    UNION ALL SELECT 1 FROM his_intake_issue i WHERE i.ln=$1 AND i.kind<>'UNLINKED' AND i.state IN ('Open','Proposed') LIMIT 1`,[file.ln])).rows.length>0;
   if(blocked)throw new P2Error('PET_IDENTITY_CONFLICT',409);
   const round=existing[0];

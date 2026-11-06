@@ -9,6 +9,7 @@ import {SETTINGS} from "../../../packages/settings/catalog";
 import {inboundHealth} from "../../../packages/inbound/health";
 import {inboundQueuePage} from "../../../packages/inbound/queue";
 import {ResolutionError} from "../../../packages/inbound/resolution";
+import {InboundFileReviewError} from "../../../packages/inbound/file-review";
 import type {Principal} from "../../../packages/security/policy";
 import {apiError} from "../http";
 
@@ -30,11 +31,14 @@ const messages:Record<string,string>={
  ISSUE_NOT_OPEN:"รายการนี้ถูกปิดหรือเปลี่ยนสถานะแล้ว กรุณาโหลดหน้าใหม่",ISSUE_NOT_PROPOSED:"ยังไม่มีข้อเสนอให้ตัดสิน หรือมีผู้ตัดสินแล้ว กรุณาโหลดหน้าใหม่",
  SECOND_PERSON_REQUIRED:"ผู้เสนอไม่สามารถอนุมัติรายการของตนเองได้ ต้องให้ผู้รับรองอีกคนตัดสิน",ACTION_NOT_ALLOWED_FOR_ISSUE:"การแก้ไขนี้ใช้กับชนิดปัญหานี้ไม่ได้",
  CASE_REQUIRED:"ต้องระบุเคสที่จะเชื่อม",CASE_LN_MISMATCH:"LN ของเคสที่เลือกไม่ตรงกับไฟล์ — การแก้ LN ต้องทำผ่านการลงทะเบียน",S1_ALREADY_RECEIVED:"รอบที่ 1 ของเคสนี้รับจาก HIS แล้ว เชื่อมซ้ำไม่ได้",
- INTAKE_NOT_UNLINKED:"ไฟล์นี้ไม่อยู่ในสถานะรอเชื่อมแล้ว",HISTORICAL_LINK_PROHIBITED:"เคสย้อนหลังเชื่อมกับไฟล์จาก HIS ไม่ได้",ISSUE_NOT_FOUND:"ไม่พบรายการ",FORBIDDEN:"ไม่มีสิทธิ์ทำรายการนี้"
+ INTAKE_NOT_UNLINKED:"ไฟล์นี้ไม่อยู่ในสถานะรอเชื่อมแล้ว",HISTORICAL_LINK_PROHIBITED:"เคสย้อนหลังเชื่อมกับไฟล์จาก HIS ไม่ได้",ISSUE_NOT_FOUND:"ไม่พบรายการ",FORBIDDEN:"ไม่มีสิทธิ์ทำรายการนี้",
+ INBOUND_FILE_NOT_FOUND:"ไม่พบไฟล์นี้",PARSE_ERROR_NOT_OPEN:"ไฟล์นี้ไม่อยู่ในสถานะอ่านไฟล์ไม่ได้แล้ว กรุณาโหลดหน้าใหม่",PARSE_ERROR_ALREADY_CLOSED:"รายการนี้ถูกแทนที่ด้วยไฟล์รุ่นใหม่ที่อ่านผ่านแล้ว",PARSE_ERROR_ALREADY_DELETED:"รายการนี้ถูกลบไปแล้ว กรุณาโหลดหน้าใหม่",
+ PARSE_ERROR_NOT_RESTORABLE:"รายการนี้ไม่สามารถนำกลับได้ เพราะถูกแทนที่ด้วยไฟล์รุ่นที่อ่านผ่านแล้ว"
 };
 export function p3Error(error:unknown){
  if(error instanceof ZodError)return NextResponse.json({code:"VALIDATION_ERROR",error:"ข้อมูลที่ส่งไม่ถูกต้อง กรุณาตรวจวิธีดำเนินการและเคสที่เลือก"},{status:422,headers:noStore});
  if(error instanceof ResolutionError)return NextResponse.json({code:error.message,error:messages[error.message]??"ทำรายการไม่สำเร็จ กรุณาโหลดหน้าใหม่แล้วลองอีกครั้ง"},{status:error.status,headers:noStore});
+ if(error instanceof InboundFileReviewError)return NextResponse.json({code:error.message,error:messages[error.message]??"ทำรายการไม่สำเร็จ กรุณาโหลดหน้าใหม่แล้วลองอีกครั้ง"},{status:error.status,headers:noStore});
  if(error instanceof Error&&error.message==="SECOND_PERSON_REQUIRED")return NextResponse.json({code:error.message,error:messages.SECOND_PERSON_REQUIRED},{status:403,headers:noStore});
  return apiError(error);
 }

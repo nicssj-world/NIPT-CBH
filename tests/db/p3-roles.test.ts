@@ -1,5 +1,5 @@
 import {describe,it,expect,beforeEach,afterEach} from 'vitest';
-import {readFile} from 'node:fs/promises';
+import {readFile,writeFile} from 'node:fs/promises';
 import {inboundFixture,writePet,register,registerP2Case,registrar,cycle,caseState,rows,type InboundFixture} from '../helpers/inbound';
 import {addUser} from '../helpers/database';
 
@@ -15,6 +15,25 @@ describe('P3 least-privilege DB roles (worker_rw / app_rw) and LD-04 guard',()=>
   await f.db.query('SET ROLE worker_rw');
   const r=await cycle(f,{now:NOW});console.log('COUNTS',JSON.stringify(r.counts),JSON.stringify(r.failures));expect(r.counts).toMatchObject({stored:2,outcome_APPLIED_S1:1,outcome_UNLINKED:1});
   await f.db.query('RESET ROLE');expect((await caseState(f.db,caseId)).rounds[0].state).toBe('ReceivedInHIS');
+ });
+
+ it('worker_rw cannot dismiss a parse error or forge a human reviewer event',async()=>{
+  const pet=await writePet(f.root,DAY,{ln:'990001000102',hn:HN,receivedAt:'20261012090000'});
+  await writeFile(pet.path,Buffer.concat([pet.bytes.subarray(0,60),Buffer.from([0xdb]),pet.bytes.subarray(61)]));
+  await cycle(f,{now:NOW});
+  const file=(await rows<{id:string;source_path:string;ln:string;path_version:number}>(f.db,"SELECT id,source_path,ln,path_version FROM his_inbound_file WHERE ln='990001000102' AND state='ParseError'"))[0];
+  const operator=await addUser(f.db,'LAB_STAFF','synthetic.p3.role.event');
+  await f.db.query('CREATE ROLE nipt_worker LOGIN');
+  await f.db.query('GRANT worker_rw TO nipt_worker');
+  await f.db.query('SET ROLE nipt_worker');
+  try{
+   await f.db.query('CREATE TEMP TABLE his_inbound_file AS SELECT * FROM public.his_inbound_file WITH NO DATA');
+   await f.db.query('CREATE TEMP TABLE his_inbound_file_event AS SELECT * FROM public.his_inbound_file_event WITH NO DATA');
+   await f.db.query("INSERT INTO pg_temp.his_inbound_file(id,state,source_path,ln,path_version,discovered_at) VALUES($1,'ParseError',$2,$3,$4,$5),('00000000-0000-4000-8000-000000000001','Ready',$2,$3,$6,$5)",[file.id,file.source_path,file.ln,file.path_version,NOW,file.path_version+1]);
+   await expect(f.db.query("INSERT INTO public.his_inbound_file_event(inbound_file_id,event,actor_id,reason_code) VALUES($1,'DISMISSED',$2,'OPERATOR_ACTION')",[file.id,operator.id])).rejects.toThrow('WORKER_FILE_REVIEW_EVENT_PROHIBITED');
+   await expect(f.db.query("INSERT INTO public.his_inbound_file_event(inbound_file_id,event,actor_id,reason_code) VALUES($1,'SUPERSEDED',NULL,'VALID_REPLACEMENT')",[file.id])).rejects.toThrow('PARSE_ERROR_REPLACEMENT_REQUIRED');
+  }finally{await f.db.query('RESET ROLE');}
+  expect(await rows<{event:string}>(f.db,'SELECT event FROM his_inbound_file_event WHERE inbound_file_id=$1',[file.id])).toEqual([]);
  });
 
  it('worker_rw can never insert or update specimen rounds >= 2 (AT-HISIN-11 DB role)',async()=>{

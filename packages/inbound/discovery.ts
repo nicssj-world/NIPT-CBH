@@ -1,3 +1,5 @@
+import {createHash} from 'node:crypto';
+import {createReadStream} from 'node:fs';
 import {promises as fs} from 'node:fs';
 import type {Queryable} from '../db/connection';
 import {confined,sha256,type FileStore} from '../storage';
@@ -5,6 +7,7 @@ import {parsePet,PARSER_VERSION} from '../integrations/pet';
 import {sectionOf,classifyPet,redactPet,NIPT_SECTION,MAX_PET_BYTES} from './wire';
 import {errorCode} from './tx';
 import {type InboundSource,inboundReadError,inboundAccessError} from './source';
+import {supersedeParseErrors} from './file-review';
 const sourceFile=(o:DiscoveryOptions,rel:string)=>o.source?o.source.file(rel):confined(o.root,rel);
 
 export interface DiscoveryCounts{dayFolders:number;petSeen:number;notNipt:number;waitingOk:number;waitingNew:number;okArrived:number;unchanged:number;sameContent:number;stored:number;newPathVersion:number;parseError:number;readError:number;}
@@ -16,6 +19,11 @@ export function lookbackFolders(lookbackDays:number,now:Date){
  return Array.from({length:lookbackDays},(_,i)=>new Date(now.getTime()-(lookbackDays-1-i)*86_400_000).toLocaleDateString('en-CA',{timeZone:'Asia/Bangkok'}).replace(/-/g,''));
 }
 const missing=(e:unknown)=>inboundReadError(e);
+async function hashFile(path:string){
+ const hash=createHash('sha256');
+ for await(const chunk of createReadStream(path))hash.update(chunk as Buffer);
+ return hash.digest('hex');
+}
 export interface DiscoveryOptions{root:string;lookbackDays:number;now?:Date;lookupKey:Buffer;source?:InboundSource;}
 
 /**
@@ -51,20 +59,35 @@ async function discoverOne(db:Queryable,store:FileStore,options:DiscoveryOptions
  const path=await sourceFile(options,rel),st=await fs.lstat(path);
  if(!st.isFile())throw Error('NOT_REGULAR_FILE');
  const mtime=st.mtime;
- const source=async(hash:string,fileId:string|null,size:number)=>{await db.query('INSERT INTO his_inbound_source(source_id,source_path,sha256,inbound_file_id,byte_size,source_mtime) VALUES($6,$1,$2,$3,$4,$5) ON CONFLICT DO NOTHING',[rel,hash,fileId,size,mtime,sourceId]);};
- const pathVersion=async()=>Number((await db.query<{n:number}>('SELECT count(*)::int AS n FROM his_inbound_file WHERE source_path=$1',[rel])).rows[0].n)+1;
+ const source=async(hash:string,fileId:string|null,size:number)=>{await db.query(`INSERT INTO his_inbound_source(source_id,source_path,sha256,inbound_file_id,byte_size,source_mtime)
+  SELECT $1,$2,$4,CASE WHEN $3::uuid IS NOT NULL AND EXISTS(SELECT 1 FROM his_inbound_file WHERE id=$3 AND sha256=$4) THEN $3::uuid ELSE NULL END,$5,$6
+  ON CONFLICT DO NOTHING`,[sourceId,rel,fileId,hash,size,mtime]);};
+ const pathVersion=async()=>Number((await db.query<{n:number}>(`SELECT (SELECT count(*) FROM his_inbound_file WHERE source_path=$1)+
+  (SELECT count(*) FROM his_inbound_file_purge WHERE source_path=$1) AS n`,[rel])).rows[0].n)+1;
  const parseError=async(hash:string,size:number,code:string)=>{
   // PHI-minimal: hash and error code only; the source file stays on the share for re-reading.
   const r=await db.query<{id:string}>("INSERT INTO his_inbound_file(sha256,state,filename,ln,source_path,path_version,byte_size,parser_version,error_code) VALUES($1,'ParseError',$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(sha256) DO NOTHING RETURNING id",[hash,name,filenameLn,rel,await pathVersion(),size,PARSER_VERSION,code]);
-  await source(hash,r.rows[0]?.id??null,size);counts.parseError++;return null;
+  const skipped=await db.query('SELECT 1 FROM his_inbound_file_purge WHERE sha256=$1',[hash]);
+  const existing=r.rows[0]?null:(await db.query<{id:string}>('SELECT id FROM his_inbound_file WHERE sha256=$1',[hash])).rows[0];
+  await source(hash,r.rows[0]?.id??existing?.id??null,size);
+  if(skipped.rows.length||existing)counts.sameContent++;else counts.parseError++;
+  return null;
  };
- if(st.size>MAX_PET_BYTES)return parseError(sha256(Buffer.from(`${rel}|${st.size}|${mtime.toISOString()}`)),st.size,'FILE_TOO_LARGE');
+ if(st.size>MAX_PET_BYTES){
+  const hash=await hashFile(path),after=await fs.lstat(path);
+  if(after.size!==st.size||after.mtimeMs!==st.mtimeMs)throw Error('SOURCE_FILE_CHANGED_DURING_READ');
+  return parseError(hash,st.size,'FILE_TOO_LARGE');
+ }
  const bytes=await fs.readFile(path),hash=sha256(bytes);
- const existing=(await db.query<{id:string}>('SELECT id FROM his_inbound_file WHERE sha256=$1',[hash])).rows[0];
+ const purged=(await db.query('SELECT 1 FROM his_inbound_file_purge WHERE sha256=$1',[hash])).rows.length>0;
+ if(purged){await source(hash,null,bytes.length);counts.sameContent++;return null;}
+ const existing=(await db.query<{id:string;state:string;ln:string|null;source_path:string|null;path_version:number|null}>('SELECT id,state,ln,source_path,path_version FROM his_inbound_file WHERE sha256=$1',[hash])).rows[0];
  if(existing){
   // A rewritten PET can preserve both size and mtime. Only its bytes prove unchanged content.
   const prior=(await db.query('SELECT 1 FROM his_inbound_source WHERE source_path=$1 AND sha256=$2 AND source_id=$3 AND source_mtime=$4',[rel,hash,sourceId,mtime])).rows.length>0;
-  await source(hash,existing.id,bytes.length);if(prior)counts.unchanged++;else counts.sameContent++;return null;
+  await source(hash,existing.id,bytes.length);
+  if(existing.state!=='ParseError'&&existing.ln)await supersedeParseErrors(db,rel,existing.ln,await pathVersion());
+  if(prior)counts.unchanged++;else counts.sameContent++;return null;
  }
  const kind=classifyPet(bytes);
  if(kind==='NOT_NIPT'){counts.notNipt++;return null;}
@@ -75,8 +98,12 @@ async function discoverOne(db:Queryable,store:FileStore,options:DiscoveryOptions
  const version=await pathVersion();
  await store.put(bytes);
  const r=await db.query<{id:string}>("INSERT INTO his_inbound_file(sha256,state,filename,parsed,ln,source_path,path_version,byte_size,parser_version) VALUES($1,'Ready',$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(sha256) DO NOTHING RETURNING id",[hash,name,JSON.stringify(parsed),parsed.ln,rel,version,bytes.length,PARSER_VERSION]);
- await source(hash,r.rows[0]?.id??null,bytes.length);
- if(!r.rows[0])return null;
+ if(!r.rows[0]){
+  const winner=(await db.query<{id:string}>('SELECT id FROM his_inbound_file WHERE sha256=$1',[hash])).rows[0];
+  await source(hash,winner?.id??null,bytes.length);counts.sameContent++;return null;
+ }
+ await source(hash,r.rows[0].id,bytes.length);
+ await supersedeParseErrors(db,rel,parsed.ln,version);
  counts.stored++;if(version>1)counts.newPathVersion++;
  return r.rows[0].id;
 }

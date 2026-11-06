@@ -1,8 +1,8 @@
 import {describe,it,expect,beforeEach,afterEach} from 'vitest';
-import {utimes,rename,readdir} from 'node:fs/promises';
+import {utimes,rename,readdir,mkdir,writeFile,readFile} from 'node:fs/promises';
 import path from 'node:path';
 import iconv from 'iconv-lite';
-import {inboundFixture,writePet,writeOk,register,registerP2Case,registerWithoutHook,registrar,cycle,caseState,openIssues,fileStates,rows,type InboundFixture} from '../helpers/inbound';
+import {inboundFixture,writePet,writeOk,register,registerP2Case,registerWithoutHook,registrar,cycle,caseState,openIssues,fileStates,rows,treeChecksum,type InboundFixture} from '../helpers/inbound';
 import {addUser} from '../helpers/database';
 import {lnHnKey,type RegistrantIdentitySource} from '../../packages/inbound/identity';
 import {discoverInbound} from '../../packages/inbound/discovery';
@@ -10,9 +10,11 @@ import {processPending} from '../../packages/inbound/process';
 import {intakePresence,linkIntakeAtRegistration} from '../../packages/inbound/registration-link';
 import {proposeResolution,decideResolution,resolveIssueDirect} from '../../packages/inbound/resolution';
 import {inboundQueue} from '../../packages/inbound/queue';
+import {reviewParseError} from '../../packages/inbound/file-review';
 import {inboundHealth} from '../../packages/inbound/health';
 import {testInboundConnection} from '../../packages/inbound/connection-test';
 import {FileStore} from '../../packages/storage';
+import {MAX_PET_BYTES} from '../../packages/inbound/wire';
 
 const NOW=new Date('2026-10-12T05:00:00Z'),DAY='20261012',later=(minutes:number)=>new Date(NOW.getTime()+minutes*60_000);
 const LN='990001000001',HN='9900001001';
@@ -95,6 +97,36 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
   expect(issues.map(i=>[i.kind,i.details.fields])).toEqual([['LN_REUSED_OR_CHANGED',['name']],['S1_INTEGRITY_EVENT',['specimenAt']],['S1_INTEGRITY_EVENT',['receivedAt']]]);
   expect(JSON.stringify(issues)).not.toContain('เปลี่ยนชื่อ');
   expect((await rows<{event_type:string}>(f.db,'SELECT event_type FROM case_event WHERE case_id=$1 ORDER BY created_at',[caseId])).map(e=>e.event_type)).toEqual(['PET_IDENTITY_UPDATED','PET_CURRENT_IDENTITY_APPLIED','HIS_S1_RECEIVED','S1_INTEGRITY_EVENT','S1_INTEGRITY_EVENT','HIS_LN_CONFLICT']);
+ });
+
+ it('AT-HISIN-04B byte-identical PET copies on separate paths create one result row',async()=>{
+  const spec={ln:LN,hn:HN,receivedAt:'20261012101500'};
+  const original=await writePet(f.root,'20261011',spec);
+  const duplicateDir=path.join(f.root,'inbound',DAY);await mkdir(duplicateDir,{recursive:true});
+  const duplicatePath=path.join(duplicateDir,original.filename);
+  await writeFile(duplicatePath,original.bytes);await writeFile(duplicatePath.replace(/\.pet$/i,'.ok'),Buffer.alloc(0));
+  const result=await cycle(f,{now:NOW});
+  expect(result.counts).toMatchObject({stored:1,sameContent:1,parseError:0});
+  expect(await rows(f.db,'SELECT id FROM his_inbound_file')).toHaveLength(1);
+  expect(await rows(f.db,'SELECT source_path FROM his_inbound_source ORDER BY source_path')).toEqual([
+   {source_path:`inbound/20261011/${original.filename}`},{source_path:`inbound/${DAY}/${original.filename}`}
+  ]);
+  const lab=await addUser(f.db,'LAB_STAFF','synthetic.p3.duplicate');
+  expect((await inboundQueue(f.db,lab)).files).toHaveLength(1);
+ });
+
+ it('AT-HISIN-04C a valid duplicate at the same path supersedes its older ParseError row',async()=>{
+  const spec={ln:'990001000053',hn:HN,receivedAt:'20261012090000'};
+  const broken=await writePet(f.root,'20261011',spec,{ok:false});
+  await writeFile(broken.path,Buffer.concat([broken.bytes.subarray(0,60),Buffer.from([0xdb]),broken.bytes.subarray(61)]));await writeOk(f.root,'20261011',broken.filename);
+  expect((await cycle(f,{now:NOW})).counts.parseError).toBe(1);
+  const parseError=(await rows<{id:string}>(f.db,"SELECT id FROM his_inbound_file WHERE state='ParseError'"))[0];
+  const valid=await writePet(f.root,DAY,spec);
+  expect((await cycle(f,{now:later(1)})).counts.stored).toBe(1);
+  await writeFile(broken.path,valid.bytes);
+  const duplicate=await cycle(f,{now:later(2)});
+  expect(duplicate.counts).toMatchObject({sameContent:1,stored:0});
+  expect(await rows<{event:string}>(f.db,'SELECT event FROM his_inbound_file_event WHERE inbound_file_id=$1 ORDER BY sequence',[parseError.id])).toEqual([{event:'SUPERSEDED'}]);
  });
 
  it('AT-HISIN-05 Unlinked links when the registrant identifiers match (registration hook and worker rematch); mismatch → IDENTITY_MISMATCH',async()=>{
@@ -305,5 +337,44 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
   await writePet(f.root,DAY,{ln:LN,hn:HN,receivedAt:'20261012090000'});
   const r=await cycle(f,{now:NOW});expect(r.counts).toMatchObject({parseError:1,stored:1,outcome_APPLIED_S1:1});
   expect(await fileStates(f.db,'990001000051')).toEqual([{state:'ParseError',error_code:'INVALID_FIELDS'}]);expect((await caseState(f.db,c)).rounds[0].state).toBe('ReceivedInHIS');
+ });
+
+ it('AT-HISIN-12 deleting a ParseError removes its row, preserves the PET, and prevents the same bytes from returning',async()=>{
+  const pet=await writePet(f.root,DAY,{ln:'990001000052',hn:HN,receivedAt:'20261012090000'},{ok:false});
+  const invalid=iconv.encode(iconv.decode(pet.bytes,'windows-874').split('\r\n').slice(0,2).join('\r\n'),'windows-874');
+  await writeFile(pet.path,invalid);await writeOk(f.root,DAY,pet.filename);
+  expect((await cycle(f,{now:NOW})).counts.parseError).toBe(1);
+  const file=(await rows<{id:string;sha256:string}>(f.db,"SELECT id,sha256 FROM his_inbound_file WHERE state='ParseError'"))[0];
+  const originalBytes=await readFile(pet.path),before=await treeChecksum(f.root);
+  const lab=await addUser(f.db,'LAB_STAFF','synthetic.p3.parse-error-review');
+  await reviewParseError(f.db,lab,file.id,'delete');
+  expect(await rows(f.db,'SELECT id FROM his_inbound_file')).toHaveLength(0);
+  expect(await rows(f.db,'SELECT sha256,source_path,ln,path_version FROM his_inbound_file_purge')).toEqual([
+   {sha256:file.sha256,source_path:`inbound/${DAY}/${pet.filename}`,ln:'990001000052',path_version:1}
+  ]);
+  expect(await readFile(pet.path)).toEqual(originalBytes);expect(await treeChecksum(f.root)).toEqual(before);
+  const rescan=await cycle(f,{now:later(1)});
+  expect(rescan.counts).toMatchObject({sameContent:1,parseError:0,stored:0});
+  expect(await rows(f.db,'SELECT id FROM his_inbound_file')).toHaveLength(0);
+  await writePet(f.root,DAY,{ln:'990001000052',hn:HN,receivedAt:'20261012090000'},{mtime:later(2)});
+  await f.db.exec(await readFile('packages/db/roles.sql','utf8'));
+  await f.db.query('SET ROLE worker_rw');
+  let replacement;
+  try{replacement=await cycle(f,{now:later(3)});}finally{await f.db.query('RESET ROLE');}
+  expect(replacement!.counts).toMatchObject({stored:1,newPathVersion:1});
+  expect(await rows<{event:string}>(f.db,'SELECT event FROM his_inbound_file_purge_event WHERE sha256=$1',[file.sha256])).toEqual([{event:'SUPERSEDED'}]);
+ });
+
+ it('AT-HISIN-13 touching an unchanged oversized ParseError does not restore its deleted row',async()=>{
+  const pet=await writePet(f.root,DAY,{ln:'990001000054',hn:HN,receivedAt:'20261012090000'});
+  await writeFile(pet.path,Buffer.alloc(MAX_PET_BYTES+1,0x41));
+  expect((await cycle(f,{now:NOW})).counts.parseError).toBe(1);
+  const file=(await rows<{id:string}>(f.db,"SELECT id FROM his_inbound_file WHERE state='ParseError'"))[0];
+  const lab=await addUser(f.db,'LAB_STAFF','synthetic.p3.oversized-review');
+  await reviewParseError(f.db,lab,file.id,'delete');
+  await utimes(pet.path,later(1),later(1));
+  const rescan=await cycle(f,{now:later(2)});
+  expect(rescan.counts).toMatchObject({sameContent:1,parseError:0,stored:0});
+  expect(await rows(f.db,'SELECT id FROM his_inbound_file')).toHaveLength(0);
  });
 });
