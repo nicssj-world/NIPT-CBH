@@ -257,3 +257,11 @@ test: `tests/deploy/dev-isolation.node.mjs`
 - `git worktree remove`/ลบโฟลเดอร์ใน `C:\NIPT-CBH\production`, `C:\NIPT-CBH\staging`, `…\deploy\history`
 - การแก้ migration ที่ apply แล้ว, การแก้ pin SHA-256 ของ master workbook/แบบฟอร์ม, การปิด gate/risk rule, `--force`/`-SkipBackup` หรือการข้ามการตรวจลายเซ็น
 - การ copy ไฟล์/ผลไปยังโฟลเดอร์ HIS หรือ NAS จากเครื่อง dev
+
+## Fast Pipeline Enforcement V2 (2026-11-06)
+
+- **Agent policy:** `AGENTS.md` (Codex and other agents) and `CLAUDE.md` (Claude Code) both point to this guide.
+- **Claude Code hook:** `.claude/settings.json` installs the `PreToolUse` command `node tools/dev/enforce-fast-loop.mjs`. It denies common direct full-test, standalone build, direct package and Docker rebuild commands during interactive development, explaining the focused alternative. It does not block `npm run release:preflight`, which remains the supported release qualification entrypoint. The hook applies only when Claude Code loads and trusts the project; this is not an OS-level command firewall.
+- **Risk-based GitHub CI:** `.github/workflows/foundation.yml` always runs `plan` and `fast` (source guard, deploy contracts, typecheck, lint). It runs `full` (native fixtures, full Vitest, production build, post-build and browser E2E) for MEDIUM/HIGH changes and manual dispatch. Risk classification imports `deploy/windows/risk-classification.mjs`; an unknown path or missing diff is HIGH.
+- **Test the enforcement:** `node --test tests/deploy/fast-pipeline-enforcement.node.mjs`. This runs in fast CI and the deploy contracts. For an intentional full local release check run `npm run release:preflight -- --full`.
+- **Safety unchanged:** the hook is a developer ergonomics aid, not proof of Owner approval. The Windows release gates, backup, signature, migration rehearsal, health verification and rollback remain authoritative. This V2 does not modify the server's installed deployment scripts.

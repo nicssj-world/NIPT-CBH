@@ -19,3 +19,7 @@ Guide: [docs/deployment/FAST-DEVELOPMENT-PIPELINE.md](docs/deployment/FAST-DEVEL
 - **Never touch Production** (`C:\NIPT-CBH\production`, ports 3000/3001/443/55432, `deploy-production.ps1`, `upgrade-production.ps1`, `rollback-production.ps1`) without explicit Owner authorization in the current session. Approval for one deployment does not extend to the next.
 - **Never bypass** patient-safety rules, migration integrity (applied migrations are immutable; add a new numbered migration), HIS/NAS isolation (development never reads or writes HIS inbound/outbound folders or sends RES/OK/PDF), package signing (Ed25519), backups or rollback protections. Do not edit a pinned SHA-256, a gate or a risk rule to make something pass.
 - Development and synthetic tests use only the reserved database `nipt_synthetic_dev*`, loopback hosts and `.local/dev` paths; `tools/dev/dev-env.mjs` enforces this and refuses to start otherwise. Do not point `.env.local` at ports 3000/3001/55432/55442.
+
+## Fast Pipeline Enforcement V2
+
+Claude Code reads `CLAUDE.md` and `.claude/settings.json`; Codex and other agents must follow this file. Development uses focused checks, not full tests and packaging. GitHub CI runs fast checks for every change and full checks for MEDIUM/HIGH or manual dispatch via the existing production risk classifier. No release or patient-safety gate may be bypassed.
