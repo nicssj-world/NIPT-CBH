@@ -3,7 +3,7 @@ import {SETTINGS,REPORT_PRODUCT_CHOICES,type SettingKey} from "./catalog";
 // Field-level form metadata for every catalog key, so staff edit labelled inputs instead of JSON (Plan §13.1–§13.2).
 // The catalog schema remains the only validator; this file only describes how each value is shown. A unit test asserts that
 // every schema field has exactly one entry here and that locked fields are literals in the schema.
-export type FieldKind="text"|"path"|"number"|"boolean"|"select"|"locked"|"date"|"hash"|"uuid-or-empty"|"res-profile"|"his-certifiers";
+export type FieldKind="text"|"path"|"number"|"boolean"|"select"|"locked"|"date"|"hash"|"uuid-or-empty"|"res-profile"|"his-certifiers"|"his-operator";
 export type FieldSpec={name:string;label:string;help:string;kind:FieldKind;options?:readonly {value:string;label:string}[];unit?:string;min?:number;max?:number;lockedBy?:string};
 export type SettingForm={key:SettingKey;title:string;summary:string;phase:string;fields:FieldSpec[]};
 
@@ -64,6 +64,7 @@ export const SETTING_FORMS:Record<SettingKey,SettingForm>={
   {name:"retryLimit",label:"จำนวนครั้งลองใหม่",help:"1–10",kind:"number",unit:"ครั้ง",min:1,max:10},
     {name:"round2SpecimenDatePolicy",label:"วันที่เก็บตัวอย่างใน .res ของรอบ ≥ 2",help:"เลือกรอบของหลักฐาน PET ที่ HIS ต้องการ",kind:"select",options:[{value:"",label:"ยังไม่กำหนด"},{value:"CURRENT_ROUND",label:"รอบปัจจุบัน"},{value:"ORIGINAL_ORDER",label:"รอบแรก"}]},
     {name:"resProfile",label:"รูปแบบ RES",help:"ใช้ค่าตามข้อกำหนดของ HIS",kind:"res-profile"},
+    {name:"operatorHisId",label:"Operator ใน HIS",help:"รหัสและชื่อคงที่สำหรับ RES ใหม่",kind:"his-operator"},
     {name:"certifierHisMappings",label:"ผู้รับรองใน HIS",help:"ผูกรหัสกับผู้รับรองที่ได้รับสิทธิ์",kind:"his-certifiers"}]},
  storage_backup:{key:"storage_backup",title:"ที่เก็บไฟล์ / NAS / Backup",summary:"ระยะเก็บ Backup ของตัวจำลอง",phase:"P1/P7",fields:[
   {name:"retentionDays",label:"เก็บ Backup",help:"1–3,650 วัน",kind:"number",unit:"วัน",min:1,max:3650},
@@ -84,8 +85,8 @@ export const SETTING_FORMS:Record<SettingKey,SettingForm>={
   {name:"twinApprovedProduct",label:"ผลิตภัณฑ์ที่อนุมัติให้ใช้กับแบบฟอร์มครรภ์แฝด (FM-WI-T-BM-17-08)",help:"ต้องอนุมัติแยกจากครรภ์เดี่ยว",kind:"select",options:REPORT_PRODUCT_CHOICES.map(v=>({value:v,label:v==="NONE"?"ยังไม่อนุมัติ (HOLD)":v}))},
   {name:"noCallRenderingApproved",label:"อนุมัติรูปแบบรายงาน No Call",help:"ใช้แบบฟอร์มเดิม: ทุกช่องผลพิมพ์ No Call, Probability พิมพ์ \"-\", Remark พิมพ์ \"Result = No Call\" และ QC พิมพ์ PASS หรือ FAIL ตามค่า QC จาก HALOS โดยไม่ตัดส่วนใดออก",kind:"boolean"},
   {name:"approvalReference",label:"เลขที่เอกสารอนุมัติ",help:"อ้างอิงเอกสารการอนุมัติทางคลินิกของโรงพยาบาล",kind:"text",max:300}]},
- report_output:{key:"report_output",title:"ชื่อไฟล์รายงานเมื่อดาวน์โหลด",summary:"รูปแบบชื่อไฟล์ PDF ที่ผู้ใช้ดาวน์โหลด — ไม่เปลี่ยนชื่อไฟล์ที่ส่ง HIS และไม่เปลี่ยนไฟล์ที่เก็บ",phase:"Task 3",fields:[
-  {name:"downloadNameTemplate",label:"รูปแบบชื่อไฟล์",help:"ใช้ได้: {hisLn} {lnHalos} {sampleId} {hn} {patientName} {reportDate} {template} {version} — ต้องมี {hisLn} หรือ {sampleId} ระบบแทนอักขระที่ Windows ไม่รองรับด้วย _ และเติม (2), (3) เมื่อชื่อซ้ำ",kind:"text",max:160}]},
+ report_output:{key:"report_output",title:"ชื่อไฟล์รายงานเมื่อดาวน์โหลด",summary:"รูปแบบชื่อไฟล์ PDF สำหรับดาวน์โหลดและส่ง CFS — รายการที่เตรียมส่งแล้วคงชื่อเดิม",phase:"Task 3",fields:[
+  {name:"downloadNameTemplate",label:"รูปแบบชื่อไฟล์",help:"ใช้ได้: {run} (เช่น run042569 จาก Run004/2026) {hisLn} {lnHalos} {sampleId} {hn} {patientName} {reportDate} {template} {version} — ต้องมี {hisLn} หรือ {sampleId} ระบบแทนอักขระที่ Windows ไม่รองรับด้วย _ และเติม (2), (3) เมื่อชื่อซ้ำ",kind:"text",max:160}]},
  go_live_cutoff:{key:"go_live_cutoff",title:"วันเริ่มใช้ระบบ",summary:"กำหนดขอบเขตวันที่สำหรับพิจารณาข้อมูลย้อนหลัง พร้อมบันทึกผู้จัดทำและผู้ตรวจสอบ",phase:"ข้อมูลย้อนหลัง",fields:[
   {name:"cutoff",label:"วันที่เริ่มใช้ระบบ",help:"แก้ไขไม่ได้หลังมีข้อมูลย้อนหลังที่ผูกกับวันที่นี้แล้ว",kind:"date"},
   {name:"impactReportHash",label:"SHA-256 ของรายงานผลกระทบ",help:"ต้องแนบรายงานผลกระทบทุกเวอร์ชัน (D-50)",kind:"hash"}]}

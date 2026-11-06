@@ -4,29 +4,32 @@ import {operationalWorkflow} from '../lab/operational';
 import {qc4Evidence,handoffVerified} from '../sequencing/service';
 import {storedPool} from '../sequencing/service';
 
-export type AttemptEvidence={current:boolean;reason:string|null;analysisAccepted:boolean;finalQcAccepted:boolean;poolId:string|null;dnbId:string|null;sequencingId:string|null;benchReviewId?:string|null};
+export type AttemptEvidence={current:boolean;reason:string|null;analysisAccepted:boolean;finalQcAccepted:boolean;poolId:string|null;dnbId:string|null;sequencingId:string|null;benchReviewId?:string|null;benchReviewerId?:string|null};
 /** Structural currentness only. Synthetic evidence never confers clinical acceptance.
  * Caller supplies the persisted report's exact attempt, never a patient/round substitute.
  * This read does not implement a clinical mutation adapter or its concurrency protocol.
  */
-export async function attemptEvidence(db:Queryable,attemptId:string):Promise<AttemptEvidence>{
+export async function attemptEvidence(db:Queryable,attemptId:string,reviewerId?:string):Promise<AttemptEvidence>{
  const result:AttemptEvidence={current:false,reason:null,analysisAccepted:false,finalQcAccepted:false,poolId:null,dnbId:null,sequencingId:null};
+ let reviewed:{id:string;reviewer_id:string}|undefined;
  if(await operationalWorkflow(db)){
-  const reviewed=(await db.query<{id:string}>(`SELECT q.id FROM lab_bench_review q JOIN lab_slot_assignment a ON a.batch_id=q.batch_id WHERE a.attempt_id=$1 AND a.removed_at IS NULL AND lab_bench_review_current(q.id) AND lab_bench_attempt_actually_pooled($1,q.actual_pooling_id) ORDER BY q.created_at DESC LIMIT 1`,[attemptId])).rows[0];
-  if(reviewed){const final=(await db.query<{ok:boolean}>(`SELECT EXISTS(SELECT 1 FROM result_qc5_review q JOIN result_report_version v ON v.id=q.version_id WHERE q.attempt_id=$1 AND q.bench_review_id=$2 AND lab_bench_qc5_valid(q) AND v.state IN ('Linked','ValidationBlocked','PendingCertification','CertifiedReleased') AND NOT EXISTS(SELECT 1 FROM result_report_version newer WHERE newer.round_id=v.round_id AND newer.kind=v.kind AND newer.imported_at>v.imported_at AND newer.state IN ('Linked','ValidationBlocked','PendingCertification','CertifiedReleased'))) ok`,[attemptId,reviewed.id])).rows[0].ok;
-   return {...result,current:true,analysisAccepted:true,finalQcAccepted:final,benchReviewId:reviewed.id};
-  }
+  reviewed=(await db.query<{id:string;reviewer_id:string}>(`SELECT q.id,q.reviewer_id FROM lab_bench_review q JOIN lab_slot_assignment a ON a.batch_id=q.batch_id WHERE a.attempt_id=$1 AND a.removed_at IS NULL AND lab_bench_review_current(q.id) AND lab_bench_attempt_actually_pooled($1,q.actual_pooling_id) ORDER BY CASE WHEN $2::uuid IS NOT NULL AND q.reviewer_id=$2 THEN 0 ELSE 1 END,q.created_at DESC LIMIT 1`,[attemptId,reviewerId??null])).rows[0];
  }
+ const legacyReview=async()=>{
+  if(!reviewed)return result;
+  const final=(await db.query<{ok:boolean}>(`SELECT EXISTS(SELECT 1 FROM result_qc5_review q JOIN result_report_version v ON v.id=q.version_id WHERE q.attempt_id=$1 AND lab_bench_qc5_valid(q) AND v.state IN ('Linked','ValidationBlocked','PendingCertification','CertifiedReleased') AND NOT EXISTS(SELECT 1 FROM result_report_version newer WHERE newer.round_id=v.round_id AND newer.kind=v.kind AND newer.imported_at>v.imported_at AND newer.state IN ('Linked','ValidationBlocked','PendingCertification','CertifiedReleased'))) ok`,[attemptId])).rows[0].ok;
+  return {...result,current:true,analysisAccepted:true,finalQcAccepted:final,benchReviewId:reviewed.id,benchReviewerId:reviewed.reviewer_id};
+ };
  const fail=(reason:string)=>({...result,reason});
  const slots=(await db.query<{batch_id:string;slot_number:number;state:string}>(`SELECT s.batch_id,s.slot_number,b.state FROM lab_slot_assignment s JOIN lab_batch b ON b.id=s.batch_id
   WHERE s.attempt_id=$1 AND s.removed_at IS NULL`,[attemptId])).rows;
  // No upstream pipeline yet: the existing state/QC1 predicates explain this absence.
- if(slots.length===0)return result;
+ if(slots.length===0)return legacyReview();
  if(slots.length!==1)return fail('UPSTREAM_SLOT_AMBIGUOUS');
  const slot=slots[0];if(slot.state==='Cancelled')return fail('BATCH_CANCELLED');
  const pool=(await db.query<{id:string;member:boolean}>(`SELECT p.id,EXISTS(SELECT 1 FROM jsonb_array_elements(p.payload->'members') m
   WHERE m->>'attemptId'=$2 AND m->>'slot'=$3) member FROM p4b_pool_attempt p WHERE p.batch_id=$1 ORDER BY p.attempt_number DESC LIMIT 1`,[slot.batch_id,attemptId,String(slot.slot_number)])).rows[0];
- if(!pool)return result;
+ if(!pool)return legacyReview();
  result.poolId=pool.id;
  if(!pool.member)return fail('UPSTREAM_POOL_MEMBER_STALE');
  const pe=(await db.query<{event_type:string}>('SELECT event_type FROM p4b_pool_event WHERE pool_id=$1',[pool.id])).rows.map(e=>e.event_type);

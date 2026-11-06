@@ -26,7 +26,7 @@ export interface SyntheticDraft {
   mode?:'OPERATIONAL_RELEASE';
   fixtureId:string;reportVersionId:string;roundId:string;attemptId:string;
   origin:'ANC'|'LAB_DIRECT';lnGeneration:number;roundNumber:number;epoch:number;
-  input:OperationalResInput;profile:ResProfile;pdf:Buffer;
+  input:OperationalResInput;profile:ResProfile;pdf:Buffer;pdfName?:string;
   settings:z.infer<typeof settingsSchema>;
   round2Policy?:'CURRENT_ROUND'|'ORIGINAL_ORDER';roundSpecimenAt?:string;originalSpecimenAt?:string;
 }
@@ -34,7 +34,7 @@ const draftSchema=z.strictObject({
   mode:z.literal('OPERATIONAL_RELEASE').optional(),
   fixtureId:id,reportVersionId:id,roundId:id,attemptId:id,origin:z.enum(['ANC','LAB_DIRECT']),
   lnGeneration:integer.refine(n=>n>0),roundNumber:integer.refine(n=>n>0),epoch:integer,
-  input:z.unknown(),profile:z.unknown(),pdf:z.instanceof(Buffer),settings:settingsSchema,
+  input:z.unknown(),profile:z.unknown(),pdf:z.instanceof(Buffer),pdfName:z.string().min(5).max(154).regex(/^[^<>:"/\\|?*\u0000-\u001f]+\.pdf$/).refine(v=>!v.startsWith('.')&&!/[. ]\.pdf$/i.test(v)&&!/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(v)).optional(),settings:settingsSchema,
   round2Policy:z.enum(['CURRENT_ROUND','ORIGINAL_ORDER']).optional(),roundSpecimenAt:z.string().optional(),originalSpecimenAt:z.string().optional(),
 });
 
@@ -72,7 +72,7 @@ export function freezeSyntheticTransfer(draft:SyntheticDraft,sequence:number):Re
     mode:operational?'OPERATIONAL_RELEASE' as const:'CONTRACT_ONLY' as const,fixtureId:draft.fixtureId,reportVersionId:draft.reportVersionId,
     roundId:draft.roundId,attemptId:draft.attemptId,origin:draft.origin,
     ln:draft.input.order.ln,lnGeneration:draft.lnGeneration,roundNumber:draft.roundNumber,sequence,epoch:draft.epoch,
-    resName:res.filename,pdfName:pdfFilename(draft.input.order.hn,draft.input.order.ln,sequence,draft.profile.pdfTemplate,operational),okName:res.filename.replace(/\.res$/,'.ok'),
+    resName:res.filename,pdfName:draft.pdfName??pdfFilename(draft.input.order.hn,draft.input.order.ln,sequence,draft.profile.pdfTemplate,operational),okName:res.filename.replace(/\.res$/,'.ok'),
     resHash:digest(res.bytes),pdfHash:digest(draft.pdf),resHex:res.bytes.toString('hex'),pdfHex:draft.pdf.toString('hex'),
     profileVersion:draft.profile.version,profileHash:digest(canonical(draft.profile)),settingsVersion:settings.version,settingsHash:digest(canonical(settings)),
     resDestinationId:digest(settings.connection?.resPath??settings.resDirectory),pdfDestinationId:digest(settings.connection?.pdfPath??settings.pdfDirectory),

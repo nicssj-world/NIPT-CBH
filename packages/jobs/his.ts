@@ -20,10 +20,11 @@ export async function executeInboundJob(db:Queryable,kind:'synthetic_scan'|'synt
  // Open inside the cycle's guarded assertion so initial outages also leave scan-run evidence.
  const source={id:s.basePath==='simulator/inbound'?'SIMULATOR':path.resolve(s.basePath),assert:async()=>{await version();await (await open()).assert();},file:async(relative:string)=>{await version();return (await open()).file(relative);}};
  const root=s.basePath==='simulator/inbound'?simulatorRoot():s.basePath;
- await appendAudit(db,{actorId:p.actorId,action:'INBOUND_CONFIGURATION_USED',resourceType:'SETTING',resourceId:row.id,details:{version:row.version,synthetic:true}});
+ const lastUsed=(await db.query<{resource_id:string}>("SELECT resource_id FROM audit_chain WHERE action='INBOUND_CONFIGURATION_USED' ORDER BY sequence DESC LIMIT 1")).rows[0];
+ if(lastUsed?.resource_id!==row.id)await appendAudit(db,{actorId:p.actorId,action:'INBOUND_CONFIGURATION_USED',resourceType:'SETTING',resourceId:row.id,details:{version:row.version,synthetic:true}});
  if(kind==='synthetic_inbound_test')return {...await testInboundConnection(root,{source,lookbackDays:s.lookbackDays}),configurationId:row.id,configurationVersion:row.version};
  if(!lookupKey)throw Error('INBOUND_LOOKUP_KEY_REQUIRED');const trigger=p.trigger??'INTERVAL';
  const since=(await db.query<{at:Date|null}>("SELECT min(created_at) at FROM audit_chain WHERE action='INBOUND_CONFIGURATION_USED' AND resource_id=$1",[row.id])).rows[0]?.at??undefined;
- const r=await runInboundCycle(db,{store,lookupKey,root,source},{trigger,lookbackDays:trigger==='DEEP'?p.lookbackDays!:s.lookbackDays,intervalSeconds:s.intervalSeconds,actorId:p.actorId,configurationSince:since});
+ const r=await runInboundCycle(db,{store,lookupKey,root,source},{trigger,lookbackDays:trigger==='DEEP'?p.lookbackDays!:s.lookbackDays,intervalSeconds:s.intervalSeconds,actorId:p.actorId,configurationSince:since,configurationId:row.id});
  return {outcome:r.outcome,counts:r.counts,configurationId:row.id,configurationVersion:row.version};
 }

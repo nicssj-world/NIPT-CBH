@@ -87,10 +87,10 @@ export default async function InboundPage({searchParams}:{searchParams:Promise<R
     <tbody>{queue.files.rows.map(x=><tr key={x.id}><td className="mono">{x.ln}</td><td>{x.dayFolder} · v{x.pathVersion}</td><td><span className={`status ${x.state==="Applied(S1)"?"good":x.state==="ParseError"||x.state==="Conflict"?"bad":""}`}>{STATE[x.state]??x.state}</span>{x.errorCode&&<> · รหัส {x.errorCode}</>}</td><td>{when(x.discoveredAt)}</td></tr>)}</tbody></table></div>:<p>{queue.search.q?"ไม่มีไฟล์ที่ตรงกับ LN ที่ค้น":"ยังไม่มีไฟล์จาก HIS"}</p>}
    <Pager label="ไฟล์ล่าสุด" basePath="/inbound" params={keep()} pageParam="filesPage" page={queue.files.page.number} pageSize={queue.files.page.size} total={queue.files.page.total} totalPages={queue.files.page.totalPages}/>
   </section>
-  <section className="panel" aria-labelledby="inbound-runs"><h2 id="inbound-runs">ประวัติการสแกน ({queue.runs.page.total})</h2>
+  <details className="panel" aria-labelledby="inbound-runs"><summary id="inbound-runs" className="min-h-11 cursor-pointer py-2">ข้อมูลแก้ปัญหา · เหตุการณ์การสแกน ({queue.runs.page.total})</summary><p className="help">แสดงไฟล์ใหม่ การเปลี่ยนสถานะ ข้อผิดพลาด และการสแกนที่สั่งเอง รอบอัตโนมัติที่ไม่มีการเปลี่ยนแปลงอัปเดตเฉพาะสถานะล่าสุด</p>
    {queue.runs.rows.length?<div className="table-wrap" role="region" aria-label="ประวัติการสแกน" tabIndex={0}><table className="data-table"><thead><tr><th scope="col">เวลา</th><th scope="col">ชนิด</th><th scope="col">ผล</th><th scope="col">ไฟล์ใหม่ / อ่านไม่ได้</th></tr></thead>
     <tbody>{queue.runs.rows.map(r=><tr key={r.id}><td>{when(r.finishedAt)}</td><td>{TRIGGER[r.trigger]??r.trigger}</td><td><span className={`status ${r.outcome==="SUCCESS"?"good":r.outcome==="PARTIAL"||r.outcome==="SKIPPED_BACKOFF"?"warning":"bad"}`}>{RUN[r.outcome]??r.outcome}</span>{r.errorCode?` · ${r.errorCode}`:""}</td><td>{r.counts.stored??0} / {r.counts.parseError??0}</td></tr>)}</tbody></table></div>:<p>ยังไม่มีการสแกน</p>}
    <Pager label="ประวัติการสแกน" basePath="/inbound" params={keep()} pageParam="runsPage" page={queue.runs.page.number} pageSize={queue.runs.page.size} total={queue.runs.page.total} totalPages={queue.runs.page.totalPages}/>
-  </section>
+  </details>
  </div>;
 }

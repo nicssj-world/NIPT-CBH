@@ -34,7 +34,7 @@ const today=lookbackFolders(1,new Date())[0];
 async function writePet(dir:string,ln:string,hn:string){const day=path.join(dir,today);await mkdir(day,{recursive:true});const bytes=operationalTestPetBytes({ln,hn,day:today});
  await writeFile(path.join(day,ln+'-7.pet'),bytes);await writeFile(path.join(day,ln+'-7.ok'),Buffer.alloc(0));return {file:path.join(day,ln+'-7.pet'),sha256:sha(bytes)};}
 const received=async(ln:string)=>(await q<{id:string;state:string;created_at:Date}>("SELECT id,state,discovered_at created_at FROM his_inbound_file WHERE filename=$1",[ln+'-7.pet']))[0]??null;
-const lastScan=async()=>(await q<{outcome:string;error_code:string|null;finished_at:Date}>('SELECT outcome,error_code,finished_at FROM his_inbound_scan_run ORDER BY finished_at DESC LIMIT 1'))[0]??null;
+const lastScan=async()=>(await q<{outcome:string;error_code:string|null;finished_at:Date}>("SELECT s.outcome,s.error_code,s.finished_at FROM his_inbound_scan_state s JOIN setting_active a ON a.setting_key='his_inbound' AND a.revision_id::text=s.configuration_id"))[0]??null;
 const activeRow=async(key:string)=>(await q<{id:string;version:number;value:Record<string,unknown>}>('SELECT r.id,r.version,r.value FROM setting_active a JOIN settings_revision r ON r.id=a.revision_id WHERE a.setting_key=$1',[key]))[0];
 
 // ── Browser sessions (real UI and the same-origin APIs it calls) ──
@@ -130,8 +130,7 @@ try{
  wrongAt=new Date();
  const pet1=await writePet(folders('A').pet,'2629870301','6999030100');
  const scan=await waitFor('scanner error on wrong default',async()=>{const s=await lastScan();return s&&s.finished_at>wrongAt?s:null;});
- const lastReal=(await q<{outcome:string;error_code:string|null;finished_at:Date}>("SELECT outcome,error_code,finished_at FROM his_inbound_scan_run WHERE outcome<>'SKIPPED_BACKOFF' ORDER BY finished_at DESC LIMIT 1"))[0];
- await record('wrong default PET folder: running scanner reports an explicit error (then backs off), nothing received',['SHARE_UNAVAILABLE','SKIPPED_BACKOFF'].includes(scan.outcome)&&lastReal?.outcome==='SHARE_UNAVAILABLE'&&!!lastReal.error_code&&!await received('2629870301'),{latest:scan,lastReal});
+ await record('wrong default PET folder: running scanner reports an explicit error (then backs off), nothing received',['SHARE_UNAVAILABLE','SKIPPED_BACKOFF'].includes(scan.outcome)&&!!scan.error_code&&!await received('2629870301'),{latest:scan});
  const health=await api(pages.admin,'/api/settings/his');await writeFile(path.join(EVIDENCE,'monitor-wrong-default.json'),JSON.stringify(health.data,null,2));
  await pages.admin.goto(ORIGIN+'/health',{waitUntil:'networkidle'});await pages.admin.screenshot({path:path.join(EVIDENCE,'health-wrong-default.png'),fullPage:true});
 

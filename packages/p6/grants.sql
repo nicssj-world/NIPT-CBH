@@ -20,6 +20,11 @@ GRANT SELECT ON result_report_version,redraw_request,p2_revocation TO worker_rw;
 GRANT INSERT ON p6_transfer TO worker_rw;
 GRANT EXECUTE ON FUNCTION p6_release_eligible(uuid,integer) TO worker_rw,app_rw;
 GRANT EXECUTE ON FUNCTION p6_lock_current_release(uuid,integer) TO worker_rw;
+-- Shared PDF filename: read only the frozen name/identity and exact matched run (migration 197, repeated for fresh roles).
+GRANT SELECT(version_id,download_name,bindings,template_code) ON internal_report TO worker_rw;
+GRANT SELECT(id,run_number,run_year) ON lab_batch TO worker_rw;
+GRANT SELECT(attempt_id,batch_id,removed_at) ON lab_slot_assignment TO worker_rw;
+GRANT SELECT(round_id,ln_halos) ON specimen_lab_number TO worker_rw;
 
 -- Settings-bound fixture enrollment reads approved configuration; no configuration writes.
 GRANT SELECT ON settings_revision,setting_active TO p6_fixture_writer;

@@ -2,13 +2,13 @@
 import {notifySaved} from "./shared/save-notice";
 import {useEffect,useMemo,useState} from "react";
 import {HisSettingsStatus} from "./his-settings-status";
-import {HisProfileFields,HisCertifierFields} from './his-profile-fields';
+import {HisProfileFields,HisCertifierFields,HisOperatorFields} from './his-profile-fields';
 import {useSearchParams,useRouter} from "next/navigation";
 import {Required,useUnsaved,thaiTime} from './admin-console';
 type Category={key:string;category:string;risk:string;default:unknown;directSave?:boolean;canPropose:boolean;canActivate:boolean};
 type Scope={enabled:boolean;alreadyEnabled:boolean;lookbackDays:number;intervalSeconds:number;basePath:string;dayFolders:number|null;pairedPetFiles:number|null;petFiles:number|null;sampleParse:string|null;accessible:boolean;errorCode:string|null};
 type Revision={id:string;setting_key:string;version:number;state:string;created_by:string;created_name?:string;created_username?:string;created_at:string;effective_from:string;activated_at:string|null;approved_by:string|null;test_passed:boolean;value:unknown};
-type FieldSpec={name:string;label:string;help:string;kind:"text"|"path"|"number"|"boolean"|"select"|"locked"|"date"|"hash"|"uuid-or-empty"|"res-profile"|"his-certifiers";options?:{value:string;label:string}[];unit?:string;min?:number;max?:number;lockedBy?:string};
+type FieldSpec={name:string;label:string;help:string;kind:"text"|"path"|"number"|"boolean"|"select"|"locked"|"date"|"hash"|"uuid-or-empty"|"res-profile"|"his-certifiers"|"his-operator";options?:{value:string;label:string}[];unit?:string;min?:number;max?:number;lockedBy?:string};
 type Form={key:string;title:string;summary:string;phase:string;fields:FieldSpec[]};
 type Coverage={category:number;item:string;plan:string;nipty:string|null;source:string|null;status:string;phase:string;note:string};
 type Values=Record<string,unknown>;
@@ -50,6 +50,7 @@ export function SettingsEditor(){
  const editable=!!category?.canPropose&&!['storage_backup','doctor_registry'].includes(key);
  const input=(f:FieldSpec)=>{const id=`setting-${f.name}`,v=value[f.name],help=<p id={`${id}-help`} className="help">{f.help}{f.unit?` · หน่วย: ${f.unit}`:""}</p>;
   if(f.kind==='res-profile')return <HisProfileFields key={f.name} value={v} editable={editable} onChange={v=>set(f.name,v)}/>;
+  if(f.kind==='his-operator')return <HisOperatorFields key={f.name} value={v} editable={editable} onChange={v=>set(f.name,v)}/>;
   if(f.kind==='his-certifiers')return <HisCertifierFields key={f.name} value={v} users={certifierUsers} editable={editable} onChange={v=>set(f.name,v)}/>;
   const unused=(key==='doctor_registry'&&f.name==='version')||(key==='laboratory'&&['templateVersion','formulaVersion'].includes(f.name));
   if(f.kind==="locked"||unused||key==='storage_backup')return <div className="field locked" key={f.name}><label htmlFor={id}>{f.label}<span className="locked-tag">{unused?(key==='laboratory'?'METADATA ONLY · บันทึกใน Batch ไม่เปลี่ยน Template/สูตรควบคุม':'NOT IMPLEMENTED · ยังไม่มี Runtime Consumer ของค่านี้'):key==='storage_backup'?'INSTALLATION-OWNED · ค่าในเว็บไม่มีผลต่อ Retention':f.lockedBy}</span></label><input id={id} value={v===null||v===undefined?"ไม่มีค่า":String(v)} readOnly aria-readonly="true" aria-describedby={`${id}-help`}/>{help}</div>;

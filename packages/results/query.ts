@@ -2,6 +2,7 @@ import {z} from 'zod';
 import type {Queryable} from '../db/connection';
 import {assertSession,need,audit,LabError,type Staff} from '../lab/core';
 import type {Parsed} from './parser';
+import {readHisDeliveryStatuses} from './his-status';
 
 export const RESULT_BUCKETS={all:[],historical:[],unlinked:['Unlinked'],conflict:['LinkConflict'],blocked:['ValidationBlocked'],pending:['PendingCertification'],closed:['RejectedImport','Superseded','Voided','CertifiedReleased']} as const;
 const iso=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(s=>{const d=new Date(s+'T00:00:00Z');return !Number.isNaN(d.getTime())&&d.toISOString().slice(0,10)===s;});
@@ -68,7 +69,8 @@ export async function queryResults(db:Queryable,user:Staff,input:unknown={}){
  const totalPages=Math.max(1,Math.ceil(total/requested.pageSize));
  const q=requested.page>totalPages?{...requested,page:totalPages}:requested,sql=q===requested?counting:resultQuerySql(q);
  const found=(await db.query<ResultRow>(sql.text,sql.values)).rows;
- return {rows:found.slice(0,q.pageSize),page:{number:q.page,size:q.pageSize,hasNext:found.length>q.pageSize,total,totalPages,scope:'BOUNDED_PAGE' as const},filters:q};
+ const pageRows=found.slice(0,q.pageSize),delivery=await readHisDeliveryStatuses(db,pageRows.map(r=>r.id));
+ return {rows:pageRows.map(r=>({...r,hisDelivery:delivery.get(r.id)})),page:{number:q.page,size:q.pageSize,hasNext:found.length>q.pageSize,total,totalPages,scope:'BOUNDED_PAGE' as const},filters:q};
 }
 /** Apostrophe prefixes are literal text protection, never ="..." formulas. CSV consumers must import IDs as text. */
 export function csvCell(value:unknown){let s=value==null?'':String(value);if(/^[\s\uFEFF]*[=+@-]/u.test(s)||/^0\d+$/.test(s))s="'"+s;return '"'+s.replaceAll('"','""')+'"';}

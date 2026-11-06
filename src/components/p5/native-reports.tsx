@@ -6,6 +6,9 @@ import {csrf,Dialog} from "../p2/shared";
 import {FileDropInput} from "../shared/file-drop-input";
 import {PdfPreview} from "../shared/pdf-preview";
 import {Pager} from "../shared/pager";
+import type {HisDeliveryStatus} from '../../../packages/results/his-status';
+import {HisDeliveryBadge} from './his-delivery-badge';
+import {RecentReportBatches,ReportBatchProgress} from './report-batch-progress';
 
 // Task 3 pathway A on the existing Results page: HALOS result import, then one report per patient from the Owner's DOCX masters.
 // Every HOLD reason comes from the server; nothing here decides eligibility, and no action is shown that the server would refuse.
@@ -13,14 +16,14 @@ type Issue={code:string;severity:"ERROR"|"WARNING";sheet?:string;row?:number;det
 type ImportRow={id:string;sheet:string;row:number;sample:string;sampleKey:string;chip:string|null;classification:string;reason:string;qc:string|null;advice:string|null;t21:string|null;ln:string|null;lnHalos:string|null;attemptNumber:number|null};
 type HalosImport={id:string;name:string;sha256:string;size:number;state:string;rowVersion:number;chipIds:string[];counts:Record<string,number>;issues:Issue[];uploadedBy:string;uploadedAt:string;rows:ImportRow[];duplicate?:boolean};
 type Hold={code:string;field?:string;raw?:string};
-type Row={rowId:string;sampleId:string;classification:string;reason:string;status:"READY"|"HOLD"|"FINAL"|"RELEASED"|"NOT_REPORTABLE";holds:Hold[];template:string|null;ln:string|null;lnHalos:string|null;hn:string|null;importName:string;importedAt:string;
+type Row={hisDelivery?:HisDeliveryStatus;rowId:string;sampleId:string;classification:string;reason:string;status:"READY"|"HOLD"|"FINAL"|"RELEASED"|"NOT_REPORTABLE";holds:Hold[];template:string|null;ln:string|null;lnHalos:string|null;hn:string|null;importName:string;importedAt:string;
  internalReportId:string|null;versionId:string|null;versionState:string|null;releaseId:string|null;hisAttested:boolean};
 type Worklist={rows:Row[];page:{number:number;size:number;total:number;totalPages:number;hasNext:boolean};counts:Record<string,number>;canFinalize:boolean};
 type Signer={userId:string;legalName:string;license:string;displayName:string;usable:boolean;basis:string|null};
 type Candidate={rowId:string;template:"SINGLETON"|"TWIN";templateCode:string;pregnancySource:string;holds:Hold[];eligible:boolean;values:Record<string,string>|null;
  interpretation:{trace:{rule:string;input:string;output:string}[];ruleset:{id:string;version:string}};productCode:string|null;sources:Record<string,unknown>;hisLn:string;lnHalos:string|null;hn:string|null;sampleId:string;
  approval:{approved:boolean;reference:string};canFinalize:boolean};
-type Outcome={rowId:string;outcome:"FINAL"|"HOLD"|"ERROR";holds?:Hold[];code?:string;versionId?:string;versionState?:string;release?:string;downloadName?:string};
+type PendingImport={id:string;rowVersion:number;acks:string[]};
 
 const CLASS_TEXT:Record<string,string>={PATIENT:"ผู้ป่วย — จับคู่กับไฟล์ส่งออกแล้ว",CONTROL:"Control (PC/NC)",UNMATCHED:"ไม่พบในไฟล์ส่งออก",AMBIGUOUS:"กำกวม",STALE_EXPORT:"ไฟล์ส่งออกไม่เป็นปัจจุบัน",SUPERSEDED_ATTEMPT:"Attempt ไม่ใช่รอบ/ครั้งล่าสุด",DUPLICATE_ENTRY:"ซ้ำกับชีต result",REPEAT_HISTORY:"ประวัติการตรวจซ้ำ",SAMPLE_INFO:"ข้อมูลตัวอย่าง",INVALID:"ข้อมูลไม่ถูกต้อง"};
 const CLASS_TONE:Record<string,string>={PATIENT:"good",CONTROL:"",UNMATCHED:"bad",AMBIGUOUS:"bad",STALE_EXPORT:"bad",SUPERSEDED_ATTEMPT:"warning",DUPLICATE_ENTRY:"",REPEAT_HISTORY:"",INVALID:"bad"};
@@ -31,6 +34,7 @@ const REASON_TEXT:Record<string,string>={FROZEN_EXPORT_MEMBER:"ตรงกั�
  SAMPLE_ID_MISSING:"ไม่มีรหัสตัวอย่าง",SAMPLE_ID_FORMAT_INVALID:"รูปแบบรหัสตัวอย่างไม่ถูกต้อง",EXPORT_MEMBER_LINEAGE_MISMATCH:"ข้อมูล Attempt ไม่ตรงกับไฟล์ส่งออก"};
 const ISSUE_TEXT:Record<string,string>={MIXED_CHIP_IN_RESULT_SHEET:"ชีต result มีหลาย Chip",NAME_COLLISION_DIFFERENT_CONTENT:"ชื่อไฟล์ซ้ำกับไฟล์ที่นำเข้าแล้ว แต่เนื้อหาต่างกัน",REPEAT_SHEET_ABSENT:"ไม่มีชีต repeat",UNKNOWN_SHEET_IGNORED:"มีชีตอื่นที่ระบบไม่ได้ใช้",CHIP_ID_MISSING:"ไม่มี Chip ID",SAMPLE_ID_MISSING:"แถวไม่มีรหัสตัวอย่าง",SAMPLE_ID_FORMAT_INVALID:"รหัสตัวอย่างผิดรูปแบบ"};
 export const HOLD_TEXT:Record<string,string>={
+ SEQUENCING_EVIDENCE_REQUIRED:'ยังไม่พบหลักฐาน sequencing/HALOS และ QC4 ที่ผ่านการยอมรับ',SEQUENCING_REVIEWER_MISMATCH:'ผู้รับรองรายงานต้องทบทวนหลักฐาน legacy ของใบงานนี้ก่อนดำเนินการ',REPORT_RUN_REQUIRED:'ไม่พบ Run ของตัวอย่างนี้ — ตรวจการผูก Attempt กับ Run',REPORT_RUN_AMBIGUOUS:'มี Run ของ Attempt นี้มากกว่าหนึ่งชุด — ต้องตรวจการผูกข้อมูล',
  INTERPRETATION_RULESET_NOT_APPROVED:"ชุดกฎการแปลผลยังไม่ได้รับอนุมัติทางคลินิก (ตั้งค่า “การแปลผลรายงานที่ออกในระบบ”)",RULESET_VERSION_MISMATCH:"ชุดกฎที่อนุมัติไม่ตรงกับรุ่นที่ติดตั้ง",
  PRODUCT_TEMPLATE_COMBINATION_NOT_APPROVED:"ผลิตภัณฑ์ NIFTY นี้ยังไม่ได้รับอนุมัติให้ใช้กับแบบฟอร์มรายงาน (เช่น HNZ0011 กับแบบฟอร์ม HNZ0051)",REPORT_MASTER_NOT_INSTALLED:"ยังไม่ได้ติดตั้งแบบฟอร์ม DOCX ที่ตรวจ SHA-256",
  FETAL_SEX_DISCLOSURE_NOT_PERMITTED:"แบบฟอร์มครรภ์เดี่ยวแสดงเพศทารกเสมอ แต่ไม่มีความประสงค์ “ต้องการทราบเพศ” ที่บันทึกไว้",Y_CHROMOSOME_DISCLOSURE_NOT_PERMITTED:"ผู้รับบริการไม่ประสงค์ทราบผลโครโมโซม Y",
@@ -53,14 +57,14 @@ const STATUS_TONE:Record<Row["status"],string>={READY:"good",HOLD:"warning",FINA
 const TABS:[string,string][]=[["ALL","ทั้งหมด"],["READY","พร้อมออกรายงาน"],["HOLD","ระงับ"],["FINAL","รอตรวจรับ"],["RELEASED","ส่งผลแล้ว"],["NOT_REPORTABLE","ไม่ใช่ผู้ป่วย"]];
 const Status=({tone,children}:{tone?:string;children:React.ReactNode})=><span className={`status ${tone??""}`}>{children}</span>;
 
-function HalosImport({onConfirmed}:{onConfirmed:()=>void}){
+function HalosImport({onConfirmed,onPrepare}:{onConfirmed:()=>void;onPrepare:(rows:Row[],pending:PendingImport)=>void}){
  const [busy,setBusy]=useState(""),[error,setError]=useState(""),[preview,setPreview]=useState<HalosImport|null>(null),[acks,setAcks]=useState<Set<string>>(new Set()),[list,setList]=useState<{id:string;name:string;state:string;uploadedAt:string;uploadedBy:string;counts:Record<string,number>}[]>([]);
- const input=useRef<HTMLInputElement>(null);
+ const input=useRef<HTMLInputElement>(null),[chosen,setChosen]=useState<Set<string>>(new Set());
  const loadList=useCallback(async()=>{try{setList((await labApi<{imports:typeof list}>("/api/task3/halos")).imports);}catch{/* list is secondary to the upload */}},[]);
  useEffect(()=>{void Promise.resolve().then(loadList);},[loadList]);
  const upload=async()=>{const file=input.current?.files?.[0];if(!file){setError("กรุณาเลือกไฟล์ HALOS (.xlsx)");input.current?.focus();return;}
   setBusy("upload");setError("");try{const form=new FormData();form.append("file",file);const r=await fetch("/api/task3/halos",{method:"POST",headers:{"x-csrf-token":csrf()},body:form});const d=await r.json().catch(()=>({}));
-   if(!r.ok){setError(d.error??"อ่านไฟล์ไม่สำเร็จ");return;}setPreview(d);setAcks(new Set());if(input.current)input.current.value="";await loadList();}finally{setBusy("");}};
+    if(!r.ok){setError(d.error??"อ่านไฟล์ไม่สำเร็จ");return;}setPreview(d);setAcks(new Set());setChosen(new Set((d.rows as ImportRow[]).filter(r=>r.sheet==='result'&&r.classification==='PATIENT').map(r=>r.id)));if(input.current)input.current.value="";await loadList();}catch(e){setError(failureText(e));}finally{setBusy("");}};
  const decide=async(decision:"CONFIRM"|"CANCEL")=>{if(!preview)return;setBusy(decision);setError("");try{const d=await labApi<HalosImport>(`/api/task3/halos/${preview.id}`,{decision,expectedRowVersion:preview.rowVersion,acknowledgeWarnings:[...acks]});setPreview(d.state==="Previewed"?d:null);await loadList();if(decision==="CONFIRM")onConfirmed();}catch(e){setError(failureText(e));}finally{setBusy("");}};
  const warnings=[...new Set((preview?.issues??[]).filter(i=>i.severity==="WARNING").map(i=>i.code))];
  const result=(preview?.rows??[]).filter(r=>r.sheet!=="sampleinfo");
@@ -84,13 +88,13 @@ function HalosImport({onConfirmed}:{onConfirmed:()=>void}){
    {warnings.length>0&&<fieldset className="stack t3-warnings"><legend>คำเตือนที่ต้องรับทราบก่อนยืนยัน</legend>{warnings.map(w=><label key={w} className="check-label"><input type="checkbox" checked={acks.has(w)} onChange={e=>setAcks(s=>{const n=new Set(s);if(e.target.checked)n.add(w);else n.delete(w);return n;})}/> {ISSUE_TEXT[w]??w}</label>)}</fieldset>}
    <div className="table-wrap" role="region" aria-label="แถวผล HALOS และการจับคู่" tabIndex={0}>
     <table className="data-table t3-rows"><caption>แถวผลทั้งหมด {result.length} — แถวที่ไม่ใช่ผู้ป่วยจะไม่ถูกออกรายงาน</caption>
-     <thead><tr><th scope="col">ชีต · แถว</th><th scope="col">รหัสตัวอย่าง (ตามไฟล์)</th><th scope="col">LN · LN Halos</th><th scope="col">QC / คำแนะนำ</th><th scope="col">T21</th><th scope="col">การจับคู่</th></tr></thead>
-     <tbody>{result.map(r=><tr key={r.id}><td>{r.sheet} · {r.row}</td><td className="mono">{r.sampleKey}{r.sample!==r.sampleKey&&<span className="badge warning">มีช่องว่าง/แท็บในไฟล์</span>}</td><td className="mono">{r.ln??"—"}<br/>{r.lnHalos??""}</td>
+      <thead><tr><th scope="col">เลือก</th><th scope="col">ชีต · แถว</th><th scope="col">รหัสตัวอย่าง (ตามไฟล์)</th><th scope="col">LN · LN Halos</th><th scope="col">QC / คำแนะนำ</th><th scope="col">T21</th><th scope="col">การจับคู่</th></tr></thead>
+      <tbody>{result.map(r=><tr key={r.id}><td>{r.sheet==='result'&&r.classification==='PATIENT'&&<input type="checkbox" aria-label={`เลือกผล ${r.sampleKey}`} checked={chosen.has(r.id)} onChange={e=>setChosen(s=>{const n=new Set(s);if(e.target.checked)n.add(r.id);else n.delete(r.id);return n;})}/>}</td><td>{r.sheet} · {r.row}</td><td className="mono">{r.sampleKey}{r.sample!==r.sampleKey&&<span className="badge warning">มีช่องว่าง/แท็บในไฟล์</span>}</td><td className="mono">{r.ln??"—"}<br/>{r.lnHalos??""}</td>
       <td>{r.qc??"—"} / {r.advice??"—"}</td><td>{r.t21??"—"}</td><td><Status tone={CLASS_TONE[r.classification]}>{CLASS_TEXT[r.classification]??r.classification}</Status><div className="help">{REASON_TEXT[r.reason]??r.reason}</div></td></tr>)}</tbody></table>
    </div>
    <div className="bulk-bar"><span>ยืนยันแล้วไฟล์และการจับคู่นี้จะแก้ไขไม่ได้</span>
     <button type="button" className="button secondary" disabled={!!busy} onClick={()=>decide("CANCEL")}>ยกเลิก</button>
-    <button type="button" className="button" disabled={!!busy||preview.state!=="Previewed"||warnings.some(w=>!acks.has(w))} onClick={()=>decide("CONFIRM")}>{busy==="CONFIRM"?"กำลังยืนยัน…":"ยืนยันนำเข้า"}</button></div>
+     <button type="button" className="button" disabled={!!busy||preview.state!=="Previewed"||warnings.some(w=>!acks.has(w))||!chosen.size} onClick={()=>onPrepare(preview.rows.filter(r=>chosen.has(r.id)).map(r=>({rowId:r.id,sampleId:r.sampleKey,classification:r.classification,reason:r.reason,status:'READY',holds:[],template:null,ln:r.ln,lnHalos:r.lnHalos,hn:null,importName:preview.name,importedAt:preview.uploadedAt,internalReportId:null,versionId:null,versionState:null,releaseId:null,hisAttested:false})),{id:preview.id,rowVersion:preview.rowVersion,acks:[...acks]})}>ตรวจผลแปลและเลือกผู้ลงนาม ({chosen.size})</button></div>
   </div>}
   {list.length>0&&<details><summary>ไฟล์ HALOS ที่นำเข้าแล้ว ({list.length})</summary>
    <ul className="timeline">{list.map(i=><li key={i.id}><div className="row"><strong className="p5-file">{i.name}</strong><span>{i.state==="Confirmed"?"ยืนยันแล้ว":i.state==="Cancelled"?"ยกเลิก":"รอยืนยัน"}</span></div>
@@ -109,17 +113,19 @@ function SignerPicker({role,label,value,onChange,id}:{role:"REPORTED"|"APPROVED"
   <p id={id+"-help"} className="help">{error||(chosen?(chosen.basis==="SELF"?"ลงนามด้วยลายเซ็นของท่านเอง":"ใช้ลายเซ็นตามการมอบสิทธิ์ของเจ้าของลายเซ็น — ระบบบันทึกว่าท่านเป็นผู้ออกรายงาน"):"แสดงเฉพาะผู้ลงนามที่มีโปรไฟล์ผ่านการตรวจและมีสิทธิ์ในบทบาทนี้")}</p></div>;
 }
 
-function ReportDialog({rows,onClose,onDone}:{rows:Row[];onClose:()=>void;onDone:()=>void}){
+function ReportDialog({rows,pendingImport,onClose,onDone}:{rows:Row[];pendingImport?:PendingImport|null;onClose:()=>void;onDone:()=>void}){
  const single=rows.length===1?rows[0]:null;
  const [cand,setCand]=useState<Candidate|null>(null),[error,setError]=useState(""),[busy,setBusy]=useState("");
  const [reportedBy,setReportedBy]=useState(""),[approvedBy,setApprovedBy]=useState(""),[override,setOverride]=useState<""|"Singleton"|"Twins">(""),[overrideReason,setOverrideReason]=useState("");
- const [release,setRelease]=useState(false),[confirm,setConfirm]=useState({content:false,identity:false,disclosure:false,abnormal:false,bench:false});
- const [previewUrl,setPreviewUrl]=useState(""),[outcome,setOutcome]=useState<{batchId:string;items:Outcome[]}|null>(null),[key]=useState(()=>crypto.randomUUID());
+ const [release]=useState(true),[confirm,setConfirm]=useState({content:false,identity:false,disclosure:false,abnormal:false,bench:false});
+ const [batchCandidates,setBatchCandidates]=useState<Candidate[]>([]),[excluded,setExcluded]=useState<Set<string>>(new Set()),[queuedBatchId,setQueuedBatchId]=useState('');
+ const [previewUrl,setPreviewUrl]=useState(""),[key]=useState(()=>crypto.randomUUID());
  const [rowSigners,setRowSigners]=useState<Record<string,{reportedBy:string;approvedBy:string}>>({}),[opts,setOpts]=useState<{REPORTED:Signer[];APPROVED:Signer[]}>({REPORTED:[],APPROVED:[]});
  useEffect(()=>{if(single)return;void Promise.all((["REPORTED","APPROVED"] as const).map(r=>labApi<{signers:Signer[]}>(`/api/task3/signers?role=${r}`).then(x=>x.signers))).then(([REPORTED,APPROVED])=>setOpts({REPORTED,APPROVED})).catch(e=>setError(failureText(e)));},[single]);
  const setRow=(rowId:string,role:"reportedBy"|"approvedBy",value:string)=>setRowSigners(s=>({...s,[rowId]:{reportedBy:s[rowId]?.reportedBy??"",approvedBy:s[rowId]?.approvedBy??"",[role]:value}}));
  const loadCandidate=useCallback(async()=>{if(!single)return;try{setCand(await labApi<Candidate>("/api/task3/reports",{action:"candidate",rowId:single.rowId,...(override?{pregnancyOverride:override,overrideReason}:{})}));setError("");}catch(e){setError(failureText(e));}},[single,override,overrideReason]);
  useEffect(()=>{void Promise.resolve().then(loadCandidate);},[loadCandidate]);
+ useEffect(()=>{if(single)return;let active=true;void labApi<{items:Candidate[]}>('/api/task3/reports',{action:'candidates',rowIds:rows.map(r=>r.rowId)}).then(r=>{if(active)setBatchCandidates(r.items);}).catch(e=>{if(active)setError(failureText(e));});return()=>{active=false;};},[single,rows]);
  useEffect(()=>()=>{if(previewUrl)URL.revokeObjectURL(previewUrl);},[previewUrl]);
  const abnormal=!!cand?.values&&[cand.values.trisomy21_ra,cand.values.trisomy18_ra,cand.values.trisomy13_ra,cand.values.XO_NEW,cand.values.XXX_NEW,cand.values.XXY_NEW,cand.values.XYY_NEW].some(v=>v==="High Risk"||v==="Detected");
  const preview=async()=>{if(!single)return;setBusy("preview");setError("");
@@ -127,23 +133,23 @@ function ReportDialog({rows,onClose,onDone}:{rows:Row[];onClose:()=>void;onDone:
    if(!r.ok){const d=await r.json().catch(()=>({}));setError(d.error??"สร้างร่างไม่สำเร็จ");return;}setPreviewUrl(URL.createObjectURL(await r.blob()));}finally{setBusy("");}};
  const finalize=async()=>{setBusy("final");setError("");
   try{const items=rows.map(r=>({rowId:r.rowId,...(single&&override?{pregnancyOverride:override,overrideReason}:{}),...(rowSigners[r.rowId]?.reportedBy?{reportedBy:rowSigners[r.rowId].reportedBy}:{}),...(rowSigners[r.rowId]?.approvedBy?{approvedBy:rowSigners[r.rowId].approvedBy}:{})}));
-   const res=await labApi<{batchId:string;items:Outcome[]}>("/api/task3/reports",{action:"finalize",idempotencyKey:key,defaults:{reportedBy:reportedBy||null,approvedBy:approvedBy||null},items,
+  const eligibleItems=items.filter(i=>!excluded.has(i.rowId)&&candidateReady(single?cand:batchCandidates.find(c=>c.rowId===i.rowId)));
+  if(pendingImport)await labApi(`/api/task3/halos/${pendingImport.id}`,{decision:'CONFIRM',expectedRowVersion:pendingImport.rowVersion,acknowledgeWarnings:pendingImport.acks});
+  const res=await labApi<{batchId:string}>("/api/task3/batches",{idempotencyKey:key,defaults:{reportedBy:reportedBy||null,approvedBy:approvedBy||null},items:eligibleItems,
     ...(release?{release:true,releaseConfirmations:{reportContentVerified:true,identityAndValuesMatchReport:true,disclosureReviewed:true,abnormalAcknowledged:confirm.abnormal,...(confirm.bench?{benchMeasurementsReviewed:true}:{})}}:{})});
-   setOutcome(res);onDone();}catch(e){setError(failureText(e));if(e instanceof LabFailure&&e.code==="IDEMPOTENCY_KEY_REUSED")onClose();}finally{setBusy("");}};
- const releaseReady=!release||(confirm.content&&confirm.identity&&confirm.disclosure&&(!abnormal||confirm.abnormal));
- const holds=single?cand?.holds??[]:[];
- const canSubmit=!!reportedBy&&!!approvedBy&&releaseReady&&(!single||cand?.eligible===true)&&(!override||overrideReason.trim().length>=8);
- const dirty=!!(reportedBy||approvedBy||override||release)&&!outcome;
+   setQueuedBatchId(res.batchId);onDone();}catch(e){setError(failureText(e));if(e instanceof LabFailure&&e.code==="IDEMPOTENCY_KEY_REUSED")onClose();}finally{setBusy("");}};
+ const candidateHolds=(c?:Candidate|null)=>(c?.holds??[]).filter(h=>!(pendingImport&&h.code==='HALOS_IMPORT_NOT_CONFIRMED'));
+ const candidateReady=(c?:Candidate|null)=>!!c&&candidateHolds(c).length===0;
+ const allCandidates=single?(cand?[cand]:[]):batchCandidates;
+ const anyAbnormal=abnormal||allCandidates.some(c=>Object.values(c.values??{}).some(v=>v==='High Risk'||v==='Detected'));
+ const releaseReady=confirm.content&&(!anyAbnormal||confirm.abnormal);
+ const holds=single?candidateHolds(cand):[];
+ const canSubmit=!!reportedBy&&!!approvedBy&&releaseReady&&(single?candidateReady(cand):batchCandidates.length===rows.length&&batchCandidates.some(c=>candidateReady(c)&&!excluded.has(c.rowId)))&&(!override||overrideReason.trim().length>=8);
+ const dirty=!!(reportedBy||approvedBy||override)&&!queuedBatchId;
  return <Dialog title={single?`ออกรายงาน ${single.ln??single.sampleId}`:`ออกรายงาน ${rows.length} ราย (หนึ่ง PDF ต่อผู้ป่วย)`} onClose={onClose} dirty={dirty}>
   <div className="stack t3-dialog">
    {error&&<p className="notice" role="alert">{error}</p>}
-   {outcome?<div className="stack" role="status">
-     <p className="notice success">บันทึกแล้ว — ออกรายงาน {outcome.items.filter(i=>i.outcome==="FINAL").length} ราย · ระงับ {outcome.items.filter(i=>i.outcome==="HOLD").length} · ผิดพลาด {outcome.items.filter(i=>i.outcome==="ERROR").length}</p>
-     <ul className="timeline">{outcome.items.map(i=>{const r=rows.find(x=>x.rowId===i.rowId);return <li key={i.rowId}><div className="row"><strong className="mono">{r?.ln??r?.sampleId}</strong><Status tone={i.outcome==="FINAL"?"good":i.outcome==="HOLD"?"warning":"bad"}>{i.outcome==="FINAL"?(i.release==="CertifiedReleased"?"ออกรายงานและส่งผลแล้ว":"ออกรายงานแล้ว"):i.outcome==="HOLD"?"ระงับ":"ไม่สำเร็จ"}</Status></div>
-      {i.holds&&<ul className="help">{i.holds.map(h=><li key={h.code}>{holdText(h)}</li>)}</ul>}{i.code&&<div className="help">{i.code}</div>}
-      {i.versionId&&<div className="action-bar"><Link className="button small secondary" href={`/results/${i.versionId}`}>เปิดผลตรวจ</Link></div>}</li>;})}</ul>
-     {outcome.items.some(i=>i.outcome==="FINAL")&&<div className="action-bar"><a className="button secondary" href={`/api/task3/batches/${outcome.batchId}/zip`}>ดาวน์โหลด ZIP (PDF แยกรายผู้ป่วย)</a><button type="button" className="button" onClick={onClose}>ปิด</button></div>}
-    </div>:<>
+    {queuedBatchId?<><ReportBatchProgress batchId={queuedBatchId}/><button type="button" className="button secondary" onClick={onClose}>ปิดและทำงานอื่นต่อ</button></>:<>
    {single&&(!cand?<div className="skeleton" aria-busy="true" aria-label="กำลังโหลดข้อมูลรายงาน"/>:<>
     <dl className="compact-facts plan-dl t3-facts">
      <div><dt>ผู้ป่วย</dt><dd>{cand.values?.patientName??"—"} · HN <span className="mono">{cand.hn??"—"}</span> · LN <span className="mono">{cand.hisLn}</span></dd></div>
@@ -159,27 +165,23 @@ function ReportDialog({rows,onClose,onDone}:{rows:Row[];onClose:()=>void;onDone:
      <div className="field"><label htmlFor="t3-override">ใช้แบบฟอร์ม</label><select id="t3-override" value={override} onChange={e=>setOverride(e.target.value as typeof override)}><option value="">ตามข้อมูลที่บันทึก</option><option value="Singleton">ครรภ์เดี่ยว</option><option value="Twins">ครรภ์แฝด</option></select></div>
      <div className="field"><label htmlFor="t3-override-reason">เหตุผล (บันทึกในประวัติ)</label><input id="t3-override-reason" value={overrideReason} maxLength={500} onChange={e=>setOverrideReason(e.target.value)}/></div></div></details>}
    </>)}
-   {!single&&<div className="table-wrap" role="region" aria-label="รายการที่จะออกรายงาน" tabIndex={0}><table className="data-table"><thead><tr><th scope="col">LN</th><th scope="col">รหัส HALOS</th><th scope="col">ผู้รายงาน (ถ้าต่างจากค่าเริ่มต้น)</th><th scope="col">ผู้อนุมัติ (ถ้าต่างจากค่าเริ่มต้น)</th></tr></thead>
-    <tbody>{rows.map(r=><tr key={r.rowId}><td className="mono">{r.ln}</td><td className="mono">{r.sampleId}</td>
+   {!single&&<div className="table-wrap" role="region" aria-label="รายการที่จะออกรายงาน" tabIndex={0}><table className="data-table"><thead><tr><th scope="col">เลือก</th><th scope="col">LN · HN</th><th scope="col">ผลแปล T21 / T18 / T13 · QC</th><th scope="col">ผู้รายงาน (ถ้าต่างจากค่าเริ่มต้น)</th><th scope="col">ผู้อนุมัติ (ถ้าต่างจากค่าเริ่มต้น)</th></tr></thead>
+    <tbody>{rows.map(r=>{const c=batchCandidates.find(c=>c.rowId===r.rowId),ready=candidateReady(c);return <tr key={r.rowId}><td><input type="checkbox" aria-label={`ออกรายงาน ${r.ln??r.sampleId}`} disabled={!ready} checked={ready&&!excluded.has(r.rowId)} onChange={e=>setExcluded(s=>{const n=new Set(s);if(e.target.checked)n.delete(r.rowId);else n.add(r.rowId);return n;})}/></td><td className="mono">{r.ln}<br/>{c?.hn??r.hn}<div className="help">{r.sampleId} · {c?.template==='TWIN'?'แฝด':'เดี่ยว'}</div></td><td>{c?c.values?<>{c.values.trisomy21_ra} / {c.values.trisomy18_ra} / {c.values.trisomy13_ra}<br/>QC {c.values.qc} · FF {c.values.fetalFaction_2}%</>:"ข้อมูลยังไม่ครบ":"กำลังอ่านผลแปล…"}{candidateHolds(c).map(h=><div className="help" key={h.code}>{holdText(h)}</div>)}</td>
      {(["reportedBy","approvedBy"] as const).map(role=><td key={role}><select aria-label={`${role==="reportedBy"?"ผู้รายงาน":"ผู้อนุมัติ"}ของ ${r.ln??r.sampleId}`} value={rowSigners[r.rowId]?.[role]??""} onChange={e=>setRow(r.rowId,role,e.target.value)}>
-      <option value="">ตามค่าเริ่มต้นของชุด</option>{opts[role==="reportedBy"?"REPORTED":"APPROVED"].filter(o=>o.usable).map(o=><option key={o.userId} value={o.userId}>{o.legalName} · {o.license}</option>)}</select></td>)}</tr>)}</tbody></table></div>}
+      <option value="">ตามค่าเริ่มต้นของชุด</option>{opts[role==="reportedBy"?"REPORTED":"APPROVED"].filter(o=>o.usable).map(o=><option key={o.userId} value={o.userId}>{o.legalName} · {o.license}</option>)}</select></td>)}</tr>;})}</tbody></table></div>}
    <div className="form-grid">
     <SignerPicker id="t3-reported" role="REPORTED" label={single?"Reported by":"Reported by (ค่าเริ่มต้นของชุด)"} value={reportedBy} onChange={setReportedBy}/>
     <SignerPicker id="t3-approved" role="APPROVED" label={single?"Approved by":"Approved by (ค่าเริ่มต้นของชุด)"} value={approvedBy} onChange={setApprovedBy}/>
    </div>
    {single&&<div className="action-bar"><button type="button" className="button secondary" disabled={!!busy||!cand?.values} onClick={preview}>{busy==="preview"?"กำลังสร้างร่าง…":"ดูร่างรายงาน"}</button><span className="help">ร่างมีลายน้ำ “PREVIEW” และไม่ถูกบันทึกเป็นรายงาน</span></div>}
-   <fieldset className="stack"><legend>ส่งผลหลังออกรายงาน</legend>
-    <label className="check-label"><input type="checkbox" checked={release} onChange={e=>setRelease(e.target.checked)}/> ตรวจรับและยืนยันส่งผลทันที (ผ่าน Gate ชุดเดียวกับการส่งผลปกติ)</label>
-    {release&&<div className="stack t3-confirm">
-     <label className="check-label"><input type="checkbox" checked={confirm.content} onChange={e=>setConfirm(c=>({...c,content:e.target.checked}))}/> ตรวจค่าในรายงานตรงกับผล HALOS และการแปลผลที่อนุมัติแล้ว</label>
-     <label className="check-label"><input type="checkbox" checked={confirm.identity} onChange={e=>setConfirm(c=>({...c,identity:e.target.checked}))}/> ตัวตนผู้ป่วยและรอบถูกต้อง</label>
-     <label className="check-label"><input type="checkbox" checked={confirm.disclosure} onChange={e=>setConfirm(c=>({...c,disclosure:e.target.checked}))}/> ตรวจการเปิดเผยเพศ/โครโมโซม Y แล้ว</label>
-     <label className="check-label"><input type="checkbox" checked={confirm.abnormal} onChange={e=>setConfirm(c=>({...c,abnormal:e.target.checked}))}/> รับทราบผลผิดปกติ (ถ้ามี)</label>
-     <label className="check-label"><input type="checkbox" checked={confirm.bench} onChange={e=>setConfirm(c=>({...c,bench:e.target.checked}))}/> ทบทวนค่าในใบงาน QC / Sequencing ฉบับล่าสุดแล้ว</label></div>}
+   <fieldset className="stack"><legend>ยืนยันออกรายงานและผูกผลกับผู้ป่วย</legend>
+    <label className="check-label"><input type="checkbox" checked={confirm.content} onChange={e=>setConfirm(c=>({...c,content:e.target.checked}))}/> ตรวจผลแปล การจับคู่ผู้ป่วย รอบตัวอย่าง และข้อมูลที่เปิดเผยในรายงานของรายการที่เลือกแล้ว</label>
+    {anyAbnormal&&<label className="check-label"><input type="checkbox" checked={confirm.abnormal} onChange={e=>setConfirm(c=>({...c,abnormal:e.target.checked}))}/> รับทราบผลผิดปกติของรายการที่เลือก (High Risk / Detected)</label>}
+    <p className="help">เมื่อยืนยัน ระบบสร้าง PDF ผูกผลกับผู้ป่วย และเข้าคิวส่ง HIS/CFS โดยใช้หลักฐาน Sequencing ที่ตรวจไว้แล้ว รายการที่ยังไม่พร้อมจะถูกพักพร้อมเหตุผล</p>
    </fieldset>
    <div className="action-bar"><button type="button" className="button secondary" onClick={onClose} disabled={!!busy}>ยกเลิก</button>
-    <button type="button" className="button" disabled={!!busy||!canSubmit} onClick={finalize}>{busy==="final"?"กำลังสร้าง PDF ด้วย Microsoft Word…":release?"ออกรายงานและส่งผล":"ออกรายงานฉบับจริง"}</button></div>
-   {!canSubmit&&!busy&&<p className="help">{!reportedBy||!approvedBy?"เลือก Reported by และ Approved by ก่อน":single&&cand&&!cand.eligible?"รายการนี้ถูกระงับ — แก้ที่ต้นเหตุตามรายการด้านบน":release&&!releaseReady?"ติ๊กการยืนยันการส่งผลให้ครบ":""}</p>}
+    <button type="button" className="button" disabled={!!busy||!canSubmit} onClick={finalize}>{busy==="final"?"กำลังเข้าคิวออกรายงาน…":"ยืนยันและออกรายงาน"}</button></div>
+   {!canSubmit&&!busy&&<p className="help">{!reportedBy||!approvedBy?"เลือก Reported by และ Approved by ก่อน":single&&cand&&!candidateReady(cand)?"รายการนี้ถูกระงับ — แก้ที่ต้นเหตุตามรายการด้านบน":release&&!releaseReady?"ยืนยันการตรวจรายการที่เลือกก่อนออกรายงาน":""}</p>}
    </>}
   </div>
   {previewUrl&&<PdfPreview src={previewUrl} title="ร่างรายงาน (PREVIEW)" onClose={()=>{URL.revokeObjectURL(previewUrl);setPreviewUrl("");}}/>}
@@ -190,7 +192,7 @@ function ReportDialog({rows,onClose,onDone}:{rows:Row[];onClose:()=>void;onDone:
 export function NativeReports({canImport,scope="PATIENT"}:{canImport:boolean;scope?:"PATIENT"|"EQA"}){
  const [q,setQ]=useState(""),[status,setStatus]=useState("ALL"),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50);
  const [data,setData]=useState<Worklist|null>(null),[loading,setLoading]=useState(false),[error,setError]=useState("");
- const [selected,setSelected]=useState<Set<string>>(new Set()),[dialog,setDialog]=useState<Row[]|null>(null);
+ const [selected,setSelected]=useState<Set<string>>(new Set()),[dialog,setDialog]=useState<Row[]|null>(null),[pendingImport,setPendingImport]=useState<PendingImport|null>(null);
  const seq=useRef(0);
  const load=useCallback(async()=>{const n=++seq.current;setLoading(true);try{const d=await labApi<Worklist>(`/api/task3/reports?q=${encodeURIComponent(q)}&status=${status}&page=${page}&pageSize=${pageSize}&scope=${scope}`);if(n===seq.current){setData(d);setError("");}}
   catch(e){if(n===seq.current)setError(failureText(e));}finally{if(n===seq.current)setLoading(false);}},[q,status,page,pageSize,scope]);
@@ -202,10 +204,11 @@ export function NativeReports({canImport,scope="PATIENT"}:{canImport:boolean;sco
   <h2 id="native-h">{scope==="EQA"?"รายงาน EQA จากผล HALOS":"รายงานจากผล HALOS"}</h2>
   <p className="help t3-links">นำเข้าไฟล์ผลจาก HALOS แล้วออกรายงานตามแบบฟอร์มของโรงพยาบาล (FM-WI-T-BM-17-07 ครรภ์เดี่ยว / FM-WI-T-BM-17-08 ครรภ์แฝด) — หนึ่ง PDF ต่อผู้ป่วย ผ่านการตรวจรับและส่งผลชุดเดียวกับ PDF ภายนอก
    {" "}· <Link href="/results/signers">ผู้ลงนามรายงาน</Link></p>
-  {canImport&&scope==="PATIENT"&&<details className="t3-import" open={!data||(data.page.total===0)}><summary>นำเข้าไฟล์ผล HALOS</summary><HalosImport onConfirmed={()=>{setStatus("ALL");setPage(1);void load();}}/></details>}
+  {canImport&&scope==="PATIENT"&&<details className="t3-import" open={!data||(data.page.total===0)}><summary>นำเข้าไฟล์ผล HALOS</summary><HalosImport onConfirmed={()=>{setStatus("ALL");setPage(1);setSelected(new Set());void load();}} onPrepare={(rows,pending)=>{setPendingImport(pending);setDialog(rows);}}/></details>}
+  <RecentReportBatches/>
   <form className="search-form t3-search" role="search" aria-label="ค้นหารายการออกรายงาน" onSubmit={e=>e.preventDefault()}>
-   <div className="field"><label htmlFor="t3-q">ค้นหา LN / HN / LN Halos / รหัส HALOS</label><input id="t3-q" type="search" autoComplete="off" maxLength={40} value={q} onChange={e=>{setQ(e.target.value);setPage(1);}}/></div>
-   {q&&<button type="button" className="button secondary" onClick={()=>{setQ("");setPage(1);}}>ล้างคำค้น</button>}
+   <div className="field"><label htmlFor="t3-q">ค้นหา LN / HN / LN Halos / รหัส HALOS</label><input id="t3-q" type="search" autoComplete="off" maxLength={40} value={q} onChange={e=>{setQ(e.target.value);setPage(1);setSelected(new Set());}}/></div>
+   {q&&<button type="button" className="button secondary" onClick={()=>{setQ("");setPage(1);setSelected(new Set());}}>ล้างคำค้น</button>}
   </form>
   <div className="tabs result-status-filters" role="tablist" aria-label="สถานะการออกรายงาน">{TABS.map(([k,label])=><button key={k} type="button" role="tab" className="tab" aria-selected={status===k} onClick={()=>{setStatus(k);setPage(1);setSelected(new Set());}}>
    {label}{k!=="ALL"&&data?.counts[k]!==undefined&&status==="ALL"?` (${data.counts[k]})`:""}</button>)}</div>
@@ -216,15 +219,15 @@ export function NativeReports({canImport,scope="PATIENT"}:{canImport:boolean;sco
     <tbody>{!data?<tr><td colSpan={6} className="empty-row">{loading?"กำลังโหลด…":"—"}</td></tr>:data.rows.length?data.rows.map(r=><tr key={r.rowId} className={selected.has(r.rowId)?"selected":""}>
      <td>{data.canFinalize&&r.status==="READY"&&<label className="table-check-target"><input type="checkbox" aria-label={`เลือก ${r.ln??r.sampleId}`} checked={selected.has(r.rowId)} onChange={e=>toggle(r.rowId,e.target.checked)}/></label>}</td>
      <td className="mono">{r.ln??"—"}<br/>{r.hn??""}</td><td className="mono">{r.sampleId}</td><td>{r.template==="TWIN"?"แฝด (17-08)":r.template==="SINGLETON"?"เดี่ยว (17-07)":"—"}</td>
-     <td><Status tone={STATUS_TONE[r.status]}>{STATUS_TEXT[r.status]}</Status>{r.hisAttested&&<span className="badge info">มีผลใน HIS แล้ว</span>}
+     <td><Status tone={STATUS_TONE[r.status]}>{STATUS_TEXT[r.status]}</Status><HisDeliveryBadge status={r.hisDelivery}/>
       {r.status==="HOLD"&&<ul className="help t3-holds">{r.holds.slice(0,3).map(h=><li key={h.code}>{holdText(h)}</li>)}{r.holds.length>3&&<li>และอีก {r.holds.length-3} เหตุผล</li>}</ul>}
       {r.status==="NOT_REPORTABLE"&&<div className="help">{CLASS_TEXT[r.classification]??r.classification}</div>}</td>
      <td>{r.status==="READY"&&data.canFinalize?<button type="button" className="button small" onClick={()=>setDialog([r])}>ออกรายงาน</button>
       :r.status==="READY"||r.status==="HOLD"?<button type="button" className="button small secondary" onClick={()=>setDialog([r])}>{r.status==="HOLD"?"ดูเหตุผล":"ดูรายละเอียด"}</button>
       :r.versionId?<Link className="button small secondary" href={`/results/${r.versionId}`}>{r.status==="FINAL"?"ตรวจรับและส่งผล":"ดูผล"}</Link>:null}</td></tr>)
      :<tr><td colSpan={6} className="empty-row">{q?"ไม่พบรายการที่ตรงกับคำค้น":"ยังไม่มีผล HALOS ที่ยืนยันนำเข้า"}</td></tr>}</tbody></table></div>}
-  {data&&data.page.total>0&&<Pager label="รายการออกรายงาน" page={data.page.number} pageSize={data.page.size} total={data.page.total} totalPages={data.page.totalPages} busy={loading} onPage={setPage} onSize={n=>{setPageSize(n);setPage(1);}}/>}
+  {data&&data.page.total>0&&<Pager label="รายการออกรายงาน" page={data.page.number} pageSize={data.page.size} total={data.page.total} totalPages={data.page.totalPages} busy={loading} onPage={n=>{setSelected(new Set());setPage(n);}} onSize={n=>{setSelected(new Set());setPageSize(n);setPage(1);}}/>}
   {selected.size>0&&<div className="bulk-bar"><span>เลือก {selected.size} ราย</span><button type="button" className="button" onClick={()=>setDialog((data?.rows??[]).filter(r=>selected.has(r.rowId)))}>ออกรายงานที่เลือก</button></div>}
-  {dialog&&<ReportDialog rows={dialog} onClose={()=>setDialog(null)} onDone={()=>{setSelected(new Set());void load();}}/>}
+  {dialog&&<ReportDialog rows={dialog} pendingImport={pendingImport} onClose={()=>{setDialog(null);setPendingImport(null);void load();}} onDone={()=>{setSelected(new Set());void load();}}/>}
  </section>;
 }

@@ -6,8 +6,7 @@ import {operationalReleaseEligible} from './released-result';
 import {operationalDataEnabled} from '../security/runtime';
 import {assertOutboundOrigin} from '../historical/barrier';
 import {freezeSyntheticTransfer,type TransferEvent} from './transfer';
-import {activeHis,outboundDraftSettings} from '../settings/his';
-import {SETTINGS} from '../settings/catalog';
+import {activeHis,frozenOutboundAuthority} from '../settings/his';
 import {shareError} from '../integrations/authorized-share';
 import {openSandbox,assertSandboxEnabled,type Artifact,type FileHook} from './sandbox';
 
@@ -50,8 +49,8 @@ export async function runTransfer(db:Queryable,id:string,hooks:WorkerTestHooks={
       }
       if(!/^(?:SYNTHETIC|OPERATIONAL)-SETTINGS-/.test(row.plan.settingsVersion))return true;
       const active=await activeHis(db,'his_outbound');
-      const s=SETTINGS.his_outbound.schema.parse(active.value);
-      if(!s.enabled||freezeSyntheticTransfer({...draft,settings:outboundDraftSettings(active),profile:{...draft.profile,style:s.resultStyle}},row.plan.sequence).fingerprint!==row.plan.fingerprint){await cancelFixtureTransfer(db,id,'CONFIG_CHANGED');row=await loadTransfer(db,id);return false;}return true;
+      const authority=frozenOutboundAuthority(active,draft.settings,row.plan.mode==='OPERATIONAL_RELEASE');
+      if(authority!=='CURRENT'){await cancelFixtureTransfer(db,id,authority==='CONFIG_CHANGED'?'CONFIG_CHANGED':'VOID');row=await loadTransfer(db,id);return false;}return true;
     };
     if(!await configurationCurrent()){await dispatch(proof(row));return row.model.state;}
     if(gated(row)){await dispatch(proof(row));return row.model.state;}
@@ -78,7 +77,10 @@ export async function runTransfer(db:Queryable,id:string,hooks:WorkerTestHooks={
           const locked=(await db.query<{eligible:boolean}>('SELECT p6_lock_current_release($1,$2) eligible',[row.clinical_release_id,row.plan.epoch])).rows[0];
           if(!locked?.eligible)throw Error('P6_GATE_CHANGED');
         }
-        if(/^(?:SYNTHETIC|OPERATIONAL)-SETTINGS-/.test(row.plan.settingsVersion)){await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['settings:his_outbound']);const a=(await db.query<{revision_id:string}>("SELECT revision_id FROM setting_active WHERE setting_key='his_outbound'")).rows[0];if(row.plan.settingsVersion!==(row.plan.mode==='OPERATIONAL_RELEASE'?'OPERATIONAL-SETTINGS-':'SYNTHETIC-SETTINGS-')+a?.revision_id)throw Error('P6_GATE_CHANGED');}
+        if(/^(?:SYNTHETIC|OPERATIONAL)-SETTINGS-/.test(row.plan.settingsVersion)){
+          await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['settings:his_outbound']);
+          if(frozenOutboundAuthority(await activeHis(db,'his_outbound'),draft.settings,row.plan.mode==='OPERATIONAL_RELEASE')!=='CURRENT')throw Error('P6_GATE_CHANGED');
+        }
         if(gated(await loadTransfer(db,id)))throw Error('P6_GATE_CHANGED');
         await hooks.afterFinalGateRead?.();
         await publish();await db.query('COMMIT');

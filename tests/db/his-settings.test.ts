@@ -32,6 +32,8 @@ async function pair(dir:string,n:number){const pet=syntheticPet(n);const day=loo
 it('Save -> worker Validate -> independent Approve -> Activate; worker follows active base and new version on restart',async()=>{
  await pair('in-a',801);const first=await activate('his_inbound',{...SETTINGS.his_inbound.default,enabled:true,basePath:path.join(root,'in-a'),lookbackDays:1});const store=new FileStore(path.join(root,'files'));
  const a=await executeInboundJob(db,'synthetic_scan',{},store,key);expect(a).toMatchObject({configurationId:first,counts:{stored:1}});const replay=await executeInboundJob(db,'synthetic_scan',{},store,key);expect(replay).toMatchObject({counts:{unchanged:1}});
+ expect(Number((await db.query<{n:string}>("SELECT count(*) n FROM audit_chain WHERE action='INBOUND_CONFIGURATION_USED' AND resource_id=$1",[first])).rows[0].n)).toBe(1);
+ expect(Number((await db.query<{n:string}>('SELECT count(*) n FROM his_inbound_scan_run')).rows[0].n)).toBe(1);
  await pair('in-b',802);const second=await activate('his_inbound',{...SETTINGS.his_inbound.default,enabled:true,basePath:path.join(root,'in-b'),lookbackDays:1});expect((await activeHis(db,'his_inbound')).version).toBe(2);
  const b=await executeInboundJob(db,'synthetic_scan',{},new FileStore(path.join(root,'files')),key);expect(b).toMatchObject({configurationId:second,counts:{stored:1}});expect(b.configurationId).not.toBe(first);
  const test=await executeInboundJob(db,'synthetic_inbound_test',{},store,key);expect(test).toMatchObject({passed:true,configurationId:second});
@@ -46,6 +48,26 @@ it('active outbound paths/style/retry freeze into existing journal; RES/PDF/OK a
 });
 it('configuration change cancels queued old-version transfer; new fixture uses new paths after restart',async()=>{
  const draft=await bindActiveOutboundSettings(db,fixture(902));await registerFixture(db,draft,'SYNTHETIC-HIS');const old=await reserveFixture(db,draft.fixtureId);await activate('his_outbound',outbound('-b'));await runTransfer(db,old.id);expect((await loadTransfer(db,old.id)).model.state).toBe('CANCELLED');await expect(fs.stat(path.join(root,'res',old.plan.okName))).rejects.toMatchObject({code:'ENOENT'});const fresh=await bindActiveOutboundSettings(db,fixture(903));await registerFixture(db,fresh,'SYNTHETIC-HIS');const row=await reserveFixture(db,fresh.fixtureId);await runTransfer(db,row.id);expect(await fs.readFile(path.join(root,'res-b',row.plan.okName))).toEqual(Buffer.from([255,254]));
+});
+it('profile/operator/retry edits during delivery keep the reserved bytes and names through final publication',async()=>{
+ await activate('his_outbound',outbound('-b'));
+ const d=await bindActiveOutboundSettings(db,fixture(920));await registerFixture(db,d,'SYNTHETIC-HIS');const reserved=await reserveFixture(db,d.fixtureId);
+ await runTransfer(db,reserved.id,{afterArtifact:async artifact=>{
+  if(artifact==='PDF')await activate('his_outbound',{...outbound('-b'),resultStyle:'fixed',operatorHisId:'NEW_OPERATOR^SYNTHETIC',retryDelaySeconds:10,retryLimit:8});
+ }});
+ const delivered=await loadTransfer(db,reserved.id);
+ expect(delivered.model.state).toBe('AWAITING_CONFIRMATION');expect(delivered.plan).toEqual(reserved.plan);
+ expect(await fs.readFile(path.join(root,'res-b',reserved.plan.resName))).toEqual(Buffer.from(reserved.plan.resHex,'hex'));
+ expect(await fs.readFile(path.join(root,'pdf-b',reserved.plan.pdfName))).toEqual(d.pdf);
+ expect((await readHistory(db,reserved.id)).events.some(e=>e.code==='GATE_CHANGED')).toBe(false);
+});
+it('disabling outbound authority still cancels a frozen transfer without permitting a configuration reroute',async()=>{
+ const d=await bindActiveOutboundSettings(db,fixture(921));await registerFixture(db,d,'SYNTHETIC-HIS');const reserved=await reserveFixture(db,d.fixtureId);
+ await activate('his_outbound',{...outbound('-b'),enabled:false});await runTransfer(db,reserved.id);
+ const cancelled=await loadTransfer(db,reserved.id);expect(cancelled.model.state).toBe('CANCELLED');
+ const event=(await readHistory(db,reserved.id)).events.find(e=>e.code==='GATE_CHANGED');expect(event?.event.reason).toBe('VOID');
+ await expect(fs.stat(path.join(root,'res-b',reserved.plan.okName))).rejects.toMatchObject({code:'ENOENT'});
+ await activate('his_outbound',outbound('-b'));
 });
 it('existing engine recovers pre-checkpoint file without new sequence, retains clinical/historical HOLD and audited versions',async()=>{
  const d=await bindActiveOutboundSettings(db,fixture(904));await registerFixture(db,d,'SYNTHETIC-HIS');const row=await reserveFixture(db,d.fixtureId);await expect(runTransfer(db,row.id,{afterArtifact:async a=>{if(a==='PDF')throw Error('SYNTHETIC_RESTART');}})).rejects.toThrow('SYNTHETIC_RESTART');await runTransfer(db,row.id);expect((await loadTransfer(db,row.id)).plan.sequence).toBe(1);expect((await loadTransfer(db,row.id)).model.state).toBe('AWAITING_CONFIRMATION');await expect(registerFixture(db,{...fixture(905),origin:'HISTORICAL' as never},'SYNTHETIC-HIS')).rejects.toThrow();expect((await db.query<{allowed:boolean}>('SELECT p5_release_authorized() allowed')).rows[0].allowed).toBe(false);expect((await db.query('SELECT * FROM result_release')).rows).toHaveLength(0);const audits=(await db.query<{action:string}>('SELECT action FROM audit_chain')).rows.map(r=>r.action);for(const a of ['SETTING_PROPOSED','HIS_SETTINGS_TEST_QUEUED','HIS_SETTINGS_TEST_COMPLETED','SETTING_TESTED','SETTING_APPROVED','SETTING_ACTIVATED','P6_RESERVED'])expect(audits).toContain(a);

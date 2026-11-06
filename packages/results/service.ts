@@ -2,6 +2,7 @@ import {matchMigrationPdf,type MigrationPdfTarget} from '../migration/bulk-pdf';
 import {currentPatientNames} from '../migration/pdf-identity';
 import {migrationResultEvidence,migrationPredicates} from '../migration/result-eligibility';
 import {createHash,randomUUID} from 'node:crypto';
+import {readHisDeliveryStatuses} from './his-status';
 import {z} from 'zod';
 import type {Queryable} from '../db/connection';
 import {lockLn} from '../db/registration';
@@ -20,7 +21,7 @@ import {reviewBenchForResult} from '../lab/bench-review';
 import {operationalWorkflow} from '../lab/operational';
 import {digest} from '../pooling/calculation';
 import {isoDate} from '../domain/thai-date';
-import {renderDownloadName,DEFAULT_DOWNLOAD_TEMPLATE} from '../readygen/filename';
+import {reportDownloadName} from '../readygen/report-name';
 
 // P5 Result Management service (Plan §11, §5.7–§5.10). Restricted synthetic: every path ends before release. Certification is
 // evaluated in the acting transaction and then answered with RELEASE_HOLD (AL-5/OD-05/OD-07); the database refuses any release.
@@ -449,11 +450,17 @@ export async function recordQc5(db:Queryable,user:Staff,input:unknown){
   await audit(db,user,'RESULT_QC5_ACCEPTED','result_qc5_review',q.id,{outcome:'NO_CALL',ruleVersion:'OWNER_TASK1_EXTERNAL_NO_CALL_20261024'});
   return {id:q.id,outcome:v.state};
  }
- let upstream=await attemptEvidence(db,v.attempt_id!);
- if(!upstream.current||!upstream.analysisAccepted||upstream.benchReviewId){
+ let upstream=await attemptEvidence(db,v.attempt_id!,user.id);
+ const hasInSystemSequencing=!!upstream.sequencingId;
+ const sequencingReviewerMismatch=()=>!hasInSystemSequencing&&!!upstream.benchReviewId&&upstream.benchReviewerId!==user.id;
+ if(sequencingReviewerMismatch()&&d.benchMeasurementsReviewed!==true)throw new LabError('SEQUENCING_REVIEWER_MISMATCH',409);
+ // A current P4 sequencing attempt is accepted from its verified HALOS handoff and QC4 review below.
+ // Do not ask the result reviewer to create a second Owner worksheet review after sequencing.
+ if(!hasInSystemSequencing&&(!upstream.current||!upstream.analysisAccepted||!upstream.benchReviewId||sequencingReviewerMismatch())){
   await reviewBenchForResult(db,user,v.attempt_id!,{revision:d.benchRevision,measurementsReviewed:d.benchMeasurementsReviewed,reason:d.reason});
-  upstream=await attemptEvidence(db,v.attempt_id!);
+  upstream=await attemptEvidence(db,v.attempt_id!,user.id);
  }
+ if(sequencingReviewerMismatch())throw new LabError('SEQUENCING_REVIEWER_MISMATCH',409);
  if(!upstream.current||!upstream.analysisAccepted||!upstream.benchReviewId&&(!upstream.poolId||!upstream.dnbId||!upstream.sequencingId))throw new LabError('QC5_ACCEPTED_UPSTREAM_REQUIRED',409);
  const reviewed=(await db.query('SELECT id FROM result_review WHERE version_id=$1 ORDER BY created_at DESC LIMIT 1',[v.id])).rows[0];if(!reviewed)throw new LabError('REVIEW_NOT_RECORDED',409);
  const sourceHash=digest({report:v.sha256,attemptId:v.attempt_id,poolId:upstream.poolId,dnbId:upstream.dnbId,sequencingId:upstream.sequencingId,benchReviewId:upstream.benchReviewId??null,reviewId:reviewed.id});
@@ -676,9 +683,12 @@ export async function versionDetail(db:Queryable,user:Staff,id:string){
  const transfer=(await db.query<{state:string|null}>(`SELECT t.model->>'state' state FROM p6_transfer t JOIN result_release r ON r.id=t.clinical_release_id WHERE r.version_id=$1`,[v.id])).rows[0]??null;
  // Reported by the previous system (Owner 2026-11-02): never offered certification, acceptance or review of the gate, and shown as such.
  const historicalReported=(await db.query('SELECT 1 FROM historical_reported_result WHERE version_id=$1',[v.id])).rows.length>0;
- return {historicalReported,migration:await migrationResultEvidence(db,v.id),operational,nameConflicts:conflicts,origin:v.origin,internal,fallback,attestations,hisTransferState:transfer?.state??null,version:{id:v.id,origin:v.origin,kind:v.kind,templateKind:v.template_kind,templateVersion:v.template_version,parserVersion:v.parser_version,state:v.state,rowVersion:v.row_version,sha256:v.sha256,importedAt:v.imported_at,caseId:v.case_id,roundId:v.round_id,attemptId:v.attempt_id,linkMode:v.link_mode,supersedesId:v.supersedes_id,revision:v.revision},
+ const hisDelivery=(await readHisDeliveryStatuses(db,[v.id])).get(v.id);
+ const benchEvidence=v.attempt_id&&authorize(user,'worksheet.read',{},'read')?await benchAttemptEvidence(db,v.attempt_id):null;
+ const releaseEvidence=operational&&v.attempt_id?await attemptEvidence(db,v.attempt_id,user.id):null;
+ return {historicalReported,hisDelivery,migration:await migrationResultEvidence(db,v.id),operational,nameConflicts:conflicts,origin:v.origin,internal,fallback,attestations,hisTransferState:transfer?.state??null,version:{id:v.id,origin:v.origin,kind:v.kind,templateKind:v.template_kind,templateVersion:v.template_version,parserVersion:v.parser_version,state:v.state,rowVersion:v.row_version,sha256:v.sha256,importedAt:v.imported_at,caseId:v.case_id,roundId:v.round_id,attemptId:v.attempt_id,linkMode:v.link_mode,supersedesId:v.supersedes_id,revision:v.revision},
   parsed:v.parsed,summary:summary(v.parsed),intake:{...intake,size:Number(intake.byte_size)},target,proposal,
-  benchEvidence:v.attempt_id&&authorize(user,'worksheet.read',{},'read')?await benchAttemptEvidence(db,v.attempt_id):null,
+  benchEvidence:benchEvidence?{...benchEvidence,requiresReview:benchEvidence.ownerPaperRoute&&!releaseEvidence?.sequencingId&&(!releaseEvidence?.benchReviewId||releaseEvidence.benchReviewerId!==user.id)}:null,
   candidates,autoMatch:auto?{caseId:auto.caseId,roundId:auto.round.id,attemptId:auto.attempt.id,reason:AUTO_MATCH_REASON,linksDirectly:s.linkageMode==='UNIQUE_AUTO_LINK'}:null,
   gate:v.round_id?await gateFor(db,v,'VALIDATION'):null,events:events.rows,links:links.rows,gates:gates.rows,reviews:reviews.rows,
   can:{propose:authorize(user,'result.link.manual',{},'propose')&&v.state==='Unlinked'&&!proposal,decide:!!proposal&&authorize(user,'result.link.manual',{actorId:proposal.actor_id},'approve'),
@@ -710,16 +720,17 @@ export async function ancCaseResults(db:Queryable,user:Staff,caseId:string){
  const [rounds,redraws,releases]=await Promise.all([
   db.query<{id:string;round_number:number;state:string;collection_date:string|null}>('SELECT id,round_number,state,collection_date::text FROM specimen_round_current WHERE case_id=$1 ORDER BY round_number DESC',[c.id]),
   db.query<{source_round_id:string;reason_code:string;state:string;requested_at:Date}>("SELECT source_round_id,reason_code,state,requested_at FROM redraw_request WHERE case_id=$1 AND state IN ('Requested','Completed')",[c.id]),
-  db.query<{id:string;round_id:string;kind:string;state:string;certified_at:Date;revised:boolean;parsed:Parsed}>("SELECT r.id,r.round_id,r.kind,r.state,r.certified_at,v.supersedes_id IS NOT NULL revised,v.parsed FROM result_release r JOIN result_report_version v ON v.id=r.version_id WHERE r.case_id=$1 AND r.state IN ('Active','Superseded','Voided') ORDER BY r.certified_at DESC",[c.id])]);
+  db.query<{id:string;version_id:string;round_id:string;kind:string;state:string;certified_at:Date;revised:boolean;parsed:Parsed}>("SELECT r.id,r.version_id,r.round_id,r.kind,r.state,r.certified_at,v.supersedes_id IS NOT NULL revised,v.parsed FROM result_release r JOIN result_report_version v ON v.id=r.version_id WHERE r.case_id=$1 AND r.state IN ('Active','Superseded','Voided') ORDER BY r.certified_at DESC",[c.id])]);
  await db.query("INSERT INTO result_access_log(actor_id,case_id,purpose) VALUES($1,$2,'ANC_RESULT_LIST')",[user.id,c.id]);
  // A result imported from Genomic-CBH and matched to its complete PDF was already issued by the previous system (Owner 2026-11-02). It has no
  // NIPT-CBH release, and never gets one here; ANC reads it as its own kind of result, with the exact PDF, and nothing about it is "certified" by us.
  const legacy=(await db.query<{id:string;round_id:string;parsed:Parsed}>('SELECT h.version_id id,h.round_id,v.parsed FROM historical_reported_result h JOIN result_report_version v ON v.id=h.version_id WHERE h.case_id=$1',[c.id])).rows;
+ const delivery=await readHisDeliveryStatuses(db,releases.rows.map(r=>r.version_id));
  return {currentRoundId:c.current_round_id,releaseHold:!await operationalWorkflow(db),rounds:rounds.rows.map(r=>{
   const d=redraws.rows.find(x=>x.source_round_id===r.id);const mine=releases.rows.filter(x=>x.round_id===r.id);
   return {id:r.id,number:r.round_number,state:r.state,current:r.id===c.current_round_id,collectionDate:r.collection_date,
    redraw:d?{reasonCode:d.reason_code,label:REDRAW_LABELS[d.reason_code as keyof typeof REDRAW_LABELS]??REDRAW_LABELS.OTHER,requestedAt:d.requested_at}:null,
-   result:(()=>{const x=mine.find(y=>y.kind==='RESULT'&&y.state==='Active');if(x)return {id:x.id,kind:x.kind,state:x.state,certified_at:x.certified_at,revised:x.revised,summary:ancSummary(x.parsed)};
+   result:(()=>{const x=mine.find(y=>y.kind==='RESULT'&&y.state==='Active');if(x)return {id:x.id,kind:x.kind,state:x.state,certified_at:x.certified_at,revised:x.revised,summary:ancSummary(x.parsed),hisDelivery:delivery.get(x.version_id)};
     const h=legacy.find(y=>y.round_id===r.id);return h?{id:h.id,kind:'RESULT',state:'HistoricalReported',certified_at:null,revised:false,historical:true as const,summary:ancSummary(h.parsed)}:null;})(),
    notices:mine.filter(x=>x.kind==='REDRAW_NOTICE'&&x.state==='Active').map(({parsed:_p,...x})=>(void _p,x)),history:mine.filter(x=>x.state!=='Active').map(x=>({id:x.id,kind:x.kind,state:x.state}))};
  })};
@@ -737,9 +748,7 @@ export async function readReleasedFile(db:Queryable,user:Staff,store:FileStore,r
    LEFT JOIN specimen_lab_number n ON n.round_id=r.round_id LEFT JOIN p2_case_identity i ON i.case_id=r.case_id LEFT JOIN internal_report ir ON ir.version_id=v.id WHERE r.id=$1 AND r.state='Active'`,[uuid.parse(releaseId)])).rows[0];
  if(!r||!authorize(user,'result.read.released',{unitId:r.unit_id??undefined,origin:r.registration_origin as 'ANC'},'read'))throw new LabError('NOT_FOUND',404);
  await db.query('INSERT INTO result_access_log(actor_id,case_id,version_id,purpose) VALUES($1,$2,$3,$4)',[user.id,r.case_id,r.version_id,ACCESS_PURPOSE[mode]]);
- const template=SETTINGS.report_output.schema.parse((await readActiveSettings(db)).report_output??SETTINGS.report_output.default).downloadNameTemplate||DEFAULT_DOWNLOAD_TEMPLATE;
- const name=renderDownloadName(template,{hisLn:r.ln,lnHalos:r.ln_halos??'',sampleId:r.parsed.identifiers.labNumber.value??r.ln_halos??r.ln,hn:r.hn??'',patientName:r.internal_patient??r.parsed.identifiers.patientName.value??'',
-  reportDate:new Date(r.certified_at.getTime()+7*3600000).toISOString().slice(0,10),template:r.internal_code??r.template_kind,version:String(r.series)});
+ const name=await reportDownloadName(db,r.version_id);
  return {bytes:await store.get(r.sha256),sha256:r.sha256,name};
 }
 /** The exact PDF of a result already reported by the previous system (Genomic-CBH). Same permission and unit scope as a released result, same access log
@@ -751,9 +760,7 @@ export async function readHistoricalReportFile(db:Queryable,user:Staff,store:Fil
    FROM historical_reported_result h JOIN result_report_version v ON v.id=h.version_id JOIN nipt_case c ON c.id=h.case_id LEFT JOIN p2_case_identity i ON i.case_id=h.case_id WHERE h.version_id=$1`,[uuid.parse(versionId)])).rows[0];
  if(!r||!authorize(user,'result.read.released',{unitId:r.unit_id??undefined,origin:r.registration_origin as 'ANC'},'read'))throw new LabError('NOT_FOUND',404);
  await db.query('INSERT INTO result_access_log(actor_id,case_id,version_id,purpose) VALUES($1,$2,$3,$4)',[user.id,r.case_id,r.version_id,ACCESS_PURPOSE[mode]]);
- const template=SETTINGS.report_output.schema.parse((await readActiveSettings(db)).report_output??SETTINGS.report_output.default).downloadNameTemplate||DEFAULT_DOWNLOAD_TEMPLATE;
- const name=renderDownloadName(template,{hisLn:r.ln,lnHalos:r.ln_halos??'',sampleId:r.parsed.identifiers.labNumber.value??r.ln_halos??r.ln,hn:r.hn??'',patientName:r.parsed.identifiers.patientName.value??'',
-  reportDate:r.parsed.identifiers.reportedDate?.value??new Date(r.imported_at.getTime()+7*3600000).toISOString().slice(0,10),template:r.template_kind,version:'1'});
+ const name=await reportDownloadName(db,r.version_id,{historical:true});
  return {bytes:await store.get(r.sha256),sha256:r.sha256,name};
 }
 /** ANC summary of the certified report: exactly the values printed on it (either origin), never a raw analysis panel. */

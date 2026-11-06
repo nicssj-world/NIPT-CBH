@@ -8,6 +8,7 @@ import {assertOutboundOrigin} from '../historical/barrier';
 import {operationalDataEnabled} from '../security/runtime';
 import {activeHis,outboundDraftSettings} from '../settings/his';
 import {SETTINGS} from '../settings/catalog';
+import {reportDownloadName} from '../readygen/report-name';
 import {isNoCallReport,type Parsed} from '../results/parser';
 import {freezeSyntheticTransfer,initialTransfer,type SyntheticDraft} from './transfer';
 import {transaction,loadTransfer,type StoredDraft} from './journal';
@@ -47,7 +48,7 @@ export async function reserveReleasedResult(db:Queryable,releaseId:string,store:
   await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['settings:his_outbound']);
   const active=await activeHis(db,'his_outbound'),s=SETTINGS.his_outbound.schema.parse(active.value);
   if(!s.enabled||s.target!=='AUTHORIZED_SHARE'||!s.productionAuthorized||!s.resProfile)throw Error('OPERATIONAL_OUTBOUND_CONFIGURATION_REQUIRED');
-  const certifier=s.certifierHisMappings[r.certified_by];if(!certifier)throw Error('CERTIFIER_HIS_MAPPING_REQUIRED');
+  const certifier=s.operatorHisId??s.certifierHisMappings[r.certified_by];if(!certifier)throw Error('CERTIFIER_HIS_MAPPING_REQUIRED');
   if(r.round_number>1&&!s.round2SpecimenDatePolicy)throw Error('ROUND2_SPECIMEN_POLICY_UNRESOLVED');
   const order=(await db.query<{sha256:string;filename:string}>(`SELECT f.sha256,f.filename FROM his_order o JOIN his_inbound_file f ON f.id=o.inbound_file_id JOIN specimen_round x ON x.id=o.round_id
    WHERE o.case_ln_id=$1 AND x.round_number=$2`,[r.case_ln_id,r.round_number>1&&s.round2SpecimenDatePolicy==='ORIGINAL_ORDER'?1:r.round_number])).rows[0];
@@ -57,7 +58,7 @@ export async function reserveReleasedResult(db:Queryable,releaseId:string,store:
   const now=wireTime(new Date()),specimenAt=wireOrder.specimen_date;
   const draft:SyntheticDraft={mode:'OPERATIONAL_RELEASE',fixtureId:'RELEASE-'+releaseId,reportVersionId:r.version_id,roundId:r.round_id,attemptId:r.attempt_id,origin:r.registration_origin,lnGeneration:r.version,roundNumber:r.round_number,epoch:r.epoch,
    input:{order:wireOrder,generatedAt:now,approvedAt:wireTime(new Date(r.certified_at)),certifierHisId:certifier,result},
-   profile:{...s.resProfile,style:s.resultStyle},pdf:await store.get(r.sha256),settings:outboundDraftSettings(active),
+   profile:{...s.resProfile,style:s.resultStyle},pdf:await store.get(r.sha256),pdfName:await reportDownloadName(db,r.version_id),settings:outboundDraftSettings(active),
    ...(r.round_number>1?{round2Policy:s.round2SpecimenDatePolicy!,roundSpecimenAt:specimenAt,originalSpecimenAt:specimenAt}:{})};
   const n=(await db.query<{n:number}>('SELECT coalesce(max(sequence),0)::int+1 n FROM p6_transfer WHERE ln=$1 AND ln_generation=$2',[pet.ln,r.version])).rows[0].n;
   const plan=freezeSyntheticTransfer(draft,n),model=initialTransfer(plan,Date.now()),gate={epoch:r.epoch,fixtureEligible:true,consentValid:true,settingsVersion:plan.settingsVersion};

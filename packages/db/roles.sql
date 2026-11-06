@@ -49,6 +49,9 @@ GRANT SELECT ON his_order TO app_rw;
 -- P3 synthetic HIS inbound (migration 008) and P2-P3 integration grants.
 GRANT SELECT,INSERT,UPDATE ON his_intake_issue,his_inbound_waiting TO worker_rw;
 GRANT SELECT,INSERT ON his_intake_issue_event,his_inbound_source,his_inbound_scan_run TO worker_rw;
+-- Migration 198: compact current scan state; repeat these after role creation on a fresh install.
+GRANT SELECT ON his_inbound_scan_state TO app_rw,report_ro;
+GRANT SELECT,INSERT,UPDATE ON his_inbound_scan_state TO worker_rw;
 GRANT SELECT,INSERT ON file_asset TO worker_rw;
 GRANT SELECT ON nipt_case,case_ln,specimen_round,his_order,app_user TO worker_rw;
 -- Read requested redraw lineage for PET-backed S2; worker still cannot create/edit redraw requests.
@@ -139,6 +142,12 @@ GRANT EXECUTE ON FUNCTION lab_storage_create_box(text,uuid),lab_storage_set_posi
 -- Task 3 (migration 128): HALOS import evidence, signer profiles/delegations, internal reports, outage provenance and HIS-presence attestation.
 GRANT SELECT,INSERT ON halos_import_row,report_signer_profile,report_signer_profile_event,internal_report_batch,result_external_fallback TO app_rw;
 GRANT SELECT,INSERT,UPDATE ON halos_import,report_signature_delegation,internal_report,result_his_attestation TO app_rw;
+-- Migration 199: durable HALOS batch requests. Web creates and reads; worker records only item outcomes.
+GRANT SELECT ON internal_report_request,internal_report_request_item TO app_rw;
+GRANT INSERT(operator_id,session_id,idempotency_key,request) ON internal_report_request TO app_rw;
+GRANT INSERT(id,request_id,ordinal,row_id,idempotency_key,outbox_id) ON internal_report_request_item TO app_rw;
+GRANT SELECT ON internal_report_request,internal_report_request_item TO worker_rw;
+GRANT UPDATE(state,outcome,finalization_batch_id,completed_at) ON internal_report_request_item TO worker_rw;
 GRANT USAGE ON SEQUENCE report_signer_profile_event_sequence_seq TO app_rw;
 GRANT EXECUTE ON FUNCTION task3_his_presence_attested(uuid),task3_signer_profile_current(uuid),task3_internal_version_current(uuid) TO app_rw;
 GRANT SELECT ON result_his_attestation TO worker_rw;

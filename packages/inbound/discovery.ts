@@ -7,8 +7,8 @@ import {errorCode} from './tx';
 import {type InboundSource,inboundReadError,inboundAccessError} from './source';
 const sourceFile=(o:DiscoveryOptions,rel:string)=>o.source?o.source.file(rel):confined(o.root,rel);
 
-export interface DiscoveryCounts{dayFolders:number;petSeen:number;notNipt:number;waitingOk:number;okArrived:number;unchanged:number;sameContent:number;stored:number;newPathVersion:number;parseError:number;readError:number;}
-export const emptyCounts=():DiscoveryCounts=>({dayFolders:0,petSeen:0,notNipt:0,waitingOk:0,okArrived:0,unchanged:0,sameContent:0,stored:0,newPathVersion:0,parseError:0,readError:0});
+export interface DiscoveryCounts{dayFolders:number;petSeen:number;notNipt:number;waitingOk:number;waitingNew:number;okArrived:number;unchanged:number;sameContent:number;stored:number;newPathVersion:number;parseError:number;readError:number;}
+export const emptyCounts=():DiscoveryCounts=>({dayFolders:0,petSeen:0,notNipt:0,waitingOk:0,waitingNew:0,okArrived:0,unchanged:0,sameContent:0,stored:0,newPathVersion:0,parseError:0,readError:0});
 
 /** Day folders (YYYYMMDD, Asia/Bangkok), oldest first, including today (AT-HISIN-10). */
 export function lookbackFolders(lookbackDays:number,now:Date){
@@ -43,7 +43,10 @@ export async function discoverInbound(db:Queryable,store:FileStore,options:Disco
 async function discoverOne(db:Queryable,store:FileStore,options:DiscoveryOptions,counts:DiscoveryCounts,rel:string,name:string,filenameLn:string,now:Date):Promise<string|null>{
  const sourceId=options.source?.id??'SIMULATOR';
  try{const ok=await fs.lstat(await sourceFile(options,rel.replace(/\.pet$/i,'.ok')));if(!ok.isFile())throw Error('SHARE_NOT_FILE');}
- catch(e){if(!missing(e))throw e;counts.waitingOk++;await db.query('INSERT INTO his_inbound_waiting(source_id,source_path,first_seen_at,last_seen_at) VALUES($3,$1,$2,$2) ON CONFLICT(source_id,source_path) DO UPDATE SET last_seen_at=excluded.last_seen_at',[rel,now,sourceId]);return null;}
+ catch(e){if(!missing(e))throw e;counts.waitingOk++;
+  const inserted=await db.query('INSERT INTO his_inbound_waiting(source_id,source_path,first_seen_at,last_seen_at) VALUES($3,$1,$2,$2) ON CONFLICT(source_id,source_path) DO NOTHING RETURNING source_path',[rel,now,sourceId]);
+  if(inserted.rows.length)counts.waitingNew++;else await db.query('UPDATE his_inbound_waiting SET last_seen_at=$2 WHERE source_id=$3 AND source_path=$1',[rel,now,sourceId]);
+  return null;}
  if((await db.query('UPDATE his_inbound_waiting SET ok_seen_at=$2 WHERE source_path=$1 AND source_id=$3 AND ok_seen_at IS NULL RETURNING source_path',[rel,now,sourceId])).rows.length)counts.okArrived++;
  const path=await sourceFile(options,rel),st=await fs.lstat(path);
  if(!st.isFile())throw Error('NOT_REGULAR_FILE');

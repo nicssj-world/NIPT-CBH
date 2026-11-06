@@ -2,10 +2,12 @@
 import {useState} from "react";
 import {labApi,failureText,bkk} from "../p4/lab-api";
 import {PdfPreviewButton} from "../shared/pdf-preview";
+import type {HisDeliveryStatus} from '../../../packages/results/his-status';
+import {HisDeliveryBadge} from './his-delivery-badge';
 
 // Task 3 on the LAB result page: where the report came from (INTERNAL_GENERATED / EXTERNAL_READYGEN) with its evidence, the internal
 // acceptance, the "มีผลใน HIS แล้ว" attestation and the outage provenance of a ReadyGen PDF. ANC never sees any of this.
-export type Task3Detail={origin?:"EXTERNAL_READYGEN"|"INTERNAL_GENERATED";hisTransferState?:string|null;
+export type Task3Detail={origin?:"EXTERNAL_READYGEN"|"INTERNAL_GENERATED";hisTransferState?:string|null;hisDelivery?:HisDeliveryStatus;
  internal?:{id:string;state:string;templateKind:string;templateCode:string;templateSha256:string;pregnancySource:string;overrideReason:string|null;ruleset:{id:string;version:string;sha256:string;approved:boolean;combinationApproved:boolean;productCode:string|null;approvalReference:string;settingRevisionVersion:number|null};
   downloadName:string;reportedAt:string;approvedAt:string;createdAt:string;batchId:string|null;halosImportId:string;reportedName:string;reportedLicense:string;reportedBasis:string;approvedName:string;approvedLicense:string;approvedBasis:string;operator:string;current:boolean}|null;
  fallback?:{outageReference:string;outageStartedAt:string|null;outageEndedAt:string|null;note:string|null;recordedAt:string;recordedBy:string}|null;
@@ -15,16 +17,16 @@ const BASIS:Record<string,string>={SELF:"ลงนามด้วยตนเอ
 const EFFECT:Record<string,string>={SUPPRESSED_BEFORE_RELEASE:"บันทึกก่อนยืนยันส่งผล — จะไม่ส่งผลเข้า HIS ซ้ำ",SUPPRESSED_PENDING_DELIVERY:"บันทึกหลังยืนยันส่งผล ก่อนระบบเริ่มส่ง — ยกเลิกการส่งเข้า HIS"};
 const newKey=()=>crypto.randomUUID().replaceAll("-","");
 
-export function Task3Panel({d,versionId,rowVersion,reload,abnormal,ownerPaperRoute,benchRevision}:{d:Task3Detail;versionId:string;rowVersion:number;reload:()=>Promise<void>;abnormal:boolean;ownerPaperRoute:boolean;benchRevision?:number}){
+export function Task3Panel({d,versionId,rowVersion,reload,abnormal,requiresBenchReview,benchRevision}:{d:Task3Detail;versionId:string;rowVersion:number;reload:()=>Promise<void>;abnormal:boolean;requiresBenchReview:boolean;benchRevision?:number}){
  const [busy,setBusy]=useState(""),[error,setError]=useState(""),[notice,setNotice]=useState("");
  const [confirm,setConfirm]=useState({content:false,identity:false,disclosure:false,abnormal:false,bench:false}),[releaseKey]=useState(newKey);
  const [attest,setAttest]=useState(false),[attestNote,setAttestNote]=useState(""),[withdrawReason,setWithdrawReason]=useState("");
  const [fb,setFb]=useState({ref:"",from:"",to:"",note:""});
  if(!d.origin)return null;
  const run=async(name:string,body:Record<string,unknown>,done:string)=>{setBusy(name);setError("");setNotice("");
-  try{await labApi(`/api/p5/results/${versionId}`,{action:name,...body});setNotice(done);await reload();}catch(e){setError(failureText(e));}finally{setBusy("");}};
+  try{const result=await labApi<{outcome?:string;failed?:string[];pending?:string[]}>(`/api/p5/results/${versionId}`,{action:name,...body});if(name==='acceptInternal'&&result.outcome!=='CertifiedReleased')setError(`ยังยืนยันผลไม่ได้ · ${[...(result.failed??[]),...(result.pending??[])].join(' · ')||result.outcome}`);else setNotice(done);await reload();}catch(e){setError(failureText(e));}finally{setBusy("");}};
  const active=(d.attestations??[]).find(a=>!a.withdrawnAt),i=d.internal;
- const readyToRelease=confirm.content&&confirm.identity&&confirm.disclosure&&(!abnormal||confirm.abnormal)&&(!ownerPaperRoute||confirm.bench);
+ const readyToRelease=confirm.content&&confirm.identity&&confirm.disclosure&&(!abnormal||confirm.abnormal)&&(!requiresBenchReview||confirm.bench);
  return <section className="panel task3-origin" aria-labelledby="t3-origin-h">
   <h2 id="t3-origin-h">ที่มาของรายงาน</h2>
   <div aria-live="polite">{notice&&<p className="notice success" role="status">{notice}</p>}{error&&<p className="notice" role="alert">{error}</p>}</div>
@@ -48,13 +50,14 @@ export function Task3Panel({d,versionId,rowVersion,reload,abnormal,ownerPaperRou
     <label className="check-label"><input type="checkbox" checked={confirm.identity} onChange={e=>setConfirm(c=>({...c,identity:e.target.checked}))}/> ตัวตนผู้ป่วย LN/HN และรอบตรงกับรายการนี้</label>
     <label className="check-label"><input type="checkbox" checked={confirm.disclosure} onChange={e=>setConfirm(c=>({...c,disclosure:e.target.checked}))}/> ตรวจการเปิดเผยเพศ/โครโมโซม Y ตามความประสงค์ที่บันทึกไว้แล้ว</label>
     {abnormal&&<label className="check-label"><input type="checkbox" checked={confirm.abnormal} onChange={e=>setConfirm(c=>({...c,abnormal:e.target.checked}))}/> รับทราบผลผิดปกติ (High Risk / Detected)</label>}
-    {ownerPaperRoute&&<label className="check-label"><input type="checkbox" checked={confirm.bench} onChange={e=>setConfirm(c=>({...c,bench:e.target.checked}))}/> ทบทวนค่าในใบงาน QC / Sequencing ฉบับล่าสุดแล้ว</label>}
+    {requiresBenchReview&&<label className="check-label"><input type="checkbox" checked={confirm.bench} onChange={e=>setConfirm(c=>({...c,bench:e.target.checked}))}/> ทบทวนค่าในใบงาน QC / Sequencing ฉบับล่าสุดแล้ว</label>}
    </fieldset>
-   <div className="action-bar"><button type="button" className="button" disabled={!!busy||!readyToRelease} onClick={()=>run("acceptInternal",{expectedRowVersion:rowVersion,idempotencyKey:releaseKey,reportContentVerified:true,identityAndValuesMatchReport:true,disclosureReviewed:true,abnormalAcknowledged:confirm.abnormal,...(ownerPaperRoute&&benchRevision?{benchRevision,benchMeasurementsReviewed:true}:{})},"ยืนยันส่งผลแล้ว — ผ่าน Gate และบันทึกการปล่อยผล")}>{busy==="acceptInternal"?"กำลังยืนยัน…":"ตรวจรับและยืนยันส่งผล"}</button></div>
+   <div className="action-bar"><button type="button" className="button" disabled={!!busy||!readyToRelease} onClick={()=>run("acceptInternal",{expectedRowVersion:rowVersion,idempotencyKey:releaseKey,reportContentVerified:true,identityAndValuesMatchReport:true,disclosureReviewed:true,abnormalAcknowledged:confirm.abnormal,...(requiresBenchReview&&benchRevision?{benchRevision,benchMeasurementsReviewed:true}:{})},"ยืนยันส่งผลแล้ว — ผ่าน Gate และบันทึกการปล่อยผล")}>{busy==="acceptInternal"?"กำลังยืนยัน…":"ตรวจรับและยืนยันส่งผล"}</button></div>
   </div>}
 
   <div className="stack t3-block">
    <h3>สถานะใน HIS</h3>
+   <HisDeliveryBadge status={d.hisDelivery}/>
    {active?<div className="stack"><p><span className="badge info">มีผลใน HIS แล้ว</span> {EFFECT[active.effect]??active.effect}</p>
      <p className="help">บันทึกโดย {active.actor} · {bkk(active.attestedAt)}{active.note?` · ${active.note}`:""} — เป็นการยืนยันของผู้ใช้ ไม่ใช่การตรวจจาก HIS อัตโนมัติ</p>
      {d.can.attestHis===false&&!d.hisTransferState&&<div className="field"><label htmlFor="t3-withdraw">ยกเลิกการบันทึก (ระบุเหตุผล)</label><input id="t3-withdraw" value={withdrawReason} maxLength={500} onChange={e=>setWithdrawReason(e.target.value)}/>

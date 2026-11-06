@@ -83,6 +83,8 @@ it.each(['MANUAL_STEPS','OWNER_P5_SINGLE_CONFIRMATION','CASE_PAGE_UPLOAD'] as co
   await sc(seq.recordQc4,{...qc4,scope:'LANE'});for(const m of members)await sc(seq.recordQc4,{...qc4,scope:'SAMPLE',memberKey:m.memberKey});
   for(const o of (await seq.qc4Evidence(f.db,created.id!,run.id)).observations)await sc(seq.reviewQc4,{qc4Id:o.id,result:'Accepted',criteriaVersion:'WI-T-BM20-21 controlled QC4 review',note:'Reviewed observed sequencing quality metrics'},f.u.certifier);
   const masterPath=process.env.NIPT_TASK_MASTER_PATH??'.local/lab-owner-evidence/lab-combined-master.xlsx';
+  if(!existsSync(masterPath))throw new Error('OWNER_TASK_MASTER_REQUIRED');
+  vi.stubEnv('NIPT_TASK_MASTER_PATH',path.resolve(masterPath));
   if(existsSync(masterPath)){
    const workbook=await f.run(t=>workbookWorkspace(t,f.u.staff,lab.batchId,{master:readFileSync(masterPath),store:f.store,render:async()=>{throw Error('NATIVE_EXPORT_NOT_REQUESTED');}}));
    expect(workbook.automaticValues).toMatchObject({'seq.dnbId':(await seq.getDnb(f.db,lab.batchId,created.id!)).dnb_label,'seq.standard1':20,'seq.standard2':20,'seq.dnbConcentration':20,'seq.loadedDnb':100,'seq.q30':90,'pool.concentration':20});
@@ -121,8 +123,10 @@ it.each(['MANUAL_STEPS','OWNER_P5_SINGLE_CONFIRMATION','CASE_PAGE_UPLOAD'] as co
   if(mode==='MANUAL_STEPS'){
    await f.run(async t=>results.proposeLink(t,f.u.staff,{versionId,roundId:c.roundId,attemptId:a.id,reason:'Exact current attempt report linkage',expectedRowVersion:await rv()}));
    await f.run(async t=>results.decideLink(t,f.u.certifier,{versionId,decision:'APPROVE',reason:'Report identity and current attempt reviewed',expectedRowVersion:await rv()}));
+   const reportDetail=await f.run(t=>results.versionDetail(t,f.u.certifier,versionId));
+   expect(reportDetail.benchEvidence).toMatchObject({ownerPaperRoute:true,requiresReview:false});
    await f.run(async t=>results.recordReview(t,f.u.certifier,{versionId,valuesMatchPdf:true,abnormalAcknowledged:false,expectedRowVersion:await rv()}));
-   await f.run(async t=>results.recordQc5(t,f.u.certifier,{versionId,expectedRowVersion:await rv(),criteriaReference:'Controlled QC5 final result review',templateReviewed:true,disclosureReviewed:true,abnormalAcknowledged:false,reason:'Current PDF and upstream QC evidence accepted'})).catch(error=>{throw Error(JSON.stringify(error.details??error.message));});
+   await f.run(async t=>results.recordQc5(t,f.u.certifier,{versionId,expectedRowVersion:await rv(),criteriaReference:'Controlled QC5 final result review',templateReviewed:true,disclosureReviewed:true,abnormalAcknowledged:false,reason:'Current PDF and upstream QC evidence accepted'}));
    const input={versionId,idempotencyKey:randomUUID().replaceAll('-',''),abnormalAcknowledged:false,expectedRowVersion:await rv(),confirmed:true};
    released=await f.run(t=>results.certifyAttempt(t,f.u.certifier,input));expect(released.outcome).toBe('CertifiedReleased');
    expect((await f.run(t=>results.certifyAttempt(t,f.u.certifier,input))).outcome).toBe('CertifiedReleased');
@@ -149,6 +153,7 @@ it.each(['MANUAL_STEPS','OWNER_P5_SINGLE_CONFIRMATION','CASE_PAGE_UPLOAD'] as co
    expect((await f.db.query<{n:number}>('SELECT count(*)::int n FROM result_review WHERE version_id=$1',[versionId])).rows[0].n).toBe(1);
   }
   expect((await f.db.query<{n:number}>('SELECT count(*)::int n FROM result_release')).rows[0].n).toBe(1);
+  expect((await f.db.query('SELECT * FROM lab_bench_review')).rows).toHaveLength(0);
   expect((await f.db.query<{n:number}>('SELECT count(*)::int n FROM result_release_completed')).rows[0].n).toBe(1);
   // Continue the actual released row through the reused P6 journal and real isolated file transport.
   const share=path.join(f.base,'outbound');await fs.mkdir(share);for(const name of ['res','pdf','backup'])await fs.mkdir(path.join(share,name));

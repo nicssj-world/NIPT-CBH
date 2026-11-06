@@ -6,6 +6,10 @@ import {labApi,failureText,bkk} from "../p4/lab-api";
 import {csrf} from "../p2/shared";
 import {Pager} from "../shared/pager";
 import {NativeReports} from "./native-reports";
+import {ExternalResultCompletion} from './external-result-completion';
+import type {HisDeliveryStatus} from '../../../packages/results/his-status';
+import {HisDeliveryBadge} from './his-delivery-badge';
+import './result-workflow.css';
 import {STATE_TEXT,STATE_TONE,KIND_TEXT,CONTAINER_TEXT,INTAKE_TEXT,SCAN_TEXT,REJECT_TEXT,FOLDER_ERROR_TEXT,CHECK_TEXT,bytes} from "./labels";
 
 type Job<T=Record<string,unknown>>={id:string;kind:string;state:string;result:T|null;intakes:Intake[]};
@@ -15,11 +19,11 @@ type ScanFile={path:string;folder:string;name:string;size:number;modifiedAt:stri
 type ScanResult={folder:string;files:ScanFile[];folders:number;truncated:boolean;errorCode:string|null};
 type Summary={result?:string|null;labNumber:string|null;hn:string|null;collectionDate:string|null;t21:string|null;t18:string|null;t13:string|null;sca:string[]|null;yChromosome:string|null;fetalFraction:number|null;qc:string|null;needsManualReview:boolean;abnormal:boolean;unreadable:string[]};
 type Intake={id:string;file:string;member:string|null;parentId:string|null;container:string|null;state:string;rejectCode:string|null;templateKind:string|null;summary:Summary|null;candidates:number;size:number;nameConflicts?:{versions:{id:string;state:string}[];sameBatch:number}};
-type Row={id:string;origin?:string;kind:string;template_kind:string;state:string;state_changed_at:string;original_name:string;relative_path:string|null;member_name:string|null;hn:string|null;lab:string|null;collection:string|null;round_number:number|null;ln:string|null;proposal:boolean;abnormal:boolean;name_conflict:boolean;historical?:boolean};
+type Row={hisDelivery?:HisDeliveryStatus;id:string;origin?:string;kind:string;template_kind:string;state:string;state_changed_at:string;original_name:string;relative_path:string|null;member_name:string|null;hn:string|null;lab:string|null;collection:string|null;round_number:number|null;ln:string|null;proposal:boolean;abnormal:boolean;name_conflict:boolean;historical?:boolean};
 type Data={page:{number:number;size:number;hasNext:boolean;total:number;totalPages:number;scope:"BOUNDED_PAGE"};rows:Row[];latestFolder:{folder:string;at:string}|null;intake:{folder:string;scanSubfolders:boolean;acceptZip:boolean;maxUploadMb:number;maxFilesPerScan:number;picVersion:string;scanMode:"ON_DEMAND";lastTest:{result:TestResult|null;completed_at:string|null}|null;lastScan:{result:ScanResult|null;completed_at:string|null}|null}};
 const BUCKETS=[["historical","ออกรายงานแล้วจากระบบเดิม",[]],["unlinked","รอเชื่อมโยง",["Unlinked"]],["conflict","ข้อมูลไม่ตรง",["LinkConflict"]],["blocked","ถูกบล็อกโดย Gate",["ValidationBlocked"]],["pending","รอรับรอง",["PendingCertification"]],["closed","ปิดแล้ว/ใช้ไม่ได้",["RejectedImport","Superseded","Voided","CertifiedReleased"]]] as const;
 const DEFAULT_FILTERS={dateField:"REPORTED",from:"",to:"",q:"",gender:"ALL",qc:"ALL",risk:"ALL"};
-const STEPS=["ทดสอบโฟลเดอร์","สแกนไฟล์ PDF","เลือกไฟล์และ Preview","ยืนยันนำเข้า"];
+const STEPS=["สแกนไฟล์ PDF","ตรวจไฟล์และจับคู่ผู้ป่วย","ยืนยันผล"];
 
 /** Polls the requester's own worker job until its receipt exists. The worker, not the browser, reads the folder. */
 async function waitForJob<T>(id:string,signal:AbortSignal):Promise<Job<T>>{
@@ -36,10 +40,11 @@ function resultLine(s:Summary|null,kind:string|null){
 
 export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImport:boolean;canSettings:boolean;canExport?:boolean}){
  const [data,setData]=useState<Data|null>(null),[error,setError]=useState(""),[notice,setNotice]=useState("");
+ const [channel,setChannel]=useState<'pdf'|'halos'>('pdf');
  const [tab,setTab]=useState<"folder"|"upload">("folder"),[bucket,setBucket]=useState<string>("unlinked");
  const [busy,setBusy]=useState<string|null>(null),[test,setTest]=useState<TestResult|null>(null),[scan,setScan]=useState<ScanResult|null>(null),[picked,setPicked]=useState<Set<string>>(new Set());
  const [preview,setPreview]=useState<Intake[]|null>(null),[toImport,setToImport]=useState<Set<string>>(new Set()),[acked,setAcked]=useState<Set<string>>(new Set()),[uploadRejected,setUploadRejected]=useState<{name:string;code:string}[]>([]);
- const [draftFilters,setDraftFilters]=useState(DEFAULT_FILTERS),[filters,setFilters]=useState(DEFAULT_FILTERS),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50),[queueLoading,setQueueLoading]=useState(false);
+ const [draftFilters,setDraftFilters]=useState(DEFAULT_FILTERS),[filters,setFilters]=useState(DEFAULT_FILTERS),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50),[queueLoading,setQueueLoading]=useState(true);
  const query=useMemo(()=>({bucket,...filters,...(!filters.from?{from:undefined}:{}),...(!filters.to?{to:undefined}:{}),page,pageSize}),[bucket,filters,page,pageSize]);
  const loadSequence=useRef(0);
  const abort=useRef<AbortController|null>(null),fileInput=useRef<HTMLInputElement>(null);
@@ -63,21 +68,27 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
   setPreview(null);setToImport(new Set());setScan(null);setBucket("unlinked");await load();});
  const doExport=()=>run("csv",async()=>{const r=await fetch("/api/p5/results/csv",{method:"POST",cache:"no-store",headers:{"content-type":"application/json","x-csrf-token":csrf()},body:JSON.stringify(query)});if(!r.ok){const d=await r.json().catch(()=>({}));setError(d.error??"ส่งออกไม่สำเร็จ กรุณาลองอีกครั้ง");return;}
   const url=URL.createObjectURL(await r.blob()),a=document.createElement("a");a.href=url;a.download=`nipt-results-page-${page}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);setNotice("ส่งออก CSV เฉพาะหน้าปัจจุบันแล้ว — ไม่ใช่รายการทั้งหมด");});
- const step=preview?3:scan?.files?.length?2:test?.passed?1:0;
+ const step=preview?2:scan?.files?.length?1:0;
  const newFiles=useMemo(()=>(scan?.files??[]).filter(f=>f.status==="NEW"),[scan]);
  const rows=useMemo(()=>(data?.rows??[]).filter(r=>bucket==="historical"?!!r.historical:(BUCKETS.find(b=>b[0]===bucket)?.[2] as readonly string[]|undefined)?.includes(r.state)&&!(r.historical&&(bucket==="blocked"||bucket==="pending"))),[data,bucket]);
  const toggle=(set:Set<string>,key:string,on:boolean)=>{const n=new Set(set);if(on)n.add(key);else n.delete(key);return n;};
  const folderMsg=(code:string|null)=>code?(FOLDER_ERROR_TEXT[code]??code):"";
  const conflicted=(i:Intake)=>!!i.nameConflicts&&(i.nameConflicts.versions.length>0||i.nameConflicts.sameBatch>0);
  const unacked=(preview??[]).filter(i=>toImport.has(i.id)&&conflicted(i)&&!acked.has(i.id)).length;
+ const completionIds=[...toImport].sort();
 
  return <>
   <header className="page-header"><div><h1>ผลตรวจ NIPT</h1></div></header>
   <div aria-live="polite">{notice&&<p className="notice success" role="status">{notice}</p>}{error&&<p className="notice" role="alert">{error}</p>}</div>
-  <NativeReports canImport={canImport}/>
+  <div className="result-channel-switch" role="group" aria-label="เลือกช่องทางออกผล">
+   <button type="button" className={`button ${channel==='pdf'?'':'secondary'}`} aria-pressed={channel==='pdf'} onClick={()=>setChannel('pdf')}>นำเข้า PDF จาก ReadyGen</button>
+   <button type="button" className={`button ${channel==='halos'?'':'secondary'}`} aria-pressed={channel==='halos'} onClick={()=>setChannel('halos')}>สร้างรายงานจาก HALOS</button>
+  </div>
+  <p className="help result-channel-description">{channel==='pdf'?'มี PDF Final จาก ReadyGen แล้ว: สแกนไฟล์ ตรวจผู้ป่วยและรอบตัวอย่าง แล้วกดยืนยันครั้งเดียว':'มีไฟล์ผลจาก HALOS: ตรวจผลแปล เลือกผู้ลงนาม แล้วออกรายงานเป็นชุด'}</p>
+  {channel==='halos'&&<NativeReports canImport={canImport}/>}
 
-  {canImport&&<section className="panel result-intake" aria-labelledby="intake-h">
-   <h2 id="intake-h">นำเข้า PDF ผลจาก ReadyGen / ภายนอก</h2><p className="import-next" role="status"><strong>ขั้นตอนถัดไป: {tab==="folder"?STEPS[step]:preview?"ตรวจ Preview และยืนยันนำเข้า":"เลือกไฟล์จากเครื่องเพื่อ Preview"}</strong><span>{tab==="folder"?"ทดสอบและสแกนเพื่อเลือกไฟล์ ตรวจ Preview แล้วจึงยืนยันนำเข้า":"เลือกไฟล์ .pdf หรือ .zip ตรวจ Preview แล้วจึงยืนยันนำเข้า"}</span></p>
+  {canImport&&channel==='pdf'&&<section className="panel result-intake" aria-labelledby="intake-h">
+   <h2 id="intake-h">นำเข้า PDF ผลจาก ReadyGen / ภายนอก</h2><p className="import-next" role="status"><strong>ขั้นตอนถัดไป: {tab==="folder"?STEPS[step]:preview?"ตรวจจับคู่และยืนยันผล":"เลือก PDF เพื่ออ่านและตรวจจับคู่"}</strong><span>{tab==="folder"?"สแกนไฟล์ ตรวจผู้ป่วยกับรอบตัวอย่าง แล้วกดยืนยันผล":"เลือก PDF ตรวจผู้ป่วยกับรอบตัวอย่าง แล้วกดยืนยันผล"}</span></p>
    <ol className="stepper" aria-label="ขั้นตอนนำเข้า">{STEPS.map((s,i)=><li key={s} className={i<step?"done":i===step?"current":""} aria-current={i===step?"step":undefined}>{s}</li>)}</ol>
    <div className="tabs p5-tabs" role="tablist" aria-label="ช่องทางนำเข้า">
     <button type="button" role="tab" className="tab" aria-selected={tab==="folder"} onClick={()=>setTab("folder")}>จากโฟลเดอร์ผล (แนะนำ)</button>
@@ -91,7 +102,7 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
      <div><dt>นำเข้าล่าสุดถึงโฟลเดอร์</dt><dd>{data?.latestFolder?<><span className="mono">{data.latestFolder.folder||"(โฟลเดอร์หลัก)"}</span> · {bkk(data.latestFolder.at)}</>:"ยังไม่เคยนำเข้าจากโฟลเดอร์"}</dd></div>
     </dl>
     <div className="action-bar">
-     <button type="button" className="button secondary" onClick={doTest} disabled={!!busy}>{busy==="test"?"Worker กำลังทดสอบ…":"ทดสอบโฟลเดอร์"}</button>
+     <button type="button" className="button secondary" onClick={doTest} disabled={!!busy}>{busy==="test"?"กำลังทดสอบ…":"ทดสอบโฟลเดอร์ (เมื่อมีปัญหา)"}</button>
      <button type="button" className="button" onClick={doScan} disabled={!!busy}>{busy==="scan"?"Worker กำลังสแกน…":"สแกนไฟล์ PDF"}</button>
     </div>
     <p className="help">Worker อ่านโฟลเดอร์แบบอ่านอย่างเดียว ไม่สร้าง ย้าย หรือลบไฟล์ใด ๆ — ไฟล์จะถูกนำเข้าเมื่อกดยืนยันหลัง Preview เท่านั้น</p>
@@ -111,18 +122,18 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
          :<tr><td colSpan={6} className="empty-row">ไม่พบไฟล์ .pdf หรือ .zip ในโฟลเดอร์นี้</td></tr>}</tbody>
        </table>
       </div>
-      <div className="bulk-bar"><span>เลือก {picked.size} ไฟล์</span><button type="button" className="button" disabled={!picked.size||!!busy} onClick={doPreview}>{busy==="preview"?"Worker กำลังอ่านไฟล์…":"Preview ไฟล์ที่เลือก"}</button></div>
+      <div className="bulk-bar"><span>เลือก {picked.size} ไฟล์</span><button type="button" className="button" disabled={!picked.size||!!busy} onClick={doPreview}>{busy==="preview"?"กำลังอ่านไฟล์…":"อ่านไฟล์และดูการจับคู่"}</button></div>
      </div>)}
    </div>:<div role="tabpanel" aria-label="เลือกไฟล์จากเครื่อง" className="stack">
     <div className="field"><label htmlFor="p5-files">ไฟล์ผล (.pdf หรือ .zip) ได้สูงสุด 20 ไฟล์</label><FileDropInput id="p5-files" ref={fileInput} type="file" multiple accept=".pdf,.zip,application/pdf,application/zip" aria-describedby="p5-files-help"/>
      <p id="p5-files-help" className="help">ทางเลือกเมื่อไฟล์ไม่ได้อยู่ในโฟลเดอร์ผล — ระบบกักตรวจและอ่านไฟล์แบบเดียวกับไฟล์จากโฟลเดอร์ ไฟล์ละไม่เกิน {data?.intake.maxUploadMb??"…"} MB</p></div>
-    <div className="action-bar"><button type="button" className="button" onClick={doUpload} disabled={!!busy}>{busy==="upload"?"กำลังอัปโหลดและอ่านไฟล์…":"อัปโหลดและ Preview"}</button></div>
+    <div className="action-bar"><button type="button" className="button" onClick={doUpload} disabled={!!busy}>{busy==="upload"?"กำลังอัปโหลดและอ่านไฟล์…":"อัปโหลดและตรวจจับคู่"}</button></div>
     {uploadRejected.length>0&&<ul className="notice" role="alert">{uploadRejected.map(r=><li key={r.name}>{r.name}: {REJECT_TEXT[r.code]??r.code}</li>)}</ul>}
    </div>}
 
    {preview&&<div className="stack p5-preview" aria-labelledby="preview-h">
-    <h3 id="preview-h">Preview — ตรวจค่าที่อ่านได้ก่อนยืนยันนำเข้า</h3>
-    <p className="help">ระบบไม่จับคู่ผลกับผู้ป่วยอัตโนมัติ (HN หรือ LN อย่างเดียวไม่พอ) — หลังนำเข้า ต้องเลือกรอบ/Attempt และให้ผู้รับรองอีกคนยืนยัน</p>
+    <h3 id="preview-h">ตรวจ PDF กับผู้ป่วยก่อนยืนยันผล</h3>
+    <p className="help">ตรวจ LN/HN ผลใน PDF รอบตัวอย่าง และ Run ให้ตรงกันก่อนยืนยัน ระบบจะพักรายการที่จับคู่ไม่ชัดเจนไว้โดยไม่เผยแพร่ผล</p>
     <div className="table-wrap" role="region" aria-label="ผล Preview" tabIndex={0}>
      <table className="data-table p5-scan"><caption>{preview.length} รายการ · พร้อมนำเข้า {preview.filter(i=>i.state==="Parsed"&&i.container!=="ZIP_BATCH").length}</caption>
       <thead><tr><th scope="col"><span className="sr-only">เลือก</span></th><th scope="col">ไฟล์</th><th scope="col">รูปแบบ</th><th scope="col">HN · เลข Lab</th><th scope="col">วันที่เก็บ</th><th scope="col">ผลหลัก</th><th scope="col">ผู้สมัครจับคู่</th><th scope="col">สถานะ</th></tr></thead>
@@ -139,12 +150,14 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
        :<tr><td colSpan={8} className="empty-row">ไม่มีไฟล์ที่อ่านได้</td></tr>}</tbody>
      </table>
     </div>
-    <div className="bulk-bar"><span>นำเข้า {toImport.size} รายการ{unacked?` · รอรับทราบชื่อซ้ำ ${unacked} รายการ`:""}</span><button type="button" className="button secondary" onClick={()=>{setPreview(null);setToImport(new Set());}} disabled={!!busy}>ยกเลิก Preview</button><button type="button" className="button" disabled={!toImport.size||!!busy||unacked>0} onClick={doConfirm}>{busy==="confirm"?"กำลังนำเข้า…":"ยืนยันนำเข้า"}</button></div>
+    {completionIds.length>0&&<ExternalResultCompletion key={completionIds.join(',')} intakeIds={completionIds} onDone={()=>{setBucket('closed');setNotice('ดำเนินการยืนยันผลแล้ว — ตรวจผลรายรายการและสถานะส่ง HIS ด้านล่าง');void load();}}/>}
+    <div className="action-bar"><button type="button" className="button secondary" onClick={()=>{setPreview(null);setToImport(new Set());}} disabled={!!busy}>ปิด Preview</button></div>
+    <details><summary>จัดการรายการที่ต้องตรวจหรืออนุมัติเพิ่ม</summary><p className="help">ใช้เมื่อต้องแก้ข้อมูลการจับคู่ หรือเมื่อสิทธิ์บัญชีนี้ไม่ครบตามโหมดที่ตั้งไว้ การนำเข้าจะไม่เผยแพร่ผล และต้องผ่านสิทธิ์อนุมัติเดิมก่อน</p><button type="button" className="button secondary" disabled={!toImport.size||!!busy||unacked>0} onClick={doConfirm}>{busy==="confirm"?"กำลังนำเข้า…":"นำเข้าไปยังคิวจับคู่"}</button></details>
    </div>}
   </section>}
 
   <section className="panel" aria-labelledby="queue-h">
-   <h2 id="queue-h">คิวตรวจทานผล</h2>
+   <h2 id="queue-h">ค้นหาและติดตามผล</h2>
    <form className="search-form" autoComplete="off" aria-label="กรองคิวผลตรวจ" onSubmit={e=>{e.preventDefault();if(draftFilters.from&&draftFilters.to&&draftFilters.from>draftFilters.to){setError("วันที่เริ่มต้องไม่เกินวันที่สิ้นสุด กรุณาตรวจช่วงวันที่");return;}setPage(1);setFilters({...draftFilters});}}>
     <div className="field"><label htmlFor="result-search">ค้นหา HN / เลข Lab / ชื่อที่อ่านได้</label><input id="result-search" type="search" maxLength={100} autoComplete="off" value={draftFilters.q} onChange={e=>setDraftFilters(f=>({...f,q:e.target.value}))}/></div>
     <div className="field"><label htmlFor="result-date-field">กรองตามวันที่</label><select id="result-date-field" value={draftFilters.dateField} onChange={e=>setDraftFilters(f=>({...f,dateField:e.target.value}))}><option value="REPORTED">วันที่รายงานที่อ่านได้</option><option value="IMPORTED">วันที่นำเข้า (เวลาไทย)</option></select></div>
@@ -165,7 +178,7 @@ export function ResultWorkspace({canImport,canSettings,canExport=false}:{canImpo
      <tbody>{!data?<tr><td colSpan={8} className="empty-row">{queueLoading?"กำลังโหลด…":"โหลดคิวไม่สำเร็จ"}</td></tr>:rows.length?rows.map(r=><tr key={r.id}>
       <td className="p5-file">{r.origin==="INTERNAL_GENERATED"?"รายงานที่ออกในระบบ":r.member_name??r.relative_path??r.original_name}</td><td>{KIND_TEXT[r.template_kind]??r.kind}{r.origin==="INTERNAL_GENERATED"&&<span className="badge info">ออกในระบบ</span>}{r.abnormal&&<span className="badge danger">ผิดปกติ</span>}</td>
       <td className="mono">{r.hn??"—"}<br/>{r.lab??"—"}</td><td>{r.collection??"—"}</td><td>{r.ln?<><span className="mono">{r.ln}</span> · รอบที่ {r.round_number}</>:"—"}</td>
-      <td><Status tone={STATE_TONE[r.historical?"HistoricalReported":r.state]}>{STATE_TEXT[r.historical?"HistoricalReported":r.state]??r.state}</Status>{r.proposal&&<span className="badge warning">รอผู้ยืนยันคนที่สอง</span>}{r.name_conflict&&<span className="badge warning">ชื่อไฟล์ซ้ำ — ตรวจว่าใหม่/ฉบับแก้ไข</span>}</td><td>{bkk(r.state_changed_at)}</td>
+      <td><Status tone={STATE_TONE[r.historical?"HistoricalReported":r.state]}>{STATE_TEXT[r.historical?"HistoricalReported":r.state]??r.state}</Status>{!r.historical&&<HisDeliveryBadge status={r.hisDelivery}/>} {r.proposal&&<span className="badge warning">รอยืนยันการจับคู่</span>}{r.name_conflict&&<span className="badge warning">ชื่อไฟล์ซ้ำ — ตรวจว่าใหม่/ฉบับแก้ไข</span>}</td><td>{bkk(r.state_changed_at)}</td>
       <td><Link className="button small secondary" href={`/results/${r.id}`}>เปิด</Link></td></tr>)
       :<tr><td colSpan={8} className="empty-row">ไม่มีรายการในสถานะนี้</td></tr>}</tbody></table>
    </div>

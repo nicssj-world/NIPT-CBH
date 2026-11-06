@@ -183,7 +183,7 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
   const manual=await cycle(f,{trigger:'MANUAL',now:later(31)});expect(manual.outcome).toBe('SUCCESS');
   expect((await caseState(f.db,caseId)).rounds[0].state).toBe('ReceivedInHIS');
   expect(await inboundHealth(f.db,settings,later(31.5))).toMatchObject({Alive:true,shareStatus:'UP',consecutiveFailures:0,healthy:true,LastError:null});
-  expect((await rows<{outcome:string}>(f.db,'SELECT outcome FROM his_inbound_scan_run ORDER BY finished_at')).map(r=>r.outcome)).toEqual(['SHARE_UNAVAILABLE','SHARE_UNAVAILABLE','SKIPPED_BACKOFF','SUCCESS']);
+  expect((await rows<{outcome:string}>(f.db,'SELECT outcome FROM his_inbound_scan_run ORDER BY finished_at')).map(r=>r.outcome)).toEqual(['SHARE_UNAVAILABLE','SHARE_UNAVAILABLE','SUCCESS']);
  });
 
  it('AT-HISIN-09 worker restart and mid-transaction failure: Ready intakes survive and are retried; error codes are recorded then cleared',async()=>{

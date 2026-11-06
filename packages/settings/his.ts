@@ -35,6 +35,16 @@ export function outboundDraftSettings(row:ActiveHis){
  return {version:(operationalDataEnabled()?'OPERATIONAL-SETTINGS-':'SYNTHETIC-SETTINGS-')+row.id,resDirectory:defaults[0],pdfDirectory:defaults[1],backupDirectory:defaults[2],retryDelaysMs:Array.from({length:s.retryLimit},(_,i)=>Math.min(86400000,s.retryDelaySeconds*1000*2**i)),confirmationTimeoutMs:s.confirmationTimeoutSeconds*1000,
   ...(!local?{connection:{revisionId:row.id,resPath:paths[0],pdfPath:paths[1],backupPath:paths[2],secretRef:s.secretRef}}:{})};
 }
+/** Content/profile/retry edits affect future reservations. A pinned transfer keeps its bytes, names and policy.
+ * Destination or credential changes require explicit cancellation/rerouting; disabled authority never permits rerouting. */
+export function frozenOutboundAuthority(row:ActiveHis,frozen:SyntheticDraft['settings'],operational:boolean):'CURRENT'|'CONFIG_CHANGED'|'AUTHORITY_REVOKED'{
+ const s=SETTINGS.his_outbound.schema.parse(row.value);
+ if(!s.enabled||(operational&&(s.target!=='AUTHORIZED_SHARE'||!s.productionAuthorized)))return 'AUTHORITY_REVOKED';
+ const routing=frozen.connection
+  ?[frozen.connection.resPath,frozen.connection.pdfPath,frozen.connection.backupPath,frozen.connection.secretRef]
+  :[frozen.resDirectory,frozen.pdfDirectory,frozen.backupDirectory,null];
+ return JSON.stringify([s.resDestinationPath,s.pdfDestinationPath,s.backupPath,s.secretRef])===JSON.stringify(routing)?'CURRENT':'CONFIG_CHANGED';
+}
 /** Called only by existing fixture-enrollment tooling. Never accepts a P5 release as fixture data. */
 export async function bindActiveOutboundSettings(db:Queryable,draft:SyntheticDraft):Promise<SyntheticDraft>{
  const row=await activeHis(db,'his_outbound'),s=SETTINGS.his_outbound.schema.parse(row.value);if(!s.enabled)throw Error('EXPORT_DISABLED');

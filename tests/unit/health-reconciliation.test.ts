@@ -11,6 +11,7 @@ vi.mock('../../packages/db/connection',()=>({pool:()=>({query:async(sql:string)=
  if(sql.includes('FROM schema_migration'))return {rows:state.ledger};
  if(sql.includes('FROM p6_transfer'))return {rows:[{retry:'0',unresolved:'0',worker_error:false}]};
  if(sql.includes('FROM his_inbound_scan_run'))return {rows:[]};
+ if(sql.includes('FROM his_inbound_scan_state')||sql.includes('FROM setting_active')||sql.includes('FROM audit_chain'))return {rows:[]};
  return {rows:[{count:'0',oldest:null}]};
 }})}));
 vi.mock('../../packages/settings/service',()=>({readActiveSettings:async()=>({his_inbound:{enabled:true,basePath:'simulator/inbound',section:'7',testCode:'70096',intervalSeconds:30,lookbackDays:7,secretRef:null}})}));

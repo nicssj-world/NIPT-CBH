@@ -9,7 +9,6 @@ import {need,assertSession,audit,uuid,LabError,caseVisible,type Staff} from '../
 import {readPet} from '../inbound/process';
 import {petDisplayName} from '../sequencing/owner-export';
 import {SETTINGS} from '../settings/catalog';
-import {readActiveSettings} from '../settings/service';
 import {pdfText} from '../results/extract';
 import {parseReport,isNoCallReport} from '../results/parser';
 import {roundRequest,registerInternalVersion,acceptInternalAndRelease} from '../results/service';
@@ -20,7 +19,9 @@ import {fillReport,DocxError,type ReportValues,type SignerSlot} from './docx';
 import {renderDocxBatch,type RenderedPdf} from './native-word';
 import {activeTemplate} from './template-active';
 import {signerAuthority,type SignerAuthority} from './signers';
-import {renderDownloadName,uniqueNames,DEFAULT_DOWNLOAD_TEMPLATE} from './filename';
+import {uniqueNames} from './filename';
+import {configuredReportName} from './report-name';
+import {readHisDeliveryStatuses} from '../results/his-status';
 import type {HalosRow} from './halos-adapter';
 import {ANALYSIS_HEADERS,SAMPLEINFO_HEADERS} from './halos-adapter';
 
@@ -48,7 +49,6 @@ export async function interpretationApproval(db:Queryable){
  const approvedRevision=!!r&&!!r.approved_by;
  return {revisionId:r?.id??null,revisionVersion:r?.version??null,value,approvedRevision,rulesetMatches:value.rulesetSha256===RULESET_SHA256&&value.rulesetVersion===RULESET.version};
 }
-async function downloadTemplate(db:Queryable){const s=await readActiveSettings(db);return SETTINGS.report_output.schema.parse(s.report_output??SETTINGS.report_output.default).downloadNameTemplate||DEFAULT_DOWNLOAD_TEMPLATE;}
 
 type SourceRow={row_id:string;import_id:string;import_state:string;classification:string;reason:string;sample_key:string;raw:Record<string,string>;attempt_id:string;round_id:string;case_id:string;export_id:string;export_kind:string;
  info_raw:Record<string,string>|null;attempt_state:string;attempt_number:number;printed_sample_id:string|null;no_call:boolean;on_hold:boolean;ln:string;ln_halos:string|null;hn:string|null;registration_origin:string;current_round_id:string;unit_id:string|null;
@@ -244,7 +244,7 @@ export async function finalizeReports(db:Queryable,user:Staff,deps:ReportDeps,in
  const prior=(await db.query<{id:string;operator_id:string;outcome:FinalizeOutcome[]}>('SELECT id,operator_id,outcome FROM internal_report_batch WHERE idempotency_key=$1',[d.idempotencyKey])).rows[0];
  if(prior){if(prior.operator_id!==user.id)throw new LabError('IDEMPOTENCY_KEY_REUSED',409);return {batchId:prior.id,replayed:true,items:prior.outcome};}
  if(new Set(d.items.map(i=>i.rowId)).size!==d.items.length)throw new LabError('DUPLICATE_ROW_IN_BATCH',422);
- const template=await downloadTemplate(db),out:FinalizeOutcome[]=[],work:{i:number;p:Prepared;signers:Awaited<ReturnType<typeof signerSlots>>;docx:ReturnType<typeof fillReport>;master:Master}[]=[];
+ const out:FinalizeOutcome[]=[],work:{i:number;p:Prepared;signers:Awaited<ReturnType<typeof signerSlots>>;docx:ReturnType<typeof fillReport>;master:Master}[]=[];
  // Phase 1: authority, eligibility and filled masters. Nothing is written yet.
  for(const [i,item] of d.items.entries()){
   try{
@@ -272,7 +272,7 @@ export async function finalizeReports(db:Queryable,user:Staff,deps:ReportDeps,in
    const hash=await deps.store.put(pdf.bytes);
    await db.query("INSERT INTO file_asset(sha256,byte_size,media_type,storage_key) VALUES($1,$2,'application/pdf',$3) ON CONFLICT(sha256) DO NOTHING",[hash,pdf.bytes.length,`sha256/${hash.slice(0,2)}/${hash.slice(2,4)}/${hash}`]);
    const seq=Number((await db.query<{n:number}>('SELECT count(*)::int+1 n FROM internal_report WHERE attempt_id=$1',[w.p.attemptId])).rows[0].n);
-   const name=renderDownloadName(template,{hisLn:w.p.hisLn,lnHalos:w.p.lnHalos??'',sampleId:w.p.sampleId,hn:w.p.hn??'',patientName:w.p.values!.patientName,reportDate:bangkokDay(w.signers.approved.authority!.checkedAt),template:TEMPLATES[w.p.template].code,version:String(seq)});
+   const name=await configuredReportName(db,w.p.attemptId,{hisLn:w.p.hisLn,lnHalos:w.p.lnHalos??'',sampleId:w.p.sampleId,hn:w.p.hn??'',patientName:w.p.values!.patientName,reportDate:bangkokDay(w.signers.approved.authority!.checkedAt),template:TEMPLATES[w.p.template].code,version:String(seq)});
    const snap=(a:SignerAuthority)=>({basis:a.basis,delegationId:a.delegationId,authorityReference:a.authorityReference,operatorId:a.operatorId,profileId:a.profile.id,profileVersion:a.profile.version,legalName:a.profile.legal_name,license:a.profile.mt_license_no,signatureSha256:a.profile.signature_sha256,checkedAt:a.checkedAt});
    const ruleset={id:RULESET.id,version:RULESET.version,sha256:RULESET_SHA256,settingRevisionId:w.p.approval.revisionId,settingRevisionVersion:w.p.approval.revisionVersion,approved:w.p.approval.approvedRevision&&w.p.approval.value.interpretationApproved,
     combinationApproved:(w.p.template==='SINGLETON'?w.p.approval.value.singletonApprovedProduct:w.p.approval.value.twinApprovedProduct)===w.p.productCode,productCode:w.p.productCode,approvalReference:w.p.approval.value.approvalReference,
@@ -330,6 +330,7 @@ export async function reportWorklist(db:Queryable,user:Staff,deps:ReportDeps,inp
    LEFT JOIN result_report_version v ON v.id=ir.version_id LEFT JOIN result_release rel ON rel.version_id=v.id AND rel.state='Active'
    WHERE h.sheet='result' AND ($1='' OR l.ln LIKE $1||'%' OR ltrim(ci.hn,'0') LIKE ltrim($1,'0')||'%' OR h.sample_key ILIKE '%'||$1||'%' OR n.ln_halos ILIKE '%'||$1||'%')
    ORDER BY i.uploaded_at DESC,h.row_number LIMIT 500`,[q])).rows.filter(r=>r.is_eqa===(d.scope==='EQA')&&(!r.case_id||caseVisible(user,{unit_id:r.unit_id,registration_origin:r.registration_origin??'ANC'})));
+ const delivery=await readHisDeliveryStatuses(db,rows.flatMap(r=>r.version_id?[r.version_id]:[]));
  const out:{status:WorklistStatus;[key:string]:unknown}[]=[];
  for(const r of rows){
   let status:WorklistStatus,holds:Hold[]=[],template=r.template_kind;
@@ -340,7 +341,7 @@ export async function reportWorklist(db:Queryable,user:Staff,deps:ReportDeps,inp
   if(d.status!=='ALL'&&d.status!==status)continue;
   out.push({rowId:r.row_id,sampleId:r.sample_key,classification:r.classification,reason:r.reason,status,holds,template,caseId:r.case_id,roundId:r.round_id,attemptId:r.attempt_id,
    ln:r.ln,lnHalos:r.ln_halos,hn:r.hn,importId:r.import_id,importName:r.import_name,importedAt:r.uploaded_at,chip:r.chip_id,
-   internalReportId:r.internal_id,internalState:r.internal_state,downloadName:r.download_name,versionId:r.version_id,versionState:r.version_state,rowVersion:r.row_version,releaseId:r.release_id,hisAttested:r.attested});
+   internalReportId:r.internal_id,internalState:r.internal_state,downloadName:r.download_name,versionId:r.version_id,versionState:r.version_state,rowVersion:r.row_version,releaseId:r.release_id,hisAttested:r.attested,hisDelivery:r.version_id?delivery.get(r.version_id):undefined});
  }
  const total=out.length,start=(d.page-1)*d.pageSize;
  return {rows:out.slice(start,start+d.pageSize),page:{number:d.page,size:d.pageSize,total,totalPages:Math.max(1,Math.ceil(total/d.pageSize)),hasNext:start+d.pageSize<total},

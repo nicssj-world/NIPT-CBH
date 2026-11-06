@@ -86,11 +86,12 @@ if(phase==='before'){
   return {version:saved.json.version,state:row,reloadEnabled:true,restartEnabled:true,petPath:reload?.basePath,webAnsweredAfterMs:webWaitMs};
  });
  await step('A4 the worker uses the new setting (a scan runs by itself within the interval)',async()=>{
-  const before=Number(sql("SELECT count(*) FROM his_inbound_scan_run"));
-  let after=before;for(let i=0;i<45&&after<=before;i++){await sleep(2000);after=Number(sql("SELECT count(*) FROM his_inbound_scan_run"));}
-  ok(after>before,'no scan run appeared');
-  const last=sql("SELECT trigger||'|'||outcome||'|'||coalesce(error_code,'') FROM his_inbound_scan_run ORDER BY finished_at DESC LIMIT 1");
-  return {scanRunsBefore:before,scanRunsAfter:after,lastScan:last};
+  const heartbeat=()=>sql("SELECT coalesce(max(s.heartbeat_at)::text,'') FROM his_inbound_scan_state s JOIN setting_active a ON a.setting_key='his_inbound' AND a.revision_id::text=s.configuration_id");
+  const before=heartbeat();
+  let after=before;for(let i=0;i<45&&after===before;i++){await sleep(2000);after=heartbeat();}
+  ok(!!after&&after!==before,'no scan heartbeat advanced for the active configuration');
+  const last=sql("SELECT s.trigger||'|'||s.outcome||'|'||coalesce(s.error_code,'') FROM his_inbound_scan_state s JOIN setting_active a ON a.setting_key='his_inbound' AND a.revision_id::text=s.configuration_id");
+  return {heartbeatBefore:before,heartbeatAfter:after,lastScan:last};
  });
  await step('A5 switching Auto Scan off is one Save too, and the audit chain records both changes without values',async()=>{
   const cur=(await activeOf()).his_inbound;

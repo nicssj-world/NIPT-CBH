@@ -61,7 +61,7 @@ it('both pathways converge on one ledger: HIS-presence attestation suppresses ou
    const view=await f.run(t=>results.ancCaseResults(t,f.u.anc,x.c.caseId)),cur=view.rounds.find(r=>r.current)!;
    expect(cur.result).not.toBeNull();expect(cur.result!.summary).toMatchObject({template:'SINGLETON',noCall:false,t21:'Low Risk',qc:'PASS'});expect(JSON.stringify(cur)).not.toContain(x.origin);
    const files=await Promise.all((['VIEW','DOWNLOAD','PRINT'] as const).map(m=>f.run(t=>results.readReleasedFile(t,f.u.anc,f.store,cur.result!.id,m))));
-   expect(new Set(files.map(r=>r.sha256)).size).toBe(1);expect(files[1].name).toMatch(new RegExp(`^${x.c.ln}_.*_Chonburi hospital\\.pdf$`));
+   expect(new Set(files.map(r=>r.sha256)).size).toBe(1);expect(files[1].name).toMatch(new RegExp(`^run[0-9]+_${x.c.hn}_${x.c.ln}\\.pdf$`));
   }
   const purposes=(await f.db.query<{purpose:string}>("SELECT DISTINCT purpose FROM result_access_log WHERE actor_id=$1",[f.u.anc.id])).rows.map(r=>r.purpose).sort();
   expect(purposes).toEqual(['ANC_RESULT_DOWNLOAD','ANC_RESULT_FILE','ANC_RESULT_LIST','ANC_RESULT_PRINT_VIEW']);

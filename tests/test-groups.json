@@ -24,6 +24,7 @@
       "tests/contracts/task3-template-registry-native.test.ts",
       "tests/contracts/workbook-pooling-alerts.test.ts",
       "tests/db/lab-owner-bench.test.ts",
+      "tests/db/operational-results.test.ts",
       "tests/db/lab-owner-qc-release.test.ts",
       "tests/db/lab-repeat-export.test.ts",
       "tests/db/owner-lab-report-templates.test.ts",
