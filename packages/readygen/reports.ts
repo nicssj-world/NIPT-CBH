@@ -324,7 +324,7 @@ export async function reportWorklist(db:Queryable,user:Staff,deps:ReportDeps,inp
    LEFT JOIN p2_case_identity ci ON ci.case_id=h.case_id LEFT JOIN nipt_case c ON c.id=h.case_id
    LEFT JOIN LATERAL (SELECT * FROM internal_report r WHERE r.halos_row_id=h.id ORDER BY r.created_at DESC LIMIT 1) ir ON true
    LEFT JOIN result_report_version v ON v.id=ir.version_id LEFT JOIN result_release rel ON rel.version_id=v.id AND rel.state='Active'
-   WHERE h.sheet='result' AND ($1='' OR l.ln LIKE $1||'%' OR ltrim(ci.hn,'0') LIKE ltrim($1,'0')||'%' OR h.sample_key ILIKE '%'||$1||'%' OR n.ln_halos ILIKE '%'||$1||'%')
+   WHERE h.sheet='result' AND NOT EXISTS(SELECT 1 FROM halos_row_dismissal x WHERE x.row_id=h.id) AND ($1='' OR l.ln LIKE $1||'%' OR ltrim(ci.hn,'0') LIKE ltrim($1,'0')||'%' OR h.sample_key ILIKE '%'||$1||'%' OR n.ln_halos ILIKE '%'||$1||'%')
    ORDER BY i.uploaded_at DESC,h.row_number LIMIT 500`,[q])).rows.filter(r=>r.is_eqa===(d.scope==='EQA')&&(!r.case_id||caseVisible(user,{unit_id:r.unit_id,registration_origin:r.registration_origin??'ANC'})));
  const delivery=await readHisDeliveryStatuses(db,rows.flatMap(r=>r.version_id?[r.version_id]:[]));
  const out:{status:WorklistStatus;[key:string]:unknown}[]=[];

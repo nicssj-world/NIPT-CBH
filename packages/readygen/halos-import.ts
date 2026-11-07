@@ -1,7 +1,7 @@
 import {z} from 'zod';
 import type {Queryable} from '../db/connection';
 import type {FileStore} from '../storage';
-import {need,assertSession,audit,uuid,LabError,caseVisible,type Staff} from '../lab/core';
+import {need,assertSession,audit,uuid,reasonText,LabError,caseVisible,type Staff} from '../lab/core';
 import {readHalosWorkbook,HalosAdapterError,type HalosRow,type HalosIssue} from './halos-adapter';
 
 // HALOS result import (Task 3 pathway A). The original workbook is stored byte-for-byte first; every row is resolved only through
@@ -160,4 +160,19 @@ export async function readHalosSource(db:Queryable,user:Staff,store:FileStore,id
  await db.query("INSERT INTO result_access_log(actor_id,purpose) VALUES($1,'LAB_HALOS_SOURCE_FILE')",[user.id]);
  await audit(db,user,'HALOS_SOURCE_DOWNLOADED','HALOS_IMPORT',id,{outcome:'ORIGINAL_BYTES'});
  return {bytes:await store.get(i.sha256),sha256:i.sha256,name:i.original_name};
+}
+/**
+ * "ซ่อนแถวนี้" (Owner 2026-11-07): hides a HALOS result row that will never be reported, with a reason. The row stays as evidence
+ * (halos_import_row is immutable); the hiding is a separate append-only record that the report worklist honours.
+ * A row whose internal report is already Final is refused (HALOS_ROW_HAS_FINAL_REPORT): hiding it would orphan a report.
+ */
+export async function dismissHalosRow(db:Queryable,user:Staff,input:unknown):Promise<void>{
+ await assertSession(db,user);need(user,'result.review');
+ const d=z.strictObject({rowId:uuid,reason:reasonText}).parse(input);
+ const row=(await db.query<{id:string}>('SELECT id FROM halos_import_row WHERE id=$1 FOR UPDATE',[d.rowId])).rows[0];
+ if(!row)throw new LabError('NOT_FOUND',404);
+ if((await db.query('SELECT 1 FROM halos_row_dismissal WHERE row_id=$1',[row.id])).rows[0])throw new LabError('HALOS_ROW_ALREADY_DISMISSED',409);
+ if((await db.query("SELECT 1 FROM internal_report WHERE halos_row_id=$1 AND state='Final'",[row.id])).rows[0])throw new LabError('HALOS_ROW_HAS_FINAL_REPORT',409);
+ await db.query('INSERT INTO halos_row_dismissal(row_id,reason,actor_id) VALUES($1,$2,$3)',[row.id,d.reason,user.id]);
+ await audit(db,user,'HALOS_ROW_DISMISSED','HALOS_IMPORT_ROW',row.id,{outcome:'DISMISSED'});
 }

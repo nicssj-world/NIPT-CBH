@@ -680,13 +680,40 @@ export async function recordExternalFallback(db:Queryable,user:Staff,input:unkno
  return {id:row.id};
 }
 
-/** Void. Before release it withdraws an import that will never be linked; after release it needs a release, which AL-5 holds. */
+const VOIDABLE_STATES:string[]=['Unlinked','LinkConflict','Linked','ValidationBlocked','PendingCertification'];
+/** Void. Before release it discards a stuck item (never linked, link conflict, linked, blocked or waiting to send); after release it needs a release, which AL-5 holds. Voided frees the open-version slot of the series. */
 export async function voidVersion(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);const d=z.strictObject({versionId:uuid,reason:reasonText,expectedRowVersion:rowVersion}).parse(input);
  need(user,'result.revise');const v=await versionOf(db,d.versionId,true);if(v.row_version!==d.expectedRowVersion)throw new LabError('VERSION_CONFLICT',409);
  if(v.state==='CertifiedReleased')throw new LabError('RELEASE_HOLD_AL5',423);
- if(v.state!=='Unlinked')throw new LabError('VOID_REQUIRES_UNLINKED',409);
+ if(!VOIDABLE_STATES.includes(v.state))throw new LabError('VOID_STATE_NOT_ALLOWED',409,{state:v.state});
  const after=await move(db,v,'Voided',user.id,d.reason);await audit(db,user,'RESULT_IMPORT_VOIDED','RESULT_VERSION',v.id,{outcome:after.state});return {outcome:after.state};
+}
+
+/**
+ * "เลือกผู้ป่วย" from the Action-needed tab (Owner 2026-11-07): one person proposes and approves the link, then a ReadyGen PDF is reviewed so it waits to be sent.
+ * Both link steps keep their own authority (result.link.manual propose + approve), their events and audit rows; nothing here releases or sends anything.
+ * A PDF that already has QC5 for this exact file (relink after an earlier review) only needs a fresh review, exactly as sendToHis does.
+ */
+export async function pickPatient(db:Queryable,user:Staff,input:unknown):Promise<{state:string}>{
+ const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,caseId:uuid,roundId:uuid,attemptId:uuid.nullable(),reason:reasonText,abnormalAcknowledged:z.boolean().default(false)}).parse(input);
+ await assertSession(db,user);
+ need(user,'result.link.manual','propose');need(user,'result.link.manual','approve');
+ const pre=await versionOf(db,d.versionId);
+ if(pre.state!=='Unlinked')throw new LabError('LINK_REQUIRES_UNLINKED',409);
+ if(pre.row_version!==d.expectedRowVersion)throw new LabError('VERSION_CONFLICT',409);
+ const target=(await db.query<{case_id:string}>('SELECT case_id FROM specimen_round WHERE id=$1',[d.roundId])).rows[0];
+ if(!target||target.case_id!==d.caseId)throw new LabError('PICK_TARGET_MISMATCH',422);
+ await proposeLink(db,user,{versionId:d.versionId,roundId:d.roundId,attemptId:d.attemptId,reason:d.reason,expectedRowVersion:d.expectedRowVersion});
+ await decideLink(db,user,{versionId:d.versionId,decision:'APPROVE',reason:d.reason,expectedRowVersion:(await versionOf(db,d.versionId)).row_version});
+ let v=await versionOf(db,d.versionId);
+ if(v.origin==='EXTERNAL_READYGEN'&&v.kind==='RESULT'&&['Linked','ValidationBlocked'].includes(v.state)&&!await releaseReviewed(db,v.id)){
+  const hasQc5=(await db.query('SELECT 1 FROM result_qc5_review WHERE version_id=$1',[v.id])).rows.length>0;
+  if(hasQc5)await recordReview(db,user,{versionId:v.id,valuesMatchPdf:true,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:v.row_version});
+  else await reviewExternalForRelease(db,user,{versionId:v.id,expectedRowVersion:v.row_version,abnormalAcknowledged:d.abnormalAcknowledged});
+  v=await versionOf(db,v.id);
+ }
+ return {state:v.state};
 }
 
 // ---------- Reads ----------
@@ -733,7 +760,7 @@ export async function versionDetail(db:Queryable,user:Staff,id:string){
   can:{propose:authorize(user,'result.link.manual',{},'propose')&&v.state==='Unlinked'&&!proposal,decide:!!proposal&&authorize(user,'result.link.manual',{actorId:proposal.actor_id},'approve'),
    unlink:authorize(user,'result.link.manual',{},'approve')&&['LinkConflict','Linked','ValidationBlocked','PendingCertification'].includes(v.state)&&!v.supersedes_id,
    review:authorize(user,'result.review')&&!historicalReported&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state),certify:authorize(user,'result.release.check')&&!!v.round_id&&!historicalReported,
-   void:authorize(user,'result.revise')&&v.state==='Unlinked',releaseAuthorized:false,
+   void:authorize(user,'result.revise')&&VOIDABLE_STATES.includes(v.state),releaseAuthorized:false,
    acceptRelease:!historicalReported&&v.origin==='EXTERNAL_READYGEN'&&operational&&authorize(user,'result.review')&&authorize(user,'result.certify')&&((await migrationResultEvidence(db,v.id)).migrated||authorize(user,'qc.accept'))&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state),
    acceptInternal:!historicalReported&&v.origin==='INTERNAL_GENERATED'&&operational&&authorize(user,'result.review')&&authorize(user,'qc.accept')&&authorize(user,'result.certify')&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state),
    attestHis:authorize(user,'his.reconcile')&&v.kind==='RESULT'&&['Linked','ValidationBlocked','PendingCertification','CertifiedReleased'].includes(v.state)&&!transfer&&!attestations.some(a=>!(a as {withdrawnAt:unknown}).withdrawnAt),

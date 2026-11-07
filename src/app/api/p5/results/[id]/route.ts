@@ -7,7 +7,7 @@ import {p5Error,p5Mutation,noStore} from "../../../../../server/p5";
 export async function GET(request:NextRequest,{params}:{params:Promise<{id:string}>}){try{const user=await protect(request),{id}=await params;return NextResponse.json(await withTransaction(db=>svc.versionDetail(db,user,id)),{headers:noStore});}catch(e){return p5Error(e);}}
 type Op=(db:Queryable,user:Staff,input:unknown)=>Promise<unknown>;
 const pick=(input:unknown,keys:string[])=>Object.fromEntries(Object.entries(input as Record<string,unknown>).filter(([k])=>keys.includes(k)));
-const actions:Record<string,Op>={propose:svc.proposeLink,proposeAuto:svc.proposeAutoMatch,acceptRelease:svc.acceptAndRelease,decide:svc.decideLink,unlink:svc.unlinkVersion,review:svc.recordReview,qc5:svc.recordQc5,revalidate:svc.revalidate,certify:svc.certifyAttempt,void:svc.voidVersion,
+const actions:Record<string,Op>={propose:svc.proposeLink,proposeAuto:svc.proposeAutoMatch,acceptRelease:svc.acceptAndRelease,decide:svc.decideLink,unlink:svc.unlinkVersion,review:svc.recordReview,qc5:svc.recordQc5,revalidate:svc.revalidate,certify:svc.certifyAttempt,void:svc.voidVersion,pick:svc.pickPatient,
  // Task 3: internal-report acceptance, the "มีผลใน HIS แล้ว" attestation and outage provenance of an external ReadyGen PDF.
  acceptInternal:svc.acceptInternalAndRelease,attestHis:svc.attestHisPresence,fallback:svc.recordExternalFallback,
  withdrawHis:(db,user,input)=>svc.withdrawHisAttestation(db,user,pick(input,['attestationId','reason']))};
