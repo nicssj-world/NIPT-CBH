@@ -69,7 +69,7 @@ const rows = {
   "redraw.cancel": "--PY---R-",
   "round.receive": "--YY---R-",
   "result.import": "--YY-----",
-  "result.link.manual": "--PA---R-",
+  "result.link.manual": "--PY---R-",   // Owner 2026-11-07 (spec 5.4): a certifier picks the patient alone, so LAB_CERTIFIER holds propose and approve; LAB_STAFF stays propose-only
   // P5: attesting parsed values against the PDF, and evaluating RG/RN in the certifying transaction. Release itself stays
   // `result.certify` / `notice.release`, which remain denied below until AL-5.
   "result.review": "--YY---R-",

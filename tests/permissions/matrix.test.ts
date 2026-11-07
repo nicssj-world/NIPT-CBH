@@ -54,4 +54,12 @@ describe("every role × action × scope × operation cell",()=>{
     expect(authorize(checker,"settings.approve",{actorId:"same"},"approve")).toBe(true);   // owner 2026-11-03: no second name needed
     expect(authorize({...checker,roles:["LAB_CERTIFIER"]},"batch.assign",{origin:"HISTORICAL"})).toBe(false);
   });
+  it("result.link.manual (spec 5.4): a certifier may propose and approve alone, staff may only propose, nobody else gains it",()=>{
+    const as=(role:Principal["roles"][number]):Principal=>({id:"u",roles:[role],unitIds:[],permissions:[]});
+    for(const op of ["propose","approve"] as const) expect(authorize(as("LAB_CERTIFIER"),"result.link.manual",{actorId:"u"},op)).toBe(true);
+    expect(authorize(as("LAB_STAFF"),"result.link.manual",{},"propose")).toBe(true);
+    expect(authorize(as("LAB_STAFF"),"result.link.manual",{},"approve")).toBe(false);
+    for(const role of ["ANC_NURSE","ANC_SUPERVISOR","CLINICAL_APPROVER","AUDITOR","IT_OPERATOR","HISTORICAL_VERIFIER"] as const)
+      for(const op of ["propose","approve"] as const) expect(authorize(as(role),"result.link.manual",{},op)).toBe(false);
+  });
 });

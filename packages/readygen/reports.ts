@@ -81,6 +81,8 @@ const rowValues=(raw:Record<string,string>,headers:Record<string,string>)=>{cons
 /** Everything the report would print, from its authoritative source, and every reason it cannot be final yet. Reads only. */
 export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,input:{rowId:string;pregnancyOverride?:'Singleton'|'Twins';overrideReason?:string;reissue?:boolean}):Promise<Prepared>{
  const s=(await db.query<SourceRow>(SOURCE_SQL+' WHERE h.id=$1',[uuid.parse(input.rowId)])).rows[0];
+ // A row hidden from the worklist (halos_row_dismissal) is never a report candidate.
+ if((await db.query('SELECT 1 FROM halos_row_dismissal WHERE row_id=$1',[input.rowId])).rows[0])throw new LabError('HALOS_ROW_DISMISSED',409);
  // Controls, unmatched and other non-patient rows have no attempt: they are never report candidates.
  if(!s){const r=(await db.query<{classification:string;reason:string}>('SELECT classification,reason FROM halos_import_row WHERE id=$1',[input.rowId])).rows[0];if(r)throw new LabError('ROW_NOT_REPORTABLE',409,{raw:`${r.classification}/${r.reason}`});}
  if(!s||!caseVisible(user,{unit_id:s.unit_id,registration_origin:s.registration_origin}))throw new LabError('NOT_FOUND',404);
