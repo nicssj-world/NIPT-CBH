@@ -98,3 +98,9 @@ export const TEMPLATES={SINGLETON:{code:'FM-WI-T-BM-17-07',product:'HNZ0051',sha
  TWIN:{code:'FM-WI-T-BM-17-08',product:'HNZ0051',sha256:'0f7313213fbd99153ee015018df4cab013567ce12281a5a2102baad84ddd1bf3'}} as const;
 /** HALOS "Gestational Weeks" is "W,D". */
 export function halosGaDays(raw:string|undefined){const m=/^\s*(\d{1,2})\s*,\s*(\d)\s*$/.exec(raw??'');return m?Number(m[1])*7+Number(m[2]):null;}
+/** GA printed on a HALOS-generated report: HALOS sampleinfo GA first, else computed from the EDD at collection, else null. */
+export function reportGaDays(i:{halosGa:string|undefined;edd:string|null;collectionDay:string|null}):number|null{
+ const h=halosGaDays(i.halosGa);if(h!==null)return h;
+ if(!i.edd||!i.collectionDay)return null;
+ return 280-Math.round((Date.parse(i.edd+'T00:00:00Z')-Date.parse(i.collectionDay+'T00:00:00Z'))/86400000);
+}

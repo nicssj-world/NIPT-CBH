@@ -13,7 +13,7 @@ import {pdfText} from '../results/extract';
 import {parseReport,isNoCallReport} from '../results/parser';
 import {roundRequest,registerInternalVersion,acceptInternalAndRelease} from '../results/service';
 import {writeArchive,sha256} from '../workbook/archive';
-import {interpretRow,productCodeOf,halosGaDays,TEMPLATES,RULESET,RULESET_SHA256,type Interpretation,type Hold} from './interpretation';
+import {interpretRow,productCodeOf,reportGaDays,TEMPLATES,RULESET,RULESET_SHA256,type Interpretation,type Hold} from './interpretation';
 import {isReportablePatientEvidence} from './halos-import';
 import {fillReport,DocxError,type ReportValues,type SignerSlot} from './docx';
 import {renderDocxBatch,type RenderedPdf} from './native-word';
@@ -112,9 +112,6 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  if(!specimenAt||!receivedAt)h('PET_CLOCKS_REQUIRED');
  const req=await roundRequest(db,s.round_id),collectionDay=specimenAt?bangkokDay(specimenAt):null;
  if(collectionDay&&(req.dates.length!==1||req.dates[0]!==collectionDay))h('COLLECTION_DATE_SOURCES_DISAGREE',{raw:req.dates.join(',')});
- if(pet&&req.dob&&req.dob!==pet.dob.slice(0,10))h('DOB_SOURCES_DISAGREE');
- // The existing identity cross-check of the registered PDF needs the round's Request DOB and EDD; hold here instead of failing after rendering.
- if(!req.dob)h('REQUEST_DOB_NOT_RECORDED');if(!req.edd)h('REQUEST_EDD_NOT_RECORDED');
  const info=s.info_raw?rowValues(s.info_raw,SAMPLEINFO_HEADERS):null;
  if(!info)h('SAMPLEINFO_ROW_MISSING');
  // Template: from the request (ANC / Sample Detail). An override needs an authorised person and a reason, and is recorded.
@@ -141,10 +138,9 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  let ga:number|null=null;
  // EQA scheme Reporting Option 3 reports fetal sex; the card gives GA by scan at collection, which is used as is (no EDD is invented).
  if(eqa)ga=eqa.ga_weeks*7+eqa.ga_days;
- if(eqa){const halosGa=halosGaDays(info?.gestationalWeeks);if(halosGa!==null&&halosGa!==ga)h('GA_SOURCES_DISAGREE',{raw:info?.gestationalWeeks});}
- else if(!req.edd&&!s.edd)h('EDD_REQUIRED_FOR_GA');
- else if(collectionDay){const edd=(req.edd??s.edd)!;ga=280-Math.round((Date.parse(edd+'T00:00:00Z')-Date.parse(collectionDay+'T00:00:00Z'))/86400000);
-  if(ga<0||ga>315)h('GA_OUT_OF_RANGE');const halosGa=halosGaDays(info?.gestationalWeeks);if(halosGa!==null&&halosGa!==ga)h('GA_SOURCES_DISAGREE',{raw:info?.gestationalWeeks});}
+ // Other reports print the GA from the HALOS sampleinfo; only without it is the GA computed from the EDD.
+ else{ga=reportGaDays({halosGa:info?.gestationalWeeks,edd:req.edd??s.edd??null,collectionDay});
+  if(ga===null)h('GA_UNAVAILABLE');else if(ga<0||ga>315)h('GA_OUT_OF_RANGE');}
  const productCode=productCodeOf(info?.productName);if(info&&!productCode)h('PRODUCT_UNRECOGNIZED',{raw:info.productName});
  const approval=await interpretationApproval(db),approvedProduct=template==='SINGLETON'?approval.value.singletonApprovedProduct:approval.value.twinApprovedProduct;
  if(!approval.approvedRevision||!approval.value.interpretationApproved)h('INTERPRETATION_RULESET_NOT_APPROVED');

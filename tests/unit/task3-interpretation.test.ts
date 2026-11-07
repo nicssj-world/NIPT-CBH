@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {interpretRow,productCodeOf,halosGaDays,RULESET_SHA256,RULESET} from '../../packages/readygen/interpretation';
+import {interpretRow,productCodeOf,halosGaDays,reportGaDays,RULESET_SHA256,RULESET} from '../../packages/readygen/interpretation';
 import {REPORT_RULESET_SHA256,SETTINGS} from '../../packages/settings/catalog';
 import {templateProblems,renderDownloadName,uniqueNames} from '../../packages/readygen/filename';
 
@@ -55,6 +55,11 @@ describe('Task 3 download name template',()=>{
   expect(renderDownloadName('{hisLn}_{patientName}',{...values,patientName:'a/b:c*?"<>|'})).toBe('2628770022_a_b_c______.pdf');
   expect(renderDownloadName('{sampleId}. ',values)).toBe('26B261014046-1.pdf');
   expect(()=>renderDownloadName('{patientName}',values)).toThrow('DOWNLOAD_NAME_TEMPLATE_INVALID');
+ });
+ it('reportGaDays prefers HALOS GA, then EDD, else null',()=>{
+  expect(reportGaDays({halosGa:'18,3',edd:'2027-03-01',collectionDay:'2026-11-01'})).toBe(129);
+  expect(reportGaDays({halosGa:undefined,edd:'2027-03-01',collectionDay:'2026-11-01'})).toBe(160);
+  expect(reportGaDays({halosGa:'',edd:null,collectionDay:'2026-11-01'})).toBeNull();
  });
  it('resolves collisions inside one download without changing the first name',()=>{
   expect(uniqueNames(['a.pdf','A.pdf','b.pdf','a.pdf'])).toEqual(['a.pdf','A (2).pdf','b.pdf','a (3).pdf']);
