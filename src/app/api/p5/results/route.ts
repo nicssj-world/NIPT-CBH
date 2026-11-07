@@ -2,6 +2,8 @@ import {NextResponse,type NextRequest} from "next/server";
 import {withTransaction} from "../../../../../packages/db/connection";
 import * as svc from "../../../../../packages/results/service";
 import {sendToHis} from "../../../../../packages/results/send-his";
+import {releaseQueue} from "../../../../../packages/results/release-queue";
+import {reportDeps} from "../../../../server/task3";
 import {publicResultQuery} from "../../../../../packages/results/query";
 import {protect,readJson} from "../../../../server/http";
 import {p5Error,p5Mutation,noStore,intakeContext} from "../../../../server/p5";
@@ -15,5 +17,6 @@ export async function POST(request:NextRequest){return p5Mutation(request,"P5_IN
   if(action==="preview")return {jobId:await svc.queueResultJob(db,user,"synthetic_result_preview",data)};
   if(action==="confirm")return {results:await svc.confirmImport(db,user,data)};
   if(action==="send")return sendToHis(db,user,data);
+  if(action==="board")return releaseQueue(db,user,reportDeps(),data);
   throw new Error("INVALID_REQUEST");});
- return NextResponse.json(r,{status:action==="confirm"||action==="query"||action==="send"?200:202,headers:noStore});});}
+ return NextResponse.json(r,{status:action==="confirm"||action==="query"||action==="send"||action==="board"?200:202,headers:noStore});});}

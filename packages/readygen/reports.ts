@@ -315,7 +315,15 @@ const worklistSchema=z.strictObject({q:z.string().trim().max(40).default(''),sta
 /** Rows of confirmed HALOS imports with what to do next. Search by LN, HN, LN Halos or the HALOS sample ID. */
 export async function reportWorklist(db:Queryable,user:Staff,deps:ReportDeps,input:unknown){
  await assertSession(db,user);need(user,'result.review','read');
- const d=worklistSchema.parse(input),q=d.q.replace(/[%_\\]/g,'');
+ const d=worklistSchema.parse(input),out=await worklistAll(db,user,deps,d);
+ const total=out.length,start=(d.page-1)*d.pageSize;
+ return {rows:out.slice(start,start+d.pageSize),page:{number:d.page,size:d.pageSize,total,totalPages:Math.max(1,Math.ceil(total/d.pageSize)),hasNext:start+d.pageSize<total},
+  counts:Object.fromEntries((['READY','HOLD','FINAL','RELEASED','NOT_REPORTABLE'] as const).map(s=>[s,out.filter(x=>x.status===s).length])),canFinalize:authorize(user,'result.certify')};
+}
+export type WorklistRow={status:WorklistStatus;rowId:string;sampleId:string;holds:Hold[];caseId:string|null;ln:string|null;lnHalos:string|null;hn:string|null;importedAt:Date;versionId:string|null;[key:string]:unknown};
+/** Every worklist row of the filter, unpaged (the first 500 matches by import time). The caller has already checked the session and the permission. */
+export async function worklistAll(db:Queryable,user:Staff,deps:ReportDeps,d:{q:string;status:string;scope:'PATIENT'|'EQA'}):Promise<WorklistRow[]>{
+ const q=d.q.replace(/[%_\\]/g,'');
  const rows=(await db.query<{row_id:string;sample_key:string;classification:string;reason:string;case_id:string|null;round_id:string|null;attempt_id:string|null;import_id:string;import_name:string;uploaded_at:Date;chip_id:string|null;
   ln:string|null;ln_halos:string|null;hn:string|null;unit_id:string|null;registration_origin:string|null;is_eqa:boolean;internal_id:string|null;internal_state:string|null;template_kind:string|null;download_name:string|null;version_id:string|null;version_state:string|null;row_version:number|null;release_id:string|null;attested:boolean}>(
   `SELECT h.id row_id,h.sample_key,h.classification,h.reason,h.case_id,h.round_id,h.attempt_id,i.id import_id,i.original_name import_name,i.uploaded_at,h.chip_id,l.ln,n.ln_halos,ci.hn,
@@ -329,7 +337,7 @@ export async function reportWorklist(db:Queryable,user:Staff,deps:ReportDeps,inp
    WHERE h.sheet='result' AND NOT EXISTS(SELECT 1 FROM halos_row_dismissal x WHERE x.row_id=h.id) AND ($1='' OR l.ln LIKE $1||'%' OR ltrim(ci.hn,'0') LIKE ltrim($1,'0')||'%' OR h.sample_key ILIKE '%'||$1||'%' OR n.ln_halos ILIKE '%'||$1||'%')
    ORDER BY i.uploaded_at DESC,h.row_number LIMIT 500`,[q])).rows.filter(r=>r.is_eqa===(d.scope==='EQA')&&(!r.case_id||caseVisible(user,{unit_id:r.unit_id,registration_origin:r.registration_origin??'ANC'})));
  const delivery=await readHisDeliveryStatuses(db,rows.flatMap(r=>r.version_id?[r.version_id]:[]));
- const out:{status:WorklistStatus;[key:string]:unknown}[]=[];
+ const out:WorklistRow[]=[];
  for(const r of rows){
   let status:WorklistStatus,holds:Hold[]=[],template=r.template_kind;
   if(!isReportablePatientEvidence({classification:r.classification,attemptId:r.attempt_id,roundId:r.round_id,caseId:r.case_id}))status='NOT_REPORTABLE';
@@ -341,9 +349,7 @@ export async function reportWorklist(db:Queryable,user:Staff,deps:ReportDeps,inp
    ln:r.ln,lnHalos:r.ln_halos,hn:r.hn,importId:r.import_id,importName:r.import_name,importedAt:r.uploaded_at,chip:r.chip_id,
    internalReportId:r.internal_id,internalState:r.internal_state,downloadName:r.download_name,versionId:r.version_id,versionState:r.version_state,rowVersion:r.row_version,releaseId:r.release_id,hisAttested:r.attested,hisDelivery:r.version_id?delivery.get(r.version_id):undefined});
  }
- const total=out.length,start=(d.page-1)*d.pageSize;
- return {rows:out.slice(start,start+d.pageSize),page:{number:d.page,size:d.pageSize,total,totalPages:Math.max(1,Math.ceil(total/d.pageSize)),hasNext:start+d.pageSize<total},
-  counts:Object.fromEntries((['READY','HOLD','FINAL','RELEASED','NOT_REPORTABLE'] as const).map(s=>[s,out.filter(x=>x.status===s).length])),canFinalize:authorize(user,'result.certify')};
+ return out;
 }
 /** One immutable PDF per patient, never merged. The ZIP holds only reports still Final; the manifest lists held/failed rows too. */
 export async function batchZip(db:Queryable,user:Staff,store:FileStore,batchId:string){
