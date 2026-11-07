@@ -1,5 +1,7 @@
 # NIPT-CBH direct deployment on Windows (Staging + Production, no Setup/Update EXE)
 
+> **Current development entrypoint: [Fast Development Pipeline](FAST-DEVELOPMENT-PIPELINE.md).** The Staging workflow later in this historical release guide is for integration/release verification only, not a development/debugging loop. Use `npm run dev` and `npm run dev:verify` while editing; run `npm run release:preflight` before release. See `CLAUDE.md` / `AGENTS.md`. Production approval, backup, migration, signatures and rollback are unchanged.
+
 This guide is for the owner or IT administrator of the dedicated NIPT-CBH Windows server. It covers installing the
 deployment tools, deploying a commit to **Staging**, testing it, and promoting the same verified build to **Production**
 with one PowerShell command. The Setup/Update EXE is not used. See
