@@ -119,7 +119,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
  },[data,dirty,qcMissing]);
  const status=busy?'กำลังบันทึก…':dirty||transfersDirty?'มีค่าที่ยังไม่บันทึก':data?.sourceStale?'ข้อมูลต้นทางเปลี่ยน — บันทึกเพื่อผูกข้อมูลล่าสุด':data?.revision?`บันทึกแล้ว · ฉบับ ${data.revision}`:'ยังไม่บันทึก';
  const pooledCount=currentTransfers.filter(t=>t.pooled).length;
- const poolable=(row:{slot:number;sampleId:string})=>{const k=data?.slots.find(s=>s.slot===row.slot)?.kind;return !!row.sampleId&&(k==='PATIENT'||k==='PC'||k==='NC');};
+ const poolable=(row:{slot:number;sampleId:string})=>{const s=data?.slots.find(x=>x.slot===row.slot),k=s?.kind;return !!row.sampleId&&(k==='PATIENT'||k==='PC'||k==='NC')&&!['QcFailed','Superseded','Stopped','BatchCancelled'].includes(s?.attemptState??'');};
  const poolConc=num(values['pool.concentration']),poolOut=poolConc!==null&&(poolConc<3||poolConc>3.6);
 
  return <section className="panel lab-bench" data-enter-navigation>

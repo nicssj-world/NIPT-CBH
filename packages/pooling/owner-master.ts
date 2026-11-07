@@ -3,7 +3,7 @@ import {readArchive,sha256} from '../workbook/archive';
 
 const D=Decimal.clone({precision:40,rounding:Decimal.ROUND_HALF_UP});
 export const POOL_CSV_SHA256='2ea12e86e1429be6ad9720c3b1b45f90588ad5c1316548146b5062b16bd6977a';
-export type PhysicalQc={slot:number;sampleId:string;kind:'PATIENT'|'PC'|'NC'|'BLANK'|'EMPTY';concentration:string|null};
+export type PhysicalQc={slot:number;sampleId:string;kind:'PATIENT'|'PC'|'NC'|'BLANK'|'REPEAT'|'EMPTY';concentration:string|null};
 function number(value:string){if(!/^(?:0|[1-9]\d{0,5})(?:\.\d{1,12})?$/.test(value))throw Error('QC_NUMBER_INVALID');return new D(value);}
 /** Read the actual approved formula and constants; never substitute a scenario or clinical policy. */
 export function ownerPoolFormula(master:Buffer){
@@ -22,14 +22,15 @@ export function ownerPoolFormula(master:Buffer){
 export function calculateOwnerPooling(master:Buffer,rows:PhysicalQc[],amount?:string){
  const formula=ownerPoolFormula(master);
  if(amount!==undefined){const value=number(amount);if(value.lte(0))throw Error('POOL_AMOUNT_INVALID');formula.amount=value.toString();}
- if(rows.length!==48||rows.some((r,i)=>r.slot!==i+1)||rows[0].kind!=='PC'||rows[24].kind!=='NC'||!['BLANK','PATIENT'].includes(rows[39].kind))throw Error('POOL_PHYSICAL_MAPPING_INVALID');
+ if(rows.length!==48||rows.some((r,i)=>r.slot!==i+1)||rows[0].kind!=='PC'||rows[24].kind!=='NC'||!['BLANK','PATIENT','REPEAT'].includes(rows[39].kind))throw Error('POOL_PHYSICAL_MAPPING_INVALID');
  // Owner decision: a BLANK QC value may be recorded but never enters the Pooling count or volumes.
- const measured=rows.filter(r=>r.concentration!==null&&r.kind!=='BLANK');
+ // REPEAT = a patient whose attempt failed/stopped and goes to any Re-xxx (Re-Library, Re-extraction, Re-sampling): not pooled, no QC value needed.
+ const measured=rows.filter(r=>r.concentration!==null&&r.kind!=='BLANK'&&r.kind!=='REPEAT');
  if(!measured.length)throw Error('QC_MEASUREMENTS_REQUIRED');
  const output=rows.map(r=>{
   if(['PATIENT','PC','NC'].includes(r.kind)&&(!r.sampleId||r.concentration===null))throw Error('QC_MEASUREMENT_REQUIRED:'+r.slot);
   if(r.kind==='EMPTY'&&r.concentration!==null)throw Error('QC_EMPTY_SLOT_MEASUREMENT:'+r.slot);
-  if(r.kind==='BLANK'||r.concentration===null)return {...r,volume:null,belowTwo:false,csvVolume:''};
+  if(r.kind==='BLANK'||r.kind==='REPEAT'||r.concentration===null)return {...r,volume:null,belowTwo:false,csvVolume:''};
   const c=number(r.concentration);if(c.lte(0))throw Error('QC_CONCENTRATION_MUST_BE_POSITIVE:'+r.slot);
   // COUNTA counts every numeric QC input of a patient, PC or NC; BLANK is excluded.
   const volume=new D(160).div(measured.length).times(formula.amount).div(c),belowTwo=volume.lt(2);

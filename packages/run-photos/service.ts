@@ -277,7 +277,7 @@ export async function searchRunPhotos(db:Queryable,user:Staff,input:unknown){
  const runDate=(q:ReturnType<typeof sql>)=>{const x=q.v(d.date);return `((b.created_at AT TIME ZONE 'Asia/Bangkok')::date=${x}::date OR EXISTS(SELECT 1 FROM lab_task_sheet t WHERE t.batch_id=b.id AND (t.planned_work_date=${x}::date OR (t.execution_started_at AT TIME ZONE 'Asia/Bangkok')::date=${x}::date)))`;};
  // One predicate for the photo list, the photo count and the choice of Runs, so the three always agree. ESCAPE is a single backslash
  // (the template needs '\\'): the previous '\' collapsed to an empty escape string, so a caption search for "%" or "_" never matched.
- const photoPredicate=(q:ReturnType<typeof sql>)=>{const w=[...runLevel(q),`(p.state='Active' OR ${q.v(d.includeRetracted)}::boolean)`];
+ const photoPredicate=(q:ReturnType<typeof sql>)=>{const w=[...runLevel(q),`b.state<>'Cancelled'`,`(p.state='Active' OR ${q.v(d.includeRetracted)}::boolean)`];
   if(d.date)w.push(`(p.taken_on=${q.v(d.date)}::date OR ${runDate(q)})`);
   if(d.sample){const n=q.v(d.sample);w.push(`p.sample_from<=${n}::int AND p.sample_to>=${n}::int`);}
   if(d.text)w.push(`p.caption ILIKE ${q.v(like(d.text))} ESCAPE '\\'`);
@@ -296,11 +296,11 @@ export async function searchRunPhotos(db:Queryable,user:Staff,input:unknown){
  else{const w=runLevel(rq);if(d.date)w.push(`(${runDate(rq)} OR EXISTS(SELECT 1 FROM run_photo q WHERE q.batch_id=b.id AND q.taken_on=${rq.v(d.date)}::date))`);
   if(d.sample||d.text)w.push(withPhotos());runWhere=w.join(' AND ');}
  const runBlock=criteria?200:60;
- const runTotal=Number((await db.query<{n:string}>(`SELECT count(*)::text n FROM lab_batch b WHERE ${runWhere}`,rq.values)).rows[0].n);
+ const runTotal=Number((await db.query<{n:string}>(`SELECT count(*)::text n FROM lab_batch b WHERE (${runWhere}) AND b.state<>'Cancelled'`,rq.values)).rows[0].n);
  const runs=(await db.query<{id:string;run_label:string;state:string;created_at:Date;work_dates:string[];photos:number;latest:string|null}>(`SELECT b.id,b.run_label,b.state,b.created_at,
   ARRAY(SELECT DISTINCT t.planned_work_date::text FROM lab_task_sheet t WHERE t.batch_id=b.id AND t.planned_work_date IS NOT NULL ORDER BY 1) work_dates,
   (SELECT count(*) FROM run_photo q WHERE q.batch_id=b.id AND q.state='Active')::int photos,(SELECT max(q.taken_on)::text FROM run_photo q WHERE q.batch_id=b.id AND q.state='Active') latest
-  FROM lab_batch b WHERE ${runWhere} ORDER BY b.created_at DESC,b.id DESC LIMIT ${runBlock} OFFSET ${d.runsOffset}`,rq.values)).rows;
+  FROM lab_batch b WHERE (${runWhere}) AND b.state<>'Cancelled' ORDER BY b.created_at DESC,b.id DESC LIMIT ${runBlock} OFFSET ${d.runsOffset}`,rq.values)).rows;
  const byRun=new Map<string,Match[]>();for(const m of matches){if(!byRun.has(m.batch_id))byRun.set(m.batch_id,[]);byRun.get(m.batch_id)!.push(m);}
  const nextRunsOffset=d.runsOffset+runs.length;
  return {criteria,

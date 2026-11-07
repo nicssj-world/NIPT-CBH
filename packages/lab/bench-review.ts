@@ -4,6 +4,7 @@ import {loadRuntimeMaster} from '../workbook/runtime';
 import {inspectTaskMaster,validateTaskValues} from '../workbook/master';
 import {parseBeInput} from '../domain/thai-date';
 import {calculateOwnerPooling,type PhysicalQc} from '../pooling/owner-master';
+import {repeatAttemptIds} from './repeat-slots';
 import type {PlacementPayload} from './batch';
 
 /** Existing authorised result review also reviews the current paper worksheets.
@@ -26,7 +27,9 @@ export async function reviewBenchForResult(db:Queryable,user:Staff,attemptId:str
  const missing=matrix.bindings.filter(f=>f.sheet==='Seq Task-G50'&&(r.values[f.key]===null||r.values[f.key]===undefined||f.dataType==='text'&&!String(r.values[f.key]).trim()||f.dataType==='checkbox'&&r.values[f.key]!==true)).map(f=>f.key);
  if(missing.length)throw new LabError('OWNER_SEQ_OBSERVATIONS_REQUIRED',409,{fields:missing});
  if(!parseBeInput(String(r.values['seq.date'])).ok)throw new LabError('OWNER_SEQ_WORK_DATE_INVALID',422);
- const rows:PhysicalQc[]=r.source_snapshot.placements.flatMap(p=>p.payload.slots).sort((a,b)=>a.slot-b.slot).map(s=>({slot:s.slot,sampleId:s.printedSampleId??s.printedControlId??'',kind:s.control==='positive'?'PC':s.control==='negative'?'NC':s.control==='blank'?'BLANK':s.attemptId?'PATIENT':'EMPTY',concentration:typeof r.values[`slot.${s.slot}.libraryQc`]==='number'?String(r.values[`slot.${s.slot}.libraryQc`]):null}));
+ const snapSlots=r.source_snapshot.placements.flatMap(p=>p.payload.slots).sort((a,b)=>a.slot-b.slot);
+ const failed=await repeatAttemptIds(db,snapSlots);
+ const rows:PhysicalQc[]=snapSlots.map(s=>({slot:s.slot,sampleId:s.printedSampleId??s.printedControlId??'',kind:s.control==='positive'?'PC':s.control==='negative'?'NC':s.control==='blank'?'BLANK':s.attemptId?(failed.has(s.attemptId)?'REPEAT':'PATIENT'):'EMPTY',concentration:typeof r.values[`slot.${s.slot}.libraryQc`]==='number'?String(r.values[`slot.${s.slot}.libraryQc`]):null}));
  try{calculateOwnerPooling(master,rows);}catch(e){throw new LabError('OWNER_POOL_CALCULATION_INVALID',409,{reason:e instanceof Error?e.message:'INVALID'});}
  const ready=(await db.query<{ready:boolean}>('SELECT lab_bench_measurements_ready($1) ready',[batchId])).rows[0].ready;
  if(!ready)throw new LabError('OWNER_WORKSHEET_MEASUREMENTS_REQUIRED',409);

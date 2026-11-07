@@ -4,6 +4,7 @@ import {z} from 'zod';
 import type {Queryable} from '../db/connection';
 import {need,uuid,LabError,audit,type Staff} from './core';
 import {savedSource,benchSource,benchPooling,benchExport,qcSourceHash} from './bench';
+import {repeatAttemptIds} from './repeat-slots';
 import type {WorkbookDeps} from '../workbook/service';
 import {digest} from '../pooling/calculation';
 import {exportOwnerTaskImport} from '../sequencing/owner-task-import';
@@ -43,7 +44,8 @@ export async function exportSeqPair(db:Queryable,user:Staff,input:unknown,deps:W
  // (every occupied position, calculated volume where known), attributed to the person who clicked and audited, so the pair still references a real record.
  const sourceHash=qcSourceHash(s.slots,s.workbook.values);
  if(!actual?.current||actual.qc_source_sha256!==sourceHash){
-  const auto=s.slots.map(slot=>{const sampleId=slot.printedSampleId??slot.printedControlId??null,occupied=slot.control!=='blank'&&!!sampleId&&(!!slot.control||!!slot.attemptId);
+  const repeating=await repeatAttemptIds(db,s.slots);
+  const auto=s.slots.map(slot=>{const sampleId=slot.printedSampleId??slot.printedControlId??null,occupied=slot.control!=='blank'&&!!sampleId&&(!!slot.control||!!slot.attemptId&&!repeating.has(slot.attemptId));
    return {slot:slot.slot,pooled:occupied,sampleId,attemptId:slot.attemptId??null,calculatedVolume:null};});
   const qcValues=Object.fromEntries(Object.entries(s.workbook.values).filter(([k])=>/^slot\.\d+\.libraryQc$|^qc\.[123]\./.test(k)));
   const created=(await db.query<{id:string}>(`INSERT INTO lab_actual_pooling(batch_id,workbook_revision_id,qc_source_sha256,qc_values,placements,members,note,recorded_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,[d.batchId,s.workbook.draft!.id,sourceHash,JSON.stringify(qcValues),JSON.stringify((s.workbook.draft!.source_snapshot as {placements:unknown}).placements),JSON.stringify(auto),'AUTO_RECORDED_FROM_SAVED_TASK_AT_EXPORT',user.id])).rows[0];

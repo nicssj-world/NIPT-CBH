@@ -6,6 +6,10 @@ const master=readFileSync('C:/Users/User/Downloads/NIPT_CBH_Final_Combined_Maste
 const csv=readFileSync('C:/Users/User/Downloads/Pooling Sheet Template_R001.csv');
 function rows():PhysicalQc[]{return Array.from({length:48},(_,i)=>({slot:i+1,sampleId:'SYNTHETIC-SLOT-'+(i+1),kind:i===0?'PC':i===24?'NC':i===39?'BLANK':'PATIENT',concentration:i===39?null:'20'}));}
 describe('LAB-12/13 actual Owner Master and CSV contract',()=>{
+ it('excludes a REPEAT (failed, Re-xxx) patient with no or zero QC value from count and total',()=>{
+  const input=rows();input[47]={...input[47],kind:'REPEAT',concentration:'0'};input[46]={...input[46],kind:'REPEAT',concentration:null};
+  const r=calculateOwnerPooling(master,input);expect(r.measuredCount).toBe(45);expect(r.rows[47].volume).toBeNull();expect(r.rows[46].csvVolume).toBe('');
+ });
  it('ignores a measured BLANK in count, volume and total',()=>{
   const input=rows();input[39].concentration='0.4';const r=calculateOwnerPooling(master,input),base=calculateOwnerPooling(master,rows());
   expect(r.measuredCount).toBe(47);expect(r.rows[39].volume).toBeNull();expect(r.rows[39].csvVolume).toBe('');expect(r.total).toBe(base.total);

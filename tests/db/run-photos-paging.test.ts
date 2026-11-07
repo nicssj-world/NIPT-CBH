@@ -23,6 +23,8 @@ beforeAll(async()=>{
   if(i===RUNS-1){newest=b.batchId;break;}
   await tx(q(),async t=>batch.cancelBatch(t,u.staff,{batchId:b.batchId,expectedVersion:await version(b.batchId),reason:'SYNTHETIC cancel for photo paging'}));
  }
+ // A new Run needs the previous draft cancelled; restore them so this file can still exercise paging (cancelled Runs are hidden, see the last test).
+ await db.query("UPDATE lab_batch SET state='QC1Complete',cancelled_by=NULL,cancelled_at=NULL,cancel_reason=NULL WHERE state='Cancelled'");
  for(let i=0;i<PHOTOS;i++)await uploadPhoto(q(),u.staff,newest,{caption:`cap-needle ${i}`,sampleFrom:1,sampleTo:2});
 },900000);
 afterAll(async()=>{await db?.close();await roots?.close();});
@@ -52,5 +54,10 @@ describe('photo results',()=>{
  });
  it('rejects a negative offset or unknown field',async()=>{
   await expect(search({runsOffset:-1})).rejects.toThrow();await expect(search({bogus:1})).rejects.toThrow();
+ });
+ it('hides a cancelled Run from the list and from photo results',async()=>{
+  await db.query("UPDATE lab_batch SET state='Cancelled',cancelled_by=(SELECT id FROM app_user LIMIT 1),cancelled_at=now(),cancel_reason='SYNTHETIC cancel for photo paging' WHERE id=$1",[oldest]);
+  const list=await search();expect(list.runs.map(r=>r.id)).not.toContain(oldest);expect(list.runTotal).toBe(RUNS-1);
+  const hit=await search({text:'50%'});expect(hit.photos).toHaveLength(0);expect(hit.runs).toHaveLength(0);expect(hit.runTotal).toBe(0);
  });
 });

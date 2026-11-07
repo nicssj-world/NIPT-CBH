@@ -12,6 +12,7 @@ import {exportOwnerNifty,petDisplayName,type VendorRow} from '../sequencing/owne
 import {readPet} from '../inbound/process';
 import type {RequestDraft} from '../p2/schema';
 import {digest} from '../pooling/calculation';
+import {repeatAttemptIds} from './repeat-slots';
 import {niftyPatientEligible} from '../sequencing/owner-task-import';
 
 /** Pool volumes depend on placement and QC, not unrelated Seq/QC2 form edits. */
@@ -49,7 +50,8 @@ export async function savedSource(db:Queryable,user:Staff,batchId:string,deps:Wo
 export async function benchPooling(db:Queryable,user:Staff,batchId:string,deps:WorkbookDeps){
  const s=await savedSource(db,user,batchId,deps),values=s.workbook.values;
  for(let strip=1;strip<=3;strip++)for(const standard of ['standard1','standard2','standard2Concentration'])if(typeof values[`qc.${strip}.${standard}`]!=='number')throw new LabError('QC_NINE_STANDARDS_REQUIRED',422);
- const rows:PhysicalQc[]=s.slots.map(slot=>({slot:slot.slot,sampleId:slot.printedSampleId??slot.printedControlId??'',kind:slot.control==='positive'?'PC':slot.control==='negative'?'NC':slot.control==='blank'?'BLANK':slot.attemptId?'PATIENT':'EMPTY',concentration:typeof values[`slot.${slot.slot}.libraryQc`]==='number'?String(values[`slot.${slot.slot}.libraryQc`]):null}));
+ const failed=await repeatAttemptIds(db,s.slots);
+ const rows:PhysicalQc[]=s.slots.map(slot=>({slot:slot.slot,sampleId:slot.printedSampleId??slot.printedControlId??'',kind:slot.control==='positive'?'PC':slot.control==='negative'?'NC':slot.control==='blank'?'BLANK':slot.attemptId?(failed.has(slot.attemptId)?'REPEAT':'PATIENT'):'EMPTY',concentration:typeof values[`slot.${slot.slot}.libraryQc`]==='number'?String(values[`slot.${slot.slot}.libraryQc`]):null}));
  let calculation:ReturnType<typeof calculateOwnerPooling>;try{calculation=calculateOwnerPooling(deps.master,rows,String(values['pool.amount']??16));}catch(e){const [code,slot]=(e instanceof Error?e.message:'').split(':');throw new LabError(/^[A-Z][A-Z0-9_]+$/.test(code)?code:'POOL_CALCULATION_INVALID',422,slot&&/^\d+$/.test(slot)?{slot:Number(slot)}:undefined);}
  const concentration=values['pool.concentration'],c1=values['pool.dilutionC1'];
  let dilution:ReturnType<typeof ownerDilution>|null=null,dilutionError:string|null=null;
@@ -66,9 +68,10 @@ export async function benchExport(db:Queryable,user:Staff,input:unknown,deps:Wor
  }else{
   need(user,'handoff.create');
   const template=ownerTemplatePath('NIPT_NIFTY_XLSX_TEMPLATE');if(!template)throw new LabError('NIFTY_TEMPLATE_REQUIRED',409);
-  const rows:VendorRow[]=[];
+  const rows:VendorRow[]=[],repeating=await repeatAttemptIds(db,s.slots);
   for(const slot of s.slots){
    if(slot.control==='blank'||!slot.control&&!slot.attemptId)continue;
+   if(!slot.control&&slot.attemptId&&repeating.has(slot.attemptId))continue; // failed/replaced by a Re-xxx: not sent to the vendor
    if(slot.control){rows.push({slot:slot.control==='positive'?1:25,kind:slot.control==='positive'?'PC':'NC',sampleId:slot.printedControlId!});continue;}
    const lineage=(await db.query<{attempt_number:number;overall_ordinal:number;repeat_order_id:string|null;previous_seq:boolean}>(`SELECT a.attempt_number,a.overall_ordinal,a.repeat_order_id,EXISTS(
     SELECT 1 FROM analytical_attempt prior JOIN lab_slot_assignment p ON p.attempt_id=prior.id
