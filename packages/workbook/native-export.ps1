@@ -71,7 +71,7 @@ try {
       if($null -ne $usedRange){[Runtime.InteropServices.Marshal]::FinalReleaseComObject($usedRange)|Out-Null}
     }
     $poolingCalculation=$null
-    if($index -eq 5){$poolingCalculation=@{D52=$sheet.Range('D52').Value2;F52=$sheet.Range('F52').Value2;D55=$sheet.Range('D55').Value2;F52Formula=$sheet.Range('F52').Formula;D55Formula=$sheet.Range('D55').Formula}}
+    if($index -eq 5){$poolingCalculation=@{E52=$sheet.Range('E52').Value2;G52=$sheet.Range('G52').Value2;E55=$sheet.Range('E55').Value2;G52Formula=$sheet.Range('G52').Formula;E55Formula=$sheet.Range('E55').Formula}}
     $manifest+=@{index=$index;sheet=$sheet.Name;file=$target;formulaCount=$formulaCount;formulaErrors=$formulaErrors;poolingCalculation=$poolingCalculation;paperSize=$sheet.PageSetup.PaperSize;zoom=$sheet.PageSetup.Zoom;fitToPagesWide=$sheet.PageSetup.FitToPagesWide;fitToPagesTall=$sheet.PageSetup.FitToPagesTall;printArea=$sheet.PageSetup.PrintArea}
     [Runtime.InteropServices.Marshal]::FinalReleaseComObject($sheet)|Out-Null
   }

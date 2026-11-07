@@ -3,6 +3,7 @@ import {existsSync,readFileSync} from 'node:fs';
 import manifest from '../../packages/workbook/master-manifest.json';
 import {inspectTaskMaster,generateTaskWorkbook,MASTER_SHA256} from '../../packages/workbook/master';
 import {readArchive,sha256} from '../../packages/workbook/archive';
+import {applyPoolingLayout} from '../../packages/workbook/pooling-layout';
 import {poolDilutionReady} from '../../packages/workbook/dilution';
 const source=process.env.NIPT_TASK_MASTER_PATH??'.local/lab-owner-evidence/lab-combined-master.xlsx';
 it('D52 readiness distinguishes absent, zero, negative and positive concentrations without rewriting Excel formulas',()=>{
@@ -17,8 +18,9 @@ it.skipIf(!existsSync(source))('owner F52 exception changes exactly the approved
  const pool=parts.get('xl/worksheets/sheet5.xml')!.toString();
  expect(pool).toMatch(/<c\b[^>]*r="F52"[^>]*><f>\(D54\*F54\)\/D52<\/f>/);
  expect(pool).toContain('<f>F54-F52</f>');expect(inspectTaskMaster(master).formulaCount).toBe(149);
- const binding=inspectTaskMaster(master).bindings.find(b=>b.key==='pool.dilutionC1');expect(binding).toMatchObject({cell:'D52',sheet:'Pooling Table',editable:true,dataType:'number'});
+ const binding=inspectTaskMaster(master).bindings.find(b=>b.key==='pool.dilutionC1');expect(binding).toMatchObject({cell:'E52',sheet:'Pooling Table',editable:true,dataType:'number'});
+ applyPoolingLayout(parts);
  const filled=readArchive(generateTaskWorkbook(master,{'pool.dilutionC1':10}).bytes);
- expect(filled.get('xl/worksheets/sheet5.xml')!.toString()).toMatch(/<c r="D52"[^>]*><v>10<\/v><\/c>/);
+ expect(filled.get('xl/worksheets/sheet5.xml')!.toString()).toMatch(/<c r="E52"[^>]*><v>10<\/v><\/c>/);
  for(const [name,bytes]of parts)if(name.startsWith('xl/worksheets/'))expect([...filled.get(name)!.toString().matchAll(/<f\b[^>]*>[\s\S]*?<\/f>/g)].map(m=>m[0])).toEqual([...bytes.toString().matchAll(/<f\b[^>]*>[\s\S]*?<\/f>/g)].map(m=>m[0]));
 });

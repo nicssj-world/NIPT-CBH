@@ -16,7 +16,10 @@ import {niftyPatientEligible} from '../sequencing/owner-task-import';
 
 /** Pool volumes depend on placement and QC, not unrelated Seq/QC2 form edits. */
 export function qcSourceHash(slots:PlacementPayload['slots'],values:Record<string,unknown>){
- return digest({slots,values:Object.fromEntries(Object.entries(values).filter(([k])=>/^slot\.\d+\.libraryQc$|^qc\.[123]\./.test(k)).sort(([a],[b])=>a.localeCompare(b)))});
+ const source={slots,values:Object.fromEntries(Object.entries(values).filter(([k])=>/^slot\.\d+\.libraryQc$|^qc\.[123]\./.test(k)).sort(([a],[b])=>a.localeCompare(b)))};
+ // Keep hashes of existing 16 pmol transfer records: a layout change must not
+ // make sequencing replace the operator's saved membership with automatic rows.
+ const amount=values['pool.amount']??16;return digest(amount===16?source:{...source,amount});
 }
 
 export async function benchSource(db:Queryable,user:Staff,batchId:string,deps:WorkbookDeps){
@@ -47,7 +50,7 @@ export async function benchPooling(db:Queryable,user:Staff,batchId:string,deps:W
  const s=await savedSource(db,user,batchId,deps),values=s.workbook.values;
  for(let strip=1;strip<=3;strip++)for(const standard of ['standard1','standard2','standard2Concentration'])if(typeof values[`qc.${strip}.${standard}`]!=='number')throw new LabError('QC_NINE_STANDARDS_REQUIRED',422);
  const rows:PhysicalQc[]=s.slots.map(slot=>({slot:slot.slot,sampleId:slot.printedSampleId??slot.printedControlId??'',kind:slot.control==='positive'?'PC':slot.control==='negative'?'NC':slot.control==='blank'?'BLANK':slot.attemptId?'PATIENT':'EMPTY',concentration:typeof values[`slot.${slot.slot}.libraryQc`]==='number'?String(values[`slot.${slot.slot}.libraryQc`]):null}));
- let calculation:ReturnType<typeof calculateOwnerPooling>;try{calculation=calculateOwnerPooling(deps.master,rows);}catch(e){const [code,slot]=(e instanceof Error?e.message:'').split(':');throw new LabError(/^[A-Z][A-Z0-9_]+$/.test(code)?code:'POOL_CALCULATION_INVALID',422,slot&&/^\d+$/.test(slot)?{slot:Number(slot)}:undefined);}
+ let calculation:ReturnType<typeof calculateOwnerPooling>;try{calculation=calculateOwnerPooling(deps.master,rows,String(values['pool.amount']??16));}catch(e){const [code,slot]=(e instanceof Error?e.message:'').split(':');throw new LabError(/^[A-Z][A-Z0-9_]+$/.test(code)?code:'POOL_CALCULATION_INVALID',422,slot&&/^\d+$/.test(slot)?{slot:Number(slot)}:undefined);}
  const concentration=values['pool.concentration'],c1=values['pool.dilutionC1'];
  let dilution:ReturnType<typeof ownerDilution>|null=null,dilutionError:string|null=null;
  if(typeof c1==='number')try{dilution=ownerDilution(deps.master,String(c1));}catch(e){dilutionError=e instanceof Error?e.message:'DILUTION_INVALID';}

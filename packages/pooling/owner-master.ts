@@ -19,8 +19,9 @@ export function ownerPoolFormula(master:Buffer){
  if(!cell('F52').includes('<f>(D54*F54)/D52</f>')||!cell('D55').includes('<f>F54-F52</f>'))throw Error('POOL_DILUTION_FORMULA_MISMATCH');
  return {masterSha256:sha256(master),amount:value('B6').toString(),dilutionTarget:value('D54').toString(),dilutionTotal:value('F54').toString()};
 }
-export function calculateOwnerPooling(master:Buffer,rows:PhysicalQc[]){
+export function calculateOwnerPooling(master:Buffer,rows:PhysicalQc[],amount?:string){
  const formula=ownerPoolFormula(master);
+ if(amount!==undefined){const value=number(amount);if(value.lte(0))throw Error('POOL_AMOUNT_INVALID');formula.amount=value.toString();}
  if(rows.length!==48||rows.some((r,i)=>r.slot!==i+1)||rows[0].kind!=='PC'||rows[24].kind!=='NC'||!['BLANK','PATIENT'].includes(rows[39].kind))throw Error('POOL_PHYSICAL_MAPPING_INVALID');
  const measured=rows.filter(r=>r.concentration!==null);
  if(!measured.length)throw Error('QC_MEASUREMENTS_REQUIRED');

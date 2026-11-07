@@ -29,7 +29,7 @@ it.skipIf(!existsSync(source))('091 upgrades existing immutable old-master draft
   expect((await db.query<{master_sha256:string}>('SELECT master_sha256 FROM task_workbook_revision WHERE batch_id=$1 ORDER BY revision',[batch.batchId])).rows.map(r=>r.master_sha256)).toEqual([old,MASTER_SHA256]);
  }finally{await db.close();await rm(dir,{recursive:true,force:true});}
 },120000);
-it.skipIf(process.env.NIPT_TEST_NATIVE_EXCEL!=='yes'||!existsSync(source))('F52 native Excel: D52 draft/save/resume matches XLSX and PDF recalculation, then rebinds changed concentration',async()=>{
+it.skipIf(process.env.NIPT_TEST_NATIVE_EXCEL!=='yes'||!existsSync(source))('G52 native Excel: E52 draft/save/resume matches XLSX and PDF recalculation, then rebinds changed concentration',async()=>{
  const db=await testDatabase(),u=await labUsers(db),dir=path.resolve('.local/workbook-f52-approved');await mkdir(dir,{recursive:true});
  const deps={master:readFileSync(source),store:new FileStore(path.join(dir,'files')),render:exportTaskPdfs},evidence:unknown[]=[];
  try{
@@ -40,8 +40,8 @@ it.skipIf(process.env.NIPT_TEST_NATIVE_EXCEL!=='yes'||!existsSync(source))('F52 
    const xlsx=await tx(db,t=>exportWorkbook(t,u.staff,{batchId:batch.batchId,revision,format:'XLSX'},deps));await writeFile(path.join(dir,`d52-${value}.xlsx`),xlsx.bytes);
    const pdf=await tx(db,t=>exportWorkbook(t,u.staff,{batchId:batch.batchId,revision,format:'PDF',sheet:'Pooling Table'},deps));await writeFile(path.join(dir,`d52-${value}.pdf`),pdf.bytes);
    expect(pdf.manifest.xlsxSha256).toBe(xlsx.sha256);expect(pdf.manifest.formulaErrors).toEqual([]);
-   const calculated=pdf.manifest.poolingCalculation as {D52:number;F52:number;D55:number;F52Formula:string;D55Formula:string};
-   expect(calculated.D52).toBe(value);expect(calculated.F52).toBeCloseTo(f52,10);expect(calculated.D55).toBeCloseTo(d55,10);expect(calculated.F52Formula).toBe('=(D54*F54)/D52');expect(calculated.D55Formula).toBe('=F54-F52');evidence.push({revision,...calculated,xlsxSha256:xlsx.sha256,pdfSha256:pdf.sha256});
+   const calculated=pdf.manifest.poolingCalculation as {E52:number;G52:number;E55:number;G52Formula:string;E55Formula:string};
+   expect(calculated.E52).toBe(value);expect(calculated.G52).toBeCloseTo(f52,10);expect(calculated.E55).toBeCloseTo(d55,10);expect(calculated.G52Formula).toBe('=(E54*G54)/E52');expect(calculated.E55Formula).toBe('=G54-G52');evidence.push({revision,...calculated,xlsxSha256:xlsx.sha256,pdfSha256:pdf.sha256});
   }
   await expect(db.query("INSERT INTO task_workbook_revision(batch_id,revision,master_sha256,source_sha256,source_snapshot,values,created_by) VALUES($1,3,$2,$3,'{}','{}',$4)",[batch.batchId,'2747a9f6c6da9231996bd9d0a23b1da3100d910209d440643c70158f7fe20722','a'.repeat(64),u.staff.id])).rejects.toThrow('TASK_CURRENT_MASTER_REQUIRED');
   await writeFile(path.join(dir,'evidence.json'),JSON.stringify({passed:true,evidence},null,2));

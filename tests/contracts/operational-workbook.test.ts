@@ -4,6 +4,7 @@ import fixture from '../fixtures/halos-full-synthetic.json';
 import {readArchive,writeArchive,sha256} from '../../packages/workbook/archive';
 import {MASTER_SHA256,inspectTaskMaster,generateTaskWorkbook} from '../../packages/workbook/master';
 import {generateHalosWorkbook,verifyHalosWorkbook} from '../../packages/halos-export/workbook';
+import {applyPoolingLayout} from '../../packages/workbook/pooling-layout';
 
 const ref=(id:string)=>({id,revision:1,sha256:'a'.repeat(64)});
 const input=()=>({batch:ref('batch'),placement:ref('placement'),pool:ref('pool'),mapping:ref('explicit-mapping'),dnb:fixture.dnb,excludedBlank:fixture.excludedBlank,members:structuredClone(fixture.members)});
@@ -44,13 +45,13 @@ const masterPath=process.env.NIPT_TASK_MASTER_PATH??'.local/lab-owner-evidence/l
 describe.skipIf(!existsSync(masterPath))('Exact owner-master native derivative integration',()=>{
   const master=()=>readFileSync(masterPath);
   it('identifies all six sheets and all 149 formulas, with actual bound cell evidence',()=>{
-    const m=master(),matrix=inspectTaskMaster(m);
+    const m=master(),matrix=inspectTaskMaster(m),derived=readArchive(generateTaskWorkbook(m,{}).bytes);
     expect(sha256(m)).toBe(MASTER_SHA256);expect(matrix.formulaCount).toBe(149);
     expect(new Set(matrix.cells.map(c=>c.sheet)).size).toBe(6);
     expect(matrix.bindings.length).toBeGreaterThan(300);
     for(const def of matrix.bindings) {
       const sheetIndex=['Ext. & Prep. Task List 1','Ext. & Prep. Task List 2','Ext. & Prep. Task List 3','QC measurements','Pooling Table','Seq Task-G50'].indexOf(def.sheet)+1;
-      const xml=readArchive(m).get(`xl/worksheets/sheet${sheetIndex}.xml`)!.toString();
+      const xml=derived.get(`xl/worksheets/sheet${sheetIndex}.xml`)!.toString();
       const coord=(ref:string)=>{const [,col,row]=/^([A-Z]+)(\d+)$/.exec(ref)!;return {col:[...col].reduce((a,c)=>a*26+c.charCodeAt(0)-64,0),row:Number(row)};};
       for(const match of xml.matchAll(/<mergeCell ref="([A-Z]+\d+):([A-Z]+\d+)"/g)) {
         const p=coord(def.cell),a=coord(match[1]),b=coord(match[2]);
@@ -58,8 +59,9 @@ describe.skipIf(!existsSync(masterPath))('Exact owner-master native derivative i
       }
     }
   });
-  it('preserves static XML, all formula strings and every layout/media/style part; clears caches for recalculation',()=>{
+  it('preserves the declared pooling layout, all formulas and every other layout/media/style part; clears caches for recalculation',()=>{
     const source=master(),before=Buffer.from(source),parts=readArchive(source);
+    applyPoolingLayout(parts);
     const out=generateTaskWorkbook(source,{'task.1.run':'Run001/2026','slot.1.printedSampleId':'26B261012001R','slot.1.libraryQc':2.7,'check.1.A19':true,'pool.standard1':12,'seq.negativePressureKpa':-1.5});
     const generated=readArchive(out.bytes);
     expect(source.equals(before)).toBe(true);

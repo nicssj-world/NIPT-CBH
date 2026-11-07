@@ -11,7 +11,7 @@ import {restoreNativeA4Coordinates} from './pdf-media';
 import {stopOwnOfficeInstance} from './office-instance';
 const run=promisify(execFile);
 const pause=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
-type NativeEntry={index:number;zoom:number|false;formulaCount:number;formulaErrors:{cell:string;error:string}[];poolingCalculation:null|{D52:number|null;F52:number;D55:number;F52Formula:string;D55Formula:string}};
+type NativeEntry={index:number;zoom:number|false;formulaCount:number;formulaErrors:{cell:string;error:string}[];poolingCalculation:null|{E52:number|null;G52:number;E55:number;G52Formula:string;E55Formula:string}};
 const PAGE_COUNTS=[2,2,2,1,1,1] as const;
 
 async function verifyNativeOutput(output:string,selectedSheets:readonly string[]) {

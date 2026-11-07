@@ -3,6 +3,7 @@ import {textFitStyles} from './text-fit';
 import {highlightExceptionalIds} from './exceptional-highlights';
 import {highlightControls} from './control-highlights';
 import {poolingAlerts} from './pooling-alerts';
+import {applyPoolingLayout} from './pooling-layout';
 
 export const MASTER_SHA256 = '4c5300f9039af57c0d0649160f5da8e4c2ee1ed7ae44dd7aa525823104f9c7f1';
 export const SHEETS = ['Ext. & Prep. Task List 1','Ext. & Prep. Task List 2','Ext. & Prep. Task List 3','QC measurements','Pooling Table','Seq Task-G50'] as const;
@@ -17,7 +18,7 @@ function sourceText(cell: ReturnType<typeof cells>[number], strings: string[]) {
 }
 function lockedParts(master: Buffer) {
   if (sha256(master)!==MASTER_SHA256) throw new Error('TASK_MASTER_SHA256_MISMATCH');
-  return readArchive(master);
+  const parts=readArchive(master);applyPoolingLayout(parts);return parts;
 }
 /** Maps only observed input cells. Static/formula/merged subordinate cells are never promoted to writable inputs. */
 function bindings(parts: Map<string,Buffer>): Binding[] {
@@ -39,10 +40,11 @@ function bindings(parts: Map<string,Buffer>): Binding[] {
   add(4,'D3','qc.date','text','QC operational date','QC'); add(4,'G3','qc.operator','text','QC operator','QC');
   for(let position=1;position<=48;position++) add(4,`C${position+6}`,`slot.${position}.libraryQc`,'number','library concentration ng/uL','QC','for occupied slot, including PC/NC/BLANK');
   for(const row of [19,20,21]) for(const [col,run] of [['F',1],['G',2],['H',3]] as const) add(4,`${col}${row}`,`qc.${run}.${row===19?'standard1':row===20?'standard2':'standard2Concentration'}`,'number','QC reference standard measurement','QC');
-  add(5,'C20','pool.instrumentCsvFileStem','text','operator-confirmed instrument CSV filename without extension','pool');result[result.length-1].rendering='filename';
-  add(5,'C3','pool.date','text','pool operational date','pool'); add(5,'E3','pool.operator','text','pool operator','pool');
-  for(const [cell,key] of [['D8','pool.standard1'],['D10','pool.standard2'],['D12','pool.standard2Concentration']] as const) {add(5,cell,key,'number','QC2 standard measurement','pool/QC');result[result.length-1].rendering='append';}
-  add(5,'E14','pool.concentration','number','QC2 pool concentration','pool/QC');add(5,'D52','pool.dilutionC1','number','measured concentration before dilution','pool/QC');
+  add(5,'C6','pool.amount','number','pooling amount pmol','pool');
+  add(5,'D20','pool.instrumentCsvFileStem','text','operator-confirmed instrument CSV filename without extension','pool');result[result.length-1].rendering='filename';
+  add(5,'D3','pool.date','text','pool operational date','pool'); add(5,'F3','pool.operator','text','pool operator','pool');
+  for(const [cell,key] of [['E8','pool.standard1'],['E10','pool.standard2'],['E12','pool.standard2Concentration']] as const) {add(5,cell,key,'number','QC2 standard measurement','pool/QC');result[result.length-1].rendering='append';}
+  add(5,'F14','pool.concentration','number','QC2 pool concentration','pool/QC');add(5,'E52','pool.dilutionC1','number','measured concentration before dilution','pool/QC');
   add(6,'B4','seq.date','text','sequencing operational date','sequencing'); add(6,'D4','seq.operator','text','sequencing operator','sequencing');
   add(6,'B35','seq.dnbId','text','DNB identifier','DNB','when sequencing is planned');
   add(6,'F4','seq.instrument','number','sequencer number','sequencing');add(6,'H4','seq.barcodeType','number','barcode type','sequencing');
@@ -77,6 +79,7 @@ export function validateTaskValues(master: Buffer, values: Record<string,unknown
   for(const [key,value] of Object.entries(values)) {
     const binding=matrix.bindings.find(b=>b.key===key);
     if(!binding) throw new Error(`TASK_FIELD_UNKNOWN:${key}`);
+    if(key==='pool.amount'&&value!=null&&(typeof value!=='number'||!Number.isFinite(value)||value<=0||value>=1000000||!/^\d+(?:\.\d{1,12})?$/.test(String(value))))throw new Error('POOL_AMOUNT_INVALID');
     if(value===null)continue;
     if(binding.dataType==='number' ? typeof value!=='number'||!Number.isFinite(value) : binding.dataType==='checkbox' ? typeof value!=='boolean' : typeof value!=='string'||value.length>1000||/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(value)) throw new Error(`TASK_FIELD_TYPE:${key}`);
   }
@@ -84,7 +87,7 @@ export function validateTaskValues(master: Buffer, values: Record<string,unknown
 /** Always starts from the immutable master. Missing/null values reset to the master, never a previous batch's derivative. */
 export function generateTaskWorkbook(master: Buffer, values: Record<string,unknown>,options:{urgent40?:boolean;exceptionalSlots?:number[]}={}) {
   validateTaskValues(master,values);
-  const parts=lockedParts(master), defs=bindings(parts), strings=sharedStrings(parts), changedParts:string[]=[];
+  const parts=readArchive(master),changedParts=applyPoolingLayout(parts),defs=bindings(parts),strings=sharedStrings(parts);
   const fitting=textFitStyles(parts);
   for(let sheet=1;sheet<=6;sheet++) {
     const path=`xl/worksheets/sheet${sheet}.xml`, original=parts.get(path)!.toString();

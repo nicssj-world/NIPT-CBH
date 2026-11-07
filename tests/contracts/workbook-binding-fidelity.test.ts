@@ -17,9 +17,9 @@ describe.skipIf(!existsSync(source))('Exhaustive exact-master binding verificati
   });
   it('independently reads every declared binding and proves individual locality, merged anchors and immutable layout/media',()=>{
     const result=verifyBindingFidelity(readFileSync(source));
-    expect(result.evidence.bindingCount).toBe(316);
+    expect(result.evidence.bindingCount).toBe(317);
     expect(result.evidence.formulaCount).toBe(149);
-    expect(result.evidence.readback).toHaveLength(316);
+    expect(result.evidence.readback).toHaveLength(317);
     expect(result.evidence.media).toHaveLength(25);
     expect(result.evidence.media.every(m=>m.unchanged)).toBe(true);
   },180000);

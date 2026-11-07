@@ -4,6 +4,7 @@ import {appendAudit} from '../db/audit';
 import {assertSession,need,uuid,LabError,type Staff} from '../lab/core';
 import {lockBatch,type PlacementPayload} from '../lab/batch';
 import {digest} from '../pooling/calculation';
+import {POOLING_LAYOUT_VERSION} from './pooling-layout';
 import {type FileStore} from '../storage';
 import {generateTaskWorkbook,inspectTaskMaster,MASTER_SHA256,validateTaskValues,SHEETS} from './master';
 import type {exportTaskPdfs} from './native-pdf';
@@ -94,7 +95,7 @@ export async function exportWorkbook(db:Queryable,user:Staff,input:unknown,deps:
   const urgent40=placementSource.placements?.some(p=>p.payload.slots.some(s=>s.slot===40&&s.control===null&&s.attemptId!==null))??false;
   const exceptionalSlots=placementSource.placements?.flatMap(p=>p.payload.slots.filter(s=>(s.overallOrdinal??0)>=5).map(s=>s.slot))??[];
   const generated=generateTaskWorkbook(deps.master,renderValues,{urgent40,exceptionalSlots});
-  let bytes=generated.bytes,manifest:Record<string,unknown>={masterSha256:MASTER_SHA256,sourceSha256:current.sha256,revision:d.revision,metadataSha256:digest(current.metadata),metadata:current.metadata,exceptionalSlots,xlsxSha256:generated.sha256,formulaCount:149,calculation:'native Excel recalculation required'};
+  let bytes=generated.bytes,manifest:Record<string,unknown>={masterSha256:MASTER_SHA256,sourceSha256:current.sha256,revision:d.revision,metadataSha256:digest({metadata:current.metadata,poolingLayout:POOLING_LAYOUT_VERSION}),metadata:current.metadata,exceptionalSlots,xlsxSha256:generated.sha256,formulaCount:149,calculation:'native Excel recalculation required'};
   if(d.format==='PDF') {
     if(!d.sheet)throw new LabError('TASK_SHEET_REQUIRED',422);
     // The native render (Excel) takes about half a minute. The same revision, sheet, master, source and metadata give the same PDF, so a retry or a second look reuses the one already made.

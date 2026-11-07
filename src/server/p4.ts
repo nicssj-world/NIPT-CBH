@@ -36,6 +36,7 @@ const MESSAGES:Record<string,string>={RESAMPLING_REQUIRED_AFTER_S1_REPEAT:"ส�
  REPEAT_REQUIRES_FAILED_OR_STOPPED_ATTEMPT:"สั่งตรวจซ้ำได้เมื่อ Attempt ไม่ผ่าน QC ถูกหยุด หรือ Batch ถูกยกเลิก",REDRAW_CANCEL_ONLY_BEFORE_RECEIPT:"ยกเลิกคำสั่งได้เฉพาะก่อนรับตัวอย่างรอบใหม่",
  CANCEL_ONLY_BEFORE_EXECUTION:"ยกเลิก Batch ได้เฉพาะก่อนเริ่มปฏิบัติ",AMEND_ONLY_BEFORE_EXECUTION:"แก้แผนได้เฉพาะหลัง Finalize และก่อนเริ่มปฏิบัติ",SLOT_NOT_IN_USE:"ตำแหน่งนี้ไม่มีตัวอย่างหรือ Control",
  WORKING_COPY_ONLY_FROM_ISSUED_PRE_WORK:"พิมพ์สำเนาใช้งานได้จากใบงาน Pre-work ที่ยังมีผลเท่านั้น",LN_HALOS_REQUIRES_RECEIPT:"ออก LN Halos ได้เฉพาะรอบที่รับสิ่งส่งตรวจจริงแล้ว",BATCH_CANCELLED:"Batch นี้ถูกยกเลิกแล้ว",
+ POOL_AMOUNT_INVALID:"กรอก Pooling amount มากกว่า 0 และน้อยกว่า 1,000,000 pmol (ทศนิยมไม่เกิน 12 ตำแหน่ง)",
  QC_NINE_STANDARDS_REQUIRED:"ค่ามาตรฐาน QC ยังไม่ครบ 9 ค่า (Standard 1, Standard 2 และ Standard 2 Conc. ของทั้ง 3 strip)",
  QC_MEASUREMENTS_REQUIRED:"ยังไม่มีค่า QC ของตัวอย่างใดเลย",QC_MEASUREMENT_REQUIRED:"ตำแหน่งนี้ต้องมีค่า QC และรหัสตัวอย่างที่พิมพ์แล้ว (ผู้ป่วย / PC / NC)",
  QC_EMPTY_SLOT_MEASUREMENT:"ตำแหน่งนี้ไม่มีตัวอย่างหรือ Control แต่มีค่า QC — ลบค่าออก",QC_CONCENTRATION_MUST_BE_POSITIVE:"ค่า QC ต้องมากกว่า 0 — ถ้าเป็นช่อง BLANK ที่ไม่ได้วัด ให้เว้นว่างไว้ ห้ามใส่ 0",

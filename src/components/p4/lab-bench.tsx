@@ -51,6 +51,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
  const api=`/api/lab-bench/batches/${batchId}`,workbookApi=`/api/workbook/batches/${batchId}`;
  const [data,setData]=useState<Data|null>(null),[values,setValues]=useState<Record<string,unknown>>({}),[tab,setTabState]=useState<Stage>(initialStage),[busy,setBusy]=useState(false),[dirty,setDirty]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[pool,setPool]=useState<Pool|null>(null);
  const [preview,setPreview]=useState<null|{title:string;url:string|null;retry:()=>void;error?:string}>(null);
+ const [poolAmount,setPoolAmount]=useState<string|null>(null);
  const [transfers,setTransfers]=useState<Transfer[]|null>(null),[seqFiles,setSeqFiles]=useState<SeqFiles|null>(null);
  const [center,setCenter]=useState<ActionCenterSubject|null>(null),[override,setOverride]=useState<{slot:number;value:string}|null>(null);
  // OWNER-LAB-047: a saved actual-pooling record from an older QC/placement source is never re-applied over the recomputed table.
@@ -63,9 +64,9 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
  useEffect(()=>{let active=true;labApi<Data>(api).then(d=>{if(active){setData(d);setValues(d.values);}}).catch(e=>{if(active)setError(failureText(e));});return()=>{active=false;};},[api]);
  useEffect(()=>()=>{if(preview?.url)URL.revokeObjectURL(preview.url);},[preview]);
  // Pool volumes use only placements and QC source values; QC2/Seq edits do not discard the calculated table.
- const change=(key:string,value:unknown)=>{setSeqFiles(null);setValues(v=>({...v,[key]:value}));setDirty(true);setNotice('');if(/^slot\.\d+\.libraryQc$|^qc\.[123]\./.test(key))setPool(null);};
+ const change=(key:string,value:unknown)=>{setSeqFiles(null);setValues(v=>({...v,[key]:value}));setDirty(true);setNotice('');if(/^slot\.\d+\.libraryQc$|^qc\.[123]\.|^pool\.amount$/.test(key))setPool(null);};
  const saved=!!data?.revision&&!dirty&&!data.sourceStale;
- async function saveDraft(){if(!data)return null;await labApi(workbookApi,{action:'saveDraft',expectedVersion:data.version,expectedRevision:data.revision,values});setSeqFiles(null);return reload();}
+ async function saveDraft(draftValues=values){if(!data)return null;await labApi(workbookApi,{action:'saveDraft',expectedVersion:data.version,expectedRevision:data.revision,values:draftValues});setSeqFiles(null);return reload();}
  async function run(work:()=>Promise<void>){setBusy(true);setError('');setNotice('');try{await work();}catch(e){setError(failureText(e));}finally{setBusy(false);}}
  const calculate=async()=>{setPool(await labApi<Pool>(api,{action:'pool'}));};
  // Load the saved calculation when Pooling opens on a saved, finalized source (no button press needed to see the table).
@@ -75,10 +76,15 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
  const qcRows=data?.slots.filter(s=>s.kind!=='EMPTY')??[];
  const qcMissing=qcRows.filter(s=>num(values[`slot.${s.slot}.libraryQc`])===null).length+[1,2,3].flatMap(n=>QC_STANDARDS.map(([k])=>`qc.${n}.${k}`)).filter(k=>num(values[k])===null).length;
  /** OWNER-LAB-044: save QC → validate → calculate → open Pooling, only when every step succeeds. */
- const saveAndCalculate=()=>run(async()=>{
+ const saveAndCalculate=()=>{
+  setError('');
   if(qcMissing){setError(`กรอกค่า QC ให้ครบก่อนคำนวณ Pooling (ยังขาด ${qcMissing} ช่อง)`);return;}
   if(!data?.finalized){setError('พิมพ์ Task List 1–3 ก่อน เพื่อใช้รหัสตัวอย่างจริงทุกช่อง');return;}
-  await saveDraft();await calculate();setTab('POOL');setNotice('บันทึก QC และคำนวณ Pooling แล้ว');
+  setPoolAmount(String(values['pool.amount']??16));
+ };
+ const confirmPoolAmount=()=>run(async()=>{
+  if(poolAmount===null||!/^\d+(?:\.\d{1,12})?$/.test(poolAmount)||Number(poolAmount)<=0||Number(poolAmount)>=1000000){setError('กรอก Pooling amount มากกว่า 0 และน้อยกว่า 1,000,000 pmol');return;}
+  await saveDraft({...values,'pool.amount':Number(poolAmount)});await calculate();setPoolAmount(null);setTransfers(null);setTab('POOL');setNotice('บันทึก QC และคำนวณ Pooling แล้ว');
  });
  const saveDraftOnly=(message:string)=>run(async()=>{await saveDraft();setNotice(message);});
  const saveTransfers=()=>run(async()=>{
@@ -146,6 +152,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
    {!saved&&<p className="notice" role="note">บันทึกค่า QC ก่อน แล้วระบบจะคำนวณ Pooling จากค่าที่บันทึก</p>}
    {data.actualPooling&&!data.actualPooling.current&&<p role="alert" className="notice warning-notice">ค่า QC หรือตำแหน่งเปลี่ยน — คำนวณใหม่แล้ว กรุณาตรวจและบันทึก Pooling จริงอีกครั้ง</p>}
    {pool&&<>
+    <p>Pooling amount {pool.calculation.formula.amount} pmol · Desired Total Volume {Number(pool.calculation.desired).toFixed(2)} µL</p>
     <div className="bench-totals" aria-label="ปริมาตรรวม"><div><span>Total</span><strong>{Number(pool.calculation.total).toFixed(2)}<small>µL</small></strong></div><div><span>EB</span><strong>{Number(pool.calculation.buffer).toFixed(2)}<small>µL</small></strong></div></div>
     <div className="bench-pool-toolbar"><span>Pooling จริง {pooledCount} ตำแหน่ง</span>{canWrite&&<button type="button" className="button secondary small" disabled={busy} onClick={()=>setTransfers((transfers??currentTransfers).map(t=>{const r=pool.calculation.rows.find(x=>x.slot===t.slot);return r&&poolable(r)?{...t,pooled:true}:t;}))}><LabIcon name="check"/>เลือกตัวอย่างที่ใช้ได้ทั้งหมด</button>}</div>
     <div className="table-wrap" role="region" aria-label="ปริมาตร Pooling" tabIndex={0}><table className="bench-table pool-table"><colgroup><col className="col-slot"/><col/><col className="col-value"/><col className="col-check"/><col className="col-edit"/></colgroup>
@@ -185,6 +192,12 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
    {tab==='SEQ'&&<button data-worksheet-save type="button" className="button" disabled={!canWrite||busy||!dirty} onClick={()=>void saveDraftOnly('บันทึก Seq Task-G50 แล้ว')}><LabIcon name="save"/>บันทึก</button>}
   </div></footer>}
   {center&&<SampleActionCenter subject={center} can={{repeat:!!data?.canRepeat,redraw:!!data?.canRedraw,noCall:!!data?.canNoCall}} onClose={()=>setCenter(null)} onDone={async message=>{setNotice(message);await reload();}}/>}
+  {poolAmount!==null&&<Dialog title="Pooling amount (pmol)" onClose={()=>{if(!busy)setPoolAmount(null);}}><form className="stack" onSubmit={e=>{e.preventDefault();void confirmPoolAmount();}}>
+   <label className="field"><span>Pooling amount (pmol)</span><input autoFocus type="text" inputMode="decimal" value={poolAmount} disabled={busy} onChange={e=>{if(/^\d*(\.\d*)?$/.test(e.target.value))setPoolAmount(e.target.value);}} required aria-describedby="pool-amount-help"/></label>
+   <p id="pool-amount-help" className="help">ค่าเริ่มต้น 16 pmol ใช้คำนวณ Volume และ Desired Total Volume</p>
+   {error&&<p role="alert" className="notice">{error}</p>}
+   <div className="dialog-actions"><button type="submit" className="button" disabled={busy}>{busy?'กำลังบันทึก…':'บันทึกและคำนวณ Pooling'}</button><button type="button" className="button secondary" disabled={busy} onClick={()=>setPoolAmount(null)}>ยกเลิก</button></div>
+  </form></Dialog>}
   {override&&<Dialog title={`แก้ปริมาตรตำแหน่ง ${override.slot}`} onClose={()=>setOverride(null)}><div className="stack"><label className="field"><span>Volume ที่ใช้จริง (µL)</span><input type="text" inputMode="decimal" value={override.value} onChange={e=>{if(/^\d*(\.\d*)?$/.test(e.target.value))setOverride({...override,value:e.target.value});}}/></label>
    <p className="help">ค่าคำนวณยังเก็บไว้ ค่าที่แก้แสดงแยกและบันทึกเมื่อกด “บันทึก Pooling จริง”</p>
    <div className="dialog-actions"><button type="button" className="button" disabled={!Number.isFinite(Number(override.value))||Number(override.value)<=0} onClick={()=>{updateTransfer(override.slot,{actualVolume:Number(override.value)});setOverride(null);}}>ใช้ค่านี้</button><button type="button" className="button secondary" onClick={()=>{updateTransfer(override.slot,{actualVolume:undefined});setOverride(null);}}>ใช้ค่าคำนวณ</button></div></div></Dialog>}

@@ -1,4 +1,4 @@
-/** Exact-master verification; never writes the source or changes workbook layout. */
+/** Verifies immutable master identity and input locality against the declared pooling-layout derivative. */
 import assert from 'node:assert/strict';
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import path from 'node:path';
@@ -6,18 +6,21 @@ import {pathToFileURL} from 'node:url';
 import {generateTaskWorkbook,inspectTaskMaster,MASTER_SHA256,SHEETS} from '../../packages/workbook/master';
 import {readArchive,sha256,xmlDecode} from '../../packages/workbook/archive';
 import {exportTaskPdfs} from '../../packages/workbook/native-pdf';
+import {applyPoolingLayout} from '../../packages/workbook/pooling-layout';
 import {CONTROL_HIGHLIGHTS} from '../../packages/workbook/control-highlights';
 
 const cellMap=(xml:string)=>new Map([...xml.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)].map(m=>[/\br="([A-Z]+\d+)"/.exec(m[1])![1],{attributes:m[1],body:m[2]??'',xml:m[0]}]));
 const withoutCache=(xml:string)=>xml.replace(/(<c\b[^>]*>)([\s\S]*?)(<\/c>)/g,(all,start,body,end)=>/<f\b/.test(body)?start+body.replace(/<v\b[^>]*>[\s\S]*?<\/v>/g,'')+end:all);
-const ownerAlerts=/<conditionalFormatting sqref="(?:A8:B55|E14)"><cfRule type="expression" dxfId="\d+" priority="\d+"><formula>(?:AND\(ISNUMBER\(\$B8\),\$B8&lt;2\)|AND\(ISNUMBER\(E14\),OR\(E14&lt;3,E14&gt;3\.6\)\))<\/formula><\/cfRule><\/conditionalFormatting>/g;
+const ownerAlerts=/<conditionalFormatting sqref="(?:B8:C55|F14)"><cfRule type="expression" dxfId="\d+" priority="\d+"><formula>(?:AND\(ISNUMBER\(\$C8\),\$C8&lt;2\)|AND\(ISNUMBER\(F14\),OR\(F14&lt;3,F14&gt;3\.6\)\))<\/formula><\/cfRule><\/conditionalFormatting>/g;
 const texts=(xml:string)=>[...xml.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map(m=>xmlDecode(m[1])).join('');
 const coord=(ref:string)=>{const [,letters,row]=/^([A-Z]+)(\d+)$/.exec(ref)!;return {col:[...letters].reduce((n,c)=>n*26+c.charCodeAt(0)-64,0),row:Number(row)};};
 const contains=(range:string,ref:string)=>{const [first,last=first]=range.split(':'),a=coord(first),b=coord(last),c=coord(ref);return c.col>=a.col&&c.col<=b.col&&c.row>=a.row&&c.row<=b.row;};
 
 export function verifyBindingFidelity(master:Buffer) {
   const matrix=inspectTaskMaster(master),before=readArchive(master);
+  assert.equal(sha256(master),MASTER_SHA256);
   assert.equal(matrix.masterSha256,MASTER_SHA256);
+  applyPoolingLayout(before);
   assert.equal(matrix.formulaCount,149);
   assert.equal(new Set(matrix.bindings.map(b=>b.key)).size,matrix.bindings.length,'duplicate keys');
   assert.equal(new Set(matrix.bindings.map(b=>`${b.sheet}!${b.cell}`)).size,matrix.bindings.length,'duplicate writable cells');
@@ -95,7 +98,7 @@ export function verifyBindingFidelity(master:Buffer) {
   });
   // Reviewed against the actual native Master: these leaders belong to fixed protocol text, rather than writable values.
   const staticLeaders:Record<string,string>={
-    'Pooling Table!C21':'Continuation of the SP100 CSV instruction. The actual filename placeholder is C20 and is bound separately.',
+    'Pooling Table!D21':'Continuation of the SP100 CSV instruction. The actual filename placeholder is D20 and is bound separately.',
     'Seq Task-G50!C10':'Cyclization buffer label; its protocol quantity is the adjacent fixed 27.8 uL cell.',
     'Seq Task-G50!E24':'DNB table label with wide-bore-tip instruction; its protocol quantity is the fixed 100 uL cell below.',
   };
