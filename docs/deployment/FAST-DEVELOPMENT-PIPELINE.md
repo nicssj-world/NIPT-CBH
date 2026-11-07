@@ -265,3 +265,9 @@ test: `tests/deploy/dev-isolation.node.mjs`
 - **Risk-based GitHub CI:** `.github/workflows/foundation.yml` always runs `plan` and `fast` (source guard, deploy contracts, typecheck, lint). It runs `full` (native fixtures, full Vitest, production build, post-build and browser E2E) for MEDIUM/HIGH changes and manual dispatch. Risk classification imports `deploy/windows/risk-classification.mjs`; an unknown path or missing diff is HIGH.
 - **Test the enforcement:** `node --test tests/deploy/fast-pipeline-enforcement.node.mjs`. This runs in fast CI and the deploy contracts. For an intentional full local release check run `npm run release:preflight -- --full`.
 - **Safety unchanged:** the hook is a developer ergonomics aid, not proof of Owner approval. The Windows release gates, backup, signature, migration rehearsal, health verification and rollback remain authoritative. This V2 does not modify the server's installed deployment scripts.
+
+## Codex PreToolUse parity (2026-11-07)
+
+Codex loads `AGENTS.md` for instructions and `.codex/hooks.json` for a synchronous `PreToolUse` hook on Bash/shell commands. The hook reuses **the same** `tools/dev/enforce-fast-loop.mjs` as Claude Code, so direct broad test/build commands are declined with focused-development alternatives. It uses a Git-root-resolved command on both Windows and Unix and requires the local Codex client to load/trust project hooks. Run `/hooks` in Codex to review and trust it. The `.codex/hooks.json` file itself is not a hard OS-level restriction; hook support/trust and agent tool coverage must be confirmed on the installed client. The hook permits `npm run release:preflight` and does not change signed packages, approvals or Production gates.
+
+Validate the hook with `node --test tests/deploy/codex-fast-loop-hook.node.mjs`; this exercises the shared script via synthetic `PreToolUse` events, **not** a live Windows Codex session.

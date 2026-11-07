@@ -1,0 +1,19 @@
+{
+  "description": "NIPT-CBH Fast Development Pipeline: use focused checks in Codex, preserve release gates.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/tools/dev/enforce-fast-loop.mjs\"",
+            "commandWindows": "powershell -NoProfile -Command \"& node (Join-Path (git rev-parse --show-toplevel) 'tools/dev/enforce-fast-loop.mjs')\"",
+            "timeout": 10,
+            "statusMessage": "Checking NIPT Fast Pipeline development policy"
+          }
+        ]
+      }
+    ]
+  }
+}
