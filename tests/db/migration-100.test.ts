@@ -25,7 +25,8 @@ it('100 upgrades a populated 099 database without touching existing link history
   await installPre102Stub(db);
   const root=path.join(before,'sim');await mkdir(path.join(root,'results'),{recursive:true});await writeFile(path.join(root,'.nipt-synthetic-root'),'NIPT_SYNTHETIC_ONLY_V1');
   const q=db as unknown as Queryable,f={db,u:await labUsers(q),store:new FileStore(path.join(before,'files')),root,base:before,run:<T>(fn:(t:Queryable)=>Promise<T>)=>tx(q,fn),close:async()=>{}} as unknown as ResultFixture;
-  const c=await receivedCase(f),lab=(await db.query<{ln_halos:string}>('SELECT ln_halos FROM specimen_lab_number WHERE round_id=$1',[c.roundId])).rows[0].ln_halos;
+  // a second case with the same HN keeps the import Unlinked (ambiguous): the pre-100 schema has no system-link columns and the manual path is what is under test
+  const c=await receivedCase(f,{hn:'990000100001'});await receivedCase(f,{hn:'990000100001'});const lab=(await db.query<{ln_halos:string}>('SELECT ln_halos FROM specimen_lab_number WHERE round_id=$1',[c.roundId])).rows[0].ln_halos;
   const {versionId}=await importReport(f,{kind:'SINGLETON',labNumber:lab,hn:c.hn,collection:pdfDate(c.collection)});
   const rv=async()=>(await rowVersion(f,versionId)).row_version;
   await f.run(async t=>results.proposeLink(t,f.u.staff,{versionId,roundId:c.roundId,attemptId:c.attemptId,reason:'Pre-100 manual proposal',expectedRowVersion:await rv()}));

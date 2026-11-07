@@ -8,8 +8,8 @@ import {orderRepeat} from '../../packages/lab/intake';
 import {SETTINGS} from '../../packages/settings/catalog';
 import {proposeSetting,validateSetting,approveSetting,activateSetting} from '../../packages/settings/service';
 
-// Owner P5-A (2026-10-18) + migration 100: a final result PDF with exactly one clean match is linked by the system, without a second
-// person, only while result_management.linkageMode = UNIQUE_AUTO_LINK (Settings maker-checker). Nothing is released or sent to HIS.
+// Owner P5-A (2026-10-18) + migration 100, simplified 2026-11-07: a final result PDF whose HN and lab number (LN, LN Halos or printed sample ID) match exactly one
+// current latest attempt is linked by the system, without a second person, whatever result_management.linkageMode says. Nothing is released or sent to HIS.
 let f:ResultFixture;
 beforeEach(async()=>{f=await resultFixture();});
 afterEach(async()=>{await f.close();});
@@ -66,7 +66,7 @@ describe('P5-A system link of a single clean match',()=>{
   expect((await importReport(f,await spec(c,{labNumber:old}))).outcome).toBe('Unlinked');
   expect(await skipped()).toEqual(['NOT_A_CLEAN_MATCH']);
  });
- it('does not link when two cases share the HN and lab number',async()=>{
+ it('does not link when another case with the same HN is found (ambiguous cases)',async()=>{
   const a=await receivedCase(f,{hn:'990000077002'}),b=await receivedCase(f,{hn:'990000077002'});void b;
   expect((await importReport(f,await spec(a))).outcome).toBe('Unlinked');
   expect(await skipped()).toEqual(['AMBIGUOUS_CASES']);

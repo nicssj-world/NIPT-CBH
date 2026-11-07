@@ -51,7 +51,9 @@ export async function ingestMigrationPdfs(db:Queryable,user:Staff,store:FileStor
       row.reason='CONFLICTING_OFFICIAL_PDFS';rows.push(row);continue;
      }
      await db.query('SAVEPOINT migration_pdf_confirm');
-     try{const imported=(await confirmImport(db,user,{intakeIds:[intake.id]}))[0];row.versionId=imported.versionId;row.state=imported.outcome;if(imported.versionId&&imported.outcome==='Unlinked'){const linked=await autoLinkUnique(db,user,imported.versionId,{migrationOnly:true});if(linked.linked){row.state=linked.version.state;
+     try{const imported=(await confirmImport(db,user,{intakeIds:[intake.id]}))[0];row.versionId=imported.versionId;row.state=imported.outcome;// confirmImport already runs the system link (HN + lab number); when that was the exact migration contract the PDF is linked now and only the evidence event is missing.
+       const already=imported.versionId&&imported.outcome!=='Unlinked'?(await db.query("SELECT 1 FROM result_link_event WHERE version_id=$1 AND event='AUTO_LINKED' AND match_evidence->>'contract'='MIGRATION-EXACT-CONTENT-v1'",[imported.versionId])).rows.length>0:false;
+       if(imported.versionId&&(imported.outcome==='Unlinked'||already)){const linked=already?{linked:true as const,version:{state:imported.outcome}}:await autoLinkUnique(db,user,imported.versionId,{migrationOnly:true});if(linked.linked){row.state=linked.version.state;
        // Matching method and any name difference stay as evidence; the names themselves are never written to the event.
        await db.query("INSERT INTO migration_record_event(record_id,actor_id,event,details) VALUES($1,$2,'PDF_LINKED',$3)",[match.recordId,user.id,{intakeId:intake.id,versionId:imported.versionId,method:matched.reason,nameMismatch:matched.identity?.nameMismatch??null}]);}else row.reason=linked.reason;}}
      catch(e){await db.query('ROLLBACK TO SAVEPOINT migration_pdf_confirm');row.reason=e instanceof Error?e.message:'IMPORT_REVIEW_REQUIRED';}
