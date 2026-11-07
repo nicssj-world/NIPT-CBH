@@ -16,8 +16,8 @@ import {pdfDate} from './results';
 
 /** Disposable PGlite for P5H: users (maker, second maker, verifier), file store, Maker-Checker settings. All data is synthetic. */
 export const LOOKUP_KEY=Buffer.alloc(32,7);
-export async function histFixture(){
- const db=await testDatabase();
+export async function histFixture(options:Parameters<typeof testDatabase>[0]={}){
+ const db=await testDatabase(options);
  const u=await labUsers(db);
  const maker={...u.staff,permissions:['HISTORICAL_ENTRY']} as Staff,maker2={...u.staff2,permissions:['HISTORICAL_ENTRY']} as Staff;
  const vid=(await db.query<{id:string}>("INSERT INTO app_user(username,display_name,password_hash) VALUES('synthetic.verifier','ผู้ตรวจจำลอง','$argon2id$v=19$synthetic') RETURNING id")).rows[0].id;

@@ -191,7 +191,9 @@ it('LAB-UAT-003: box and sample pagination disclose totals beyond 1,000 boxes wi
  }finally{await f.close();}
 });
 it('LAB-UAT-003: sample pagination and FIFO Auto-fill explicitly expose the 10,000-row batch boundary',async()=>{
- const f=await histFixture();try{
+ // 10,001 synthetic receipts share one transaction. Migration 202 serializes
+ // each inbound hash; size this in-memory test's lock table for that workload.
+ const f=await histFixture({postgresqlconf:['max_locks_per_transaction=512']});try{
   const fixture=await f.run(async db=>{
    await db.query(`CREATE TEMP TABLE task2_storage_large_fixture(
     n integer PRIMARY KEY,case_id uuid NOT NULL DEFAULT gen_random_uuid(),ln_id uuid NOT NULL DEFAULT gen_random_uuid(),
