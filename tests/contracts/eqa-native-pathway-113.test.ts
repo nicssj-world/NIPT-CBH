@@ -6,6 +6,7 @@ import {task3Fixture,halosWorkbook,signerSetup,approveInterpretation,recordPaper
 import {previewHalosImport,decideHalosImport} from '../../packages/readygen/halos-import';
 import {reportCandidate,finalizeReports} from '../../packages/readygen/reports';
 import {pdfText} from '../../packages/results/extract';
+import {certifyPending,pendingState} from '../helpers/certify-pending';
 
 // Native: renders through the installed Microsoft Word like the normal pathway. One Run holds two EQA specimens (singleton and
 // DCDA twins, from the GenQA/EMQN 2026 referral cards) and one ordinary patient. EQA uses the normal engine end to end.
@@ -32,9 +33,15 @@ it('EQA follows the normal report pathway (no PET, no patient consent) and never
    releaseConfirmations:{reportContentVerified:true,identityAndValuesMatchReport:true,disclosureReviewed:true,abnormalAcknowledged:true,benchMeasurementsReviewed:true},
    items:[{rowId:rowOf(eqaS.printed)},{rowId:rowOf(patient.printed)},{rowId:rowOf(eqaT.printed)}]}));
   const out=Object.fromEntries(fin.items.map(i=>[i.rowId,i]));
-  expect(out[rowOf(eqaS.printed)]).toMatchObject({outcome:'FINAL',versionState:'CertifiedReleased',release:'CertifiedReleased'});
-  expect(out[rowOf(eqaT.printed)]).toMatchObject({outcome:'FINAL',versionState:'CertifiedReleased'});
-  expect(out[rowOf(patient.printed)]).toMatchObject({outcome:'FINAL',versionState:'CertifiedReleased'});
+  // Since 2026-11-07 finalize stops at PendingCertification (review + QC5 recorded, nothing released or queued); the send step certifies.
+  expect(out[rowOf(eqaS.printed)]).toMatchObject({outcome:'FINAL',versionState:'PendingCertification',release:'PendingCertification'});
+  expect(out[rowOf(eqaT.printed)]).toMatchObject({outcome:'FINAL',versionState:'PendingCertification'});
+  expect(out[rowOf(patient.printed)]).toMatchObject({outcome:'FINAL',versionState:'PendingCertification'});
+  for(const r of [eqaS,eqaT,patient]){
+   const vid=out[rowOf(r.printed)].versionId!;
+   expect(await f.run(t=>pendingState(t,vid))).toEqual({state:'PendingCertification',reviews:1,qc5:1,releases:0,outbox:0});
+   await f.run(t=>certifyPending(t,f.u.certifier,vid));
+  }
   // One authoritative certified PDF per EQA case, produced by the normal engine, with the card's identity and no EQA mark.
   for(const [c,name,hn] of [[eqaS,'Tonya POLSON','03NIPT26'],[eqaT,'Alessia ESPOSITO','07NIPT26']] as const){
    const ir=(await f.db.query<{pdf_sha256:string}>('SELECT pdf_sha256 FROM internal_report WHERE attempt_id=$1',[c.attemptId])).rows[0];

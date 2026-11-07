@@ -6,6 +6,7 @@ import {reportCandidate,finalizeReports} from '../../packages/readygen/reports';
 import {confirmFailure,noCall} from '../../packages/lab/intake';
 import {pdfText} from '../../packages/results/extract';
 import {ancCaseResults} from '../../packages/results/service';
+import {certifyPending,pendingState} from '../helpers/certify-pending';
 
 // Native (Microsoft Word). Owner Task 1 decision 2: a No Call is the SAME normal master with an explicit "Result = No Call",
 // the failed QC as recorded, and no risk/sex/SCA/fetal-fraction finding. It reuses the accepted Task 1 No Call QC5/release contract.
@@ -38,7 +39,9 @@ it('native No Call: held until its rendering is approved, then the Owner master 
   expect(c.values).toMatchObject({qc:'FAIL',trisomy21_ra:'No Call',gender:'No Call',XO_NEW:'No Call',fetalFaction_2:'No Call',risk21:'-',remarks:'Result = No Call'});
   const fin=await f.run(t=>finalizeReports(t,f.u.certifier,deps,{idempotencyKey:randomUUID(),defaults:{reportedBy:f.u.staff.id,approvedBy:f.u.certifier.id},release:true,
    releaseConfirmations:{reportContentVerified:true,identityAndValuesMatchReport:true,disclosureReviewed:true,abnormalAcknowledged:false},items:[{rowId:rowOf(s.printed)},{rowId:rowOf(tw.printed)}]}));
-  expect(fin.items.map(i=>[i.outcome,i.versionState,i.code??null,JSON.stringify(i.details??null)])).toEqual([['FINAL','CertifiedReleased',null,'null'],['FINAL','CertifiedReleased',null,'null']]);
+  expect(fin.items.map(i=>[i.outcome,i.versionState,i.code??null,JSON.stringify(i.details??null)])).toEqual([['FINAL','PendingCertification',null,'null'],['FINAL','PendingCertification',null,'null']]);
+  // Waiting to be sent: no release and ANC sees nothing; then the send step (certification) releases.
+  for(const i of fin.items){expect(await f.run(t=>pendingState(t,i.versionId!))).toMatchObject({state:'PendingCertification',releases:0,outbox:0});await f.run(t=>certifyPending(t,f.u.certifier,i.versionId!,false));}
   for(const [x,kind] of [[s,'SINGLETON'],[tw,'TWIN']] as const){
    const v=(await f.db.query<{id:string;sha256:string;origin:string;template_kind:string;parsed:{results:{result:{value:string};qc:{value:string};t21:{value:string|null}}}}>('SELECT v.* FROM result_report_version v JOIN internal_report r ON r.version_id=v.id WHERE r.attempt_id=$1',[x.attemptId])).rows[0];
    expect(v).toMatchObject({origin:'INTERNAL_GENERATED',template_kind:kind});expect(v.parsed.results.result.value).toBe('No Call');expect(v.parsed.results.qc.value).toBe('FAIL');expect(v.parsed.results.t21.value).toBeNull();

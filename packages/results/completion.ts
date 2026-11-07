@@ -6,7 +6,7 @@ import {authorize} from '../security/policy';
 import type {Parsed} from './parser';
 import {attemptEvidence} from './evidence';
 import {isNoCallReport} from './parser';
-import {autoMatchCandidate,linkCandidates,resultSettings,confirmImport,proposeAutoMatch,decideLink,reviewExternalForRelease,type Candidate} from './service';
+import {autoMatchCandidate,linkCandidates,resultSettings,confirmImport,proposeAutoMatch,decideLink,reviewExternalForRelease,validationGateIssues,type Candidate} from './service';
 
 export function completionPreview(candidates:Candidate[],options:{kind:string;openRevision:boolean}){
  const candidate=autoMatchCandidate(candidates,options);
@@ -71,7 +71,7 @@ export async function confirmCompletion(db:Queryable,user:Staff,input:unknown){
    if(v.round_id!==requested.roundId||v.attempt_id!==requested.attemptId)throw new LabError('MATCH_CHANGED_SINCE_PREVIEW',409);
    // Review + QC5 only: the version waits in PendingCertification ("รอส่ง HIS"); ANC sees nothing until the Send HIS step certifies it.
    const reviewed=await reviewExternalForRelease(db,user,{versionId:v.id,expectedRowVersion:v.row_version,abnormalAcknowledged:d.abnormalAcknowledged});
-   if(reviewed.state!=='PendingCertification')throw new LabError('RESULT_COMPLETION_BLOCKED',409,{state:reviewed.state});
+   if(reviewed.state!=='PendingCertification')throw new LabError('RESULT_COMPLETION_BLOCKED',409,{state:reviewed.state,...await validationGateIssues(db,v.id)});
    items.push({intakeId:requested.intakeId,versionId:v.id,outcome:'PendingCertification'});
    await db.query('RELEASE SAVEPOINT complete_result_item');
   }catch(e){await db.query('ROLLBACK TO SAVEPOINT complete_result_item');await db.query('RELEASE SAVEPOINT complete_result_item');if(!(e instanceof LabError))throw e;items.push({intakeId:requested.intakeId,outcome:'HOLD',code:e.code,details:e.details});}

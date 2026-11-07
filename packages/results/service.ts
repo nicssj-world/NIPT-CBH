@@ -357,15 +357,18 @@ export async function unlinkVersion(db:Queryable,user:Staff,input:unknown){
 }
 
 // ---------- Gates ----------
+/** Shared with releaseReviewed(): the review is current only when recorded after the latest approving link event (parameter $1 = version id). */
+const REVIEW_CURRENT_SQL="EXISTS(SELECT 1 FROM result_review w WHERE w.version_id=$1 AND w.created_at>=(SELECT max(e.created_at) FROM result_link_event e WHERE e.version_id=$1 AND e.event IN ('APPROVED','AUTO_LINKED','FROZEN_EXPORT_LINKED')))";
+const OPEN_PROPOSAL_SQL="EXISTS(SELECT 1 FROM result_link_event e WHERE e.version_id=$1 AND e.event='PROPOSED' AND NOT EXISTS(SELECT 1 FROM result_link_event y WHERE y.version_id=e.version_id AND y.event IN ('APPROVED','REJECTED','UNLINKED') AND y.sequence>e.sequence))";
 async function gateFor(db:Queryable,v:VersionRow,purpose:Purpose,certifierId?:string):Promise<GateDecision|null>{
  if(!v.round_id||v.kind==='UNKNOWN')return null;
  const s=await resultSettings(db),operational=await operationalWorkflow(db),qc5=operational?(await db.query<{id:string;no_call_valid:boolean}>('SELECT id,task1_no_call_qc5_valid(q) no_call_valid FROM result_qc5_review q WHERE version_id=$1 AND report_sha256=$2',[v.id,v.sha256])).rows[0]:null,operationalReviewed=!!qc5;
  const templateApproved=operational?operationalReviewed:s.picVersion!=='unvalidated'&&!v.template_version.includes('UNAPPROVED');
  const x=(await db.query<{open_proposal:boolean;latest:boolean;active_release:boolean;reviewed:boolean;redraw_at:Date|null;certifier:boolean;unit_id:string|null}>(
-  `SELECT EXISTS(SELECT 1 FROM result_link_event e WHERE e.version_id=$1 AND e.event='PROPOSED' AND NOT EXISTS(SELECT 1 FROM result_link_event y WHERE y.version_id=e.version_id AND y.event IN ('APPROVED','REJECTED','UNLINKED') AND y.sequence>e.sequence)) open_proposal,
+  `SELECT ${OPEN_PROPOSAL_SQL} open_proposal,
    NOT EXISTS(SELECT 1 FROM result_report_version o WHERE o.round_id=$2 AND o.kind=$3 AND o.id<>$1 AND o.state IN ('LinkConflict','Linked','ValidationBlocked','PendingCertification','CertifiedReleased') AND o.imported_at>$4) latest,
    EXISTS(SELECT 1 FROM result_release r WHERE r.round_id=$2 AND r.kind=$3 AND r.state='Active' AND r.version_id<>$1) active_release,
-   EXISTS(SELECT 1 FROM result_review w WHERE w.version_id=$1 AND w.created_at>=(SELECT max(e.created_at) FROM result_link_event e WHERE e.version_id=$1 AND e.event IN ('APPROVED','AUTO_LINKED','FROZEN_EXPORT_LINKED'))) reviewed,
+   ${REVIEW_CURRENT_SQL} reviewed,
    (SELECT min(d.requested_at) FROM redraw_request d WHERE d.source_round_id=$2 AND d.state IN ('Requested','Completed')) redraw_at,
    EXISTS(SELECT 1 FROM role_assignment a WHERE a.user_id=$5 AND (a.role='APP_ADMIN' OR (a.role='LAB_CERTIFIER' AND a.approved_by IS NOT NULL)) AND a.effective_from<=now() AND (a.expires_at IS NULL OR a.expires_at>now())) certifier,
    (SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=$6 ORDER BY s.unit_id LIMIT 1) unit_id`,
@@ -415,7 +418,7 @@ export async function revalidate(db:Queryable,user:Staff,input:unknown){
 }
 export async function recordReview(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);
- const d=z.strictObject({versionId:uuid,valuesMatchPdf:z.literal(true),abnormalAcknowledged:z.boolean(),note:z.string().trim().max(500).refine(x=>!/\d{13}/.test(x),'REASON_TEXT_INVALID').optional(),expectedRowVersion:rowVersion}).parse(input);
+ const d=z.strictObject({versionId:uuid,valuesMatchPdf:z.literal(true),abnormalAcknowledged:z.boolean(),note:reviewNote.optional(),expectedRowVersion:rowVersion}).parse(input);
  need(user,'result.review');
  const pre=await versionOf(db,d.versionId);if(!pre.round_id||!['Linked','ValidationBlocked','PendingCertification'].includes(pre.state))throw new LabError('REVIEW_REQUIRES_LINKED',409);
  if(pre.parsed.abnormal&&!d.abnormalAcknowledged)throw new LabError('ABNORMAL_ACK_REQUIRED',422);
@@ -511,21 +514,25 @@ export async function certifyAttempt(db:Queryable,user:Staff,input:unknown){
  * transaction through the existing services, so every identity, version, consent, QC and RG gate still applies; any failure rolls back.
  */
 export const EXTERNAL_FINAL_CRITERIA='EXTERNAL_FINAL_REPORT_CERTIFIED (Owner P5-B 2026-10-18)';
+/** A version already reviewed + QC5'd (current) in PendingCertification is certified directly; review and QC5 are never recorded twice. */
+async function alreadyReviewed(db:Queryable,versionId:string){return (await versionOf(db,versionId)).state==='PendingCertification'&&await releaseReviewed(db,versionId);}
 export async function acceptAndRelease(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);
- const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,idempotencyKey:z.string().regex(/^[A-Za-z0-9_-]{16,80}$/),externalFinalCertified:z.literal(true),identityAndValuesMatchPdf:z.literal(true),disclosureReviewed:z.literal(true),abnormalAcknowledged:z.boolean(),note:z.string().trim().max(500).refine(x=>!/\d{13}/.test(x),'REASON_TEXT_INVALID').optional(),benchRevision:z.number().int().positive().optional(),benchMeasurementsReviewed:z.literal(true).optional()}).parse(input);
+ const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,idempotencyKey:z.string().regex(/^[A-Za-z0-9_-]{16,80}$/),externalFinalCertified:z.literal(true),identityAndValuesMatchPdf:z.literal(true),disclosureReviewed:z.literal(true),abnormalAcknowledged:z.boolean(),note:reviewNote.optional(),benchRevision:z.number().int().positive().optional(),benchMeasurementsReviewed:z.literal(true).optional()}).parse(input);
  if(!await operationalWorkflow(db))throw new LabError('OPERATIONAL_MODE_REQUIRED',409);
  need(user,'result.review');need(user,'result.certify');
  // A replayed key returns the recorded outcome without re-recording anything.
- if((await db.query('SELECT 1 FROM result_gate_evaluation WHERE idempotency_key=$1',[d.idempotencyKey])).rows[0])return certifyAttempt(db,user,{versionId:d.versionId,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:d.expectedRowVersion,confirmed:true});
+ if((await db.query('SELECT 1 FROM result_gate_evaluation WHERE idempotency_key=$1',[d.idempotencyKey])).rows[0]||await alreadyReviewed(db,d.versionId))return certifyAttempt(db,user,{versionId:d.versionId,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:d.expectedRowVersion,confirmed:true});
  const v=await reviewExternalForRelease(db,user,{versionId:d.versionId,expectedRowVersion:d.expectedRowVersion,abnormalAcknowledged:d.abnormalAcknowledged,...(d.note?{note:d.note}:{}),...(d.benchRevision?{benchRevision:d.benchRevision}:{}),...(d.benchMeasurementsReviewed?{benchMeasurementsReviewed:true}:{})});
  return certifyAttempt(db,user,{versionId:v.id,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:v.row_version,confirmed:true});
 }
 /** Result-release simplification (Task 3): review + QC5 (or the migration review) only. The version stops at PendingCertification
  *  ("waiting to send to HIS"); certification and release belong to the later Send HIS step. */
+/** Free-text note on a review/acceptance: no 13-digit (national ID like) numbers. */
+const reviewNote=z.string().trim().max(500).refine(x=>!/\d{13}/.test(x),'REASON_TEXT_INVALID');
 export async function reviewExternalForRelease(db:Queryable,user:Staff,input:unknown):Promise<VersionRow>{
  await assertSession(db,user);
- const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,abnormalAcknowledged:z.boolean(),note:z.string().trim().max(500).refine(x=>!/d{13}/.test(x),'REASON_TEXT_INVALID').optional(),benchRevision:z.number().int().positive().optional(),benchMeasurementsReviewed:z.literal(true).optional()}).parse(input);
+ const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,abnormalAcknowledged:z.boolean(),note:reviewNote.optional(),benchRevision:z.number().int().positive().optional(),benchMeasurementsReviewed:z.literal(true).optional()}).parse(input);
  if(!await operationalWorkflow(db))throw new LabError('OPERATIONAL_MODE_REQUIRED',409);
  need(user,'result.review');
  const pre=await versionOf(db,d.versionId);
@@ -548,9 +555,15 @@ export async function reviewExternalForRelease(db:Queryable,user:Staff,input:unk
  }
  return v;
 }
-/** True when this exact version has a recorded result review and QC5 (or the migration review that stands in for QC5 on migrated records). */
+/** True when the version's review and QC5 are current by the gate's own rules: review recorded after the latest approving link event with no
+ *  open link proposal, QC5 bound to this exact report sha256 (or, for a migrated record, the current migration review). */
+/** Failed/pending predicates of the validation gate, for blocked-completion details. */
+export async function validationGateIssues(db:Queryable,versionId:string){const v=await versionOf(db,versionId);const g=await gateFor(db,v,'VALIDATION');return {failed:g?.failed??[],pending:g?.pending??[]};}
 export async function releaseReviewed(db:Queryable,versionId:string):Promise<boolean>{
- return (await db.query<{ok:boolean}>('SELECT EXISTS(SELECT 1 FROM result_review WHERE version_id=$1) AND (EXISTS(SELECT 1 FROM result_qc5_review WHERE version_id=$1) OR EXISTS(SELECT 1 FROM migration_result_review WHERE version_id=$1)) ok',[uuid.parse(versionId)])).rows[0].ok;
+ const id=uuid.parse(versionId);
+ const x=(await db.query<{reviewed:boolean;open_proposal:boolean;qc5:boolean}>(`SELECT ${REVIEW_CURRENT_SQL} reviewed,${OPEN_PROPOSAL_SQL} open_proposal,EXISTS(SELECT 1 FROM result_qc5_review q JOIN result_report_version v ON v.id=q.version_id WHERE q.version_id=$1 AND q.report_sha256=v.sha256) qc5`,[id])).rows[0];
+ if(!x.reviewed||x.open_proposal)return false;
+ return x.qc5||(await migrationResultEvidence(db,id)).reviewed;
 }
 // ---------- Task 3 pathway A: reports generated by NIPT-CBH from HALOS data (INTERNAL_GENERATED) ----------
 // The Final PDF enters the SAME ledger: intake (source INTERNAL_GENERATED) → parse of the actual PDF bytes → version → frozen-export
@@ -591,17 +604,17 @@ export async function registerInternalVersion(db:Queryable,user:Staff,store:File
  *  attestation (content verified against the frozen interpretation), never the external-final attestation. */
 export async function acceptInternalAndRelease(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);
- const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,idempotencyKey:z.string().regex(/^[A-Za-z0-9_-]{16,80}$/),reportContentVerified:z.literal(true),identityAndValuesMatchReport:z.literal(true),disclosureReviewed:z.literal(true),abnormalAcknowledged:z.boolean(),note:z.string().trim().max(500).refine(x=>!/\d{13}/.test(x),'REASON_TEXT_INVALID').optional(),benchRevision:z.number().int().positive().optional(),benchMeasurementsReviewed:z.literal(true).optional()}).parse(input);
+ const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,idempotencyKey:z.string().regex(/^[A-Za-z0-9_-]{16,80}$/),reportContentVerified:z.literal(true),identityAndValuesMatchReport:z.literal(true),disclosureReviewed:z.literal(true),abnormalAcknowledged:z.boolean(),note:reviewNote.optional(),benchRevision:z.number().int().positive().optional(),benchMeasurementsReviewed:z.literal(true).optional()}).parse(input);
  if(!await operationalWorkflow(db))throw new LabError('OPERATIONAL_MODE_REQUIRED',409);
  need(user,'result.review');need(user,'result.certify');need(user,'qc.accept');
- if((await db.query('SELECT 1 FROM result_gate_evaluation WHERE idempotency_key=$1',[d.idempotencyKey])).rows[0])return certifyAttempt(db,user,{versionId:d.versionId,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:d.expectedRowVersion,confirmed:true});
+ if((await db.query('SELECT 1 FROM result_gate_evaluation WHERE idempotency_key=$1',[d.idempotencyKey])).rows[0]||await alreadyReviewed(db,d.versionId))return certifyAttempt(db,user,{versionId:d.versionId,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:d.expectedRowVersion,confirmed:true});
  const v=await reviewInternalForRelease(db,user,{versionId:d.versionId,expectedRowVersion:d.expectedRowVersion,abnormalAcknowledged:d.abnormalAcknowledged,...(d.note?{note:d.note}:{}),...(d.benchRevision?{benchRevision:d.benchRevision}:{}),...(d.benchMeasurementsReviewed?{benchMeasurementsReviewed:true}:{})});
  return certifyAttempt(db,user,{versionId:v.id,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:v.row_version,confirmed:true});
 }
 /** Review + QC5 of an internal report; leaves the version in PendingCertification (Task 3 release simplification). */
 export async function reviewInternalForRelease(db:Queryable,user:Staff,input:unknown):Promise<VersionRow>{
  await assertSession(db,user);
- const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,abnormalAcknowledged:z.boolean(),note:z.string().trim().max(500).refine(x=>!/d{13}/.test(x),'REASON_TEXT_INVALID').optional(),benchRevision:z.number().int().positive().optional(),benchMeasurementsReviewed:z.literal(true).optional()}).parse(input);
+ const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,abnormalAcknowledged:z.boolean(),note:reviewNote.optional(),benchRevision:z.number().int().positive().optional(),benchMeasurementsReviewed:z.literal(true).optional()}).parse(input);
  if(!await operationalWorkflow(db))throw new LabError('OPERATIONAL_MODE_REQUIRED',409);
  need(user,'result.review');need(user,'qc.accept');
  const pre=await versionOf(db,d.versionId);

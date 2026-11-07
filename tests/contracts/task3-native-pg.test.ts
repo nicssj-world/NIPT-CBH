@@ -14,6 +14,7 @@ import {syntheticSignaturePng} from '../helpers/signature-png';
 import {previewHalosImport,decideHalosImport} from '../../packages/readygen/halos-import';
 import {submitSignerProfile,decideSignerProfile,grantDelegation} from '../../packages/readygen/signers';
 import {finalizeReports} from '../../packages/readygen/reports';
+import {certifyPending,pendingState} from '../helpers/certify-pending';
 import * as results from '../../packages/results/service';
 import {reserveReleasedResult} from '../../packages/p6/released-result';
 import {runTransfer} from '../../packages/p6/worker';
@@ -55,7 +56,10 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('native Task 3: app_rw internal r
   // A: Final + release as app_rw; worker_rw delivers the exact internal PDF once.
   const fin=await tx(app,t=>finalizeReports(t,f.u.certifier,deps,{idempotencyKey:randomUUID(),defaults:{reportedBy:f.u.staff.id,approvedBy:f.u.certifier.id},release:true,
    releaseConfirmations:{reportContentVerified:true,identityAndValuesMatchReport:true,disclosureReviewed:true,abnormalAcknowledged:true,benchMeasurementsReviewed:true},items:[{rowId:rowOf(a.printed)}]}));
-  expect(fin.items[0]).toMatchObject({outcome:'FINAL',versionState:'CertifiedReleased'});
+  // Since 2026-11-07 finalize stops at PendingCertification; the send step certifies (explicitly here) and only then is there a release.
+  expect(fin.items[0]).toMatchObject({outcome:'FINAL',versionState:'PendingCertification'});
+  expect(await tx(app,t=>pendingState(t,fin.items[0].versionId!))).toEqual({state:'PendingCertification',reviews:1,qc5:1,releases:0,outbox:0});
+  await tx(app,t=>certifyPending(t,f.u.certifier,fin.items[0].versionId!));
   const rel=(await owner.query<{id:string;sha256:string}>('SELECT r.id,v.sha256 FROM result_release r JOIN result_report_version v ON v.id=r.version_id WHERE v.id=$1',[fin.items[0].versionId])).rows[0];
   const transfer=await reserveReleasedResult(worker,rel.id,store);expect((await reserveReleasedResult(worker,rel.id,store)).id).toBe(transfer.id);
   expect(await runTransfer(worker,transfer.id)).toBe('AWAITING_CONFIRMATION');

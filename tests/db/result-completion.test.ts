@@ -6,7 +6,7 @@ import {syntheticReportPdf} from '../../tools/his-simulator/result-pdf';
 import {registerIntake,parseIntake} from '../../packages/results/intake';
 import {reviewBenchForResult} from '../../packages/lab/bench-review';
 import {previewCompletion,confirmCompletion} from '../../packages/results/completion';
-import {releaseReviewed,ancCaseResults,readReleasedFile} from '../../packages/results/service';
+import {releaseReviewed,ancCaseResults,readReleasedFile,unlinkVersion,proposeLink,decideLink,recordReview,acceptAndRelease} from '../../packages/results/service';
 import {SETTINGS} from '../../packages/settings/catalog';
 import {proposeSetting,validateSetting,approveSetting,activateSetting} from '../../packages/settings/service';
 
@@ -59,5 +59,42 @@ it('previews a certifier without link-proposal rights as ready: result_managemen
   await f.run(t=>reviewBenchForResult(t,f.u.certifier,c.attemptId,{revision:1,measurementsReviewed:true,reason:'SYNTHETIC legacy paper-only result evidence review'}));
   const result=(await f.run(t=>previewCompletion(t,f.u.certifier,{intakeIds:[intakeId]}))).items[0];
   expect(result.reasons).not.toContain('LINK_AUTHORITY_REQUIRED');expect(result.ready).toBe(true);
+ }finally{vi.unstubAllEnvs();await f.close();}
+},120000);
+
+it('releaseReviewed follows the gate: relinking after review makes it stale, a fresh review with the same-sha QC5 makes it true again',async()=>{
+ const f=await task3Fixture();try{
+  const c=f.cases[0],bytes=syntheticReportPdf({kind:'SINGLETON',labNumber:c.printed,hn:c.hn,dob:'01-Jan-1990',collection:pdfDate('2026-10-20'),gaWeeks:17,gaDays:6,sex:null});
+  const intakeId=await f.run(t=>registerIntake(t,f.store,{source:'UPLOAD',relativePath:null,originalName:'SYNTHETIC-relink.pdf',actorId:f.admin.id,jobId:null},bytes));
+  await f.run(t=>parseIntake(t,f.store,intakeId,{maxBytes:10000000,acceptZip:true}));
+  await f.run(t=>reviewBenchForResult(t,f.admin,c.attemptId,{revision:1,measurementsReviewed:true,reason:'SYNTHETIC legacy paper-only result evidence review'}));
+  const done=await f.run(t=>confirmCompletion(t,f.admin,{idempotencyKey:randomUUID(),items:[{intakeId,caseId:c.caseId,roundId:c.roundId,attemptId:c.attemptId}]}));
+  const id=done.items[0].versionId!;
+  expect(await f.run(t=>releaseReviewed(t,id))).toBe(true);
+  const rv=async()=>(await f.db.query<{row_version:number}>('SELECT row_version FROM result_report_version WHERE id=$1',[id])).rows[0].row_version;
+  await f.run(async t=>unlinkVersion(t,f.admin,{versionId:id,reason:'SYNTHETIC unlink to relink',expectedRowVersion:await rv()}));
+  await f.run(async t=>proposeLink(t,f.admin,{versionId:id,roundId:c.roundId,attemptId:c.attemptId,reason:'SYNTHETIC relink after review',expectedRowVersion:await rv()}));
+  await f.run(async t=>decideLink(t,f.admin,{versionId:id,decision:'APPROVE',reason:'SYNTHETIC relink approval',expectedRowVersion:await rv()}));
+  expect((await f.db.query<{state:string}>('SELECT state FROM result_report_version WHERE id=$1',[id])).rows[0].state).not.toBe('PendingCertification');
+  expect(await f.run(t=>releaseReviewed(t,id))).toBe(false);
+  await f.run(async t=>recordReview(t,f.admin,{versionId:id,valuesMatchPdf:true,abnormalAcknowledged:false,expectedRowVersion:await rv()}));
+  expect(await f.run(t=>releaseReviewed(t,id))).toBe(true);
+  expect((await f.db.query<{state:string}>('SELECT state FROM result_report_version WHERE id=$1',[id])).rows[0].state).toBe('PendingCertification');
+ }finally{vi.unstubAllEnvs();await f.close();}
+},120000);
+
+it('acceptAndRelease on an already reviewed PendingCertification version certifies without recording a second review or QC5',async()=>{
+ const f=await task3Fixture();try{
+  const c=f.cases[0],bytes=syntheticReportPdf({kind:'SINGLETON',labNumber:c.printed,hn:c.hn,dob:'01-Jan-1990',collection:pdfDate('2026-10-20'),gaWeeks:17,gaDays:6,sex:null});
+  const intakeId=await f.run(t=>registerIntake(t,f.store,{source:'UPLOAD',relativePath:null,originalName:'SYNTHETIC-no-double.pdf',actorId:f.admin.id,jobId:null},bytes));
+  await f.run(t=>parseIntake(t,f.store,intakeId,{maxBytes:10000000,acceptZip:true}));
+  await f.run(t=>reviewBenchForResult(t,f.admin,c.attemptId,{revision:1,measurementsReviewed:true,reason:'SYNTHETIC legacy paper-only result evidence review'}));
+  const done=await f.run(t=>confirmCompletion(t,f.admin,{idempotencyKey:randomUUID(),items:[{intakeId,caseId:c.caseId,roundId:c.roundId,attemptId:c.attemptId}]}));
+  const id=done.items[0].versionId!;
+  const row=(await f.db.query<{row_version:number}>('SELECT row_version FROM result_report_version WHERE id=$1',[id])).rows[0];
+  const r=await f.run(t=>acceptAndRelease(t,f.admin,{versionId:id,expectedRowVersion:row.row_version,idempotencyKey:randomUUID(),externalFinalCertified:true,identityAndValuesMatchPdf:true,disclosureReviewed:true,abnormalAcknowledged:false}));
+  expect(r.outcome).toBe('CertifiedReleased');
+  expect((await f.db.query('SELECT 1 FROM result_review WHERE version_id=$1',[id])).rows).toHaveLength(1);
+  expect((await f.db.query('SELECT 1 FROM result_qc5_review WHERE version_id=$1',[id])).rows).toHaveLength(1);
  }finally{vi.unstubAllEnvs();await f.close();}
 },120000);

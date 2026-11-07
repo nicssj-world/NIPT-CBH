@@ -13,6 +13,7 @@ import {syntheticSignaturePng} from '../helpers/signature-png';
 import {previewHalosImport,decideHalosImport} from '../../packages/readygen/halos-import';
 import {submitSignerProfile,decideSignerProfile,grantDelegation} from '../../packages/readygen/signers';
 import {finalizeReports} from '../../packages/readygen/reports';
+import {certifyPending,pendingState} from '../helpers/certify-pending';
 import {enableArchive,queueArchiveProbe,retryFailedArchive} from '../../packages/results/archive-settings';
 import {runArchiveCycle,runArchiveProbeCycle} from '../../packages/results/archive-worker';
 import {readArchiveStatus} from '../../packages/results/archive-access';
@@ -38,8 +39,11 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('native synthetic clinical pathwa
   await approveInterpretation(f,{interpretationApproved:true,singletonApprovedProduct:'HNZ0011',twinApprovedProduct:'HNZ0011',approvalReference:'SYNTHETIC-CLINICAL-APPROVAL-NATIVE'});await recordPaperRequest(f,a,'Want');await recordPaperRequest(f,b,'Want');
   const row=imp.rows.find(r=>r.sheet==='result'&&r.sampleKey===a.printed)!;
   const fin=await tx(app,t=>finalizeReports(t,f.u.certifier,{store,templates:masters()},{idempotencyKey:randomUUID(),defaults:{reportedBy:f.u.staff.id,approvedBy:f.u.certifier.id},release:true,releaseConfirmations:{reportContentVerified:true,identityAndValuesMatchReport:true,disclosureReviewed:true,abnormalAcknowledged:true,benchMeasurementsReviewed:true},items:[{rowId:row.id}]}));
-  expect(fin.items[0]).toMatchObject({outcome:'FINAL',versionState:'CertifiedReleased'});
+  expect(fin.items[0]).toMatchObject({outcome:'FINAL',versionState:'PendingCertification'});
   const versionId=fin.items[0].versionId!;
+  // Waiting to be sent: nothing released or archived; the send step certifies (explicitly here).
+  expect(await tx(app,t=>pendingState(t,versionId))).toEqual({state:'PendingCertification',reviews:1,qc5:1,releases:0,outbox:0});
+  await tx(app,t=>certifyPending(t,f.u.certifier,versionId));
   const before=(await owner.query('SELECT row_to_json(r)::text release,(SELECT json_agg(row_to_json(o) ORDER BY o.id)::text FROM job_outbox o) outbox FROM result_release r WHERE version_id=$1',[versionId])).rows[0];
   await runArchiveCycle(worker,store,async(_root,intent)=>({state:'FAILED',sha256:intent.sha256,reason:'ARCHIVE_ENOENT'}));
   expect((await readArchiveStatus(app,f.u.staff,versionId)).state).toBe('PENDING');
@@ -54,7 +58,8 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('native synthetic clinical pathwa
   const after=(await owner.query('SELECT row_to_json(r)::text release,(SELECT json_agg(row_to_json(o) ORDER BY o.id)::text FROM job_outbox o) outbox FROM result_release r WHERE version_id=$1',[versionId])).rows[0];expect(after).toEqual(before);
   const second=imp.rows.find(r=>r.sheet==='result'&&r.sampleKey===b.printed)!;
   const fin2=await tx(app,t=>finalizeReports(t,f.u.certifier,{store,templates:masters()},{idempotencyKey:randomUUID(),defaults:{reportedBy:f.u.staff.id,approvedBy:f.u.certifier.id},release:true,releaseConfirmations:{reportContentVerified:true,identityAndValuesMatchReport:true,disclosureReviewed:true,abnormalAcknowledged:true,benchMeasurementsReviewed:true},items:[{rowId:second.id}]}));
-  expect(fin2.items[0]).toMatchObject({outcome:'FINAL',versionState:'CertifiedReleased'});const secondId=fin2.items[0].versionId!;
+  expect(fin2.items[0]).toMatchObject({outcome:'FINAL',versionState:'PendingCertification'});const secondId=fin2.items[0].versionId!;
+  await tx(app,t=>certifyPending(t,f.u.certifier,secondId));
   const snapshot=async()=>(await owner.query('SELECT row_to_json(r)::text release,(SELECT json_agg(row_to_json(o) ORDER BY o.id)::text FROM job_outbox o) outbox FROM result_release r WHERE version_id=$1',[secondId])).rows[0];
   const beforeOffline=await snapshot();await rename(archive,archive+'-offline');
   try{for(let attempt=1;attempt<=5;attempt++){

@@ -7,6 +7,7 @@ import {submitSignerProfile,decideSignerProfile,revokeDelegation} from '../../pa
 import {syntheticSignaturePng} from '../helpers/signature-png';
 import * as results from '../../packages/results/service';
 import {pdfText} from '../../packages/results/extract';
+import {certifyPending,pendingState} from '../helpers/certify-pending';
 
 // Native: renders through the installed Microsoft Word (as ReadyGen does). Runs on the Windows development PC; it fails, never skips,
 // where Word is unavailable. No real patient data: synthetic cases, synthetic signatures, Owner DOCX masters from the protected copy.
@@ -39,8 +40,14 @@ it('pathway A end-to-end: HALOS → approved interpretation → Owner DOCX → s
    releaseConfirmations:{reportContentVerified:true,identityAndValuesMatchReport:true,disclosureReviewed:true,abnormalAcknowledged:true,benchMeasurementsReviewed:true},
    items:[{rowId:rowOf(a.printed)},{rowId:rowOf(b.printed)},{rowId:rowOf(tw.printed)},{rowId:rowOf(pc)}]}));
   const out=Object.fromEntries(fin.items.map(i=>[i.rowId,i]));
-  expect(out[rowOf(a.printed)]).toMatchObject({outcome:'FINAL',versionState:'CertifiedReleased',release:'CertifiedReleased'});
-  expect(out[rowOf(b.printed)]).toMatchObject({outcome:'FINAL',versionState:'CertifiedReleased'});
+  // Since 2026-11-07 finalize stops at PendingCertification; the later send step certifies (done here explicitly).
+  expect(out[rowOf(a.printed)]).toMatchObject({outcome:'FINAL',versionState:'PendingCertification',release:'PendingCertification'});
+  expect(out[rowOf(b.printed)]).toMatchObject({outcome:'FINAL',versionState:'PendingCertification'});
+  for(const r of [a,b]){
+   const vid=out[rowOf(r.printed)].versionId!;
+   expect(await f.run(t=>pendingState(t,vid))).toEqual({state:'PendingCertification',reviews:1,qc5:1,releases:0,outbox:0});
+   await f.run(t=>certifyPending(t,f.u.certifier,vid));
+  }
   // The twin's Y result is shown; its wish is unrecorded and the existing operational twin disclosure review applies.
   expect(out[rowOf(tw.printed)].outcome).toBe('FINAL');
   expect(out[rowOf(pc)]).toMatchObject({outcome:'HOLD'});expect(out[rowOf(pc)].holds!.map(h=>h.code)).toContain('ROW_NOT_REPORTABLE');
