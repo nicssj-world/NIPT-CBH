@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {resultPredicates,noticePredicates,decideGate,type ResultFacts,type NoticeFacts,type CrossCheck} from '../../packages/results/gates';
+import {resultPredicates,crossFailures,noticePredicates,decideGate,type ResultFacts,type NoticeFacts,type CrossCheck} from '../../packages/results/gates';
 
 const match:CrossCheck={hn:'MATCH',dob:'MATCH',pregnancy:'MATCH',collectionDate:'MATCH',gestationalAge:'MATCH',labNumber:'MATCH'};
 // Theoretical accepted facts exercise the pure predicate's PASS branch. The runtime evidence
@@ -27,12 +27,18 @@ describe('RG-01..RG-13 (Plan §5.9.2)',()=>{
  it('unapproved template/PIC is PENDING OD-07 and blocks (RG-01)',()=>{expect(status({templateApproved:false},'RG-01')).toMatchObject({status:'PENDING',governance:'OD-07'});});
  it('unreadable required value or PDF QC not PASS fails RG-02',()=>{expect(status({missing:['xo']},'RG-02').reason).toBe('UNREADABLE_XO');expect(status({pdfQc:'FAIL'},'RG-02').reason).toBe('PDF_QC_NOT_PASS');});
  it('an open link proposal fails RG-03',()=>{expect(status({openProposal:true},'RG-03').status).toBe('FAIL');});
- it('conflicting lab numbers fail RG-04; an unavailable optional lab number remains allowed',()=>{
+ it('conflicting or missing lab numbers fail RG-04; DOB, pregnancy, collection date and GA are not identity keys',()=>{
   expect(status({cross:{...match,labNumber:'MISMATCH'}},'RG-04')).toMatchObject({status:'FAIL',reason:'MISMATCH_LABNUMBER'});
-  expect(status({cross:{...match,labNumber:'NOT_AVAILABLE'}},'RG-04')).toMatchObject({status:'PASS',reason:'CROSS_CHECK_MATCH'});
-  expect(status({cross:{...match,dob:'NOT_AVAILABLE'}},'RG-04')).toMatchObject({status:'FAIL',reason:'NOT_AVAILABLE_DOB'});
+  expect(status({cross:{...match,labNumber:'NOT_AVAILABLE'}},'RG-04')).toMatchObject({status:'FAIL',reason:'NOT_AVAILABLE_LABNUMBER'});
+  expect(status({cross:{...match,dob:'NOT_AVAILABLE'}},'RG-04')).toMatchObject({status:'PASS',reason:'CROSS_CHECK_MATCH'});
  });
- it('AT-RG-05: DOB / pregnancy / round collection date mismatch fails RG-04',()=>{for(const k of ['dob','pregnancy','collectionDate'] as const)expect(status({cross:{...match,[k]:'MISMATCH'}},'RG-04').status).toBe('FAIL');expect(status({cross:{...match,hn:'NOT_AVAILABLE'}},'RG-04').status).toBe('FAIL');});
+ it('AT-RG-05: HN mismatch or missing HN fails RG-04; DOB / pregnancy / collection date mismatch no longer does',()=>{for(const k of ['dob','pregnancy','collectionDate'] as const)expect(status({cross:{...match,[k]:'MISMATCH'}},'RG-04').status).toBe('PASS');expect(status({cross:{...match,hn:'NOT_AVAILABLE'}},'RG-04').status).toBe('FAIL');expect(status({cross:{...match,hn:'MISMATCH'}},'RG-04').status).toBe('FAIL');});
+ it('RESULT link keys are HN and lab number only',()=>{
+  const same={hn:'MATCH',labNumber:'MATCH',dob:'MISMATCH',pregnancy:'NOT_AVAILABLE',collectionDate:'MISMATCH',gestationalAge:'NOT_AVAILABLE'} as CrossCheck;
+  expect(crossFailures(same,'RESULT')).toEqual([]);
+  expect(crossFailures({...same,labNumber:'NOT_AVAILABLE'},'RESULT')).toEqual(['labNumber']);
+  expect(crossFailures({...same,hn:'MISMATCH'},'RESULT')).toEqual(['hn']);
+ });
  it('AT-RG-02 / AT-RG-04: old round, superseded attempt, redraw, open repeat fail RG-05',()=>{
   expect(status({isCurrentRound:false},'RG-05').reason).toBe('NOT_CURRENT_ROUND');expect(status({roundState:'RedrawRequested'},'RG-05').reason).toBe('REDRAW_REQUESTED');
   expect(status({openRepeat:true},'RG-05').reason).toBe('REPEAT_ORDER_OPEN');expect(status({attemptState:'Superseded'},'RG-05').status).toBe('FAIL');expect(status({attemptIsLatest:false},'RG-05').status).toBe('FAIL');

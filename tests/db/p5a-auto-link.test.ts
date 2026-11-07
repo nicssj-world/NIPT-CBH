@@ -4,8 +4,9 @@ import {resultFixture,receivedCase,importReport,rowVersion,pdfDate,type ResultFi
 import {syntheticReportPdf} from '../../tools/his-simulator/result-pdf';
 import {registerIntake,parseIntake} from '../../packages/results/intake';
 import * as results from '../../packages/results/service';
+import {orderRepeat} from '../../packages/lab/intake';
 import {SETTINGS} from '../../packages/settings/catalog';
-import {proposeSetting,validateSetting,approveSetting,activateSetting,rollbackSetting} from '../../packages/settings/service';
+import {proposeSetting,validateSetting,approveSetting,activateSetting} from '../../packages/settings/service';
 
 // Owner P5-A (2026-10-18) + migration 100: a final result PDF with exactly one clean match is linked by the system, without a second
 // person, only while result_management.linkageMode = UNIQUE_AUTO_LINK (Settings maker-checker). Nothing is released or sent to HIS.
@@ -39,32 +40,45 @@ describe('P5-A system link of a single clean match',()=>{
   expect(gate.predicates.find(p=>p.code==='RG-03')).toMatchObject({status:'PASS',reason:'LINKED_AUTO_UNIQUE'});
   expect(gate.eligible).toBe(false); // review/certification still have to be recorded by an authorised person
  });
- it('default and rollback: MANUAL_REVIEWED_ONLY keeps the two-person proposal path; the Setting change is what turns it on and off',async()=>{
+ it('links while result_management.linkageMode is MANUAL: the lab-number rule no longer depends on the setting',async()=>{
   const c=await receivedCase(f);let r=await importReport(f,await spec(c));
-  expect(r.outcome).toBe('Unlinked');expect(await links(r.versionId)).toEqual([]);
-  const d=await results.versionDetail(f.db,f.u.staff,r.versionId);expect(d.autoMatch).toMatchObject({roundId:c.roundId,linksDirectly:false});
-  const on=await linkage('UNIQUE_AUTO_LINK');
-  // proposeAuto now links an earlier import directly (same contract); before, it would only have proposed.
-  const out=await f.run(async t=>results.proposeAutoMatch(t,f.u.staff,{versionId:r.versionId,expectedRowVersion:(await rowVersion(f,r.versionId)).row_version}));
-  expect(out).toMatchObject({autoLinked:true});expect((await links(r.versionId)).map(x=>x.event)).toEqual(['AUTO_LINKED']);
+  expect(['PendingCertification','ValidationBlocked']).toContain(r.outcome);expect((await links(r.versionId)).map(x=>x.event)).toEqual(['AUTO_LINKED']);
   await linkage('MANUAL_REVIEWED_ONLY');
-  const c2=await receivedCase(f);r=await importReport(f,await spec(c2));expect(r.outcome).toBe('Unlinked');expect(await links(r.versionId)).toEqual([]);
-  // Rollback to the archived P5-A revision is a new version that must be validated and approved again before it acts.
-  const rb=await f.run(t=>rollbackSetting(t,f.u.certifier,on,'Return to Owner P5-A system linkage'));
-  await expect(f.run(t=>activateSetting(t,f.u.approver,rb))).rejects.toThrow('SETTING_APPROVAL_REQUIRED');
-  const c3=await receivedCase(f);expect((await importReport(f,await spec(c3))).outcome).toBe('Unlinked');
-  await f.run(t=>validateSetting(t,f.u.certifier,rb,async()=>true));await f.run(t=>approveSetting(t,f.u.approver,rb));await f.run(t=>activateSetting(t,f.u.approver,rb));
-  const c4=await receivedCase(f);expect((await links((await importReport(f,await spec(c4))).versionId)).map(x=>x.event)).toEqual(['AUTO_LINKED']);
+  const c2=await receivedCase(f);r=await importReport(f,await spec(c2));
+  expect((await f.db.query('SELECT state,link_mode FROM result_report_version WHERE id=$1',[r.versionId])).rows[0]).toMatchObject({link_mode:'AUTO_UNIQUE'});
+  expect((await links(r.versionId)).map(x=>x.event)).toEqual(['AUTO_LINKED']);
  });
- it('negative: ambiguous HN, missing/wrong identifier, mismatching DOB and notices stay Unlinked for manual review',async()=>{
+ it('links when HN and LN Halos match one current attempt even if DOB and GA differ',async()=>{
+  const c=await receivedCase(f);
+  const r=await importReport(f,await spec(c,{dob:'01-Jan-1990',collection:pdfDate('2026-09-01'),gaWeeks:30,gaDays:0}));
+  expect((await f.db.query('SELECT state,link_mode,attempt_id FROM result_report_version WHERE id=$1',[r.versionId])).rows[0]).toMatchObject({link_mode:'AUTO_UNIQUE',attempt_id:c.attemptId});
+  expect(r.outcome).not.toBe('Unlinked');
+ });
+ it('does not link when the lab number is the printed ID of a superseded attempt',async()=>{
+  const c=await receivedCase(f);
+  await f.db.query("UPDATE analytical_attempt a SET printed_sample_id=n.ln_halos||'D-1' FROM specimen_lab_number n WHERE n.round_id=a.round_id AND a.id=$1 AND a.printed_sample_id IS NULL",[c.attemptId]);
+  const old=await printed(c.attemptId);
+  await f.db.query("UPDATE analytical_attempt SET state='Assigned' WHERE id=$1",[c.attemptId]);await f.db.query("UPDATE analytical_attempt SET state='InProgress' WHERE id=$1",[c.attemptId]);
+  await f.db.query("UPDATE analytical_attempt SET state='QcFailed',qc_failed_stage='QC1' WHERE id=$1",[c.attemptId]);
+  const rep=await f.run(t=>orderRepeat(t,f.u.staff,{attemptId:c.attemptId,level:'RE_LIBRARY',reasonCode:'QC1_LOW',note:'SYNTHETIC repeat after QC1 failure'}));
+  expect(rep.printedSampleId).not.toBe(old);
+  expect((await f.db.query<{state:string}>("SELECT state FROM analytical_attempt WHERE id=$1",[c.attemptId])).rows[0].state).toBe('Superseded');
+  expect((await importReport(f,await spec(c,{labNumber:old}))).outcome).toBe('Unlinked');
+  expect(await skipped()).toEqual(['NOT_A_CLEAN_MATCH']);
+ });
+ it('does not link when two cases share the HN and lab number',async()=>{
+  const a=await receivedCase(f,{hn:'990000077002'}),b=await receivedCase(f,{hn:'990000077002'});void b;
+  expect((await importReport(f,await spec(a))).outcome).toBe('Unlinked');
+  expect(await skipped()).toEqual(['AMBIGUOUS_CASES']);
+ });
+ it('negative: ambiguous HN, missing/wrong identifier, and notices stay Unlinked for manual review',async()=>{
   await linkage('UNIQUE_AUTO_LINK');
   const a=await receivedCase(f,{hn:'990000077001'}),b=await receivedCase(f,{hn:'990000077001'});
   expect((await importReport(f,await spec(a))).outcome).toBe('Unlinked'); // two cases share the HN (handover samples 50/51)
   const c=await receivedCase(f);
   expect((await importReport(f,await spec(c,{labNumber:'26P77000001'}))).outcome).toBe('Unlinked'); // legacy BGI number, not this attempt
-  expect((await importReport(f,await spec(c,{dob:'01-Jan-1990'}))).outcome).toBe('Unlinked');
   expect((await importReport(f,{kind:'NOTICE',labNumber:await printed(c.attemptId),hn:c.hn,collection:pdfDate(c.collection)})).outcome).toBe('Unlinked');
-  expect(await skipped()).toEqual(['AMBIGUOUS_CASES','NOT_A_CLEAN_MATCH','NOT_A_CLEAN_MATCH']);
+  expect(await skipped()).toEqual(['AMBIGUOUS_CASES','NOT_A_CLEAN_MATCH']);
   expect((await f.db.query<{n:number}>("SELECT count(*)::int n FROM result_link_event WHERE event='AUTO_LINKED'")).rows[0].n).toBe(0);
   void b;
  });
@@ -74,14 +88,14 @@ describe('P5-A system link of a single clean match',()=>{
   const first=await importReport(f,bytes,f.u.staff,name);expect(['PendingCertification','ValidationBlocked']).toContain(first.outcome);
   const again=await importReport(f,bytes,f.u.staff,`other-${name}`);expect(again).toMatchObject({outcome:'Duplicate',versionId:first.versionId});
   const second=await importReport(f,await spec(c,{reported:'21-Oct-2026'}));expect(second.outcome).toBe('Unlinked');
-  // same file name, different content (A14): the import needs acknowledgement and the system never links it
+  // same file name, different content (A14): the import still needs acknowledgement, but the file name no longer blocks the link
   const other=await receivedCase(f),renamed=syntheticReportPdf(await spec(other));
   const id=await f.run(t=>registerIntake(t,f.store,{source:'UPLOAD',relativePath:null,originalName:name,actorId:f.u.staff.id,jobId:null},renamed));
   await f.run(t=>parseIntake(t,f.store,id,{maxBytes:1e7,acceptZip:true}));
   const ack=await f.run(t=>results.confirmImport(t,f.u.staff,{intakeIds:[id],acknowledgeNameConflicts:[id]}));
-  expect(ack[0]).toMatchObject({outcome:'Unlinked',autoLink:'NAME_CONFLICT'});
-  expect(await skipped()).toEqual(['SERIES_NOT_EMPTY','NAME_CONFLICT']);
-  expect((await f.db.query<{n:number}>("SELECT count(*)::int n FROM result_link_event WHERE event='AUTO_LINKED'")).rows[0].n).toBe(1);
+  expect(ack[0]).toMatchObject({autoLink:'LINKED'});
+  expect(await skipped()).toEqual(['SERIES_NOT_EMPTY']);
+  expect((await f.db.query<{n:number}>("SELECT count(*)::int n FROM result_link_event WHERE event='AUTO_LINKED'")).rows[0].n).toBe(2);
  });
  it('one confirmation with two PDFs for the same round links only the first; a human unlink keeps the version manual for good',async()=>{
   await linkage('UNIQUE_AUTO_LINK');const c=await receivedCase(f);
@@ -99,7 +113,7 @@ describe('P5-A system link of a single clean match',()=>{
   await expect(f.run(async t=>results.decideLink(t,f.u.staff,{versionId:v,decision:'APPROVE',reason:'Lab staff may not approve',expectedRowVersion:(await rowVersion(f,v)).row_version}))).rejects.toMatchObject({code:'FORBIDDEN'});
  });
  it('database guards: AUTO_LINKED needs evidence, an empty series, the current attempt and no human decision; AUTO_UNIQUE needs the event',async()=>{
-  const c=await receivedCase(f);const r=await importReport(f,await spec(c));expect(r.outcome).toBe('Unlinked');
+  const c=await receivedCase(f);const r=await importReport(f,await spec(c,{labNumber:'26P77000001'}));expect(r.outcome).toBe('Unlinked');
   const ins=(extra:Partial<{evidence:unknown;attempt:string;round:string}>={})=>f.db.query("INSERT INTO result_link_event(version_id,event,mode,case_id,round_id,attempt_id,outcome,reason,match_evidence,actor_id) VALUES($1,'AUTO_LINKED','AUTO_UNIQUE',$2,$3,$4,'Linked','direct database test',$5,$6)",
    [r.versionId,c.caseId,extra.round??c.roundId,extra.attempt??c.attemptId,extra.evidence===undefined?JSON.stringify({contract:'X',candidates:1}):extra.evidence,f.u.staff.id]);
   await expect(ins({evidence:null})).rejects.toThrow(/result_link_event/);
@@ -107,7 +121,7 @@ describe('P5-A system link of a single clean match',()=>{
   await expect(f.db.query("INSERT INTO result_link_event(version_id,event,mode,case_id,round_id,attempt_id,reason,actor_id) VALUES($1,'PROPOSED','AUTO_UNIQUE',$2,$3,$4,'mode only for system links',$5)",[r.versionId,c.caseId,c.roundId,c.attemptId,f.u.staff.id])).rejects.toThrow(/result_link_event_mode_check/);
   await expect(f.db.query("UPDATE result_report_version SET link_mode='AUTO_UNIQUE',state='Linked',case_id=$2,round_id=$3,attempt_id=$4,row_version=row_version+1 WHERE id=$1",[r.versionId,c.caseId,c.roundId,c.attemptId])).rejects.toThrow('AUTO_LINK_EVENT_REQUIRED');
   await expect(f.db.query("UPDATE result_report_version SET link_mode='AUTO_PIC',row_version=row_version+1 WHERE id=$1",[r.versionId])).rejects.toThrow(/link_mode_check1/);
-  const other=await receivedCase(f);await importReport(f,await spec(other));
+  const other=await receivedCase(f);await importReport(f,await spec(other,{labNumber:'26P77000001'}));
   await expect(ins({round:other.roundId,attempt:other.attemptId})).rejects.toThrow(/AUTO_LINK_TARGET_NOT_CURRENT|specimen_round/);
   await f.run(async t=>results.proposeLink(t,f.u.staff,{versionId:r.versionId,roundId:c.roundId,attemptId:c.attemptId,reason:'Manual proposal first',expectedRowVersion:(await rowVersion(f,r.versionId)).row_version}));
   await expect(ins()).rejects.toThrow('LINK_PROPOSAL_OPEN');

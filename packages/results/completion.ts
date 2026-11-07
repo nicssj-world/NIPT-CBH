@@ -6,11 +6,11 @@ import {authorize} from '../security/policy';
 import type {Parsed} from './parser';
 import {attemptEvidence} from './evidence';
 import {isNoCallReport} from './parser';
-import {autoMatchCandidate,linkCandidates,resultSettings,nameConflicts,confirmImport,proposeAutoMatch,decideLink,acceptAndRelease,type Candidate} from './service';
+import {autoMatchCandidate,linkCandidates,resultSettings,confirmImport,proposeAutoMatch,decideLink,acceptAndRelease,type Candidate} from './service';
 
-export function completionPreview(candidates:Candidate[],options:{kind:string;nameConflicts:number;openRevision:boolean}){
+export function completionPreview(candidates:Candidate[],options:{kind:string;openRevision:boolean}){
  const candidate=autoMatchCandidate(candidates,options);
- return {ready:!!candidate,candidate,reasons:candidate?[]:[options.kind!=='RESULT'?'NOT_FINAL_RESULT':options.nameConflicts?'NAME_REVIEW_REQUIRED':options.openRevision?'OPEN_REPORT_EXISTS_FOR_ROUND':'IDENTITY_MATCH_REQUIRED']};
+ return {ready:!!candidate,candidate,reasons:candidate?[]:[options.kind!=='RESULT'?'NOT_FINAL_RESULT':options.openRevision?'OPEN_REPORT_EXISTS_FOR_ROUND':'IDENTITY_MATCH_REQUIRED']};
 }
 const previewSchema=z.strictObject({intakeIds:z.array(uuid).min(1).max(100)});
 export async function previewCompletion(db:Queryable,user:Staff,input:unknown){
@@ -21,9 +21,9 @@ export async function previewCompletion(db:Queryable,user:Staff,input:unknown){
    'SELECT *,coalesce(member_name,original_name) name FROM result_intake_file WHERE id=$1',[id])).rows[0];
   if(!r||r.actor_id!==user.id)throw new LabError('NOT_FOUND',404);
   if(r.state!=='Parsed'||r.container==='ZIP_BATCH'){items.push({intakeId:id,name:r.name,ready:false,candidate:null,reasons:['INTAKE_NOT_READY'],abnormal:false});continue;}
-  const candidates=await linkCandidates(db,user,r.parsed,settings),conflicts=await nameConflicts(db,r.name,r.sha256,r.job_id,r.id);
+  const candidates=await linkCandidates(db,user,r.parsed,settings);
   const open=candidates.length?(await db.query('SELECT 1 FROM result_report_version WHERE round_id=ANY($1::uuid[]) AND kind=$2 AND state IN (\'LinkConflict\',\'Linked\',\'ValidationBlocked\',\'PendingCertification\',\'CertifiedReleased\') LIMIT 1',[candidates.map(c=>c.round.id),'RESULT'])).rows.length>0:false;
-  const planned=completionPreview(candidates,{kind:['SINGLETON','TWIN'].includes(r.parsed.templateKind)?'RESULT':r.parsed.templateKind,nameConflicts:conflicts.versions.length+conflicts.sameBatch,openRevision:open});
+  const planned=completionPreview(candidates,{kind:['SINGLETON','TWIN'].includes(r.parsed.templateKind)?'RESULT':r.parsed.templateKind,openRevision:open});
   if(!authorize(user,'result.certify')){planned.ready=false;planned.reasons.push('CERTIFIER_REQUIRED');}
   if(settings.linkageMode!=='UNIQUE_AUTO_LINK'&&(!authorize(user,'result.link.manual',{},'propose')||!authorize(user,'result.link.manual',{},'approve'))){planned.ready=false;planned.reasons.push('LINK_AUTHORITY_REQUIRED');}
   const run=planned.candidate?(await db.query<{run_label:string}>("SELECT b.run_label FROM lab_slot_assignment a JOIN lab_batch b ON b.id=a.batch_id WHERE a.attempt_id=$1 AND a.removed_at IS NULL AND b.state<>'Cancelled'",[planned.candidate.attempt.id])).rows[0]?.run_label??null:null;

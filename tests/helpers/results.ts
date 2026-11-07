@@ -9,7 +9,7 @@ import {FileStore} from '../../packages/storage';
 import type {Queryable} from '../../packages/db/connection';
 import type {Principal} from '../../packages/security/policy';
 import {registerIntake,parseIntake} from '../../packages/results/intake';
-import {confirmImport} from '../../packages/results/service';
+import {confirmImport,unlinkVersion} from '../../packages/results/service';
 import {syntheticReportPdf,type ReportSpec} from '../../tools/his-simulator/result-pdf';
 
 /** Disposable PGlite + marked synthetic simulator root (simulator/results) + file store. Never touches data/ or a hospital path. */
@@ -49,3 +49,13 @@ export async function importReport(f:ResultFixture,spec:ReportSpec|Buffer,user:P
  return {intakeId:id,versionId:r[0].versionId!,outcome:r[0].outcome};
 }
 export const rowVersion=async(f:ResultFixture,id:string)=>(await f.db.query<{row_version:number;state:string}>('SELECT row_version,state FROM result_report_version WHERE id=$1',[id])).rows[0];
+/**
+ * Imports a report for the manual two-person path. Since the 2026-11-07 link rule (HN + lab number) a matching PDF links by itself on import,
+ * so a test of the manual path imports it and then has the certifier unlink it; the human decision keeps it manual for good.
+ */
+export async function importUnlinked(f:ResultFixture,spec:ReportSpec|Buffer,user:Principal=f.u.staff,name?:string){
+ const r=await importReport(f,spec,user,name);
+ if(r.outcome==='Unlinked'||r.outcome==='Duplicate'||r.outcome==='RejectedImport')return r;
+ await f.run(async t=>unlinkVersion(t,f.u.certifier,{versionId:r.versionId,reason:'SYNTHETIC test returns the automatic link to the manual path',expectedRowVersion:(await rowVersion(f,r.versionId)).row_version}));
+ return {...r,outcome:'Unlinked'};
+}

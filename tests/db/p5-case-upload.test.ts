@@ -46,25 +46,19 @@ describe('Two PDF intake channels',()=>{
   expect(out[0]).toMatchObject({autoLink:'LINKED'});expect(['PendingCertification','ValidationBlocked']).toContain(out[0].outcome);
   const st=await status(c.caseId);expect(st.rounds[0].status).toBe('AWAITING_ACCEPTANCE');expect(st.versions[0]).toMatchObject({channel:'FOLDER_OR_RESULTS_PAGE',linkMode:'AUTO_UNIQUE'});
  });
- it('2 case-page upload: check against the selected round/attempt, confirm, proposal for a second person, MANUAL_UPLOAD recorded',async()=>{
+ it('2 case-page upload: check against the selected round/attempt, confirm, linked by HN + lab number, MANUAL_UPLOAD recorded',async()=>{
   const c=await receivedCase(f),bytes=await pdfFor(c);
   const {check,confirm}=await upload(c,bytes);
   expect(check).toMatchObject({outcome:'READY',channel:'MANUAL_UPLOAD',kind:'RESULT',cross:{hn:'MATCH',dob:'MATCH',collectionDate:'MATCH',gestationalAge:'MATCH',labNumber:'MATCH'}});
-  expect(confirm).toMatchObject({outcome:'IMPORTED',state:'Unlinked',next:'รอผู้รับรองคนที่สองยืนยันการเชื่อมโยง'});
+  // Since 2026-11-07 a PDF whose HN and lab number match one current attempt links by itself, whatever result_management.linkageMode says.
+  expect(confirm).toMatchObject({outcome:'IMPORTED',linkMode:'AUTO_UNIQUE',next:'รอตรวจรับ PDF และยืนยันส่งผล'});
   const v=confirm!.versionId;
   const ev=(await f.db.query<{details:Record<string,string>;actor_id:string}>("SELECT details,actor_id FROM result_version_event WHERE version_id=$1 AND reason='MANUAL_UPLOAD_FOR_CASE'",[v])).rows[0];
   expect(ev).toMatchObject({actor_id:f.u.staff.id,details:{channel:'MANUAL_UPLOAD',caseId:c.caseId,roundId:c.roundId,attemptId:c.attemptId}});
   const stored=(await f.db.query<{sha256:string;imported_by:string;imported_at:Date}>('SELECT sha256,imported_by,imported_at FROM result_report_version WHERE id=$1',[v])).rows[0];
   expect(stored).toMatchObject({sha256:check.sha256,imported_by:f.u.staff.id});expect(await f.store.get(stored.sha256)).toEqual(bytes); // original kept as uploaded
-  expect((await status(c.caseId)).rounds[0].status).toBe('AWAITING_MATCH');
-  await expect(f.run(async t=>results.decideLink(t,f.u.staff,{versionId:v,decision:'APPROVE',reason:'Lab staff may not approve',expectedRowVersion:(await rowVersion(f,v)).row_version}))).rejects.toMatchObject({code:'FORBIDDEN'});
-  await f.run(async t=>results.decideLink(t,f.u.certifier,{versionId:v,decision:'APPROVE',reason:'Uploaded report identity confirmed',expectedRowVersion:(await rowVersion(f,v)).row_version}));
   expect((await status(c.caseId)).rounds[0].status).toBe('AWAITING_ACCEPTANCE');
-  // With P5-A on, a clean upload links to the same selected target without a second person.
-  await p5a();const c2=await receivedCase(f);const r2=await upload(c2,await pdfFor(c2));
-  expect(r2.confirm).toMatchObject({linkMode:'AUTO_UNIQUE',next:'รอตรวจรับ PDF และยืนยันส่งผล'});
-  expect((await f.db.query('SELECT round_id,attempt_id FROM result_report_version WHERE id=$1',[r2.confirm!.versionId])).rows[0]).toEqual({round_id:c2.roundId,attempt_id:c2.attemptId});
-  await expect(f.run(t=>results.caseUploadCheck(t,f.u.anc,f.store,{target:target(c2),name:'x.pdf',bytes}))).rejects.toMatchObject({code:'FORBIDDEN'});
+  await expect(f.run(t=>results.caseUploadCheck(t,f.u.anc,f.store,{target:target(c),name:'x.pdf',bytes}))).rejects.toMatchObject({code:'FORBIDDEN'});
  });
  it('3 Worker stopped: the upload needs no job and no Worker; the case page says the folder channel is down',async()=>{
   const c=await receivedCase(f);const jobs=async()=>(await f.db.query<{n:number}>('SELECT count(*)::int n FROM job_outbox')).rows[0].n,before=await jobs();
@@ -81,8 +75,8 @@ describe('Two PDF intake channels',()=>{
   expect(await versions()).toBe(before);
   // The refused intake can never be confirmed afterwards, even by a direct API call.
   await expect(f.run(t=>results.caseUploadConfirm(t,f.u.staff,{target:target(a),intakeId:wrong.check.intakeId}))).rejects.toMatchObject({code:'UPLOAD_NOT_READY'});
-  const otherDate=await upload(a,await pdfFor(a,{collection:pdfDate('2026-10-01')}));
-  expect(otherDate.check).toMatchObject({outcome:'REFUSED',code:'IDENTITY_CONFLICT_WITH_SELECTED_CASE',failed:expect.arrayContaining(['collectionDate'])});
+  const otherDate=await upload(a,await pdfFor(a,{labNumber:'26P77000001'}));
+  expect(otherDate.check).toMatchObject({outcome:'REFUSED',code:'IDENTITY_CONFLICT_WITH_SELECTED_CASE',failed:expect.arrayContaining(['labNumber'])});
   expect((await f.db.query<{n:number}>("SELECT count(*)::int n FROM audit_chain WHERE action='RESULT_CASE_UPLOAD_REFUSED'")).rows[0].n).toBe(2);
  });
  it('5 the same file through both channels is one report: folder then upload, and upload then folder',async()=>{

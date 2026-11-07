@@ -34,7 +34,7 @@ export type NoticeFacts={
 };
 const p=(code:GatePredicate['code'],status:Tri,reason:string,extra:Pick<GatePredicate,'governance'|'dependency'>={}):GatePredicate=>({code,status,reason,...extra});
 /** Properties that must MATCH, and properties a template may not print (NOT_AVAILABLE allowed) but that must never contradict. */
-export const LINK_KEYS={RESULT:{required:['hn','dob','pregnancy','collectionDate','gestationalAge'],optional:['labNumber']},REDRAW_NOTICE:{required:['hn'],optional:['dob','collectionDate']}} as const satisfies Record<string,{required:readonly (keyof CrossCheck)[];optional:readonly (keyof CrossCheck)[]}>;
+export const LINK_KEYS={RESULT:{required:['hn','labNumber'],optional:[]},REDRAW_NOTICE:{required:['hn'],optional:['dob','collectionDate']}} as const satisfies Record<string,{required:readonly (keyof CrossCheck)[];optional:readonly (keyof CrossCheck)[]}>;
 export function crossFailures(c:CrossCheck,kind:keyof typeof LINK_KEYS){const k=LINK_KEYS[kind];return [...k.required.filter(x=>c[x]!=='MATCH'),...k.optional.filter(x=>c[x]==='MISMATCH')];}
 /** Open versions (§5.7): linked and not yet released, superseded or voided. */
 export const OPEN_STATES:readonly string[]=['Linked','ValidationBlocked','PendingCertification'];

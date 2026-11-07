@@ -1,5 +1,5 @@
 import {describe,it,expect,beforeEach,afterEach} from 'vitest';
-import {resultFixture,receivedCase,importReport,rowVersion,pdfDate,type ResultFixture} from '../helpers/results';
+import {resultFixture,receivedCase,importReport,importUnlinked,rowVersion,pdfDate,type ResultFixture} from '../helpers/results';
 import * as svc from '../../packages/results/service';
 import {registerIntake,parseIntake} from '../../packages/results/intake';
 import {syntheticReportPdf,zipAsPdf,syntheticZip} from '../../tools/his-simulator/result-pdf';
@@ -13,13 +13,13 @@ const spec=(c:{hn:string;collection:string;labNumber:string},extra:Record<string
 const propose=(id:string,c:{roundId:string;attemptId:string},rv:number,extra:Record<string,unknown>={})=>f.run(t=>svc.proposeLink(t,f.u.staff,{versionId:id,roundId:c.roundId,attemptId:c.attemptId,reason:'จำลอง ตรวจคู่ตามรอบและ Attempt',expectedRowVersion:rv,...extra}));
 const approve=(id:string,rv:number,user:Principal=f.u.certifier)=>f.run(t=>svc.decideLink(t,user,{versionId:id,decision:'APPROVE',reason:'จำลอง ยืนยันการเชื่อมโยง',expectedRowVersion:rv}));
 const linked=async(c:Awaited<ReturnType<typeof receivedCase>>,extra:Record<string,unknown>={})=>{
- const {versionId}=await importReport(f,spec(c,extra));await propose(versionId,c,(await rowVersion(f,versionId)).row_version);
+ const {versionId}=await importUnlinked(f,spec(c,extra));await propose(versionId,c,(await rowVersion(f,versionId)).row_version);
  const r=await approve(versionId,(await rowVersion(f,versionId)).row_version);return {versionId,...r};
 };
 
 describe('P5 intake, import and immutable original (§11.1, AT-RES-01..03)',()=>{
- it('imports as Unlinked, never auto-links, keeps the original bytes and detects duplicates by SHA-256',async()=>{
-  const c=await receivedCase(f);const bytes=syntheticReportPdf(spec(c));
+ it('imports as Unlinked when the lab number matches no attempt, keeps the original bytes and detects duplicates by SHA-256',async()=>{
+  const c=await receivedCase(f);const bytes=syntheticReportPdf(spec(c,{labNumber:'26P77000001'}));
   const {versionId,outcome}=await importReport(f,bytes);expect(outcome).toBe('Unlinked');
   const v=(await f.db.query<{sha256:string;case_id:string|null;parser_version:string}>('SELECT sha256,case_id,parser_version FROM result_report_version WHERE id=$1',[versionId])).rows[0];
   expect(v.case_id).toBeNull();expect(v.parser_version).toBe(PARSER_VERSION);expect(await f.store.get(v.sha256)).toEqual(bytes);
@@ -58,7 +58,7 @@ describe('P5 manual reviewed linkage (§11.3, AT-ID-01..07, AT-RES-04)',()=>{
   expect(d.candidates.every(x=>x.matchedOn.includes('HN')&&x.round.number===1)).toBe(true);
  });
  it('AT-ID-06: the proposer cannot approve; a second person links; DB guard enforces it too',async()=>{
-  const c=await receivedCase(f);const {versionId}=await importReport(f,spec(c));
+  const c=await receivedCase(f);const {versionId}=await importUnlinked(f,spec(c));
   await propose(versionId,c,(await rowVersion(f,versionId)).row_version);
   const current=(await rowVersion(f,versionId)).row_version;
   await expect(f.run(t=>svc.decideLink(t,f.u.staff,{versionId,decision:'APPROVE',reason:'จำลอง อนุมัติเอง',expectedRowVersion:current}))).rejects.toThrow(/SECOND_PERSON_REQUIRED|FORBIDDEN/);
@@ -66,13 +66,14 @@ describe('P5 manual reviewed linkage (§11.3, AT-ID-01..07, AT-RES-04)',()=>{
   // Linked, then validated: RG-01 (OD-07) and RG-07 (FinalQcAccepted from P4b) keep it blocked.
   expect(r.outcome).toBe('ValidationBlocked');expect(r.cross).toMatchObject({hn:'MATCH',dob:'MATCH',pregnancy:'MATCH',collectionDate:'MATCH',gestationalAge:'MATCH'});
  });
- it('AT-RG-05 / AT-ID-04 / AT-ID-07: a DOB, round collection date or pregnancy mismatch becomes LinkConflict',async()=>{
-  const c=await receivedCase(f);expect((await linked(c,{dob:'01-Jan-1990'})).outcome).toBe('LinkConflict');
-  const d=await receivedCase(f);expect((await linked(d,{collection:'09-Oct-2026'})).outcome).toBe('LinkConflict');
-  const t=await receivedCase(f);expect((await linked(t,{kind:'TWIN'})).outcome).toBe('LinkConflict');
+ it('AT-ID-04 / AT-ID-07: only an HN or lab number mismatch becomes LinkConflict; a DOB, collection date or pregnancy difference no longer does',async()=>{
+  const c=await receivedCase(f);expect((await linked(c,{dob:'01-Jan-1990'})).outcome).toBe('ValidationBlocked');
+  const d=await receivedCase(f);expect((await linked(d,{collection:'09-Oct-2026'})).outcome).toBe('ValidationBlocked');
+  const t=await receivedCase(f);expect((await linked(t,{kind:'TWIN'})).outcome).toBe('ValidationBlocked');
+  const l=await receivedCase(f);expect((await linked(l,{labNumber:'26P77000001'})).outcome).toBe('LinkConflict');
  });
  it('a result cannot link to a round without an attempt; historical cases are never targets',async()=>{
-  const c=await receivedCase(f);const {versionId}=await importReport(f,spec(c));
+  const c=await receivedCase(f);const {versionId}=await importUnlinked(f,spec(c));
   const v=(await rowVersion(f,versionId)).row_version;await expect(f.run(t=>svc.proposeLink(t,f.u.staff,{versionId,roundId:c.roundId,attemptId:null,reason:'จำลอง ไม่มี Attempt',expectedRowVersion:v}))).rejects.toThrow('ATTEMPT_REQUIRED_FOR_RESULT');
  });
 });

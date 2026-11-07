@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {mkdir,writeFile,symlink,readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {describe,it,expect,beforeEach,afterEach} from 'vitest';
-import {resultFixture,receivedCase,importReport,rowVersion,pdfDate,type ResultFixture} from '../helpers/results';
+import {resultFixture,receivedCase,importReport,importUnlinked,rowVersion,pdfDate,type ResultFixture} from '../helpers/results';
 import * as svc from '../../packages/results/service';
 import {testResultFolder,scanResultFolder,previewFolderFiles} from '../../packages/results/folder';
 import * as intake from '../../packages/lab/intake';
@@ -16,7 +16,7 @@ const spec=(c:{hn:string;collection:string;labNumber:string},extra:Record<string
 const rv=async(id:string)=>(await rowVersion(f,id)).row_version;
 const propose=async(id:string,c:{roundId:string;attemptId:string|null},extra:Record<string,unknown>={})=>{const v=await rv(id);return f.run(t=>svc.proposeLink(t,f.u.staff,{versionId:id,roundId:c.roundId,attemptId:c.attemptId,reason:'จำลอง ตรวจคู่ตามรอบและ Attempt',expectedRowVersion:v,...extra}));};
 const approve=async(id:string,user:Principal=f.u.certifier)=>{const v=await rv(id);return f.run(t=>svc.decideLink(t,user,{versionId:id,decision:'APPROVE',reason:'จำลอง ยืนยันการเชื่อมโยง',expectedRowVersion:v}));};
-const linked=async(c:Awaited<ReturnType<typeof receivedCase>>,extra:Record<string,unknown>={})=>{const {versionId}=await importReport(f,spec(c,extra));await propose(versionId,c);return {versionId,...await approve(versionId)};};
+const linked=async(c:Awaited<ReturnType<typeof receivedCase>>,extra:Record<string,unknown>={})=>{const {versionId}=await importUnlinked(f,spec(c,extra));await propose(versionId,c);return {versionId,...await approve(versionId)};};
 const review=async(versionId:string,user:Principal=f.u.staff,ack=false)=>{const v=await rv(versionId);return f.run(t=>svc.recordReview(t,user,{versionId,valuesMatchPdf:true,abnormalAcknowledged:ack,expectedRowVersion:v}));};
 const certify=async(versionId:string,key=randomUUID().replaceAll('-',''),user:Principal=f.u.certifier,ack=false)=>{const v=await rv(versionId);return f.run(t=>svc.certifyAttempt(t,user,{versionId,idempotencyKey:key,abnormalAcknowledged:ack,expectedRowVersion:v}));};
 
@@ -71,14 +71,14 @@ describe('P5 revision, unlink and void (§11.6)',()=>{
   const v=await rv(versionId);await expect(f.run(t=>svc.unlinkVersion(t,f.u.certifier,{versionId,reason:'จำลอง ถอดการเชื่อมโยง',expectedRowVersion:v}))).rejects.toThrow('UNLINK_REVISION_PROHIBITED');
  });
  it('unlink returns to Unlinked with history; void withdraws only an unlinked import and needs result.revise',async()=>{
-  const c=await receivedCase(f);const {versionId}=await linked(c);
+  const c=await receivedCase(f);const {versionId}=await importReport(f,spec(c));
   let v=await rv(versionId);await f.run(t=>svc.unlinkVersion(t,f.u.certifier,{versionId,reason:'จำลอง เชื่อมผิดรอบ',expectedRowVersion:v}));expect((await rowVersion(f,versionId)).state).toBe('Unlinked');
   v=await rv(versionId);await expect(f.run(t=>svc.voidVersion(t,f.u.staff,{versionId,reason:'จำลอง ยกเลิกรายการนำเข้า',expectedRowVersion:v}))).rejects.toThrow('FORBIDDEN');
   await f.run(t=>svc.voidVersion(t,f.u.certifier,{versionId,reason:'จำลอง ยกเลิกรายการนำเข้า',expectedRowVersion:v}));expect((await rowVersion(f,versionId)).state).toBe('Voided');
-  expect((await f.db.query<{event:string}>('SELECT event FROM result_link_event WHERE version_id=$1 ORDER BY sequence',[versionId])).rows.map(r=>r.event)).toEqual(['PROPOSED','APPROVED','UNLINKED']);
+  expect((await f.db.query<{event:string}>('SELECT event FROM result_link_event WHERE version_id=$1 ORDER BY sequence',[versionId])).rows.map(r=>r.event)).toEqual(['AUTO_LINKED','UNLINKED']);
  });
  it('a stale page (old row version) cannot change the version',async()=>{
-  const c=await receivedCase(f);const {versionId}=await importReport(f,spec(c));
+  const c=await receivedCase(f);const {versionId}=await importUnlinked(f,spec(c));
   await expect(f.run(t=>svc.proposeLink(t,f.u.staff,{versionId,roundId:c.roundId,attemptId:c.attemptId,reason:'จำลอง หน้าเก่า',expectedRowVersion:0}))).rejects.toThrow('VERSION_CONFLICT');
  });
 });

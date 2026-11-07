@@ -9,12 +9,11 @@ afterEach(async()=>{await f.close();});
 const propose=async(versionId:string,c:Awaited<ReturnType<typeof receivedCase>>)=>{const {row_version}=await rowVersion(f,versionId);return f.run(t=>svc.proposeLink(t,f.u.staff,{versionId,roundId:c.roundId,attemptId:c.attemptId,reason:'SYNTHETIC identity regression',expectedRowVersion:row_version}));};
 
 describe('result lab-number identity (D01)',()=>{
- it('permits an unprinted optional lab number when every required identity field matches',async()=>{
+ it('requires a printed lab number: a report without one never links by itself and a manual approval records LinkConflict',async()=>{
   const c=await receivedCase(f),bytes=syntheticPdf(reportText({kind:'SINGLETON',labNumber:'OMITTED',hn:c.hn,collection:pdfDate(c.collection)}).map(line=>line.replace(/^Lab No\. \(LN\): OMITTED /,'')));
   const {versionId}=await importReport(f,bytes);await propose(versionId,c);
   const {row_version}=await rowVersion(f,versionId),result=await f.run(t=>svc.decideLink(t,f.u.certifier,{versionId,decision:'APPROVE',reason:'SYNTHETIC optional lab absent',expectedRowVersion:row_version}));
-  expect(result.cross?.labNumber).toBe('NOT_AVAILABLE');expect(result.outcome).toBe('ValidationBlocked');
-  const gate=await f.run(t=>svc.versionDetail(t,f.u.staff,versionId));expect(gate.gate?.predicates.find(p=>p.code==='RG-04')).toMatchObject({status:'PASS',reason:'CROSS_CHECK_MATCH'});
+  expect(result.cross?.labNumber).toBe('NOT_AVAILABLE');expect(result.outcome).toBe('LinkConflict');
  });
  it('two-person manual approval records LinkConflict when all required identity fields match but the lab number conflicts',async()=>{
   const c=await receivedCase(f);

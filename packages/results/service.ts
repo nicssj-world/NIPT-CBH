@@ -147,19 +147,20 @@ export async function linkCandidates(db:Queryable,user:Staff|null,p:Parsed,s:Res
 }
 
 /**
- * P5-A (Owner 2026-10-18): the single unambiguous match of a final result. It qualifies only when exactly one candidate passes every
- * identity cross-check (HN, DOB, pregnancy, collection date, GA and the lab number), is the current round and its latest live attempt,
- * no other case was found, and there is no name conflict and no open report in the series (that would be a revision).
+ * Result-release simplification (2026-11-07): the single unambiguous match of a final result. It qualifies only when exactly one candidate
+ * matches the HN and the lab number (LN, LN Halos or printed sample ID), is the current round and its latest live attempt,
+ * no other case was found, and there is no open report in the series (that would be a revision). DOB, pregnancy, collection date, GA and
+ * the file name no longer block the match.
  * It never links or releases by itself: the link still follows the two-person rule enforced by the database.
  */
-export function autoMatchCandidate(candidates:Candidate[],o:{kind:string;nameConflicts:number;openRevision:boolean}){
- if(o.kind!=='RESULT'||o.nameConflicts>0||o.openRevision)return null;
+export function autoMatchCandidate(candidates:Candidate[],o:{kind:string;openRevision:boolean}){
+ if(o.kind!=='RESULT'||o.openRevision)return null;
  const clean=candidates.filter(c=>c.round.current&&c.attempt.latest&&!['Superseded','BatchCancelled','Stopped','Cancelled'].includes(c.attempt.state)
   &&crossFailures(c.cross,'RESULT').length===0&&c.cross.labNumber==='MATCH'&&c.matchedOn.includes('HN'));
  const cases=new Set(candidates.map(c=>c.caseId));
  return clean.length===1&&cases.size===1?clean[0]:null;
 }
-export const AUTO_MATCH_REASON='ระบบจับคู่อัตโนมัติ: LN/HN/วันเกิด/ครรภ์/วันเจาะ/GA ตรงกันชัดเจนเพียงรายการเดียว';
+export const AUTO_MATCH_REASON='ระบบจับคู่อัตโนมัติ: HN และ LN/LN Halos ตรงกันชัดเจนเพียงรายการเดียว';
 export const AUTO_LINK_CONTRACT='P5A-UNIQUE-v1';
 
 // ---------- Import confirmation ----------
@@ -262,7 +263,7 @@ async function systemMatch(db:Queryable,v:VersionRow,s:ResultSettings){
  const fileName=(await db.query<{name:string}>('SELECT coalesce(member_name,original_name) name FROM result_intake_file WHERE id=$1',[v.intake_file_id])).rows[0]?.name??null;
  const verdict=matchMigrationPdf(v.parsed,named.map(t=>({...t,patientName:names.get(t.caseId)??null})),fileName),migrationMatch=verdict.match;
  const migrationCandidate=migrationMatch&&v.kind==='RESULT'&&!conflicts&&!series?candidates.find(c=>c.caseId===migrationMatch.caseId&&c.round.id===migrationMatch.roundId&&c.attempt.id===migrationMatch.attemptId):null;
- let match=migrationCandidate??autoMatchCandidate(candidates,{kind:v.kind,nameConflicts:conflicts,openRevision:series});let migrationBlock:string|null=null;
+ let match=migrationCandidate??autoMatchCandidate(candidates,{kind:v.kind,openRevision:series});let migrationBlock:string|null=null;
  // A migrated historical attempt links automatically only through the exact identity contract above (content + file name + PET name);
  // the ordinary auto-match must not be able to bypass a conflicting or unverified identity.
  if(match&&!migrationCandidate&&(await db.query('SELECT 1 FROM migration_analysis WHERE attempt_id=$1',[match.attempt.id])).rows.length){match=null;migrationBlock=verdict.identity?verdict.reason:'MIGRATION_EXACT_MATCH_REQUIRED';}
@@ -276,7 +277,7 @@ async function systemMatch(db:Queryable,v:VersionRow,s:ResultSettings){
  * It does not review, certify or release, and nothing reaches HIS from here.
  */
 export async function autoLinkUnique(db:Queryable,actor:Staff,versionId:string,options:{migrationOnly?:boolean}={}):Promise<{linked:true;version:VersionRow}|{linked:false;reason:string}>{
- const s=await resultSettings(db);if(!options.migrationOnly&&s.linkageMode!=='UNIQUE_AUTO_LINK')return {linked:false,reason:'LINKAGE_MODE_MANUAL'};
+ const s=await resultSettings(db);
  let v=await versionOf(db,versionId);
  if(v.kind!=='RESULT')return {linked:false,reason:'NOT_A_FINAL_RESULT'};
  if(v.state!=='Unlinked')return {linked:false,reason:'NOT_UNLINKED'};
@@ -325,7 +326,7 @@ export async function proposeAutoMatch(db:Queryable,user:Staff,input:unknown){
  }
  const candidates=await linkCandidates(db,user,v.parsed,await resultSettings(db));
  const first=candidates[0],open=first?await openInSeries(db,v,first.round.id):null;
- const m=autoMatchCandidate(candidates,{kind:v.kind,nameConflicts:(await versionNameConflicts(db,v)).length,openRevision:!!open});
+ const m=autoMatchCandidate(candidates,{kind:v.kind,openRevision:!!open});
  if(!m)throw new LabError('AUTO_MATCH_NOT_UNAMBIGUOUS',409);
  return proposeLink(db,user,{versionId:v.id,roundId:m.round.id,attemptId:m.attempt.id,reason:AUTO_MATCH_REASON,expectedRowVersion:d.expectedRowVersion});
 }
@@ -671,7 +672,7 @@ export async function versionDetail(db:Queryable,user:Staff,id:string){
  const target=v.round_id?(await db.query<{round_number:number;ln:string;ln_halos:string|null;printed_sample_id:string|null;attempt_number:number|null;attempt_state:string|null;current:boolean}>('SELECT r.round_number,l.ln,n.ln_halos,a.printed_sample_id,a.attempt_number,a.state attempt_state,c.current_round_id=r.id current FROM specimen_round_current r JOIN nipt_case c ON c.id=r.case_id JOIN case_ln l ON l.id=r.case_ln_id LEFT JOIN specimen_lab_number n ON n.round_id=r.id LEFT JOIN analytical_attempt a ON a.id=$2 WHERE r.id=$1',[v.round_id,v.attempt_id])).rows[0]:null;
  const conflicts=await versionNameConflicts(db,v);
  const candidates=v.state==='Unlinked'&&v.kind!=='UNKNOWN'?await linkCandidates(db,user,v.parsed,s):[];
- const auto=v.state==='Unlinked'&&!proposal&&candidates[0]?autoMatchCandidate(candidates,{kind:v.kind,nameConflicts:conflicts.length,openRevision:!!await openInSeries(db,v,candidates[0].round.id)}):null;
+ const auto=v.state==='Unlinked'&&!proposal&&candidates[0]?autoMatchCandidate(candidates,{kind:v.kind,openRevision:!!await openInSeries(db,v,candidates[0].round.id)}):null;
  const operational=await operationalWorkflow(db);
  // Task 3: origin and its evidence are shown to LAB only (ANC sees one consistent result view for both origins).
  const internal=v.origin==='INTERNAL_GENERATED'?(await db.query(`SELECT r.id,r.state,r.template_kind "templateKind",r.template_code "templateCode",r.template_sha256 "templateSha256",r.pregnancy_source "pregnancySource",r.pregnancy_override_reason "overrideReason",

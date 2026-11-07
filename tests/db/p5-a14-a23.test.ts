@@ -3,7 +3,7 @@ import {mkdir,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import type {Pool} from 'pg';
 import {describe,it,expect,beforeEach,afterEach} from 'vitest';
-import {resultFixture,receivedCase,importReport,rowVersion,pdfDate,type ResultFixture} from '../helpers/results';
+import {resultFixture,receivedCase,importReport,importUnlinked,rowVersion,pdfDate,type ResultFixture} from '../helpers/results';
 import * as svc from '../../packages/results/service';
 import {registerIntake,parseIntake} from '../../packages/results/intake';
 import {runResultJob} from '../../packages/results/jobs';
@@ -23,11 +23,11 @@ const rv=async(id:string)=>(await rowVersion(f,id)).row_version;
 
 describe('A14 — duplicates by SHA-256, same-name/different-content goes to review',()=>{
  it('same bytes under another name is a Duplicate; same name with other bytes is a name conflict that must be acknowledged',async()=>{
-  const c=await receivedCase(f);const first=await importReport(f,spec(c),f.u.staff,'NIPT-RESULT.pdf');
+  const c=await receivedCase(f);const first=await importUnlinked(f,spec(c),f.u.staff,'NIPT-RESULT.pdf');
   const dupBytes=syntheticReportPdf(spec(c));const dup=await preview(dupBytes,'other-name.pdf');
   expect((await f.db.query('SELECT state,duplicate_of FROM result_intake_file WHERE id=$1',[dup])).rows[0]).toEqual({state:'Duplicate',duplicate_of:first.versionId});
   const job=(await f.db.query<{id:string}>("INSERT INTO job_outbox(kind,payload,idempotency_key) VALUES('synthetic_result_parse',$1,$2) RETURNING id",[JSON.stringify({actorId:f.u.staff.id}),'p5:'+randomUUID()])).rows[0].id;
-  const second=await preview(syntheticReportPdf(spec(c,{reported:'22-Oct-2026'})),'nipt-result.PDF',job);
+  const second=await preview(syntheticReportPdf(spec(c,{reported:'22-Oct-2026',labNumber:'26P77000001'})),'nipt-result.PDF',job);
   const rows=await f.run(t=>svc.intakeRows(t,f.u.staff,job));
   expect(rows[0].nameConflicts.versions.map(v=>v.id)).toEqual([first.versionId]);
   await expect(f.run(t=>svc.confirmImport(t,f.u.staff,{intakeIds:[second]}))).rejects.toThrow('NAME_CONFLICT_ACK_REQUIRED');
@@ -46,8 +46,7 @@ describe('A14 — duplicates by SHA-256, same-name/different-content goes to rev
  });
  it('the link proposal must classify NEW_REPORT or REVISION; the second person approves the same classification; no automatic revision',async()=>{
   const c=await receivedCase(f);const first=await importReport(f,spec(c),f.u.staff,'NIPT-RESULT.pdf');
-  await f.run(async t=>svc.proposeLink(t,f.u.staff,{versionId:first.versionId,roundId:c.roundId,attemptId:c.attemptId,reason:'จำลอง ฉบับแรกของรอบ',expectedRowVersion:await rv(first.versionId)}));
-  await f.run(async t=>svc.decideLink(t,f.u.certifier,{versionId:first.versionId,decision:'APPROVE',reason:'จำลอง ยืนยันฉบับแรก',expectedRowVersion:await rv(first.versionId)}));
+  // the first report links by itself (HN + lab number); the second one for the same round is a revision and stays manual
   const job=(await f.db.query<{id:string}>("INSERT INTO job_outbox(kind,payload,idempotency_key) VALUES('synthetic_result_parse',$1,$2) RETURNING id",[JSON.stringify({actorId:f.u.staff.id}),'p5:'+randomUUID()])).rows[0].id;
   const id=await preview(syntheticReportPdf(spec(c,{reported:'23-Oct-2026'})),'NIPT-RESULT.pdf',job);
   const versionId=(await f.run(t=>svc.confirmImport(t,f.u.staff,{intakeIds:[id],acknowledgeNameConflicts:[id]})))[0].versionId!;
