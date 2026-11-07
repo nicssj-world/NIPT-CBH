@@ -23,14 +23,15 @@ export function calculateOwnerPooling(master:Buffer,rows:PhysicalQc[],amount?:st
  const formula=ownerPoolFormula(master);
  if(amount!==undefined){const value=number(amount);if(value.lte(0))throw Error('POOL_AMOUNT_INVALID');formula.amount=value.toString();}
  if(rows.length!==48||rows.some((r,i)=>r.slot!==i+1)||rows[0].kind!=='PC'||rows[24].kind!=='NC'||!['BLANK','PATIENT'].includes(rows[39].kind))throw Error('POOL_PHYSICAL_MAPPING_INVALID');
- const measured=rows.filter(r=>r.concentration!==null);
+ // Owner decision: a BLANK QC value may be recorded but never enters the Pooling count or volumes.
+ const measured=rows.filter(r=>r.concentration!==null&&r.kind!=='BLANK');
  if(!measured.length)throw Error('QC_MEASUREMENTS_REQUIRED');
  const output=rows.map(r=>{
   if(['PATIENT','PC','NC'].includes(r.kind)&&(!r.sampleId||r.concentration===null))throw Error('QC_MEASUREMENT_REQUIRED:'+r.slot);
   if(r.kind==='EMPTY'&&r.concentration!==null)throw Error('QC_EMPTY_SLOT_MEASUREMENT:'+r.slot);
-  if(r.concentration===null)return {...r,volume:null,belowTwo:false,csvVolume:''};
+  if(r.kind==='BLANK'||r.concentration===null)return {...r,volume:null,belowTwo:false,csvVolume:''};
   const c=number(r.concentration);if(c.lte(0))throw Error('QC_CONCENTRATION_MUST_BE_POSITIVE:'+r.slot);
-  // COUNTA counts every supplied numeric QC input, including controls and a measured BLANK.
+  // COUNTA counts every numeric QC input of a patient, PC or NC; BLANK is excluded.
   const volume=new D(160).div(measured.length).times(formula.amount).div(c),belowTwo=volume.lt(2);
   return {...r,volume:volume.toString(),belowTwo,csvVolume:belowTwo?'0':volume.toString()};
  });
