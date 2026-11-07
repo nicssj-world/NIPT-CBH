@@ -695,9 +695,9 @@ export async function voidVersion(db:Queryable,user:Staff,input:unknown){
  * Both link steps keep their own authority (result.link.manual propose + approve), their events and audit rows; nothing here releases or sends anything.
  * A PDF that already has QC5 for this exact file (relink after an earlier review) only needs a fresh review, exactly as sendToHis does.
  */
-export async function pickPatient(db:Queryable,user:Staff,input:unknown):Promise<{state:string}>{
- const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,caseId:uuid,roundId:uuid,attemptId:uuid.nullable(),reason:reasonText,abnormalAcknowledged:z.boolean().default(false)}).parse(input);
+export async function pickPatient(db:Queryable,user:Staff,input:unknown):Promise<{state:string;reviewSkipped?:string}>{
  await assertSession(db,user);
+ const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,caseId:uuid,roundId:uuid,attemptId:uuid.nullable(),reason:reasonText,abnormalAcknowledged:z.boolean().default(false)}).parse(input);
  need(user,'result.link.manual','propose');need(user,'result.link.manual','approve');
  const pre=await versionOf(db,d.versionId);
  if(pre.state!=='Unlinked')throw new LabError('LINK_REQUIRES_UNLINKED',409);
@@ -706,14 +706,24 @@ export async function pickPatient(db:Queryable,user:Staff,input:unknown):Promise
  if(!target||target.case_id!==d.caseId)throw new LabError('PICK_TARGET_MISMATCH',422);
  await proposeLink(db,user,{versionId:d.versionId,roundId:d.roundId,attemptId:d.attemptId,reason:d.reason,expectedRowVersion:d.expectedRowVersion});
  await decideLink(db,user,{versionId:d.versionId,decision:'APPROVE',reason:d.reason,expectedRowVersion:(await versionOf(db,d.versionId)).row_version});
- let v=await versionOf(db,d.versionId);
+ let v=await versionOf(db,d.versionId),reviewSkipped:string|undefined;
+ // The review is opportunistic (spec 5.4 "ยังไม่ตรวจรับ": review + QC5 can still be recorded when sending). It runs in its own savepoint so that
+ // a refusal (operational mode, lab evidence, abnormal acknowledgement, bench reviewer ...) never undoes the link.
  if(v.origin==='EXTERNAL_READYGEN'&&v.kind==='RESULT'&&['Linked','ValidationBlocked'].includes(v.state)&&!await releaseReviewed(db,v.id)){
-  const hasQc5=(await db.query('SELECT 1 FROM result_qc5_review WHERE version_id=$1',[v.id])).rows.length>0;
-  if(hasQc5)await recordReview(db,user,{versionId:v.id,valuesMatchPdf:true,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:v.row_version});
-  else await reviewExternalForRelease(db,user,{versionId:v.id,expectedRowVersion:v.row_version,abnormalAcknowledged:d.abnormalAcknowledged});
+  await db.query('SAVEPOINT pick_review');
+  try{
+   const hasQc5=(await db.query('SELECT 1 FROM result_qc5_review WHERE version_id=$1',[v.id])).rows.length>0;
+   if(hasQc5)await recordReview(db,user,{versionId:v.id,valuesMatchPdf:true,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:v.row_version});
+   else await reviewExternalForRelease(db,user,{versionId:v.id,expectedRowVersion:v.row_version,abnormalAcknowledged:d.abnormalAcknowledged});
+   await db.query('RELEASE SAVEPOINT pick_review');
+  }catch(e){
+   await db.query('ROLLBACK TO SAVEPOINT pick_review');await db.query('RELEASE SAVEPOINT pick_review');
+   if(!(e instanceof LabError))throw e;
+   reviewSkipped=e.code;
+  }
   v=await versionOf(db,v.id);
  }
- return {state:v.state};
+ return reviewSkipped?{state:v.state,reviewSkipped}:{state:v.state};
 }
 
 // ---------- Reads ----------

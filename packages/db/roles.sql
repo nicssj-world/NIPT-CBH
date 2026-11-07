@@ -148,6 +148,9 @@ GRANT EXECUTE ON FUNCTION lab_storage_create_box(text,uuid),lab_storage_set_posi
 -- Task 3 (migration 128): HALOS import evidence, signer profiles/delegations, internal reports, outage provenance and HIS-presence attestation.
 GRANT SELECT,INSERT ON halos_import_row,report_signer_profile,report_signer_profile_event,internal_report_batch,result_external_fallback TO app_rw;
 GRANT SELECT,INSERT,UPDATE ON halos_import,report_signature_delegation,internal_report,result_his_attestation TO app_rw;
+-- Migration 205: hidden HALOS rows (append-only). Repeated here because migrations run before roles exist on a fresh install.
+GRANT SELECT,INSERT ON halos_row_dismissal TO app_rw;
+GRANT SELECT ON halos_row_dismissal TO report_ro;
 -- Migration 199: durable HALOS batch requests. Web creates and reads; worker records only item outcomes.
 GRANT SELECT ON internal_report_request,internal_report_request_item TO app_rw;
 GRANT INSERT(operator_id,session_id,idempotency_key,request) ON internal_report_request TO app_rw;

@@ -37,6 +37,7 @@ it('void works from LinkConflict, Linked, ValidationBlocked and PendingCertifica
   const p=await pending(f,0);
   expect(await stateOf(f,p.id)).toBe('PendingCertification');
   expect((await voidIt(f,p.id)).outcome).toBe('Voided');
+  expect((await f.db.query("SELECT 1 FROM result_version_event WHERE version_id=$1 AND to_state='Voided'",[p.id])).rows.length).toBe(1);
   // A voided item stays in the round's series, so a later PDF for the same case is not auto-linked (SERIES_NOT_EMPTY): it arrives Unlinked,
   // which is where set-up starts for the other stuck states (moved with transitions the guard allowed before 205).
   const paths=[['LinkConflict'],['Linked'],['Linked','ValidationBlocked']];
@@ -48,6 +49,7 @@ it('void works from LinkConflict, Linked, ValidationBlocked and PendingCertifica
    expect(await stateOf(f,q)).toBe(path[path.length-1]);
    expect((await voidIt(f,q)).outcome).toBe('Voided');
    expect(await stateOf(f,q)).toBe('Voided');
+   expect((await f.db.query("SELECT 1 FROM result_version_event WHERE version_id=$1 AND to_state='Voided'",[q])).rows.length).toBe(1);
   }
   const again=await pending(f,1);
   const sent=await f.run(async t=>sendToHis(t,f.admin,{idempotencyKey:randomUUID(),reviewConfirmed:true,abnormalAcknowledged:false,items:[{versionId:again.id,expectedRowVersion:await rowVersion(f,again.id)}]}));
@@ -103,12 +105,43 @@ it('migration 205 leaves every other version transition unchanged',async()=>{
  const f=await task3Fixture();try{
   const p=await pending(f,0);
   await force(f,p.id,'Unlinked');
-  const bad=async(to:string)=>expect(f.db.query('UPDATE result_report_version SET state=$2,row_version=row_version+1 WHERE id=$1',[p.id,to])).rejects.toThrow();
-  await bad('CertifiedReleased');            // Unlinked -> CertifiedReleased: refused (release hold or prohibited transition)
+  await expect(f.db.query("UPDATE result_report_version SET state='CertifiedReleased',row_version=row_version+1 WHERE id=$1",[p.id])).rejects.toThrow(/REPORT_TRANSITION_PROHIBITED/);   // Unlinked -> CertifiedReleased: the release hold passes here, the transition table refuses
   for(const to of ['PendingCertification','ValidationBlocked','Superseded','Parsed'])await expect(f.db.query('UPDATE result_report_version SET state=$2,row_version=row_version+1 WHERE id=$1',[p.id,to])).rejects.toThrow(/REPORT_TRANSITION_PROHIBITED/);
   const def=(await f.db.query<{d:string}>("SELECT pg_get_functiondef('p5_version_guard'::regproc) d")).rows[0].d;
   for(const pair of ["('LinkConflict','Voided')","('Linked','Voided')","('ValidationBlocked','Voided')","('PendingCertification','Voided')","('CertifiedReleased','Voided')","('Unlinked','Voided')","('PendingCertification','CertifiedReleased')"])expect(def).toContain(pair);
   await force(f,p.id,'Voided');
   for(const to of ['Unlinked','Linked','Superseded'])await expect(f.db.query('UPDATE result_report_version SET state=$2,row_version=row_version+1 WHERE id=$1',[p.id,to])).rejects.toThrow(/REPORT_TRANSITION_PROHIBITED/);
+ }finally{vi.unstubAllEnvs();await f.close();}
+},180000);
+
+it('pickPatient links even when the review step cannot be recorded: reviewSkipped carries the code and the item is not left Unlinked',async()=>{
+ const f=await task3Fixture();try{
+  // Bench evidence reviewed by someone else (admin): the certifier's QC5 step raises SEQUENCING_REVIEWER_MISMATCH, which must not undo the link.
+  const {c,intakeId}=await importPdf(f,0,'SYNTHETIC-pick-skip.pdf');
+  const id=(await f.run(t=>confirmImport(t,f.admin,{intakeIds:[intakeId]})))[0].versionId!;
+  if(await stateOf(f,id)!=='Unlinked')await f.run(async t=>unlinkVersion(t,f.admin,{versionId:id,reason:'SYNTHETIC test returns the link to the manual path',expectedRowVersion:await rowVersion(f,id)}));
+  const r=await f.run(async t=>pickPatient(t,f.u.certifier,{versionId:id,expectedRowVersion:await rowVersion(f,id),caseId:c.caseId,roundId:c.roundId,attemptId:c.attemptId,reason:'SYNTHETIC picked without review evidence'}));
+  expect(r.reviewSkipped).toBe('SEQUENCING_REVIEWER_MISMATCH');
+  expect(['Linked','ValidationBlocked','PendingCertification']).toContain(r.state);
+  expect(await stateOf(f,id)).toBe(r.state);
+  expect((await f.db.query('SELECT 1 FROM result_qc5_review WHERE version_id=$1',[id])).rows.length).toBe(0);
+  expect((await f.db.query("SELECT 1 FROM result_link_event WHERE version_id=$1 AND event='APPROVED'",[id])).rows.length).toBe(1);
+ }finally{vi.unstubAllEnvs();await f.close();}
+},300000);
+
+it('a HALOS row whose internal report is Final cannot be dismissed (HALOS_ROW_HAS_FINAL_REPORT)',async()=>{
+ const f=await task3Fixture();try{
+  const sha=createHash('sha256').update(randomUUID()).digest('hex');
+  await f.db.query("INSERT INTO file_asset(sha256,byte_size,media_type,storage_key) VALUES($1,10,'application/octet-stream',$2)",[sha,'sha256/x/'+sha]);
+  const imp=(await f.db.query<{id:string}>("INSERT INTO halos_import(sha256,original_name,byte_size,adapter_version,chip_ids,counts,state,uploaded_by,decided_by,decided_at) VALUES($1,'SYNTHETIC-halos2.xlsx',10,'SYNTHETIC-ADAPTER',ARRAY['C1'],'{}','Confirmed',$2,$2,now()) RETURNING id",[sha,f.admin.id])).rows[0].id;
+  const row=(await f.db.query<{id:string}>("INSERT INTO halos_import_row(import_id,sheet,row_number,raw,sample_raw,sample_key,classification,reason) VALUES($1,'result',2,'{}','SYNTHETIC-2','SYNTHETIC-2','UNMATCHED','NO_MAPPING') RETURNING id",[imp])).rows[0].id;
+  // internal_report has many guards and FKs; the dismissal check only reads state, so the evidence row is inserted with them off (test set-up only).
+  const c=f.cases[0],shaPdf=createHash('sha256').update(randomUUID()).digest('hex');
+  await f.db.query("INSERT INTO file_asset(sha256,byte_size,media_type,storage_key) VALUES($1,10,'application/pdf',$2)",[shaPdf,'sha256/y/'+shaPdf]);
+  await f.db.query('SET session_replication_role = replica');
+  await f.db.query("INSERT INTO internal_report(halos_row_id,attempt_id,round_id,case_id,template_kind,template_code,template_sha256,pregnancy_source,interpretation,ruleset,bindings,operator_id,reported_by,reported_profile_id,reported_authority,reported_at,approved_by,approved_profile_id,approved_authority,approved_at,pdf_sha256,download_name,state) VALUES($1,$2,$3,$4,'SINGLETON','FM-WI-T-BM-17-07',$5,'ANC_REQUEST','{}','{}','{}',$6,$6,$7,'{}',now(),$6,$7,'{}',now(),$8,'SYNTHETIC-final.pdf','Final')",[row,c.attemptId,c.roundId,c.caseId,'a'.repeat(64),f.admin.id,randomUUID(),shaPdf]);
+  await f.db.query('SET session_replication_role = origin');
+  await expect(f.run(t=>dismissHalosRow(t,f.admin,{rowId:row,reason:'SYNTHETIC try to hide a reported row'}))).rejects.toMatchObject({code:'HALOS_ROW_HAS_FINAL_REPORT'});
+  expect((await f.db.query('SELECT 1 FROM halos_row_dismissal WHERE row_id=$1',[row])).rows.length).toBe(0);
  }finally{vi.unstubAllEnvs();await f.close();}
 },180000);
