@@ -56,16 +56,64 @@ it('sends a batch where one item lost consent while waiting: others CertifiedRel
   expect(await count(f,'SELECT 1 FROM result_release WHERE version_id=$1',[b.id])).toBe(0);
   expect(await count(f,'SELECT 1 FROM result_release WHERE version_id=$1',[a.id])).toBe(1);
   expect(await count(f,OUTBOX)).toBe(1);
+  const anc=(await f.run(t=>ancCaseResults(t,f.u.anc,b.c.caseId)));
+  expect(anc.rounds.every(x=>x.result===null)).toBe(true);
  }finally{vi.unstubAllEnvs();await f.close();}
 },180000);
 
-it('replaying the same idempotencyKey creates no second release or outbox job',async()=>{
+it('replaying a mixed batch key (released + blocked) repeats the recorded outcomes in request order, writes nothing new, and pins the certify key format',async()=>{
  const f=await task3Fixture();try{
-  const p=await pending(f,0),key=randomUUID();
-  const first=await send(f,[p],{idempotencyKey:key});
-  const replay=await f.run(t=>sendToHis(t,f.admin,{idempotencyKey:key,reviewConfirmed:true,abnormalAcknowledged:false,items:[{versionId:p.id,expectedRowVersion:1}]}));
-  expect(replay).toEqual(first);
-  expect(await count(f,'SELECT 1 FROM result_release WHERE version_id=$1',[p.id])).toBe(1);
+  const a=await pending(f,0),b=await pending(f,1),key=randomUUID();
+  await f.db.query("INSERT INTO p2_revocation(case_id,round_id,stage,reason,actor_id) VALUES($1,$2,'W1','SYNTHETIC consent withdrawal while waiting',$3)",[b.c.caseId,b.c.roundId,f.u.staff.id]);
+  const first=await send(f,[a,b],{idempotencyKey:key});
+  expect(first.items.map(i=>i.outcome)).toEqual(['CertifiedReleased','BLOCKED']);
+  const gates=await count(f,'SELECT 1 FROM result_gate_evaluation');
+  const replay=await f.run(t=>sendToHis(t,f.admin,{idempotencyKey:key,reviewConfirmed:true,abnormalAcknowledged:false,items:[{versionId:b.id,expectedRowVersion:1},{versionId:a.id,expectedRowVersion:1}]}));
+  expect(replay.items).toEqual([first.items[1],first.items[0]]);
+  expect(await count(f,'SELECT 1 FROM result_gate_evaluation')).toBe(gates);
+  expect(await count(f,'SELECT 1 FROM result_release')).toBe(1);
+  expect(await count(f,OUTBOX)).toBe(1);
+  const keys=(await f.db.query<{idempotency_key:string}>("SELECT idempotency_key FROM result_gate_evaluation WHERE purpose='CERTIFY_ATTEMPT' AND version_id=ANY($1)",[[a.id,b.id]])).rows.map(r=>r.idempotency_key);
+  expect(keys).toHaveLength(2);for(const k of keys)expect(k).toMatch(/^send-[0-9a-f]{48}$/);
+ }finally{vi.unstubAllEnvs();await f.close();}
+},180000);
+
+/** Deletes the review and QC5 of a PendingCertification version (synthetic DB, triggers off) so it looks like a Linked/unreviewed one. */
+async function unreview(f:F,id:string){
+ await f.db.query('ALTER TABLE result_qc5_review DISABLE TRIGGER USER');await f.db.query('ALTER TABLE result_review DISABLE TRIGGER USER');
+ await f.db.query('DELETE FROM result_qc5_review WHERE version_id=$1',[id]);await f.db.query('DELETE FROM result_review WHERE version_id=$1',[id]);
+ await f.db.query('ALTER TABLE result_qc5_review ENABLE TRIGGER USER');await f.db.query('ALTER TABLE result_review ENABLE TRIGGER USER');
+}
+
+it('item with no review and no QC5: reviewConfirmed false → ERROR with nothing written; true → review*ForRelease writes exactly 1 review and 1 QC5, then CertifiedReleased',async()=>{
+ const f=await task3Fixture();try{
+  const p=await pending(f,0);await unreview(f,p.id);
+  const refused=await send(f,[p],{reviewConfirmed:false});
+  expect(refused.items[0]).toMatchObject({outcome:'ERROR',code:'REVIEW_CONFIRMATION_REQUIRED'});
+  expect(await count(f,'SELECT 1 FROM result_review WHERE version_id=$1',[p.id])).toBe(0);
+  expect(await count(f,'SELECT 1 FROM result_qc5_review WHERE version_id=$1',[p.id])).toBe(0);
+  expect(await count(f,'SELECT 1 FROM result_release WHERE version_id=$1',[p.id])).toBe(0);
+  const ok=await send(f,[p]);
+  expect(ok.items[0]).toEqual({versionId:p.id,outcome:'CertifiedReleased'});
+  expect(await count(f,'SELECT 1 FROM result_review WHERE version_id=$1',[p.id])).toBe(1);
+  expect(await count(f,'SELECT 1 FROM result_qc5_review WHERE version_id=$1',[p.id])).toBe(1);
+  expect(await count(f,OUTBOX)).toBe(1);
+ }finally{vi.unstubAllEnvs();await f.close();}
+},180000);
+
+it('an item that fails AFTER writing (review + QC5 inserted, then QC5 gate refuses) is rolled back to its savepoint while the sibling in the same batch is released',async()=>{
+ const f=await task3Fixture();try{
+  const a=await pending(f,0),b=await pending(f,1);await unreview(f,a.id);await unreview(f,b.id);
+  await f.db.query("INSERT INTO p2_revocation(case_id,round_id,stage,reason,actor_id) VALUES($1,$2,'W1','SYNTHETIC consent withdrawal while waiting',$3)",[b.c.caseId,b.c.roundId,f.u.staff.id]);
+  const r=await send(f,[b,a]);
+  expect(r.items[0]).toMatchObject({versionId:b.id,outcome:'ERROR',code:'QC5_GATE_FAILED'});
+  expect(r.items[1]).toEqual({versionId:a.id,outcome:'CertifiedReleased'});
+  expect(await count(f,'SELECT 1 FROM result_review WHERE version_id=$1',[b.id])).toBe(0);
+  expect(await count(f,'SELECT 1 FROM result_qc5_review WHERE version_id=$1',[b.id])).toBe(0);
+  expect((await f.db.query<{state:string}>('SELECT state FROM result_report_version WHERE id=$1',[b.id])).rows[0].state).toBe('PendingCertification');
+  expect(await count(f,'SELECT 1 FROM result_release WHERE version_id=$1',[b.id])).toBe(0);
+  expect(await count(f,'SELECT 1 FROM result_review WHERE version_id=$1',[a.id])).toBe(1);
+  expect(await count(f,'SELECT 1 FROM result_qc5_review WHERE version_id=$1',[a.id])).toBe(1);
   expect(await count(f,OUTBOX)).toBe(1);
  }finally{vi.unstubAllEnvs();await f.close();}
 },180000);
@@ -139,6 +187,12 @@ it('rejects invalid input, duplicate versionIds and users without certify permis
   await expect(f.run(t=>sendToHis(t,f.admin,{...base,items:Array.from({length:101},()=>item)}))).rejects.toThrow();
   await expect(f.run(t=>sendToHis(t,f.admin,{...base,items:[item,item]}))).rejects.toThrow('DUPLICATE_ITEMS');
   await expect(f.run(t=>sendToHis(t,f.u.anc,{...base,items:[item]}))).rejects.toThrow();
+  // LAB_STAFF holds result.review but not result.certify.
+  await expect(f.run(t=>sendToHis(t,f.u.staff,{...base,items:[item]}))).rejects.toThrow();
+  // Outside operational mode result.certify is denied by policy (the OPERATIONAL_MODE_REQUIRED guard behind it is defence in depth).
+  vi.stubEnv('NIPT_MODE','synthetic');
+  await expect(f.run(t=>sendToHis(t,f.admin,{...base,items:[item]}))).rejects.toThrow('FORBIDDEN');
+  vi.stubEnv('NIPT_MODE','operational');
   expect(await count(f,'SELECT 1 FROM result_release WHERE version_id=$1',[p.id])).toBe(0);
  }finally{vi.unstubAllEnvs();await f.close();}
 },180000);
