@@ -1,9 +1,50 @@
-name: Synthetic foundation
-on: [push, pull_request, workflow_dispatch]
+name: NIPT-CBH risk-based validation
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: validation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
+
 jobs:
-  validate:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      level: ${{ steps.classify.outputs.level }}
+      run_full: ${{ steps.classify.outputs.run_full }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - name: Classify changed paths using the Production deploy risk policy
+        id: classify
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: node tools/ci/plan-validation.mjs
+
+  fast:
+    needs: plan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24', cache: npm}
+      - run: npm ci
+      - run: npm run guard
+      - name: Deploy contracts and Fast Pipeline enforcement regression
+        run: node --test tests/deploy/*.node.mjs
+      - run: npm run typecheck
+      - run: npm run lint
+
+  full:
+    needs: [plan, fast]
+    if: needs.plan.outputs.run_full == 'true'
     runs-on: ubuntu-latest
     # measured 2026-11-01: npm test ~25 min, the Playwright E2E step ~28 min; 25 and then 50 minutes cancelled the job before it finished
     timeout-minutes: 90
@@ -48,11 +89,6 @@ jobs:
       - run: npx tsx tools/prepare-db.ts
       - run: npx tsx tools/seed.ts
       - run: npm run simulator
-      - run: npm run guard
-      - name: Signed deployment target and recovery contracts
-        run: node --test tests/deploy/*.node.mjs
-      - run: npm run typecheck
-      - run: npm run lint
       - run: npm test
       - run: npm audit --omit=dev --audit-level=high
       - run: npm run build
