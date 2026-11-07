@@ -320,15 +320,9 @@ export async function proposeAutoMatch(db:Queryable,user:Staff,input:unknown){
  need(user,'result.link.manual','propose');
  const v=await versionOf(db,d.versionId);if(v.state!=='Unlinked')throw new LabError('LINK_REQUIRES_UNLINKED',409);
  if(v.row_version!==d.expectedRowVersion)throw new LabError('VERSION_CONFLICT',409);
- if((await resultSettings(db)).linkageMode==='UNIQUE_AUTO_LINK'){
-  const r=await tryAutoLink(db,user,v.id);if(!r.linked)throw new LabError('AUTO_MATCH_NOT_UNAMBIGUOUS',409,{reason:r.reason});
-  return {outcome:r.version.state,autoLinked:true};
- }
- const candidates=await linkCandidates(db,user,v.parsed,await resultSettings(db));
- const first=candidates[0],open=first?await openInSeries(db,v,first.round.id):null;
- const m=autoMatchCandidate(candidates,{kind:v.kind,openRevision:!!open});
- if(!m)throw new LabError('AUTO_MATCH_NOT_UNAMBIGUOUS',409);
- return proposeLink(db,user,{versionId:v.id,roundId:m.round.id,attemptId:m.attempt.id,reason:AUTO_MATCH_REASON,expectedRowVersion:d.expectedRowVersion});
+ // Since 2026-11-07 a unique clean match links by itself whatever result_management.linkageMode says.
+ const r=await tryAutoLink(db,user,v.id);if(!r.linked)throw new LabError('AUTO_MATCH_NOT_UNAMBIGUOUS',409,{reason:r.reason});
+ return {outcome:r.version.state,autoLinked:true};
 }
 export async function decideLink(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);
@@ -524,6 +518,16 @@ export async function acceptAndRelease(db:Queryable,user:Staff,input:unknown){
  need(user,'result.review');need(user,'result.certify');
  // A replayed key returns the recorded outcome without re-recording anything.
  if((await db.query('SELECT 1 FROM result_gate_evaluation WHERE idempotency_key=$1',[d.idempotencyKey])).rows[0])return certifyAttempt(db,user,{versionId:d.versionId,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:d.expectedRowVersion,confirmed:true});
+ const v=await reviewExternalForRelease(db,user,{versionId:d.versionId,expectedRowVersion:d.expectedRowVersion,abnormalAcknowledged:d.abnormalAcknowledged,...(d.note?{note:d.note}:{}),...(d.benchRevision?{benchRevision:d.benchRevision}:{}),...(d.benchMeasurementsReviewed?{benchMeasurementsReviewed:true}:{})});
+ return certifyAttempt(db,user,{versionId:v.id,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:v.row_version,confirmed:true});
+}
+/** Result-release simplification (Task 3): review + QC5 (or the migration review) only. The version stops at PendingCertification
+ *  ("waiting to send to HIS"); certification and release belong to the later Send HIS step. */
+export async function reviewExternalForRelease(db:Queryable,user:Staff,input:unknown):Promise<VersionRow>{
+ await assertSession(db,user);
+ const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,abnormalAcknowledged:z.boolean(),note:z.string().trim().max(500).refine(x=>!/d{13}/.test(x),'REASON_TEXT_INVALID').optional(),benchRevision:z.number().int().positive().optional(),benchMeasurementsReviewed:z.literal(true).optional()}).parse(input);
+ if(!await operationalWorkflow(db))throw new LabError('OPERATIONAL_MODE_REQUIRED',409);
+ need(user,'result.review');
  const pre=await versionOf(db,d.versionId);
  // The external-final attestation is never a path for a report NIPT-CBH generated itself (Task 3 T3-08-04).
  if(pre.origin==='INTERNAL_GENERATED')throw new LabError('EXTERNAL_ATTESTATION_NOT_FOR_INTERNAL_REPORT',409);
@@ -539,10 +543,14 @@ export async function acceptAndRelease(db:Queryable,user:Staff,input:unknown){
   v=await validate(db,user,await versionOf(db,v.id));
  }else if(v.kind==='RESULT'){
   need(user,'qc.accept');
-  await recordQc5(db,user,{versionId:v.id,expectedRowVersion:v.row_version,criteriaReference:EXTERNAL_FINAL_CRITERIA,templateReviewed:true,disclosureReviewed:true,abnormalAcknowledged:d.abnormalAcknowledged,reason:'ตรวจรับ PDF Final จากระบบวิเคราะห์ภายนอกและยืนยันส่งผล',...(d.benchRevision?{benchRevision:d.benchRevision}:{}),...(d.benchMeasurementsReviewed?{benchMeasurementsReviewed:true}:{})});
+  await recordQc5(db,user,{versionId:v.id,expectedRowVersion:v.row_version,criteriaReference:EXTERNAL_FINAL_CRITERIA,templateReviewed:true,disclosureReviewed:true,abnormalAcknowledged:d.abnormalAcknowledged,reason:'ตรวจรับ PDF Final จากระบบวิเคราะห์ภายนอก (รอส่ง HIS)',...(d.benchRevision?{benchRevision:d.benchRevision}:{}),...(d.benchMeasurementsReviewed?{benchMeasurementsReviewed:true}:{})});
   v=await versionOf(db,v.id);
  }
- return certifyAttempt(db,user,{versionId:v.id,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:v.row_version,confirmed:true});
+ return v;
+}
+/** True when this exact version has a recorded result review and QC5 (or the migration review that stands in for QC5 on migrated records). */
+export async function releaseReviewed(db:Queryable,versionId:string):Promise<boolean>{
+ return (await db.query<{ok:boolean}>('SELECT EXISTS(SELECT 1 FROM result_review WHERE version_id=$1) AND (EXISTS(SELECT 1 FROM result_qc5_review WHERE version_id=$1) OR EXISTS(SELECT 1 FROM migration_result_review WHERE version_id=$1)) ok',[uuid.parse(versionId)])).rows[0].ok;
 }
 // ---------- Task 3 pathway A: reports generated by NIPT-CBH from HALOS data (INTERNAL_GENERATED) ----------
 // The Final PDF enters the SAME ledger: intake (source INTERNAL_GENERATED) → parse of the actual PDF bytes → version → frozen-export
@@ -587,15 +595,23 @@ export async function acceptInternalAndRelease(db:Queryable,user:Staff,input:unk
  if(!await operationalWorkflow(db))throw new LabError('OPERATIONAL_MODE_REQUIRED',409);
  need(user,'result.review');need(user,'result.certify');need(user,'qc.accept');
  if((await db.query('SELECT 1 FROM result_gate_evaluation WHERE idempotency_key=$1',[d.idempotencyKey])).rows[0])return certifyAttempt(db,user,{versionId:d.versionId,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:d.expectedRowVersion,confirmed:true});
+ const v=await reviewInternalForRelease(db,user,{versionId:d.versionId,expectedRowVersion:d.expectedRowVersion,abnormalAcknowledged:d.abnormalAcknowledged,...(d.note?{note:d.note}:{}),...(d.benchRevision?{benchRevision:d.benchRevision}:{}),...(d.benchMeasurementsReviewed?{benchMeasurementsReviewed:true}:{})});
+ return certifyAttempt(db,user,{versionId:v.id,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:v.row_version,confirmed:true});
+}
+/** Review + QC5 of an internal report; leaves the version in PendingCertification (Task 3 release simplification). */
+export async function reviewInternalForRelease(db:Queryable,user:Staff,input:unknown):Promise<VersionRow>{
+ await assertSession(db,user);
+ const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,abnormalAcknowledged:z.boolean(),note:z.string().trim().max(500).refine(x=>!/d{13}/.test(x),'REASON_TEXT_INVALID').optional(),benchRevision:z.number().int().positive().optional(),benchMeasurementsReviewed:z.literal(true).optional()}).parse(input);
+ if(!await operationalWorkflow(db))throw new LabError('OPERATIONAL_MODE_REQUIRED',409);
+ need(user,'result.review');need(user,'qc.accept');
  const pre=await versionOf(db,d.versionId);
  if(pre.origin!=='INTERNAL_GENERATED')throw new LabError('INTERNAL_RELEASE_REQUIRES_INTERNAL_REPORT',409);
  if(pre.row_version!==d.expectedRowVersion)throw new LabError('VERSION_CONFLICT',409);
  if(!(await db.query<{ok:boolean}>('SELECT task3_internal_version_current($1) ok',[pre.id])).rows[0].ok)throw new LabError('INTERNAL_REPORT_AUTHORITY_REQUIRED',409);
  await recordReview(db,user,{versionId:pre.id,valuesMatchPdf:true,abnormalAcknowledged:d.abnormalAcknowledged,...(d.note?{note:d.note}:{}),expectedRowVersion:pre.row_version});
- let v=await versionOf(db,pre.id);
- await recordQc5(db,user,{versionId:v.id,expectedRowVersion:v.row_version,criteriaReference:INTERNAL_FINAL_CRITERIA,templateReviewed:true,disclosureReviewed:true,abnormalAcknowledged:d.abnormalAcknowledged,reason:'ตรวจรับรายงานที่ออกในระบบตามชุดกฎที่อนุมัติและยืนยันส่งผล',...(d.benchRevision?{benchRevision:d.benchRevision}:{}),...(d.benchMeasurementsReviewed?{benchMeasurementsReviewed:true}:{})});
- v=await versionOf(db,v.id);
- return certifyAttempt(db,user,{versionId:v.id,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:v.row_version,confirmed:true});
+ const v=await versionOf(db,pre.id);
+ await recordQc5(db,user,{versionId:v.id,expectedRowVersion:v.row_version,criteriaReference:INTERNAL_FINAL_CRITERIA,templateReviewed:true,disclosureReviewed:true,abnormalAcknowledged:d.abnormalAcknowledged,reason:'ตรวจรับรายงานที่ออกในระบบตามชุดกฎที่อนุมัติ (รอส่ง HIS)',...(d.benchRevision?{benchRevision:d.benchRevision}:{}),...(d.benchMeasurementsReviewed?{benchMeasurementsReviewed:true}:{})});
+ return versionOf(db,v.id);
 }
 
 // ---------- Task 3: "มีผลใน HIS แล้ว" — authorised user attestation that HIS already holds this exact result ----------
@@ -690,7 +706,7 @@ export async function versionDetail(db:Queryable,user:Staff,id:string){
  return {historicalReported,hisDelivery,migration:await migrationResultEvidence(db,v.id),operational,nameConflicts:conflicts,origin:v.origin,internal,fallback,attestations,hisTransferState:transfer?.state??null,version:{id:v.id,origin:v.origin,kind:v.kind,templateKind:v.template_kind,templateVersion:v.template_version,parserVersion:v.parser_version,state:v.state,rowVersion:v.row_version,sha256:v.sha256,importedAt:v.imported_at,caseId:v.case_id,roundId:v.round_id,attemptId:v.attempt_id,linkMode:v.link_mode,supersedesId:v.supersedes_id,revision:v.revision},
   parsed:v.parsed,summary:summary(v.parsed),intake:{...intake,size:Number(intake.byte_size)},target,proposal,
   benchEvidence:benchEvidence?{...benchEvidence,requiresReview:benchEvidence.ownerPaperRoute&&!releaseEvidence?.sequencingId&&(!releaseEvidence?.benchReviewId||releaseEvidence.benchReviewerId!==user.id)}:null,
-  candidates,autoMatch:auto?{caseId:auto.caseId,roundId:auto.round.id,attemptId:auto.attempt.id,reason:AUTO_MATCH_REASON,linksDirectly:s.linkageMode==='UNIQUE_AUTO_LINK'}:null,
+  candidates,autoMatch:auto?{caseId:auto.caseId,roundId:auto.round.id,attemptId:auto.attempt.id,reason:AUTO_MATCH_REASON,linksDirectly:true}:null,
   gate:v.round_id?await gateFor(db,v,'VALIDATION'):null,events:events.rows,links:links.rows,gates:gates.rows,reviews:reviews.rows,
   can:{propose:authorize(user,'result.link.manual',{},'propose')&&v.state==='Unlinked'&&!proposal,decide:!!proposal&&authorize(user,'result.link.manual',{actorId:proposal.actor_id},'approve'),
    unlink:authorize(user,'result.link.manual',{},'approve')&&['LinkConflict','Linked','ValidationBlocked','PendingCertification'].includes(v.state)&&!v.supersedes_id,

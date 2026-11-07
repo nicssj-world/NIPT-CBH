@@ -11,7 +11,7 @@ import {petDisplayName} from '../sequencing/owner-export';
 import {SETTINGS} from '../settings/catalog';
 import {pdfText} from '../results/extract';
 import {parseReport,isNoCallReport} from '../results/parser';
-import {roundRequest,registerInternalVersion,acceptInternalAndRelease} from '../results/service';
+import {roundRequest,registerInternalVersion,reviewInternalForRelease} from '../results/service';
 import {writeArchive,sha256} from '../workbook/archive';
 import {interpretRow,productCodeOf,reportGaDays,TEMPLATES,RULESET,RULESET_SHA256,type Interpretation,type Hold} from './interpretation';
 import {isReportablePatientEvidence} from './halos-import';
@@ -289,8 +289,8 @@ export async function finalizeReports(db:Queryable,user:Staff,deps:ReportDeps,in
    let v=await registerInternalVersion(db,user,deps.store,report.id);
    let release:string|undefined;
    if(d.release&&d.releaseConfirmations&&['Linked','ValidationBlocked','PendingCertification'].includes(v.state)){
-    const r=await acceptInternalAndRelease(db,user,{versionId:v.id,expectedRowVersion:v.row_version,idempotencyKey:`t3-${d.idempotencyKey.slice(0,8)}-${report.id}`,...d.releaseConfirmations,...(d.releaseConfirmations.benchMeasurementsReviewed?{benchMeasurementsReviewed:true,benchRevision:await benchRevisionFor(db,w.p.attemptId)}:{})});
-    release=r.outcome;v=(await db.query<typeof v>('SELECT * FROM result_report_version WHERE id=$1',[v.id])).rows[0];
+    const r=await reviewInternalForRelease(db,user,{versionId:v.id,expectedRowVersion:v.row_version,abnormalAcknowledged:d.releaseConfirmations.abnormalAcknowledged,...(d.releaseConfirmations.benchMeasurementsReviewed?{benchMeasurementsReviewed:true,benchRevision:await benchRevisionFor(db,w.p.attemptId)}:{})});
+    release=r.state;v=(await db.query<typeof v>('SELECT * FROM result_report_version WHERE id=$1',[v.id])).rows[0];
    }
    await db.query('RELEASE SAVEPOINT internal_report_item');
    out[w.i]={rowId:item.rowId,outcome:'FINAL',internalReportId:report.id,versionId:v.id,versionState:v.state,downloadName:name,...(release?{release}:{})};

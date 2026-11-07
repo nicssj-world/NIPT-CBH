@@ -19,7 +19,7 @@ export function ReportBatchProgress({batchId,onComplete}:{batchId:string;onCompl
   {error&&<p role="alert">{error} <button type="button" className="button small secondary" onClick={()=>setRetry(n=>n+1)}>ลองใหม่</button></p>}
   {batch?.state!=='COMPLETED'&&<p className="help">ปิดหน้านี้ได้ ระบบทำต่อในคิว เปิดติดตามได้ที่ “งานออกรายงานของฉัน”</p>}
   {batch&&<ul className="timeline">{batch.items.map(item=><li key={item.rowId}>{item.outcome?.versionId?<Link href={`/results/${item.outcome.versionId}`}>เปิดผลตรวจ</Link>:<span>{item.state==='QUEUED'?'รอดำเนินการ':'รายการที่ยังออกรายงานไม่ได้'}</span>}
-   {' · '}{item.outcome?.release==='CertifiedReleased'?'ออกรายงานและผูกผลแล้ว':item.state==='FINAL'?'สร้าง PDF แล้ว · ยังไม่ยืนยันผล':item.state==='HOLD'?'ระงับ':item.state==='ERROR'?'ไม่สำเร็จ':'กำลังดำเนินการ'}
+   {' · '}{item.outcome?.release==='PendingCertification'?'ออกรายงานแล้ว · พร้อมส่ง HIS — ยังไม่ส่งผลให้ ANC':item.state==='FINAL'?'สร้าง PDF แล้ว · ยังไม่ยืนยันผล':item.state==='HOLD'?'ระงับ':item.state==='ERROR'?'ไม่สำเร็จ':'กำลังดำเนินการ'}
    {item.outcome?.code&&<span className="help"> · {item.outcome.code}</span>}{item.outcome?.holds?.length? <span className="help"> · {item.outcome.holds.map(h=>h.code).join(', ')}</span>:null}</li>)}</ul>}
   {!!batch?.items.some(i=>i.state==='FINAL')&&<a className="button secondary" href={`/api/task3/batches/${batch.batchId}/zip`}>ดาวน์โหลด PDF ทั้งชุด (ZIP)</a>}
  </section>;

@@ -6,7 +6,7 @@ import {authorize} from '../security/policy';
 import type {Parsed} from './parser';
 import {attemptEvidence} from './evidence';
 import {isNoCallReport} from './parser';
-import {autoMatchCandidate,linkCandidates,resultSettings,confirmImport,proposeAutoMatch,decideLink,acceptAndRelease,type Candidate} from './service';
+import {autoMatchCandidate,linkCandidates,resultSettings,confirmImport,proposeAutoMatch,decideLink,reviewExternalForRelease,type Candidate} from './service';
 
 export function completionPreview(candidates:Candidate[],options:{kind:string;openRevision:boolean}){
  const candidate=autoMatchCandidate(candidates,options);
@@ -25,7 +25,6 @@ export async function previewCompletion(db:Queryable,user:Staff,input:unknown){
   const open=candidates.length?(await db.query('SELECT 1 FROM result_report_version WHERE round_id=ANY($1::uuid[]) AND kind=$2 AND state IN (\'LinkConflict\',\'Linked\',\'ValidationBlocked\',\'PendingCertification\',\'CertifiedReleased\') LIMIT 1',[candidates.map(c=>c.round.id),'RESULT'])).rows.length>0:false;
   const planned=completionPreview(candidates,{kind:['SINGLETON','TWIN'].includes(r.parsed.templateKind)?'RESULT':r.parsed.templateKind,openRevision:open});
   if(!authorize(user,'result.certify')){planned.ready=false;planned.reasons.push('CERTIFIER_REQUIRED');}
-  if(settings.linkageMode!=='UNIQUE_AUTO_LINK'&&(!authorize(user,'result.link.manual',{},'propose')||!authorize(user,'result.link.manual',{},'approve'))){planned.ready=false;planned.reasons.push('LINK_AUTHORITY_REQUIRED');}
   const run=planned.candidate?(await db.query<{run_label:string}>("SELECT b.run_label FROM lab_slot_assignment a JOIN lab_batch b ON b.id=a.batch_id WHERE a.attempt_id=$1 AND a.removed_at IS NULL AND b.state<>'Cancelled'",[planned.candidate.attempt.id])).rows[0]?.run_label??null:null;
   if(planned.candidate&&!run){planned.ready=false;planned.reasons.push('REPORT_RUN_REQUIRED');}
   if(planned.candidate&&!isNoCallReport(r.parsed)){
@@ -48,13 +47,14 @@ export async function confirmCompletion(db:Queryable,user:Staff,input:unknown){
    if(!source||source.actor_id!==user.id)throw new LabError('NOT_FOUND',404);
    const key='complete-'+createHash('sha256').update(d.idempotencyKey+requested.intakeId).digest('hex').slice(0,48);
    await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,75432866))',[key]);
-   const prior=(await db.query<{version_id:string;actor_id:string;case_id:string;round_id:string;attempt_id:string;intake_file_id:string;registration_origin:string;unit_id:string|null}>(`SELECT g.version_id,g.actor_id,v.case_id,v.round_id,v.attempt_id,v.intake_file_id,c.registration_origin,
+   // Replay: this intake already became a version that waits for sending (or was certified earlier). Bound to the requested target.
+   const prior=(await db.query<{version_id:string;state:string;case_id:string;round_id:string;attempt_id:string;registration_origin:string;unit_id:string|null}>(`SELECT v.id version_id,v.state,v.case_id,v.round_id,v.attempt_id,c.registration_origin,
     (SELECT unit_id FROM case_unit_scope WHERE case_id=v.case_id ORDER BY unit_id LIMIT 1) unit_id
-    FROM result_gate_evaluation g JOIN result_report_version v ON v.id=g.version_id JOIN nipt_case c ON c.id=v.case_id WHERE g.idempotency_key=$1`,[key])).rows[0];
+    FROM result_report_version v JOIN nipt_case c ON c.id=v.case_id WHERE v.intake_file_id=$1 AND v.round_id IS NOT NULL AND v.state IN ('PendingCertification','CertifiedReleased') ORDER BY v.imported_at DESC LIMIT 1`,[requested.intakeId])).rows[0];
    if(prior){
-    if(prior.actor_id!==user.id||!caseVisible(user,prior))throw new LabError('NOT_FOUND',404);
-    if(prior.intake_file_id!==requested.intakeId||prior.case_id!==requested.caseId||prior.round_id!==requested.roundId||prior.attempt_id!==requested.attemptId)throw new LabError('IDEMPOTENCY_KEY_REUSED',409);
-    const release=(await db.query('SELECT id FROM result_release WHERE version_id=$1 AND state=\'Active\'',[prior.version_id])).rows[0];items.push({intakeId:requested.intakeId,versionId:prior.version_id,outcome:release?'CertifiedReleased':'BLOCKED'});await db.query('RELEASE SAVEPOINT complete_result_item');continue;
+    if(!caseVisible(user,prior))throw new LabError('NOT_FOUND',404);
+    if(prior.case_id!==requested.caseId||prior.round_id!==requested.roundId||prior.attempt_id!==requested.attemptId)throw new LabError('IDEMPOTENCY_KEY_REUSED',409);
+    items.push({intakeId:requested.intakeId,versionId:prior.version_id,outcome:prior.state});await db.query('RELEASE SAVEPOINT complete_result_item');continue;
    }
    const preview=(await previewCompletion(db,user,{intakeIds:[requested.intakeId]})).items[0],c=preview.candidate;
    if(!preview.ready||!c)throw new LabError(preview.reasons[0]??'IDENTITY_MATCH_REQUIRED',409);
@@ -69,9 +69,10 @@ export async function confirmCompletion(db:Queryable,user:Staff,input:unknown){
     if(v.state==='Unlinked'){await decideLink(db,user,{versionId:v.id,decision:'APPROVE',reason:'ยืนยันการจับคู่ PDF Final กับผู้ป่วยจากหน้าออกผล',expectedRowVersion:v.row_version});v=await version();}
    }
    if(v.round_id!==requested.roundId||v.attempt_id!==requested.attemptId)throw new LabError('MATCH_CHANGED_SINCE_PREVIEW',409);
-   const result=await acceptAndRelease(db,user,{versionId:v.id,expectedRowVersion:v.row_version,idempotencyKey:key,externalFinalCertified:true,identityAndValuesMatchPdf:true,disclosureReviewed:true,abnormalAcknowledged:d.abnormalAcknowledged});
-   if(result.outcome!=='CertifiedReleased')throw new LabError('RESULT_COMPLETION_BLOCKED',409,{failed:result.failed,pending:result.pending});
-   items.push({intakeId:requested.intakeId,versionId:v.id,outcome:result.outcome});
+   // Review + QC5 only: the version waits in PendingCertification ("รอส่ง HIS"); ANC sees nothing until the Send HIS step certifies it.
+   const reviewed=await reviewExternalForRelease(db,user,{versionId:v.id,expectedRowVersion:v.row_version,abnormalAcknowledged:d.abnormalAcknowledged});
+   if(reviewed.state!=='PendingCertification')throw new LabError('RESULT_COMPLETION_BLOCKED',409,{state:reviewed.state});
+   items.push({intakeId:requested.intakeId,versionId:v.id,outcome:'PendingCertification'});
    await db.query('RELEASE SAVEPOINT complete_result_item');
   }catch(e){await db.query('ROLLBACK TO SAVEPOINT complete_result_item');await db.query('RELEASE SAVEPOINT complete_result_item');if(!(e instanceof LabError))throw e;items.push({intakeId:requested.intakeId,outcome:'HOLD',code:e.code,details:e.details});}
  }
