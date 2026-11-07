@@ -9,7 +9,7 @@ import {confirmCompletion} from '../../packages/results/completion';
 import {confirmImport,unlinkVersion,voidVersion} from '../../packages/results/service';
 import {dismissHalosRow} from '../../packages/readygen/halos-import';
 import {sendToHis} from '../../packages/results/send-his';
-import {releaseQueue,fixHrefFor,type BoardRow} from '../../packages/results/release-queue';
+import {releaseQueue,fixHrefFor,BOARD_CAPS,type BoardRow} from '../../packages/results/release-queue';
 
 type F=Awaited<ReturnType<typeof task3Fixture>>;
 const rowVersion=async(f:F,id:string)=>(await f.db.query<{row_version:number}>('SELECT row_version FROM result_report_version WHERE id=$1',[id])).rows[0].row_version;
@@ -120,4 +120,37 @@ it('fixHrefFor sends patient-data reasons to the case and ruleset reasons to set
  expect(fixHrefFor('INTERPRETATION_RULESET_NOT_APPROVED','c1')).toBe('/settings?key=report_interpretation');
  expect(fixHrefFor('PRODUCT_TEMPLATE_COMBINATION_NOT_APPROVED',null)).toBe('/settings?key=report_interpretation');
  expect(fixHrefFor('UNLINKED','c1')).toBeUndefined();
+ expect(fixHrefFor('SOME_OTHER_TEMPLATE_THING','c1')).toBeUndefined();
+ expect(fixHrefFor('XPRODUCT_UNRECOGNIZED','c1')).toBeUndefined();
+ expect(BOARD_CAPS).toEqual({halos:500,versions:1000});
 });
+
+it('q finds a row by LN Halos and by sample id; a HALOS HOLD row and a version of the same patient are both listed under separate keys',async()=>{
+ const f=await task3Fixture();try{
+  const u=await unlinked(f,1),row=await halosRow(f,1);
+  const lnHalos=(await f.db.query<{ln_halos:string|null}>('SELECT ln_halos FROM specimen_lab_number WHERE round_id=$1',[f.cases[1].roundId])).rows[0]?.ln_halos;
+  const action=await board(f,'ACTION');
+  expect(action.rows.map(r=>r.key).sort()).toEqual([`halos:${row}`,`version:${u.id}`].sort());
+  expect(action.counts.ACTION).toBe(2);expect(action.page.total).toBe(2);
+  expect((await board(f,'ACTION',{q:f.cases[1].printed})).rows.some(r=>r.versionId===u.id)).toBe(true);
+  if(lnHalos)expect((await board(f,'ACTION',{q:lnHalos})).rows.some(r=>r.halosRowId===row||r.versionId===u.id)).toBe(true);
+  expect((await board(f,'ACTION',{q:'ZZZ-no-such'})).rows).toEqual([]);
+ }finally{vi.unstubAllEnvs();await f.close();}
+},300000);
+
+it('a caps-limited read sets truncated; the normal read does not; a real ValidationBlocked version carries fixHref exactly as the map says',async()=>{
+ const f=await task3Fixture();try{
+  const a=await pending(f,0),b=await pending(f,1);
+  expect((await board(f,'READY')).truncated).toBe(false);
+  const capped=await f.run(t=>releaseQueue(t,f.admin,{store:f.store},{tab:'READY'},{halos:500,versions:1}));
+  expect(capped.truncated).toBe(true);expect(capped.counts.READY).toBe(1);expect(capped.rows).toHaveLength(1);
+  await f.db.query("INSERT INTO p2_revocation(case_id,round_id,stage,reason,actor_id) VALUES($1,$2,'W1','SYNTHETIC consent withdrawal while waiting',$3)",[b.c.caseId,b.c.roundId,f.u.staff.id]);
+  const r=await f.run(async t=>sendToHis(t,f.admin,{idempotencyKey:randomUUID(),reviewConfirmed:true,abnormalAcknowledged:false,items:[{versionId:b.id,expectedRowVersion:await rowVersion(f,b.id)}]}));
+  expect(r.items[0].outcome).toBe('BLOCKED');
+  const row=(await board(f,'ACTION')).rows.find(x=>x.versionId===b.id)!;
+  expect(row.reasons.length).toBeGreaterThan(0);
+  for(const x of row.reasons)expect(x.fixHref).toBe(fixHrefFor(x.code,b.c.caseId));
+  expect(row.reasons.map(x=>x.code).join()).toContain('CONSENT');
+  expect(a.id).toBeTruthy();
+ }finally{vi.unstubAllEnvs();await f.close();}
+},300000);
