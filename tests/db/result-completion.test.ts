@@ -6,7 +6,7 @@ import {syntheticReportPdf} from '../../tools/his-simulator/result-pdf';
 import {registerIntake,parseIntake} from '../../packages/results/intake';
 import {reviewBenchForResult} from '../../packages/lab/bench-review';
 import {previewCompletion,confirmCompletion} from '../../packages/results/completion';
-import {releaseReviewed,ancCaseResults,readReleasedFile,unlinkVersion,proposeLink,decideLink,recordReview,acceptAndRelease} from '../../packages/results/service';
+import {releaseReviewed,ancCaseResults,readReleasedFile,unlinkVersion,proposeLink,decideLink,recordReview,acceptAndRelease,acceptInternalAndRelease} from '../../packages/results/service';
 import {SETTINGS} from '../../packages/settings/catalog';
 import {proposeSetting,validateSetting,approveSetting,activateSetting} from '../../packages/settings/service';
 
@@ -96,5 +96,28 @@ it('acceptAndRelease on an already reviewed PendingCertification version certifi
   expect(r.outcome).toBe('CertifiedReleased');
   expect((await f.db.query('SELECT 1 FROM result_review WHERE version_id=$1',[id])).rows).toHaveLength(1);
   expect((await f.db.query('SELECT 1 FROM result_qc5_review WHERE version_id=$1',[id])).rows).toHaveLength(1);
+ }finally{vi.unstubAllEnvs();await f.close();}
+},120000);
+
+it('the attestation paths keep their origin guards for an already reviewed PendingCertification version',async()=>{
+ const f=await task3Fixture();try{
+  const c=f.cases[0],bytes=syntheticReportPdf({kind:'SINGLETON',labNumber:c.printed,hn:c.hn,dob:'01-Jan-1990',collection:pdfDate('2026-10-20'),gaWeeks:17,gaDays:6,sex:null});
+  const intakeId=await f.run(t=>registerIntake(t,f.store,{source:'UPLOAD',relativePath:null,originalName:'SYNTHETIC-origin-guard.pdf',actorId:f.admin.id,jobId:null},bytes));
+  await f.run(t=>parseIntake(t,f.store,intakeId,{maxBytes:10000000,acceptZip:true}));
+  await f.run(t=>reviewBenchForResult(t,f.admin,c.attemptId,{revision:1,measurementsReviewed:true,reason:'SYNTHETIC legacy paper-only result evidence review'}));
+  const done=await f.run(t=>confirmCompletion(t,f.admin,{idempotencyKey:randomUUID(),items:[{intakeId,caseId:c.caseId,roundId:c.roundId,attemptId:c.attemptId}]}));
+  const id=done.items[0].versionId!;
+  const rv=async()=>(await f.db.query<{row_version:number}>('SELECT row_version FROM result_report_version WHERE id=$1',[id])).rows[0].row_version;
+  const external=async()=>({versionId:id,expectedRowVersion:await rv(),idempotencyKey:randomUUID(),externalFinalCertified:true as const,identityAndValuesMatchPdf:true as const,disclosureReviewed:true as const,abnormalAcknowledged:false});
+  const internal=async()=>({versionId:id,expectedRowVersion:await rv(),idempotencyKey:randomUUID(),reportContentVerified:true as const,identityAndValuesMatchReport:true as const,disclosureReviewed:true as const,abnormalAcknowledged:false});
+  // (b) the internal attestation is refused for an external PDF that is already reviewed and waiting.
+  await expect(f.run(async t=>acceptInternalAndRelease(t,f.admin,await internal()))).rejects.toThrow('INTERNAL_RELEASE_REQUIRES_INTERNAL_REPORT');
+  // (a) the external attestation is refused for an internal report that is already reviewed and waiting.
+  await f.db.query("ALTER TABLE result_report_version DISABLE TRIGGER USER");
+  await f.db.query("UPDATE result_report_version SET origin='INTERNAL_GENERATED' WHERE id=$1",[id]);
+  await f.db.query("ALTER TABLE result_report_version ENABLE TRIGGER USER");
+  await expect(f.run(async t=>acceptAndRelease(t,f.admin,await external()))).rejects.toThrow('EXTERNAL_ATTESTATION_NOT_FOR_INTERNAL_REPORT');
+  expect((await f.db.query('SELECT 1 FROM result_release WHERE version_id=$1',[id])).rows).toHaveLength(0);
+  expect((await f.db.query<{state:string}>('SELECT state FROM result_report_version WHERE id=$1',[id])).rows[0].state).toBe('PendingCertification');
  }finally{vi.unstubAllEnvs();await f.close();}
 },120000);

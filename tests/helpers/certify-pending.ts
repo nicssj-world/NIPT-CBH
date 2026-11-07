@@ -17,6 +17,7 @@ export async function pendingState(t:Queryable,versionId:string){
   reviews:await q('SELECT 1 FROM result_review WHERE version_id=$1'),
   qc5:await q('SELECT 1 FROM result_qc5_review WHERE version_id=$1'),
   releases:await q('SELECT 1 FROM result_release WHERE version_id=$1'),
-  outbox:await q("SELECT 1 FROM job_outbox o JOIN result_release r ON r.id::text=o.payload->>'releaseId' WHERE o.kind='result_release_completed' AND r.version_id=$1")
+  // Any queued release delivery for this version's case (a release row of the case is what the outbox payload points at).
+  outbox:await q("SELECT 1 FROM job_outbox o JOIN result_release r ON r.id::text=o.payload->>'releaseId' JOIN result_report_version v ON v.case_id=r.case_id WHERE o.kind='result_release_completed' AND v.id=$1")
  };
 }

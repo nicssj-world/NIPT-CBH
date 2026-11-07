@@ -515,14 +515,23 @@ export async function certifyAttempt(db:Queryable,user:Staff,input:unknown){
  */
 export const EXTERNAL_FINAL_CRITERIA='EXTERNAL_FINAL_REPORT_CERTIFIED (Owner P5-B 2026-10-18)';
 /** A version already reviewed + QC5'd (current) in PendingCertification is certified directly; review and QC5 are never recorded twice. */
-async function alreadyReviewed(db:Queryable,versionId:string){return (await versionOf(db,versionId)).state==='PendingCertification'&&await releaseReviewed(db,versionId);}
+async function alreadyReviewed(db:Queryable,versionId:string,path:'EXTERNAL'|'INTERNAL'){
+ const v=await versionOf(db,versionId);
+ // Origin/currency guards of each attestation path run before the short-circuit, so a false attestation is still refused.
+ if(path==='EXTERNAL'&&v.origin==='INTERNAL_GENERATED')throw new LabError('EXTERNAL_ATTESTATION_NOT_FOR_INTERNAL_REPORT',409);
+ if(path==='INTERNAL'){
+  if(v.origin!=='INTERNAL_GENERATED')throw new LabError('INTERNAL_RELEASE_REQUIRES_INTERNAL_REPORT',409);
+  if(!(await db.query<{ok:boolean}>('SELECT task3_internal_version_current($1) ok',[v.id])).rows[0].ok)throw new LabError('INTERNAL_REPORT_AUTHORITY_REQUIRED',409);
+ }
+ return v.state==='PendingCertification'&&await releaseReviewed(db,versionId);
+}
 export async function acceptAndRelease(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);
  const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,idempotencyKey:z.string().regex(/^[A-Za-z0-9_-]{16,80}$/),externalFinalCertified:z.literal(true),identityAndValuesMatchPdf:z.literal(true),disclosureReviewed:z.literal(true),abnormalAcknowledged:z.boolean(),note:reviewNote.optional(),benchRevision:z.number().int().positive().optional(),benchMeasurementsReviewed:z.literal(true).optional()}).parse(input);
  if(!await operationalWorkflow(db))throw new LabError('OPERATIONAL_MODE_REQUIRED',409);
  need(user,'result.review');need(user,'result.certify');
  // A replayed key returns the recorded outcome without re-recording anything.
- if((await db.query('SELECT 1 FROM result_gate_evaluation WHERE idempotency_key=$1',[d.idempotencyKey])).rows[0]||await alreadyReviewed(db,d.versionId))return certifyAttempt(db,user,{versionId:d.versionId,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:d.expectedRowVersion,confirmed:true});
+ if((await db.query('SELECT 1 FROM result_gate_evaluation WHERE idempotency_key=$1',[d.idempotencyKey])).rows[0]||await alreadyReviewed(db,d.versionId,'EXTERNAL'))return certifyAttempt(db,user,{versionId:d.versionId,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:d.expectedRowVersion,confirmed:true});
  const v=await reviewExternalForRelease(db,user,{versionId:d.versionId,expectedRowVersion:d.expectedRowVersion,abnormalAcknowledged:d.abnormalAcknowledged,...(d.note?{note:d.note}:{}),...(d.benchRevision?{benchRevision:d.benchRevision}:{}),...(d.benchMeasurementsReviewed?{benchMeasurementsReviewed:true}:{})});
  return certifyAttempt(db,user,{versionId:v.id,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:v.row_version,confirmed:true});
 }
@@ -555,10 +564,10 @@ export async function reviewExternalForRelease(db:Queryable,user:Staff,input:unk
  }
  return v;
 }
-/** True when the version's review and QC5 are current by the gate's own rules: review recorded after the latest approving link event with no
- *  open link proposal, QC5 bound to this exact report sha256 (or, for a migrated record, the current migration review). */
 /** Failed/pending predicates of the validation gate, for blocked-completion details. */
 export async function validationGateIssues(db:Queryable,versionId:string){const v=await versionOf(db,versionId);const g=await gateFor(db,v,'VALIDATION');return {failed:g?.failed??[],pending:g?.pending??[]};}
+/** True when the version's review and QC5 are current by the gate's own rules: review recorded after the latest approving link event with no
+ *  open link proposal, QC5 bound to this exact report sha256 (or, for a migrated record, the current migration review). */
 export async function releaseReviewed(db:Queryable,versionId:string):Promise<boolean>{
  const id=uuid.parse(versionId);
  const x=(await db.query<{reviewed:boolean;open_proposal:boolean;qc5:boolean}>(`SELECT ${REVIEW_CURRENT_SQL} reviewed,${OPEN_PROPOSAL_SQL} open_proposal,EXISTS(SELECT 1 FROM result_qc5_review q JOIN result_report_version v ON v.id=q.version_id WHERE q.version_id=$1 AND q.report_sha256=v.sha256) qc5`,[id])).rows[0];
@@ -607,7 +616,7 @@ export async function acceptInternalAndRelease(db:Queryable,user:Staff,input:unk
  const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,idempotencyKey:z.string().regex(/^[A-Za-z0-9_-]{16,80}$/),reportContentVerified:z.literal(true),identityAndValuesMatchReport:z.literal(true),disclosureReviewed:z.literal(true),abnormalAcknowledged:z.boolean(),note:reviewNote.optional(),benchRevision:z.number().int().positive().optional(),benchMeasurementsReviewed:z.literal(true).optional()}).parse(input);
  if(!await operationalWorkflow(db))throw new LabError('OPERATIONAL_MODE_REQUIRED',409);
  need(user,'result.review');need(user,'result.certify');need(user,'qc.accept');
- if((await db.query('SELECT 1 FROM result_gate_evaluation WHERE idempotency_key=$1',[d.idempotencyKey])).rows[0]||await alreadyReviewed(db,d.versionId))return certifyAttempt(db,user,{versionId:d.versionId,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:d.expectedRowVersion,confirmed:true});
+ if((await db.query('SELECT 1 FROM result_gate_evaluation WHERE idempotency_key=$1',[d.idempotencyKey])).rows[0]||await alreadyReviewed(db,d.versionId,'INTERNAL'))return certifyAttempt(db,user,{versionId:d.versionId,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:d.expectedRowVersion,confirmed:true});
  const v=await reviewInternalForRelease(db,user,{versionId:d.versionId,expectedRowVersion:d.expectedRowVersion,abnormalAcknowledged:d.abnormalAcknowledged,...(d.note?{note:d.note}:{}),...(d.benchRevision?{benchRevision:d.benchRevision}:{}),...(d.benchMeasurementsReviewed?{benchMeasurementsReviewed:true}:{})});
  return certifyAttempt(db,user,{versionId:v.id,idempotencyKey:d.idempotencyKey,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:v.row_version,confirmed:true});
 }
