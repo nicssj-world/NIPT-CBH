@@ -22,4 +22,4 @@ Guide: [docs/deployment/FAST-DEVELOPMENT-PIPELINE.md](docs/deployment/FAST-DEVEL
 
 ## Fast Pipeline Enforcement V2
 
-Claude Code reads `CLAUDE.md` and `.claude/settings.json`; Codex and other agents must follow this file. Development uses focused checks, not full tests and packaging. GitHub CI runs fast checks for every change and full checks for MEDIUM/HIGH or manual dispatch via the existing production risk classifier. No release or patient-safety gate may be bypassed.
+Claude Code reads `CLAUDE.md` and `.claude/settings.json`; Codex reads this `AGENTS.md` and `.codex/hooks.json`. Both local clients have a PreToolUse development hook backed by `tools/dev/enforce-fast-loop.mjs` (review/trust each project hook in the client first). Other agents must follow this file. Development uses focused checks, not full tests and packaging. GitHub CI runs fast checks for every change and full checks for MEDIUM/HIGH or manual dispatch via the existing production risk classifier. No release or patient-safety gate may be bypassed.

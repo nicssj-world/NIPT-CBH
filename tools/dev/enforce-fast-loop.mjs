@@ -1,4 +1,4 @@
-// Claude Code PreToolUse: guide agents back to focused development checks.
+// Claude Code and Codex PreToolUse: guide agents back to focused development checks.
 // Release scripts/subprocesses keep their own independent safety gates.
 import {readFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
