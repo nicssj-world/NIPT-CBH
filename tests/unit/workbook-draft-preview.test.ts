@@ -14,8 +14,9 @@ describe.skipIf(!existsSync(masterPath))('native uncontrolled Task draft preview
   const master=readFileSync(masterPath);
   const before=readArchive(master).get('xl/worksheets/sheet5.xml')!.toString();
   const after=readArchive(generateTaskWorkbook(master,{'pool.instrumentCsvFileStem':''}).bytes).get('xl/worksheets/sheet5.xml')!.toString();
-  const filenameCell=(xml:string)=>/<c\b[^>]*r="C20"[^>]*>[\s\S]*?<\/c>/.exec(xml)?.[0];
-  expect(filenameCell(after)).toBe(filenameCell(before));
+  const originalFilenameCell=/<c\b[^>]*r="C20"[^>]*>[\s\S]*?<\/c>/.exec(before)?.[0];
+  const shiftedFilenameCell=/<c\b[^>]*r="D20"[^>]*>[\s\S]*?<\/c>/.exec(after)?.[0];
+  expect(shiftedFilenameCell?.replace('r="D20"','r="C20"')).toBe(originalFilenameCell);
  });
  it('starts from the checked Master, fills live plan/slots, clears unknown inputs and retains the two-page print setup',()=>{
   const master=readFileSync(masterPath),out=buildDraftTaskWorkbook(master,input),parts=readArchive(out);
