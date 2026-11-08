@@ -3,6 +3,7 @@ import {p2Text} from "./runtime-copy";
 import {requestAuditRevisionId} from "./request-history-contract";
 import Link from "next/link";
 import "./anc-workspace.css";
+import "./case-sections.css";
 import {useRouter} from "next/navigation";
 import {useEffect,useState,useCallback} from "react";
 import {AncResults} from "../p5/anc-results";

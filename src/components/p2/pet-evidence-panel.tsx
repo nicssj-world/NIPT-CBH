@@ -15,7 +15,7 @@ const COUNTS:[keyof CasePetEvidence["counts"],string,string][]=[
 /** Read-only provenance. Four different counts are shown separately because a scan, a file, a receipt and a specimen are different things. */
 export function PetEvidencePanel({evidence}:{evidence:CasePetEvidence}){
   return <details className="panel case-pet-evidence">
-  <summary id="pet-evidence-title">หลักฐาน PET จาก HIS</summary>
+  <summary id="pet-evidence-title">ประวัติคำสั่งตรวจจาก HIS</summary>
   {evidence.evidence==="NONE"
    ?<p className="muted">ไม่มีไฟล์ PET ในระบบสำหรับเคสนี้ (เช่นเคสนำเข้าจากระบบเดิมหรือยังไม่ได้รับ PET) ระบบไม่คาดเดาจำนวน</p>
    :<>

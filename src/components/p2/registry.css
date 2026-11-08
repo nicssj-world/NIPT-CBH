@@ -1,0 +1,68 @@
+/* ทะเบียนกลาง (Owner 2026-11-08): desktop = a real table with one sticky header, 56px rows, nothing labelled twice;
+   below 900px each row becomes a compact card. Lab and ANC share these rules; only the columns differ. */
+
+.registry-page .page-header{align-items:flex-end;margin-bottom:var(--space-4)}
+.registry-page .page-header h1{margin-bottom:0}
+
+.registry-toolbar{display:flex;flex-wrap:wrap;align-items:flex-start;gap:var(--space-3);margin-bottom:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--color-surface);border:1px solid var(--color-line);border-radius:var(--radius)}
+.registry-toolbar>.field{flex:1 1 320px;max-width:36rem;margin:0}
+
+
+.registry-panel{background:var(--color-surface);border:1px solid var(--color-line);border-radius:var(--radius);overflow:hidden}
+.registry-panel>.notice,.registry-panel>.retry-button{margin:var(--space-4)}
+.registry-panel .pager{padding:var(--space-3) var(--space-4);border-top:1px solid var(--color-line)}
+.registry-panel .empty-state{padding:var(--space-8) var(--space-4);text-align:center}
+
+.registry-table{font-size:.875rem;line-height:1.55}
+.registry-table thead th{position:sticky;top:0}
+.registry-table td{padding:10px 12px;vertical-align:middle;border-bottom:1px solid var(--color-line);height:var(--row-h)}
+.registry-table tbody tr:last-child td{border-bottom:0}
+.registry-table tbody tr{transition:background-color .14s cubic-bezier(.16,1,.3,1)}
+/* Owner ANC03: row hover/focus highlight stays. */
+.registry-table tbody tr:is(:hover,:focus-within){background:color-mix(in srgb,var(--sign-soft) 70%,var(--color-surface))}
+.registry-table td>*{min-width:0}
+.registry-table .cell-sub{display:block;margin-top:2px;color:var(--color-muted);font-size:.8125rem;line-height:1.55}
+.registry-table .registry-ln-link{display:inline-flex;align-items:center;min-height:32px;color:var(--color-brand);font-weight:700;text-decoration:underline;text-underline-offset:3px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.registry-table .who-name{display:block;font-weight:600;line-height:1.55}
+.registry-table .who-ids{display:block;margin-top:2px;color:var(--color-muted);font-size:.8125rem;line-height:1.55;font-variant-numeric:tabular-nums}
+.registry-table .c-when{white-space:nowrap}
+/* Thai compounds ("ลงทะเบียนโดยห้องปฏิบัติการ") must not break mid-word in a narrow column: give the column its natural width. */
+.registry-table .c-round{white-space:nowrap}
+.registry-table .registry-statuses{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px}
+.registry-table .registry-statuses .badge{margin:0}
+.registry-table .c-actions{width:1%;white-space:nowrap;text-align:right}
+.registry-case-actions{display:inline-flex;flex-wrap:wrap;justify-content:flex-end;gap:var(--space-2)}
+.registry-case-action{min-height:44px}
+.registry-table .c-progress{min-width:260px}
+.registry-table .c-todo{min-width:180px}
+
+@media(max-width:900px){
+ .registry-table thead{display:none}
+ .registry-table,.registry-table tbody,.registry-table tr,.registry-table td{display:block;width:100%}
+ .registry-table tbody tr{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;padding:14px var(--space-4);border-bottom:1px solid var(--color-line)}
+ .registry-table tbody tr:last-child{border-bottom:0}
+ .workspace .registry-page .registry-table tbody td{height:auto;padding:0;border:0}
+ .registry-table :is(.c-id,.c-who){grid-column:1}
+ .registry-table .c-status{grid-column:1/-1}
+ .registry-table :is(.c-ga,.c-when,.c-round,.c-progress,.c-todo){grid-column:1/-1}
+ .registry-table :is(.c-when,.c-round,.c-ga){color:var(--color-muted);font-size:.8125rem}
+ .registry-table .c-when::before{content:"รับสิ่งส่งตรวจ ";font-weight:600}
+ .anc-registry .registry-table .c-ga::before{content:"GA ณ วันเจาะเลือด ";font-weight:600}
+ .registry-table .c-round .cell-sub{display:inline;margin-left:6px}
+ .registry-table .c-actions{grid-column:1/-1;width:auto;text-align:left}
+ .registry-case-actions{justify-content:flex-start}
+ .registry-table .c-progress,.registry-table .c-todo{min-width:0}
+ .registry-toolbar>.toggle-chip{margin-top:0}
+}
+@media(max-width:600px){
+ .registry-case-actions>*{flex:1 1 auto}
+ .registry-toolbar{padding:var(--space-3)}
+}
+@media(prefers-reduced-motion:reduce){.registry-table tbody tr{transition:none}}
+/* globals' `.data-table .num` right-aligns numerals for numeric columns; identifiers and dates here read left to right. */
+.registry-table .num{text-align:inherit}
+@media(max-width:900px){.registry-table td.c-actions:not(:has(a,button)),.registry-table td.c-todo:not(:has(.next-sign)){display:none}}
+/* Search + sort chip on one line. The chip drops by exactly the field label block (globals: label min-height 27px + --ui-field-gap),
+   so its box lines up with the input; both use --ui-control-height. */
+.registry-toolbar>.toggle-chip{margin-top:calc(27px + var(--ui-field-gap,8px));min-height:var(--ui-control-height)}
+@media(max-width:600px){.registry-toolbar>.toggle-chip{margin-top:0}}

@@ -24,18 +24,6 @@
 }
 
 /* ANC reuses the established palette and form controls, without extra copy. */
-.anc-registry .registry-sortbar {justify-content: space-between; gap: 8px 16px;}
-.anc-registry .registry-row {padding-block: 24px; gap: 20px;}
-.anc-registry .registry-row > div {line-height: 1.65;}
-.anc-registry .registry-row .muted {font-size: 13px; margin-top: 4px;}
-.anc-registry .registry-row > a:last-child {
-  justify-content: center;
-  min-width: 72px;
-  padding: 6px 12px;
-  border: 1px solid var(--color-line);
-  border-radius: var(--ui-control-radius);
-}
-.anc-registry .registry-row > a:last-child:hover {border-color: var(--color-brand);}
 .anc-case-workspace .page-header {align-items: flex-start; gap: 20px;}
 .anc-case-workspace .page-header .status {margin-top: 12px;}
 .anc-case-workspace .case-identity-line{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
@@ -51,7 +39,6 @@
 .anc-case-workspace .clinical-readiness .clinical-facts{grid-template-columns:minmax(0,1fr)}
 .anc-case-workspace .clinical-readiness .clinical-provenance ul{padding-left:20px;margin:0}
 .anc-case-workspace :is(.button,.badge,.notice,.compact-facts){line-height:1.65}
-.anc-registry .registry-case-action svg{flex-shrink:0}
 .anc-case-workspace .document-grid {gap: 24px 32px;}
 .anc-case-workspace .document-grid > div {min-width: 0;}
 .anc-case-workspace .document-grid h3 {font-size: 16px; line-height: 1.6; margin-bottom: 8px;}
@@ -76,11 +63,6 @@
   .anc-case-workspace .p2-dialog .request-steps {grid-template-columns: repeat(3, minmax(0, 1fr));}
 }
 @media (max-width: 600px) {
-  .anc-registry .registry-row {grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding-block: 24px;}
-  .anc-registry .registry-row > :nth-child(4) {grid-column: auto;}
-  .anc-registry .registry-row > :nth-child(5),
-  .anc-registry .registry-row > a:last-child {grid-column: 1 / -1;}
-  .anc-registry .registry-row > a:last-child {justify-self: stretch;}
   .anc-case-workspace .document-grid > div + div {padding-top: 20px; border-top: 1px solid var(--color-line);}
   .anc-case-workspace .page-header > .row {width: 100%; justify-content: space-between;}
   .anc-case-workspace .page-header > .row > a {min-height: 44px; display: inline-flex; align-items: center;}

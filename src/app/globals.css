@@ -27,7 +27,9 @@ button {cursor:pointer;}
 :focus-visible {outline:3px solid var(--color-focus);outline-offset:3px;}
 .skip-link {position:fixed;top:8px;left:8px;z-index:100;transform:translateY(-200%);background:var(--color-surface);padding:var(--space-3);}
 .skip-link:focus {transform:none;}
-h1,h2,h3,p {margin-top:0;overflow-wrap:anywhere;}
+/* Thai has no spaces: `anywhere` lowered min-content and split syllables (vowel/tone marks) inside flex/grid cells.
+   `break-word` still rescues long LN/URLs but only when a line would otherwise overflow. */
+h1,h2,h3,p {margin-top:0;overflow-wrap:break-word;}
 h1 {font-size:clamp(1.6rem,3vw,2rem);font-weight:600;line-height:1.4;margin-bottom:var(--space-2);}
 h2 {font-size:1.25rem;font-weight:600;line-height:1.5;margin-bottom:var(--space-3);}
 h3 {font-size:1rem;font-weight:600;}
@@ -40,6 +42,13 @@ p {margin-bottom:var(--space-4);max-width:72ch;}
 .sidebar a:hover,.sidebar a[aria-current="page"] {background:var(--color-brand-hover);text-decoration:underline;}
 .sidebar .session {margin-top:auto;font-size:1rem;overflow-wrap:anywhere;}
 .workspace {padding:var(--space-8);min-width:0;max-width:1440px;width:100%;}
+/* List registry (HIS inbound monitor only). The central registry is a real <table> and is styled in p2/registry.css. */
+ul.registry {display:grid;list-style:none;padding:0;margin:0;}
+ul.registry > .registry-row {display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));align-items:center;gap:var(--space-4);padding:var(--space-4) 0;border-bottom:1px solid var(--color-line);}
+ul.registry > .registry-row:last-child {border-bottom:0;}
+ul.registry > .registry-row > * {min-width:0;}
+ul.registry > .registry-row a {min-height:44px;display:inline-flex;align-items:center;}
+ul.registry .registry-label {color:var(--color-muted);display:block;font-size:.8125rem;line-height:1.55;font-weight:600;margin-bottom:4px;}
 .page-header {display:flex;justify-content:space-between;align-items:start;gap:var(--space-6);margin-bottom:var(--space-6);flex-wrap:wrap;}
 .muted {color:var(--color-muted);}
 .scope-banner {background:#e9eff4;border:1px solid var(--color-line);padding:var(--space-3) var(--space-4);border-radius:var(--radius);margin-bottom:var(--space-8);}
@@ -61,11 +70,6 @@ input[type="checkbox"] {width:20px;height:20px;}
 .status {display:inline-flex;align-items:center;gap:var(--space-2);font-weight:500;overflow-wrap:anywhere;}
 .status::before {content:"";width:8px;height:8px;flex-shrink:0;background:currentColor;border-radius:50%;}
 .status.good {color:var(--color-success);}.status.warning {color:var(--color-warning);}.status.bad {color:var(--color-danger);}
-.registry {display:grid;list-style:none;padding:0;margin:0;}
-.registry-row {display:grid;grid-template-columns:minmax(120px,1fr) minmax(140px,1fr) minmax(100px,1fr) minmax(160px,1.5fr) auto;align-items:center;gap:var(--space-4);padding:var(--space-4) 0;border-bottom:1px solid var(--color-line);}
-.registry-row:last-child {border-bottom:0;}
-.registry-row a {min-height:44px;display:inline-flex;align-items:center;}
-.registry-label {color:var(--color-muted);display:block;font-size:1rem;}
 dl {display:grid;grid-template-columns:minmax(160px,1fr) minmax(0,2fr);gap:var(--space-3) var(--space-6);margin:0;}
 dt {color:var(--color-muted);}dd {margin:0;overflow-wrap:anywhere;}
 .timeline {list-style:none;margin:0;padding:0;display:grid;gap:var(--space-4);}
@@ -77,7 +81,7 @@ dt {color:var(--color-muted);}dd {margin:0;overflow-wrap:anywhere;}
 .setting-layout {display:grid;grid-template-columns:minmax(200px,1fr) minmax(0,2fr);gap:var(--space-6);}
 .json-view {white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--font-sans);font-size:1rem;margin:0;}
 @media(max-width:900px){.app-shell {grid-template-columns:1fr;}.sidebar{padding:var(--space-4);gap:var(--space-4);}.sidebar nav{display:flex;flex-wrap:wrap;gap:var(--space-2);}.sidebar .session{margin-top:0;}.sidebar a{padding:var(--space-2) var(--space-3);}.workspace{padding:var(--space-6);}.setting-layout{grid-template-columns:1fr;}}
-@media(max-width:600px){.workspace{padding:var(--space-4);}.panel,.login-panel{padding:var(--space-4);}.registry-row{grid-template-columns:1fr 1fr;gap:var(--space-3);}.registry-row>:nth-child(4){grid-column:1/-1;}.registry-row>:last-child{grid-column:1/-1;}dl{grid-template-columns:1fr;gap:var(--space-1);}dd{margin-bottom:var(--space-3);}.button{width:100%;}.page-header{gap:var(--space-3);}}
+@media(max-width:600px){.workspace{padding:var(--space-4);}.panel,.login-panel{padding:var(--space-4);}dl{grid-template-columns:1fr;gap:var(--space-1);}dd{margin-bottom:var(--space-3);}.button{width:100%;}.page-header{gap:var(--space-3);}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important;}}
 @media print{.sidebar,.scope-banner,.button{display:none;}.app-shell{display:block;}.workspace{padding:0;}body{background:white;}}
 /* P2 follows the incumbent blue/slate operating system. */
@@ -176,7 +180,6 @@ legend {font-weight:600;padding:0 var(--space-2);}
 pre.details {white-space:pre-wrap;font-size:.8125rem;margin:var(--space-2) 0 0;}
 fieldset {border:0;padding:0;margin:0;}
 @media(max-width:600px){.filters>*{flex:1 1 100%;}.data-table {font-size:.875rem;}.plan-dl {grid-template-columns:1fr;}}
-.registry-sortbar {display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3);padding:var(--space-3) 0;border-bottom:2px solid var(--color-line);}
 .sort-button {min-height:44px;padding:var(--space-1) var(--space-3);border:1px solid var(--color-line);border-radius:8px;background:#e9eff4;color:var(--color-ink);font-weight:600;}
 .data-table th .sort-button {width:100%;text-align:left;background:transparent;border-color:transparent;padding:var(--space-1) 0;}
 .receive-time {font-variant-numeric:tabular-nums;}
@@ -235,21 +238,28 @@ fieldset label{display:block;overflow-wrap:anywhere}
 @media(max-width:767px){.admin-nav{gap:8px}.admin-nav a{padding:8px}.setting-layout{display:block}.setting-layout>section{margin-bottom:16px}}
 .settings-groups button .help{display:block;margin-top:4px}
 
-/* Premium UX V2, approved Concept B. Domain state and print documents remain independent. */
+/* Console C "ป้ายบอกทาง" light blue (Owner 2026-11-08; mockup https://claude.ai/artifact/GPvtaruSXpCyeQCrc6haAa).
+   Token NAMES are unchanged on purpose: every page, the result panel (--n* aliases in p5/anc-results.css) and print keep working.
+   --sign* is reserved for "the next step" only; never decoration. */
 :root {
- --color-canvas:#f3f6fa;--color-surface:#fff;--color-ink:#172e46;--color-muted:#52687d;
- --color-line:#dce5ee;--color-brand:#075985;--color-brand-hover:#06476a;--color-focus:#005fcc;
- --color-success:#17603b;--color-warning:#80510a;--color-danger:#a1253e;
- --raised:#eaf1f7;--input-line:#718398;--on-primary:#fff;--good-bg:#e7f5ec;
- --warn-bg:#fff3d6;--bad-bg:#fce9ee;--info-bg:#e6f3fc;--radius:16px;
- --surface-shadow:0 12px 30px #173b6310;
+ --color-canvas:#f5f9fc;--color-surface:#fff;--color-ink:#10283b;--color-muted:#4f6476;
+ --color-line:#d8e6f0;--color-brand:#14476b;--color-brand-hover:#0e3552;--color-focus:#005fcc;
+ --color-success:#17603b;--color-warning:#7a4f00;--color-danger:#a1253e;
+ --raised:#edf4f9;--input-line:#6b8094;--on-primary:#fff;--good-bg:#e5f4ea;
+ --warn-bg:#fff2d1;--bad-bg:#fce8ed;--info-bg:#e4f0f9;--color-info:#0b4f7a;--radius:12px;
+ --surface-shadow:0 1px 2px #10283b0d,0 4px 12px #10283b0a;
+ --shell-bg:#e3f1fb;--shell-active:#c6e3f6;--shell-ink:#0b2f4a;--shell-muted:#4f6f86;
+ --sign:#a9daf5;--on-sign:#0b2f4a;--sign-edge:#2b8fd0;--sign-soft:#e3f2fb;
+ --row-h:56px;--control-h:44px;
 }
 html[data-theme="dark"] {
- color-scheme:dark;--color-canvas:#0c1422;--color-surface:#142236;--color-ink:#eaf0f7;
- --color-muted:#adbed0;--color-line:#344b64;--color-brand:#7dd3fc;--color-brand-hover:#a7e2fc;
+ color-scheme:dark;--color-canvas:#0a141c;--color-surface:#122130;--color-ink:#e6f1f9;
+ --color-muted:#9db4c6;--color-line:#24394c;--color-brand:#8fcdf1;--color-brand-hover:#b5def6;
  --color-focus:#38bdf8;--color-success:#8ee8b1;--color-warning:#f6d388;--color-danger:#ffb1bf;
- --raised:#1b3048;--input-line:#8195ab;--on-primary:#092d43;--good-bg:#163d30;
- --warn-bg:#49371c;--bad-bg:#4b2233;--info-bg:#1b3a56;--surface-shadow:0 12px 30px #0003;
+ --raised:#182a3b;--input-line:#7f97ab;--on-primary:#06223a;--good-bg:#12321f;
+ --warn-bg:#352a10;--bad-bg:#3a1620;--info-bg:#112a3d;--color-info:#9cd2f7;--surface-shadow:0 1px 2px #0006;
+ --shell-bg:#0c1b27;--shell-active:#16314a;--shell-ink:#e4f2fc;--shell-muted:#93b3c9;
+ --sign:#8fcdf1;--on-sign:#06223a;--sign-edge:#8fcdf1;--sign-soft:#123049;
 }
 body {font-family:"Noto Sans Thai","Noto Sans",sans-serif;}
 * {scrollbar-color:var(--input-line) var(--color-canvas);scrollbar-width:thin;}
@@ -506,23 +516,12 @@ label.check-label,:is(.stack,fieldset,.form-grid) > label.check-label,fieldset l
 .workbook-history {margin-top:var(--space-8);}
 .save-status:empty {display:none;}
 @media(max-width:600px){.search-form:not(:has(> .field ~ .field)) > .button {margin-top:0;}.workbook-sheet-picker{flex-basis:100%;}}
-/* Overview shortcuts: one row of destinations, text first; wraps to two columns on tablet and one on phones. */
-.quick-actions {margin-bottom:var(--space-6);}
-.quick-actions ul {list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr));gap:var(--space-3);}
-.quick-actions a {display:flex;align-items:flex-start;gap:var(--space-3);min-height:64px;padding:var(--space-4);border:1px solid var(--color-line);border-radius:12px;background:var(--color-surface);color:var(--color-ink);text-decoration:none;}
-.quick-actions a:hover {border-color:var(--color-brand);background:color-mix(in srgb,var(--info-bg) 55%,var(--color-surface));}
-.quick-actions a svg {color:var(--color-brand);margin-top:3px;}
-.quick-actions a > span {display:grid;gap:2px;min-width:0;}
-.quick-actions strong {font-weight:600;color:var(--color-brand);}
-.quick-actions .muted {font-size:13px;line-height:1.5;}
 /* Settings: the selected category is a state, not keyboard focus; admin sub-navigation gets touch-size links. */
 .settings-groups button[aria-current=page] {outline:0;background:var(--info-bg);border-color:var(--color-brand);color:var(--color-brand);font-weight:600;}
 .settings-groups button[aria-current=page]:focus-visible {outline:3px solid var(--color-focus);outline-offset:3px;}
 .admin-nav a {display:inline-flex;align-items:center;min-height:44px;padding:var(--space-2) var(--space-3);border-radius:8px;text-decoration:none;font-weight:500;}
 .admin-nav a:hover {background:var(--raised);}
 .admin-nav a[aria-current=page] {background:var(--info-bg);color:var(--color-brand);font-weight:600;}
-.quick-actions li {display:flex;}
-.quick-actions a {flex:1 1 auto;}
 /* Flex summaries lose the native disclosure triangle; draw one from the text colour (rotates when open). */
 .workbook-sheets summary {gap:var(--space-3);list-style:none;}
 .workbook-sheets summary::-webkit-details-marker {display:none;}
@@ -565,12 +564,6 @@ label.check-label,:is(.stack,fieldset,.form-grid) > label.check-label,fieldset l
 .status.status-pill.success{background:var(--good-bg);color:var(--color-success)}
 .status.status-pill.warning{background:var(--warn-bg);color:var(--color-warning)}
 .status.status-pill.danger{background:var(--bad-bg);color:var(--color-danger)}
-.registry-row{grid-template-columns:minmax(115px,1.1fr) minmax(155px,1.25fr) minmax(145px,1.15fr) minmax(105px,.8fr) minmax(195px,1.5fr) auto;gap:18px;align-items:start;padding:18px 4px}
-.registry-row{transition:background-color .14s ease}
-.registry-row:is(:hover,:focus-within){background:color-mix(in srgb,var(--info-bg) 48%,var(--color-surface));box-shadow:inset 3px 0 var(--color-brand)}
-.registry-label{font-size:12px;line-height:1.5;font-weight:600;margin-bottom:7px;color:var(--color-muted)}
-.registry-row > *{min-width:0}.registry-row .registry-patient strong{font-size:14px;line-height:1.55;overflow-wrap:anywhere}.registry-row .status.status-pill{margin-bottom:8px}
-.registry-row a:last-child{align-self:center;white-space:nowrap}.registry-row .registry-ln-link{color:var(--color-brand);font-weight:650;text-decoration:underline;text-underline-offset:3px}
 .p2-dialog .form-grid.request-patient-grid,.p2-dialog .form-grid.request-pregnancy-grid{align-items:start;column-gap:20px;row-gap:20px}
 .p2-dialog .request-choice{border-bottom:0;padding:0;min-width:0}
 .p2-dialog .request-choice legend{display:block;min-height:27px;margin:0 0 var(--ui-field-gap);font-size:14px;line-height:1.6;font-weight:600}
@@ -586,10 +579,8 @@ label.check-label,:is(.stack,fieldset,.form-grid) > label.check-label,fieldset l
 .p2-dialog input[type="number"]{appearance:textfield;-moz-appearance:textfield}
 .p2-dialog input[type="number"]::-webkit-inner-spin-button,.p2-dialog input[type="number"]::-webkit-outer-spin-button{appearance:none;margin:0}
 :is(.workspace,.p2-dialog) .button{transition:border-color .15s ease,box-shadow .15s ease}
-@media(max-width:1200px){.registry-row{grid-template-columns:repeat(3,minmax(0,1fr))}.registry-row>:last-child{grid-column:auto}}
-@media(max-width:750px){.registry-row{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.registry-row>:last-child{grid-column:1/-1}.p2-dialog .request-pregnancy-grid>.field,.p2-dialog .request-pregnancy-grid>.request-choice{grid-column:span 6}}
-@media(max-width:550px){.registry-row{grid-template-columns:minmax(0,1fr)}.registry-row>:last-child{grid-column:auto}.p2-dialog .form-grid.request-patient-grid{grid-template-columns:minmax(0,1fr)}.p2-dialog .request-pregnancy-grid>.field,.p2-dialog .request-pregnancy-grid>.request-choice{grid-column:1/-1}.p2-dialog .request-radio-options{grid-template-columns:repeat(2,minmax(0,1fr))}.p2-dialog .request-radio{white-space:normal}}
-@media(prefers-reduced-motion:reduce){.registry-row{transition:none}}
+@media(max-width:750px){.p2-dialog .request-pregnancy-grid>.field,.p2-dialog .request-pregnancy-grid>.request-choice{grid-column:span 6}}
+@media(max-width:550px){.p2-dialog .form-grid.request-patient-grid{grid-template-columns:minmax(0,1fr)}.p2-dialog .request-pregnancy-grid>.field,.p2-dialog .request-pregnancy-grid>.request-choice{grid-column:1/-1}.p2-dialog .request-radio-options{grid-template-columns:repeat(2,minmax(0,1fr))}.p2-dialog .request-radio{white-space:normal}}
 
 /* Cohesive surfaces and dense-workflow tables across Lab, Results, Historical and Settings. */
 .workspace :is(.data-table,.table){border-collapse:separate;border-spacing:0;width:100%}

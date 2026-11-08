@@ -1,0 +1,22 @@
+/* Shell, Console C light blue (Owner 2026-11-08). Loaded after ui-backlog-polish.css; owns only shell colour and the nav groups.
+   Structure, links, permissions and touch targets are unchanged. */
+.nav-item{display:contents}
+.nav-group{display:block;margin:10px 0 2px;padding:0 14px;color:var(--shell-muted);font-size:.75rem;font-weight:600;line-height:1.5}
+.sidebar nav>.nav-item:first-child>.nav-group{margin-top:0}
+
+.desktop-sidebar,.mobile-navigation .sidebar{background:var(--shell-bg);color:var(--shell-ink);border-right:1px solid var(--color-line)}
+.sidebar .nav-caption{color:var(--shell-muted)}
+.sidebar .brand{color:var(--shell-ink)}
+.sidebar a{color:var(--shell-ink)}
+.sidebar a:hover{background:color-mix(in srgb,var(--shell-active) 60%,transparent);color:var(--shell-ink)}
+.sidebar a[aria-current="page"]{background:var(--color-surface);color:var(--color-brand);box-shadow:inset 0 0 0 1px var(--sign-edge)}
+.sidebar .session{border-top-color:color-mix(in srgb,var(--sign-edge) 35%,transparent)}
+
+.app-topbar{border-bottom:4px solid var(--sign-edge)}
+.app-topbar .topbar-context strong{font-size:1rem;line-height:1.5}
+.anc-topbar{background:var(--shell-bg);border-bottom:4px solid var(--sign-edge)}
+.anc-topbar .anc-navigation a{color:var(--shell-ink)}
+.anc-topbar .anc-navigation a[aria-current="page"]{background:var(--sign);color:var(--on-sign);box-shadow:inset 0 0 0 1px var(--sign-edge)}
+
+::selection{background:var(--sign);color:var(--on-sign)}
+*{scrollbar-color:color-mix(in srgb,var(--sign-edge) 55%,var(--color-line)) transparent}

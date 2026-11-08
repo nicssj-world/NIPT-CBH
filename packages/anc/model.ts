@@ -12,7 +12,7 @@ export type CaseFacts = {
  reportState:string|null; activeReleaseCount:number; certifiedReleaseCount:number; redraw:boolean; repeat:boolean; hold:boolean; urgent:boolean; consentRevoked:boolean; identityIssue:boolean; /** a migrated historical case with an official PDF linked to its imported attempt */historicalResult?:boolean;
 };
 export type QueueItem = CaseFacts & {stage:Stage;stageLabel:string;flags:Flag[];released:boolean;pending:boolean;daysWaiting:number|null;/** certified release or, for a migrated historical case, an official PDF linked to the imported attempt (Owner 2026-11-02): the result exists */hasResult:boolean};
-export type Filters = {fy:number;unitId?:string;kpi?:'sent'|'pending'|'released'|'attention';stage?:Stage;flag?:Flag;tab?:'all'|'pending'|'released'|'attention'|'redraw'|'hold';q?:string;page:number;pageSize:number};
+export type Filters = {fy:number;unitId?:string;kpi?:'sent'|'pending'|'released'|'attention';stage?:Stage;flag?:Flag;tab?:'all'|'pending'|'released'|'attention'|'redraw'|'hold'|'awaiting'|'testing'|'followup';q?:string;page:number;pageSize:number};
 export function fiscalYear(iso:string):number {const d=new Date(new Date(iso).getTime()+7*3600000);return d.getUTCFullYear()+(d.getUTCMonth()>=9?1:0)+543;}
 export function project(c:CaseFacts,now:Date):QueueItem {
  const flags:Flag[]=[];
@@ -36,10 +36,12 @@ export function project(c:CaseFacts,now:Date):QueueItem {
  return {...c,stage,stageLabel:stages.find(s=>s[0]===stage)![1],flags,released,hasResult,pending:!!c.s1ReceivedAt&&!hasResult,
  daysWaiting:c.s1ReceivedAt?Math.max(0,Math.floor((now.getTime()-new Date(c.s1ReceivedAt).getTime())/86400000)):null};
 }
+/** Stage groups for the ANC people-language tiles; each is a union of whole stages, so the 7 stage counts still add up. */
+export const stageGroups={awaiting:['documents','expected'],testing:['received','analysis','review'],followup:['followup']} as const satisfies Record<string,readonly Stage[]>;
 export function matches(c:QueueItem,f:Partial<Filters>):boolean {
  const metric=(key:string)=>key==='sent'?!!c.s1ReceivedAt&&fiscalYear(c.s1ReceivedAt)===f.fy:key==='pending'?c.pending:key==='released'?c.hasResult:key==='attention'?c.flags.length>0:false;
  return (!f.unitId||c.unitIds.includes(f.unitId))&&(!f.kpi||metric(f.kpi))&&(!f.stage||c.stage===f.stage)&&(!f.flag||c.flags.includes(f.flag))&&
- (!f.tab||f.tab==='all'||(f.tab==='redraw'?c.redraw:f.tab==='hold'?c.hold:metric(f.tab)))&&
+ (!f.tab||f.tab==='all'||(f.tab==='redraw'?c.redraw:f.tab==='hold'?c.hold:f.tab in stageGroups?(stageGroups[f.tab as keyof typeof stageGroups] as readonly Stage[]).includes(c.stage):metric(f.tab)))&&
  (!f.q||([c.ln,c.hn??'',c.patientName??'',c.id].some(v=>v.toLowerCase().includes(f.q!.trim().toLowerCase()))||(/^\d{2}-\d{3}-\d-\d{4}$/.test(f.q!.trim())&&c.ln.includes(f.q!.trim().replaceAll('-','')))));
 }
-export type Dashboard = {fiscalYear:number;generatedAt:string;asOf:string;scope:{unitIds:string[];allUnits:boolean};metrics:Record<'sent'|'pending'|'released'|'attention',number>;stages:{id:Stage;label:string;count:number}[];queue:{tabCounts?:Record<'all'|'pending'|'released'|'attention'|'redraw'|'hold',number>;items:QueueItem[];total:number;page:number;pageSize:number;totalPages:number;nextCursor:string|null};units:{id:string;name:string}[];limitations:string[]};
+export type Dashboard = {fiscalYear:number;generatedAt:string;asOf:string;scope:{unitIds:string[];allUnits:boolean};metrics:Record<'sent'|'pending'|'released'|'attention',number>;stages:{id:Stage;label:string;count:number}[];queue:{tabCounts?:Record<'all'|'pending'|'released'|'attention'|'redraw'|'hold'|'awaiting'|'testing'|'followup',number>;items:QueueItem[];total:number;page:number;pageSize:number;totalPages:number;nextCursor:string|null};units:{id:string;name:string}[];limitations:string[]};
