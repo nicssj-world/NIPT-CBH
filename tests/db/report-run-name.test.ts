@@ -6,7 +6,7 @@ import {labUsers,syntheticCase,receiveS1,attemptOf,tx,setPendingPolicy} from '..
 import {createBatch,assignToBatch} from '../../packages/lab/batch';
 import {attemptRunToken} from '../../packages/readygen/report-name';
 import {configuredReportName,reportDownloadName} from '../../packages/readygen/report-name';
-import {resultFixture,receivedCase,importReport,pdfDate,rowVersion} from '../helpers/results';
+import {resultFixture,receivedCase,importUnlinked,pdfDate,rowVersion} from '../helpers/results';
 import {proposeLink,decideLink} from '../../packages/results/service';
 let db:PGlite;
 beforeAll(async()=>{db=await testDatabase();});
@@ -26,7 +26,7 @@ it('resolves only the matched attempt assignment and refuses to infer an unassig
 it('uses one configured name for an external matched version without fabricating missing run evidence',async()=>{
  const f=await resultFixture();try{
   const c=await receivedCase(f,{ln:'009900010001',hn:'009900010002'}),u=f.u;
-  const v=await importReport(f,{kind:'SINGLETON',labNumber:c.labNumber,hn:c.hn,collection:pdfDate(c.collection)});
+  const v=await importUnlinked(f,{kind:'SINGLETON',labNumber:c.labNumber,hn:c.hn,collection:pdfDate(c.collection)});
   const rv=async()=>(await rowVersion(f,v.versionId)).row_version;
   await f.run(async t=>proposeLink(t,u.staff,{versionId:v.versionId,roundId:c.roundId,attemptId:c.attemptId,reason:'SYNTHETIC exact attempt linkage',expectedRowVersion:await rv()}));
   await f.run(async t=>decideLink(t,u.certifier,{versionId:v.versionId,decision:'APPROVE',reason:'SYNTHETIC matching report',expectedRowVersion:await rv()}));

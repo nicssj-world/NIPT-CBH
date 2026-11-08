@@ -2,7 +2,7 @@ import {it,expect,describe} from 'vitest';
 import {randomUUID,createHash} from 'node:crypto';
 import type {Queryable} from '../../packages/db/connection';
 import type {Principal} from '../../packages/security/policy';
-import {resultFixture,receivedCase,importReport,pdfDate,rowVersion,type ResultFixture} from '../helpers/results';
+import {resultFixture,receivedCase,importUnlinked,pdfDate,rowVersion,type ResultFixture} from '../helpers/results';
 import {docDeps,tx,version} from '../helpers/lab';
 import {completedPool,dnbInput} from '../helpers/sequencing';
 import {bangkokToday} from '../../packages/lab/core';
@@ -66,7 +66,7 @@ async function enrich(f:ResultFixture,c:{caseId:string;roundId:string},collectio
 const rv=async(f:ResultFixture,id:string)=>(await rowVersion(f,id)).row_version;
 async function p5Link(f:ResultFixture,hn:string,attempt:{id:string;printed_sample_id:string|null},c:{roundId:string}){
  const labNumber=attempt.printed_sample_id??(await f.db.query<{ln_halos:string}>('SELECT ln_halos FROM specimen_lab_number WHERE round_id=$1',[c.roundId])).rows[0].ln_halos;
- const {versionId}=await importReport(f,{kind:'SINGLETON',labNumber,hn,collection:pdfDate('2026-10-10')});
+ const {versionId}=await importUnlinked(f,{kind:'SINGLETON',labNumber,hn,collection:pdfDate('2026-10-10')});
  await f.run(async t=>svc.proposeLink(t,f.u.staff,{versionId,roundId:c.roundId,attemptId:attempt.id,reason:'จำลอง ตรวจคู่ตามรอบและ Attempt',expectedRowVersion:await rv(f,versionId)}));
  await f.run(async t=>svc.decideLink(t,f.u.certifier,{versionId,decision:'APPROVE',reason:'จำลอง ยืนยันการเชื่อมโยง',expectedRowVersion:await rv(f,versionId)}));
  await f.run(async t=>svc.recordReview(t,f.u.staff,{versionId,valuesMatchPdf:true,abnormalAcknowledged:false,expectedRowVersion:await rv(f,versionId)}));

@@ -1,6 +1,6 @@
 import {it,expect,vi,afterEach} from 'vitest';
 import {mkdir,writeFile} from 'node:fs/promises';
-import {importReport} from '../helpers/results';
+import {importUnlinked} from '../helpers/results';
 import {setHold} from '../../packages/lab/intake';
 import {releaseResultFromParsed,releaseOrderFromPet} from '../../packages/p6/released-result';
 import {serializeOperationalRes,syntheticProfile} from '../../packages/p6/res';
@@ -13,7 +13,7 @@ afterEach(()=>vi.unstubAllEnvs());
 it('same normal-structure external No Call PDF imports, identity-links, certifies and remains failed QC; outbound says No Call',async()=>{
  const f=await noCallFixture();try{
   expect((await f.db.query('SELECT * FROM result_release')).rows).toHaveLength(0);expect((await f.db.query("SELECT * FROM job_outbox WHERE kind='result_release_completed'")).rows).toHaveLength(0);
-  const bytes=syntheticReportPdf(f.spec),report=await importReport(f.rf,bytes);await f.link(report.versionId);
+  const bytes=syntheticReportPdf(f.spec),report=await importUnlinked(f.rf,bytes);await f.link(report.versionId);
   await expect(f.accept(report.versionId,f.u.staff)).rejects.toThrow('FORBIDDEN');
   const released=await f.accept(report.versionId);expect(released.outcome).toBe('CertifiedReleased');
   const release=(await f.db.query<{id:string;epoch:number}>('SELECT id,epoch FROM result_release WHERE version_id=$1',[report.versionId])).rows[0];
@@ -44,7 +44,7 @@ it('same normal-structure external No Call PDF imports, identity-links, certifie
 it.each(['NO_SELECTION','NORMAL_PDF','WRONG_IDENTITY','MISSING_QC','HOLD'] as const)('external No Call fails closed: %s',async scenario=>{
  const f=await noCallFixture(scenario!=='NO_SELECTION');try{
   const spec=scenario==='NORMAL_PDF'?{...f.spec,result:undefined,qc:'PASS'}:scenario==='WRONG_IDENTITY'?{...f.spec,hn:'9900099999'}:scenario==='MISSING_QC'?{...f.spec,qc:undefined}:f.spec;
-  const report=await importReport(f.rf,spec),linked=await f.link(report.versionId);
+  const report=await importUnlinked(f.rf,spec),linked=await f.link(report.versionId);
   if(scenario==='WRONG_IDENTITY')expect(linked.outcome).toBe('LinkConflict');
   const parsed=(await f.db.query<{parsed:Parsed}>('SELECT parsed FROM result_report_version WHERE id=$1',[report.versionId])).rows[0].parsed;
   if(scenario==='NORMAL_PDF')expect(parsed.results.result?.value).toBeNull();
