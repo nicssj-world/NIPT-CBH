@@ -19,6 +19,7 @@ const proofEvents=(p=plan()):TransferEvent[]=>[
 ];
 function through(count:number) {const p=plan();let s=initialTransfer(p,0);for(const e of proofEvents(p).slice(0,count))s=advanceTransfer(s,e,gate(p),0);return s;}
 describe('P6 pure transfer model: no I/O, database, release or publisher',()=>{
+it('explicit legacy values for the optional RES fields produce the identical RES bytes as an unconfigured profile',()=>{    const legacy={dobFormat:'YYYYMMDD' as const,processingId:'P',patientClass:'R',p27:'^O',p34:'^99',orderStatus:'F',resultStatus:'F'};    const base=freezeSyntheticTransfer(draft(),1),explicit=freezeSyntheticTransfer({...draft(),profile:{...draft().profile,...legacy}},1);    expect(explicit.resHash).toBe(base.resHash);expect(explicit.resHex).toBe(base.resHex);  });
   it('freezes original PDF bytes, identity, profile/config and hashes deterministically',()=>{
     const d=draft(),p=freezeSyntheticTransfer(d,1);
     expect(p.mode).toBe('CONTRACT_ONLY');expect(p.resName).toBe('990000000001124.res');expect(p.pdfName).toBe('1_SYNTHETIC-HN-1__990000000001.pdf');

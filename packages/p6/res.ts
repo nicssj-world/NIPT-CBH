@@ -6,12 +6,18 @@ import {wireDate} from '../integrations/pet';
 const malformedUtf16 = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 const text = z.string().max(4096).refine(s => !/[\r\n\0]/.test(s) && !malformedUtf16.test(s), 'INVALID_TEXT');
 const component = text.refine(s => /^[A-Za-z0-9_-]+$/.test(s), 'INVALID_COMPONENT');
+/** Fixed HL7 field value: `^` components allowed; `| \ ~ &` and control characters are not. */
+const wireValue = z.string().max(32).regex(/^[A-Za-z0-9_^ -]*$/);
 const profileSchema = z.strictObject({
   syntheticOnly:z.boolean(), version:component, sender:component, receiver:component,
   testCode:component, specimenCode:component, o18:component, accessionSuffix:component,
   wardId:component, wardName:text, resultFlag:component,
   style:z.enum(['full','short','fixed']), cfsText:text, maxResultCodeUnits:z.number().int().positive().max(16384),
   pdfTemplate:text,
+  // Optional overrides: when absent the legacy byte-for-byte value is used (keeps frozen fingerprints stable).
+  dobFormat:z.enum(['YYYYMMDD','YYYY-MM-DD']).optional(),
+  processingId:wireValue.optional(), patientClass:wireValue.optional(), p27:wireValue.optional(), p34:wireValue.optional(),
+  orderStatus:wireValue.optional(), resultStatus:wireValue.optional(),
 });
 export type ResProfile = z.infer<typeof profileSchema>;
 /** Reference values for fixture testing only; not an approved hospital RES profile. */
@@ -116,10 +122,10 @@ function serializeContract(x:OperationalResInput,p:ResProfile,operational:boolea
   const r3=escapeWire(resultText(x.result,p));
   // This bound counts escaped UTF-16 code units, not bytes or graphemes. Receiver units/limit remain Q-I5.
   if(r3.length>p.maxResultCodeUnits)throw Error('R3_TOO_LONG');
-  Object.assign(patient,{0:'P',1:'1',2:o.ln,3:o.hn,4:'^',5:`${escapeWire(names[1].trim())}^^${escapeWire(prefix)} ${escapeWire(names[0].trim())}`,7:o.dob,8:o.sex,21:o.ln,23:`${specimen}^${specimen}`,24:'R',25:`${p.wardId}^${escapeWire(p.wardName)}`,27:'^O',33:`0^${p.wardId}`,34:'^99'});
-  Object.assign(order,{0:'O',1:'1',2:o.ln,4:`^^^${p.testCode}^B^0`,15:p.specimenCode,18:p.o18,25:'F'});
-  Object.assign(result,{0:'R',1:'1',2:`^^^${p.testCode}^B^0`,3:r3,6:p.resultFlag,8:'F',9:`${approval}^${approval}`,10:x.certifierHisId,11:o.ln+p.accessionSuffix});
-  const wire=[`H|\\^&|||${p.sender}|||||${p.receiver}||P||${ts}`,patient.join('|'),order.join('|'),result.join('|'),'L|1|N'].join('\r')+'\r';
+  Object.assign(patient,{0:'P',1:'1',2:o.ln,3:o.hn,4:'^',5:`${escapeWire(names[1].trim())}^^${escapeWire(prefix)} ${escapeWire(names[0].trim())}`,7:p.dobFormat==='YYYY-MM-DD'?`${o.dob.slice(0,4)}-${o.dob.slice(4,6)}-${o.dob.slice(6,8)}`:o.dob,8:o.sex,21:o.ln,23:`${specimen}^${specimen}`,24:p.patientClass??'R',25:`${p.wardId}^${escapeWire(p.wardName)}`,27:p.p27??'^O',33:`0^${p.wardId}`,34:p.p34??'^99'});
+  Object.assign(order,{0:'O',1:'1',2:o.ln,4:`^^^${p.testCode}^B^0`,15:p.specimenCode,18:p.o18,25:p.orderStatus??'F'});
+  Object.assign(result,{0:'R',1:'1',2:`^^^${p.testCode}^B^0`,3:r3,6:p.resultFlag,8:p.resultStatus??'F',9:`${approval}^${approval}`,10:x.certifierHisId,11:o.ln+p.accessionSuffix});
+  const wire=[`H|\\^&|||${p.sender}|||||${p.receiver}||${p.processingId??'P'}||${ts}`,patient.join('|'),order.join('|'),result.join('|'),'L|1|N'].join('\r')+'\r';
   return {filename:resFilename(o.ln,ts),bytes:Buffer.concat([Buffer.from([255,254]),Buffer.from(wire,'utf16le')]),ok:Buffer.from([255,254])};
 }
 
@@ -127,4 +133,13 @@ function serializeContract(x:OperationalResInput,p:ResProfile,operational:boolea
 export function verifySyntheticRes(bytes:Buffer,input:SyntheticResInput,profile:ResProfile=syntheticProfile):void {
   verifyRes(bytes);
   if(!bytes.equals(serializeSyntheticRes(input,profile).bytes))throw Error('RES_CONTRACT_MISMATCH');
+}
+
+/** Settings-page preview only: fixed fictional order, never touches the DB, a file or a real patient. */
+export function previewOperationalRes(profile:unknown,operatorHisId:string|null){
+  const out=serializeOperationalRes({
+    order:{ln:'2600000001',hn:'1234567',dspname:'น.ส. ทดสอบ  ตัวอย่าง',dob:'20000101',sex:'F',specimen_date:'20260101080000'},
+    generatedAt:'20260102090000',approvedAt:'20260102090000',certifierHisId:operatorHisId||'00000^ตัวอย่าง',result:{t21:'Low Risk',t18:'Low Risk',t13:'Low Risk',sex_xo:'Not Detected',sex_xxx:'Not Detected',sex_xxy:'Not Detected',sex_xyy:'Not Detected'},
+  },operationalProfileSchema.parse(profile));
+  return {filename:out.filename,okName:out.filename.replace(/\.res$/,'.ok'),text:out.bytes.subarray(2).toString('utf16le').replace(/\r/g,'\n').trimEnd()};
 }

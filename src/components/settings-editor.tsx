@@ -2,7 +2,7 @@
 import {notifySaved} from "./shared/save-notice";
 import {useEffect,useMemo,useState} from "react";
 import {HisSettingsStatus} from "./his-settings-status";
-import {HisProfileFields,HisCertifierFields,HisOperatorFields} from './his-profile-fields';
+import {HisProfileFields,HisCertifierFields} from './his-profile-fields';
 import {useSearchParams,useRouter} from "next/navigation";
 import {Required,useUnsaved,thaiTime} from './admin-console';
 type Category={key:string;category:string;risk:string;default:unknown;directSave?:boolean;canPropose:boolean;canActivate:boolean};
@@ -49,8 +49,9 @@ export function SettingsEditor(){
  const set=(name:string,v:unknown)=>{setValue(x=>({...x,[name]:v}));setDirty(true);};
  const editable=!!category?.canPropose&&!['storage_backup','doctor_registry'].includes(key);
  const input=(f:FieldSpec)=>{const id=`setting-${f.name}`,v=value[f.name],help=<p id={`${id}-help`} className="help">{f.help}{f.unit?` · หน่วย: ${f.unit}`:""}</p>;
-  if(f.kind==='res-profile')return <HisProfileFields key={f.name} value={v} editable={editable} onChange={v=>set(f.name,v)}/>;
-  if(f.kind==='his-operator')return <HisOperatorFields key={f.name} value={v} editable={editable} onChange={v=>set(f.name,v)}/>;
+  if(f.kind==='res-profile')return <HisProfileFields key={f.name} value={v} editable={editable} onChange={v=>set(f.name,v)} resultStyle={value.resultStyle as string|undefined} operatorHisId={(value.operatorHisId as string|null|undefined)??null} onOperatorChange={o=>set('operatorHisId',o)} onResultStyleChange={st=>set('resultStyle',st)}/>;
+  if(key==='his_outbound'&&f.name==='resultStyle')return null;// edited inside the RES form (R[3])
+  if(f.kind==='his-operator')return null;// edited inside the RES profile form (R[10])
   if(f.kind==='his-certifiers')return <HisCertifierFields key={f.name} value={v} users={certifierUsers} editable={editable} onChange={v=>set(f.name,v)}/>;
   const unused=(key==='doctor_registry'&&f.name==='version')||(key==='laboratory'&&['templateVersion','formulaVersion'].includes(f.name));
   if(f.kind==="locked"||unused||key==='storage_backup')return <div className="field locked" key={f.name}><label htmlFor={id}>{f.label}<span className="locked-tag">{unused?(key==='laboratory'?'METADATA ONLY · บันทึกใน Batch ไม่เปลี่ยน Template/สูตรควบคุม':'NOT IMPLEMENTED · ยังไม่มี Runtime Consumer ของค่านี้'):key==='storage_backup'?'INSTALLATION-OWNED · ค่าในเว็บไม่มีผลต่อ Retention':f.lockedBy}</span></label><input id={id} value={v===null||v===undefined?"ไม่มีค่า":String(v)} readOnly aria-readonly="true" aria-describedby={`${id}-help`}/>{help}</div>;

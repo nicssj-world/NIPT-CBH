@@ -2,6 +2,7 @@ import {beforeAll,afterAll,describe,it,expect} from "vitest";
 import type {PGlite} from "@electric-sql/pglite";
 import {testDatabase,addUser} from "../helpers/database";
 import {SETTINGS,settingDefinition} from "../../packages/settings/catalog";
+import {syntheticProfile} from "../../packages/p6/res";
 import {proposeSetting,validateSetting,approveSetting,activateSetting,rollbackSetting,readActiveSettings,readSettingRevisions} from "../../packages/settings/service";
 import type {Principal} from "../../packages/security/policy";
 let db:PGlite,admin:Principal,approver:Principal;
@@ -14,6 +15,7 @@ describe("settings lifecycle and locked architecture",()=>{
   expect(()=>settingDefinition("disable_redraw_same_ln")).toThrow();
   expect(SETTINGS.his_outbound.schema.parse({...SETTINGS.his_outbound.default,productionAuthorized:true}).productionAuthorized).toBe(true);
   expect(()=>SETTINGS.his_outbound.schema.parse({...SETTINGS.his_outbound.default,resProfile:{invented:true}})).toThrow();
+const opProfile={...syntheticProfile,syntheticOnly:false as const};  expect(SETTINGS.his_outbound.schema.parse({...SETTINGS.his_outbound.default,resProfile:opProfile}).resProfile).toEqual(opProfile);  const extended={...opProfile,dobFormat:'YYYY-MM-DD' as const,processingId:'P',patientClass:'R',p27:'^O',p34:'^99',orderStatus:'F',resultStatus:'F'};  expect(SETTINGS.his_outbound.schema.parse({...SETTINGS.his_outbound.default,resProfile:extended}).resProfile).toEqual(extended);  for(const bad of [{p27:'a|b'},{dobFormat:'DD/MM/YYYY'},{processingId:'x'.repeat(33)}])expect(()=>SETTINGS.his_outbound.schema.parse({...SETTINGS.his_outbound.default,resProfile:{...opProfile,...bad}})).toThrow();
   expect(()=>SETTINGS.laboratory.schema.parse({...SETTINGS.laboratory.default,halosDataRows:48})).toThrow();
  });
  it("test before activate and rollback produces a new version",async()=>{

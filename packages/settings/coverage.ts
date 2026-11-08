@@ -88,7 +88,7 @@ export const SETTINGS_COVERAGE_BASELINE:CoverageItem[]=[
  i(8,"ปลายทาง (Path + Secret)","§13.2 #8","path_resoutput, path_pdfrename","his_outbound.resDestinationPath / pdfDestinationPath / backupPath / secretRef","Implemented","P6","Synthetic Authorized Test Share เท่านั้น; Clinical HOLD AL-5/6"),
  i(8,"Sandbox เป็นค่าเริ่มต้น","§13.2 #8",null,"his_outbound.target = SIMULATOR","Implemented","P1","Literal"),
  i(8,"Production outbound authorized","§13.2 #8",null,"his_outbound.productionAuthorized = false","HOLD","P6","AL-6"),
- i(8,"RES profile (HL7 fields)","§13.2 #8","hl7_sender, hl7_receiver, hl7_specimen_code, hl7_o_field18, hl7_accession_sfx, hl7_operator_id, hl7_ward_id, hl7_ward_name",null,"Deferred","P6","AL-6 / Q-I3"),
+ i(8,"RES profile (HL7 fields)","§13.2 #8","hl7_sender, hl7_receiver, hl7_specimen_code, hl7_o_field18, hl7_accession_sfx, hl7_operator_id, hl7_ward_id, hl7_ward_name","his_outbound.resProfile","Partial","P6","AL-6 / Q-I3"),
  i(8,"รูปแบบชื่อ PDF","§13.2 #8","pdf_template, hospital_suffix",null,"Deferred","P6",""),
  i(8,"Result style","§13.2 #8","nipt_result_style","his_outbound.resultStyle","Implemented","P6","ผูกกับ RES Profile ใน Frozen Transfer ของ Active Settings"),
  i(8,"ข้อความผลใน .res","—","nipt_result_text",null,"Deferred","P6",""),
