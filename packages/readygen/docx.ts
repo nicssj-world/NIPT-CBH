@@ -1,11 +1,12 @@
 import {readArchive,writeArchive,sha256,xmlEscape,xmlDecode} from '../workbook/archive';
 import {TEMPLATES} from './interpretation';
+import {fitDrawingXml} from './signature-fit';
 
 // Fills the Owner's Word masters (FM-WI-T-BM-17-07 Singleton / FM-WI-T-BM-17-08 Twin) at OOXML level. Layout, fonts, tables,
 // sections, disclaimer and footer are the master's own bytes; only text inside the existing runs and the two signature pictures
 // change. The master's static signer names, licence numbers, signature images and the literal "QC: PASS" never reach a report.
 export type TemplateKind=keyof typeof TEMPLATES;
-export type SignerSlot={name:string;license:string;date:string;signature:{bytes:Buffer;media:'image/png'|'image/jpeg'}|null};
+export type SignerSlot={name:string;license:string;date:string;signature:{bytes:Buffer;media:'image/png'|'image/jpeg';width:number;height:number}|null};
 export type ReportValues={patientName:string;ga:string;sampleID:string;hn:string;collectDate_cbh:string;patientIDCard:string;dob_cbh:string;receivedDate_cbh:string;
  referringPhysician:string;hospitalName:string;remarks:string;sampleType:string;qc:string;
  trisomy21_ra:string;trisomy18_ra:string;trisomy13_ra:string;risk21:string;risk18:string;risk13:string;
@@ -24,7 +25,7 @@ type Paragraph={nodes:TextNode[]};
 type Edit={start:number;end:number;text:string};
 /** Innermost-paragraph text nodes in document order (text-box paragraphs nest inside runs of outer paragraphs) and every picture. */
 function paragraphs(xml:string){
- const out:Paragraph[]=[],stack:Paragraph[]=[],runs:number[]=[],blips:{start:number;end:number}[]=[];
+ const out:Paragraph[]=[],stack:Paragraph[]=[],runs:number[]=[],blips:{start:number;end:number;drawing:{start:number;end:number}|null}[]=[];
  const tag=/<(\/?)(w:p|w:r|w:t|a:blip)(?=[\s>/])([^>]*?)(\/?)>/g;let m:RegExpExecArray|null;
  while((m=tag.exec(xml))){
   const [whole,close,name,,self]=m;
@@ -34,7 +35,11 @@ function paragraphs(xml:string){
    // The whole picture fill (blip + crop rectangle) is one unit: the master crops its own photo, which must not crop the signer's image.
    const start=xml.lastIndexOf('<pic:blipFill',m.index),close=xml.indexOf('</pic:blipFill>',m.index);
    if(start<0||close<0||xml.lastIndexOf('</pic:blipFill>',m.index)>start)throw new DocxError('DOCX_PICTURE_UNTERMINATED');
-   const end=close+'</pic:blipFill>'.length;blips.push({start,end});tag.lastIndex=end;}
+   const end=close+'</pic:blipFill>'.length;
+   // The picture's whole w:drawing (frame size and anchor position live outside pic:blipFill); a group of pictures is not fitted.
+   const dStart=xml.lastIndexOf('<w:drawing',start),dEnd=xml.indexOf('</w:drawing>',end),inDrawing=dStart>=0&&dEnd>=0&&xml.lastIndexOf('</w:drawing>',start)<dStart;
+   const drawing=inDrawing&&(xml.slice(dStart,dEnd).match(/<pic:pic[\s>]/g)??[]).length===1?{start:dStart,end:dEnd+'</w:drawing>'.length}:null;
+   blips.push({start,end,drawing});tag.lastIndex=end;}
   else if(name==='w:t'&&!close&&!self){const startText=m.index+whole.length,endText=xml.indexOf('</w:t>',startText);if(endText<0)throw new DocxError('DOCX_TEXT_UNTERMINATED');
    stack.at(-1)?.nodes.push({start:startText,end:endText,text:xmlDecode(xml.slice(startText,endText)),runOpenEnd:runs.at(-1)??null});tag.lastIndex=endText;}
  }
@@ -127,7 +132,11 @@ export function fillReport(template:Buffer,kind:TemplateKind,values:ReportValues
   for(const e of seg.matchAll(/r:embed="(rId\d+)"/g))removed.add(e[1]);
   const next=seg.replace(/<a:ext uri="\{BEBA8EAE-BF5A-486C-A8C5-ECC9F3942E4B\}">[\s\S]*?<\/a:ext>/g,'').replace(/<a:extLst><\/a:extLst>/g,'').replace(/<a:srcRect\b[^>]*\/>/g,'').replace(/(<a:blip\b[^>]*\br:embed=")rId\d+(")/,`$1${rid}$2`);
   if(/r:embed="rId\d+"/.test(next))throw new DocxError('DOCX_SIGNATURE_REFERENCE_REMAINS');
-  edits.push({start:b.start,end:b.end,text:next});
+  const slot=r==='REPORTED'?signers.reported:signers.approved;
+  // Fit the signer's picture inside the master's own frame, keeping its aspect ratio (the image bytes are never changed).
+  if(b.drawing&&slot.signature){const whole=xml.slice(b.drawing.start,b.start)+next+xml.slice(b.end,b.drawing.end),fitted=fitDrawingXml(whole,slot.signature),m=/<wp:extent cx="(\d+)" cy="(\d+)"/.exec(fitted);
+   edits.push({start:b.drawing.start,end:b.drawing.end,text:fitted});if(m)bindings.push({token:'signature.frame',value:`${m[1]}x${m[2]}`,role:r});}
+  else edits.push({start:b.start,end:b.end,text:next});
  }
  if(roles.size!==2)throw new DocxError('DOCX_SIGNATURE_ROLE_UNRESOLVED');
  xml=apply(xml,edits);
@@ -140,6 +149,10 @@ export function fillReport(template:Buffer,kind:TemplateKind,values:ReportValues
  parts.set(`word/media/t3-signature-reported.${media(signers.reported)}`,signers.reported.signature?.bytes??TRANSPARENT_PNG);
  parts.set(`word/media/t3-signature-approved.${media(signers.approved)}`,signers.approved.signature?.bytes??TRANSPARENT_PNG);
  parts.set(name,Buffer.from(xml,'utf8'));
+ // Both signature pictures must exist and be the chosen signers' images, never the transparent placeholder or the master's own.
+ for(const [rid,slot,file] of [['rIdT3SigReported',signers.reported,'t3-signature-reported'],['rIdT3SigApproved',signers.approved,'t3-signature-approved']] as const){
+  const target=`word/media/${file}.${media(slot)}`,bytes=parts.get(target);
+  if((xml.match(new RegExp(`r:embed="${rid}"`,'g'))??[]).length!==1||!nextRels.includes(`Id="${rid}"`)||!bytes||(slot.signature&&!bytes.equals(slot.signature.bytes)))throw new DocxError('REPORT_SIGNATURE_MISSING',{role:rid});}
  for(const [part,bytes] of parts)if(/^word\/.*\.xml$/.test(part)&&bytes.toString('utf8').includes('${'))throw new DocxError('DOCX_PLACEHOLDER_REMAINS',{part});
  const bytes=writeArchive(parts);
  return {bytes,sha256:sha256(bytes),bindings,templateSha256:descriptor.sha256,templateCode:descriptor.code};

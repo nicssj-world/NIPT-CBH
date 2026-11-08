@@ -1,6 +1,6 @@
 "use client";
 import {useCallback,useEffect,useRef,useState} from "react";
-import {labApi,failureText,bkk} from "./p4/lab-api";
+import {labApi,labPdf,failureText,bkk,LabFailure} from "./p4/lab-api";
 import {csrf} from "./p2/shared";
 import {FileDropInput} from "./shared/file-drop-input";
 
@@ -14,6 +14,7 @@ const tone=(p:Profile)=>p.current?"good":p.state==="REVOKED"?"bad":"warning";
 
 export function SignerProfile({targetUserId,self,onChanged}:{targetUserId:string;self:boolean;onChanged?:()=>void}){
  const [d,setD]=useState<Overview|null>(null),[error,setError]=useState(""),[notice,setNotice]=useState(""),[busy,setBusy]=useState(false);
+ const [review,setReview]=useState<{id:string;SINGLETON:boolean;TWIN:boolean;unavailable:boolean;skip:boolean;ok:boolean}|null>(null);
  const [form,setForm]=useState({legalName:"",license:""}),[note,setNote]=useState("ตรวจตัวตน เลขใบอนุญาต และลายเซ็นกับทะเบียนบุคลากรแล้ว"),file=useRef<HTMLInputElement>(null);
  const load=useCallback(async()=>{try{setD(await labApi<Overview>("/api/task3/signers"));setError("");}catch(e){setError(failureText(e));}},[]);
  useEffect(()=>{void Promise.resolve().then(load);},[load]);
@@ -22,8 +23,11 @@ export function SignerProfile({targetUserId,self,onChanged}:{targetUserId:string
  async function submit(){const f=file.current?.files?.[0];if(!f){setError("กรุณาเลือกภาพลายเซ็น (PNG หรือ JPEG)");file.current?.focus();return;}
   setBusy(true);setError("");setNotice("");try{const body=new FormData();body.append("legalName",form.legalName);body.append("mtLicenseNo",form.license);body.append("signature",f);
    const r=await fetch("/api/task3/signers",{method:"POST",headers:{"x-csrf-token":csrf()},body});const j=await r.json().catch(()=>({}));if(!r.ok){setError(j.error??"บันทึกไม่สำเร็จ");return;}
-   setNotice("บันทึกแล้ว — ใช้ลงนามรายงานได้หลังผู้ดูแลระบบตรวจ");setForm({legalName:"",license:""});if(file.current)file.current.value="";await load();onChanged?.();}finally{setBusy(false);}}
- async function decide(p:Profile,decision:"VERIFY"|"REVOKE"){setBusy(true);setError("");setNotice("");try{await labApi("/api/task3/signers",{action:"decideProfile",profileId:p.id,decision,reason:note.trim()});setNotice(decision==="VERIFY"?"ยืนยันใบอนุญาตและลายเซ็นแล้ว":"เพิกถอนแล้ว");await load();onChanged?.();}catch(e){setError(failureText(e));}finally{setBusy(false);}}
+   setNotice("บันทึกแล้ว — ใช้ลงนามรายงานได้หลังผู้ดูแลระบบตรวจ"+(j.opaqueBackground?" · พื้นหลังสีขาวอาจทับเส้นในแบบฟอร์ม — แนะนำ PNG พื้นโปร่งใส (ผู้ดูแลระบบจะตรวจจากตัวอย่างก่อนอนุมัติ)":""));setForm({legalName:"",license:""});if(file.current)file.current.value="";await load();onChanged?.();}finally{setBusy(false);}}
+ const rv=(p:Profile)=>review?.id===p.id?review:{id:p.id,SINGLETON:false,TWIN:false,unavailable:false,skip:false,ok:false};
+ async function sample(p:Profile,kind:"SINGLETON"|"TWIN"){setError("");try{await labPdf(`/api/task3/signers/${p.id}/preview`,{kind});setReview({...rv(p),[kind]:true});}
+  catch(e){if(e instanceof LabFailure&&(e.code==="REPORT_MASTER_NOT_INSTALLED"||e.code==="REPORT_RENDER_UNAVAILABLE"))setReview({...rv(p),unavailable:true});setError(failureText(e));}}
+ async function decide(p:Profile,decision:"VERIFY"|"REVOKE"){const r=rv(p);setBusy(true);setError("");setNotice("");try{await labApi("/api/task3/signers",{action:"decideProfile",profileId:p.id,decision,reason:note.trim(),...(decision==="VERIFY"?(r.ok?{layoutReviewed:true}:{previewUnavailable:true}):{})});setNotice(decision==="VERIFY"?"ยืนยันใบอนุญาตและลายเซ็นแล้ว":"เพิกถอนแล้ว");await load();onChanged?.();}catch(e){setError(failureText(e));}finally{setBusy(false);}}
  if(!d)return error?<p className="notice" role="alert">{error}</p>:<p role="status">กำลังโหลด…</p>;
  return <section className="signer-profile stack" aria-label="ใบอนุญาตและลายเซ็นรายงาน">
   <div aria-live="polite">{notice&&<p className="notice success" role="status">{notice}</p>}{error&&<p className="notice" role="alert">{error}</p>}</div>
@@ -33,7 +37,12 @@ export function SignerProfile({targetUserId,self,onChanged}:{targetUserId:string
    {/* eslint-disable-next-line @next/next/no-img-element -- authenticated, no-store signature image must never enter the image optimizer cache */}
    {(self||d.canManage)&&<img className="t3-signature" src={`/api/task3/signers/${latest.id}/image`} alt={`ลายเซ็นของ ${latest.legalName}`}/>}
    {!self&&d.canManage&&latest.state!=="REVOKED"&&<div className="stack"><div className="field"><label htmlFor={`sig-note-${latest.id}`}>บันทึกการตรวจ</label><input id={`sig-note-${latest.id}`} value={note} maxLength={300} onChange={e=>setNote(e.target.value)}/></div>
-    <div className="action-bar">{latest.state===null&&<button type="button" className="button" disabled={busy||note.trim().length<8} onClick={()=>void decide(latest,"VERIFY")}>ยืนยันใบอนุญาตและลายเซ็น</button>}
+    {latest.state===null&&<fieldset className="stack"><legend>ตรวจตำแหน่งลายเซ็นในแบบฟอร์ม</legend>
+     <p className="help">เปิดรายงานตัวอย่าง (ลายน้ำ PREVIEW ข้อมูลสังเคราะห์ ไม่บันทึกเป็นรายงาน) ทั้งสองแบบ แล้วตรวจว่าลายเซ็นไม่เพี้ยน ไม่ทับเส้นหรือข้อความ</p>
+     <div className="action-bar"><button type="button" className="button secondary" onClick={()=>void sample(latest,"SINGLETON")}>ดูตัวอย่างแบบเดี่ยว</button><button type="button" className="button secondary" onClick={()=>void sample(latest,"TWIN")}>ดูตัวอย่างแบบแฝด</button></div>
+     <label className="check-label"><input type="checkbox" disabled={!(rv(latest).SINGLETON&&rv(latest).TWIN)} checked={rv(latest).ok} onChange={e=>setReview({...rv(latest),ok:e.target.checked})}/> ลายเซ็นแสดงถูกต้องตามแบบฟอร์ม</label>
+     {rv(latest).unavailable&&<label className="check-label"><input type="checkbox" checked={rv(latest).skip} onChange={e=>setReview({...rv(latest),skip:e.target.checked})}/> ดูตัวอย่างไม่ได้ในเครื่องนี้ — ขอยืนยันโดยไม่ดูตัวอย่าง (ระบบบันทึกว่า “ไม่ได้ดูตัวอย่าง”)</label>}</fieldset>}
+    <div className="action-bar">{latest.state===null&&<button type="button" className="button" disabled={busy||note.trim().length<8||!(rv(latest).ok&&rv(latest).SINGLETON&&rv(latest).TWIN)&&!(rv(latest).unavailable&&rv(latest).skip)} onClick={()=>void decide(latest,"VERIFY")}>ยืนยันใบอนุญาตและลายเซ็น</button>}
      <button type="button" className="button secondary" disabled={busy||note.trim().length<8} onClick={()=>void decide(latest,"REVOKE")}>เพิกถอน</button></div></div>}
   </div>:<p className="help">{self?"ยังไม่มีใบอนุญาตและลายเซ็นสำหรับรายงาน":"ผู้ใช้นี้ยังไม่ได้บันทึกใบอนุญาตและลายเซ็นในโปรไฟล์ของตนเอง"}</p>}
   {self&&<div className="stack"><h3>{latest?"บันทึกฉบับใหม่":"บันทึกใบอนุญาตและลายเซ็น"}</h3>
@@ -41,7 +50,7 @@ export function SignerProfile({targetUserId,self,onChanged}:{targetUserId:string
     <div className="field"><label htmlFor="sig-name">ชื่อ-สกุลตามใบอนุญาต</label><input id="sig-name" maxLength={120} value={form.legalName} onChange={e=>setForm(f=>({...f,legalName:e.target.value}))}/></div>
     <div className="field"><label htmlFor="sig-license">เลขใบอนุญาตประกอบวิชาชีพ</label><input id="sig-license" inputMode="numeric" maxLength={10} value={form.license} onChange={e=>setForm(f=>({...f,license:e.target.value.replace(/\D/g,"")}))}/></div>
    </div>
-   <div className="field"><label htmlFor="sig-file">ภาพลายเซ็น (PNG หรือ JPEG ไม่เกิน 512 KB)</label><FileDropInput id="sig-file" ref={file} type="file" accept="image/png,image/jpeg"/></div>
+   <div className="field"><label htmlFor="sig-file">ภาพลายเซ็น (PNG หรือ JPEG ไม่เกิน 512 KB)</label><FileDropInput id="sig-file" ref={file} type="file" accept="image/png,image/jpeg"/><p className="help">แนะนำ PNG พื้นโปร่งใส — ภาพพื้นขาว (JPEG หรือ PNG ไม่โปร่งใส) อาจทับเส้นในแบบฟอร์ม</p></div>
    <div className="action-bar"><button type="button" className="button" disabled={busy||form.legalName.trim().length<3||form.license.length<3} onClick={()=>void submit()}>{busy?"กำลังบันทึก…":"บันทึก"}</button></div></div>}
  </section>;
 }

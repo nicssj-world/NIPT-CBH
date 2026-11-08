@@ -9,13 +9,20 @@ import {need,assertSession,audit,uuid,reasonText,LabError,type Staff} from '../l
 // hospital's documented authority. The operator who finalises is always recorded as themselves, never as the signer.
 export type SignerRole='REPORTED'|'APPROVED';
 const MAX_SIGNATURE_BYTES=512*1024;
-/** PNG/JPEG only, decoded dimensions within sane bounds; the image is never scaled or re-encoded. */
-export function signatureImage(bytes:Buffer):{media:'image/png'|'image/jpeg';width:number;height:number}{
+export type SignatureImage={media:'image/png'|'image/jpeg';width:number;height:number;opaque:boolean};
+/** True when a PNG has no alpha channel (colour type 0 or 2) and no tRNS chunk: its background would cover the master's lines. */
+function pngOpaque(bytes:Buffer){
+ const colorType=bytes[25];if(colorType!==0&&colorType!==2)return false;
+ for(let i=8;i+8<=bytes.length;){const len=bytes.readUInt32BE(i),type=bytes.subarray(i+4,i+8).toString('latin1');if(type==='tRNS')return false;if(type==='IDAT'||type==='IEND')break;i+=12+len;}
+ return true;
+}
+/** PNG/JPEG only, decoded dimensions within sane bounds; the image is never scaled or re-encoded. `opaque` drives the upload warning. */
+export function signatureImage(bytes:Buffer):SignatureImage{
  if(!bytes.length||bytes.length>MAX_SIGNATURE_BYTES)throw new LabError('SIGNATURE_IMAGE_SIZE_INVALID',422);
- let out:{media:'image/png'|'image/jpeg';width:number;height:number}|null=null;
- if(bytes.subarray(0,8).equals(Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]))&&bytes.subarray(12,16).toString('latin1')==='IHDR')out={media:'image/png',width:bytes.readUInt32BE(16),height:bytes.readUInt32BE(20)};
+ let out:SignatureImage|null=null;
+ if(bytes.subarray(0,8).equals(Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]))&&bytes.subarray(12,16).toString('latin1')==='IHDR')out={media:'image/png',width:bytes.readUInt32BE(16),height:bytes.readUInt32BE(20),opaque:pngOpaque(bytes)};
  else if(bytes[0]===0xff&&bytes[1]===0xd8){for(let i=2;i+9<bytes.length;){if(bytes[i]!==0xff){i++;continue;}const marker=bytes[i+1],len=bytes.readUInt16BE(i+2);
-  if(marker>=0xc0&&marker<=0xcf&&![0xc4,0xc8,0xcc].includes(marker)){out={media:'image/jpeg',height:bytes.readUInt16BE(i+5),width:bytes.readUInt16BE(i+7)};break;}i+=2+len;}}
+  if(marker>=0xc0&&marker<=0xcf&&![0xc4,0xc8,0xcc].includes(marker)){out={media:'image/jpeg',height:bytes.readUInt16BE(i+5),width:bytes.readUInt16BE(i+7),opaque:true};break;}i+=2+len;}}
  if(!out)throw new LabError('SIGNATURE_IMAGE_FORMAT_INVALID',422);
  if(out.width<40||out.height<16||out.width>4000||out.height>2000)throw new LabError('SIGNATURE_IMAGE_DIMENSIONS_INVALID',422);
  return out;
@@ -38,20 +45,23 @@ export async function submitSignerProfile(db:Queryable,user:Staff,store:FileStor
  const row=(await db.query<{id:string;version:number}>(`INSERT INTO report_signer_profile(user_id,version,legal_name,mt_license_no,signature_sha256,signature_media,submitted_by)
   VALUES($1,(SELECT COALESCE(max(version),0)+1 FROM report_signer_profile WHERE user_id=$1),$2,$3,$4,$5,$1) RETURNING id,version`,[user.id,d.legalName,d.mtLicenseNo,hash,img.media])).rows[0];
  await audit(db,user,'SIGNER_PROFILE_SUBMITTED','REPORT_SIGNER_PROFILE',row.id,{outcome:'PENDING_VERIFICATION',version:row.version});
- return {id:row.id,version:row.version,state:'PendingVerification'};
+ return {id:row.id,version:row.version,state:'PendingVerification',opaqueBackground:img.opaque};
 }
 export async function decideSignerProfile(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);
- const d=z.strictObject({profileId:uuid,decision:z.enum(['VERIFY','REVOKE']),reason:reasonText}).parse(input);
+ const d=z.strictObject({profileId:uuid,decision:z.enum(['VERIFY','REVOKE']),reason:reasonText,layoutReviewed:z.boolean().optional(),previewUnavailable:z.boolean().optional()}).parse(input);
+ // Verifying needs the administrator's own look at the sample reports (layoutReviewed), or an explicit, recorded 'could not preview'.
+ const layout=d.decision!=='VERIFY'?null:d.layoutReviewed===true?'REVIEWED':d.previewUnavailable===true?'NOT_PREVIEWED':null;
+ if(d.decision==='VERIFY'&&!layout)throw new LabError('SIGNER_LAYOUT_REVIEW_REQUIRED',422);
  // Profiles are immutable (no UPDATE grant): decisions on one profile are serialised with an advisory lock instead of a row lock.
  await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,75432863))',[d.profileId]);
  const p=(await db.query<{id:string;user_id:string}>('SELECT id,user_id FROM report_signer_profile WHERE id=$1',[d.profileId])).rows[0];if(!p)throw new LabError('NOT_FOUND',404);
  // Verification is an administrator's check of identity, licence and signature against hospital records; never self-verification.
  if(d.decision==='VERIFY'){need(user,'user.manage');}
  else if(p.user_id!==user.id)need(user,'user.manage');
- try{await db.query('INSERT INTO report_signer_profile_event(profile_id,event,reason,actor_id) VALUES($1,$2,$3,$4)',[p.id,d.decision==='VERIFY'?'VERIFIED':'REVOKED',d.reason,user.id]);}
+ try{await db.query('INSERT INTO report_signer_profile_event(profile_id,event,reason,actor_id) VALUES($1,$2,$3,$4)',[p.id,d.decision==='VERIFY'?'VERIFIED':'REVOKED',layout==='NOT_PREVIEWED'?`${d.reason.slice(0,470)} [ไม่ได้ดูตัวอย่าง]`:d.reason,user.id]);}
  catch(e){const m=e instanceof Error?e.message:'';if(/SIGNER_VERIFICATION_INVALID|SIGNER_ALREADY_REVOKED/.test(m))throw new LabError(m.match(/SIGNER_[A-Z_]+/)![0],409);throw e;}
- await audit(db,user,d.decision==='VERIFY'?'SIGNER_PROFILE_VERIFIED':'SIGNER_PROFILE_REVOKED','REPORT_SIGNER_PROFILE',p.id,{outcome:d.decision});
+ await audit(db,user,d.decision==='VERIFY'?'SIGNER_PROFILE_VERIFIED':'SIGNER_PROFILE_REVOKED','REPORT_SIGNER_PROFILE',p.id,{outcome:d.decision,...(layout?{reasonCode:layout==='REVIEWED'?'LAYOUT_REVIEWED':'LAYOUT_NOT_PREVIEWED'}:{})});
  return {profileId:p.id,state:d.decision==='VERIFY'?'Verified':'Revoked'};
 }
 export async function grantDelegation(db:Queryable,user:Staff,input:unknown){

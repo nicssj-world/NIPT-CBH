@@ -18,7 +18,7 @@ import {isReportablePatientEvidence} from './halos-import';
 import {fillReport,DocxError,type ReportValues,type SignerSlot} from './docx';
 import {renderDocxBatch,type RenderedPdf} from './native-word';
 import {activeTemplate} from './template-active';
-import {signerAuthority,type SignerAuthority} from './signers';
+import {signerAuthority,signatureImage,type SignerAuthority} from './signers';
 import {uniqueNames} from './filename';
 import {configuredReportName} from './report-name';
 import {readHisDeliveryStatuses} from '../results/his-status';
@@ -35,7 +35,7 @@ export const reportDate=(isoDay:string)=>{const [y,m,d]=isoDay.slice(0,10).split
 const bangkokDay=(iso:string|Date)=>new Date(new Date(iso).getTime()+7*3600000).toISOString().slice(0,10);
 export type Master={bytes:Buffer;sha256:string;code:string;revisionId:string|null};
 /** OWNER-LAB-056: an Admin-approved ACTIVE registry revision wins; otherwise the Owner's installed master pinned by SHA-256 (unchanged). */
-async function masterBytes(db:Queryable|null,deps:ReportDeps,kind:'SINGLETON'|'TWIN'):Promise<Master|null>{
+export async function masterBytes(db:Queryable|null,deps:ReportDeps,kind:'SINGLETON'|'TWIN'):Promise<Master|null>{
  if(deps.templates?.[kind])return {bytes:deps.templates[kind]!,sha256:TEMPLATES[kind].sha256,code:TEMPLATES[kind].code,revisionId:null};
  const act=db?await activeTemplate(db,kind):null;
  if(act){try{const b=await deps.store.get(act.sha256);return sha256(b)===act.sha256?{bytes:b,sha256:act.sha256,code:TEMPLATES[kind].code,revisionId:act.revisionId}:null;}catch{return null;}}
@@ -176,7 +176,11 @@ async function signerSlots(db:Queryable,user:Staff,store:FileStore,pick:SignerPi
  const slot=async(role:'REPORTED'|'APPROVED',id:string|null|undefined):Promise<{slot:SignerSlot;authority:SignerAuthority|null}>=>{
   if(!id){if(final)throw new LabError(role==='REPORTED'?'REPORTED_BY_REQUIRED':'APPROVED_BY_REQUIRED',422);return {slot:{name:'—',license:'—',date:'—',signature:null},authority:null};}
   const a=await signerAuthority(db,user,id,role);
-  return {slot:{name:a.profile.legal_name,license:a.profile.mt_license_no,date:reportDate(bangkokDay(a.checkedAt)),signature:{bytes:await store.get(a.profile.signature_sha256),media:a.profile.signature_media}},authority:a};
+  // A final report never carries the transparent placeholder: the stored signature must be present and a readable PNG/JPEG.
+  const bytes=a.profile.signature_sha256?await store.get(a.profile.signature_sha256):null;
+  if(final&&(!bytes||!bytes.length))throw new LabError('REPORT_SIGNATURE_MISSING',409,{role});
+  const img=bytes?.length?signatureImage(bytes):null;
+  return {slot:{name:a.profile.legal_name,license:a.profile.mt_license_no,date:reportDate(bangkokDay(a.checkedAt)),signature:bytes&&img?{bytes,media:img.media,width:img.width,height:img.height}:null},authority:a};
  };
  const reported=await slot('REPORTED',pick.reportedBy);const approved=await slot('APPROVED',pick.approvedBy);
  return {reported,approved};

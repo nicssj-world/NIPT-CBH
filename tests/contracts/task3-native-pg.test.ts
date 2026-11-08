@@ -42,7 +42,7 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('native Task 3: app_rw internal r
   await tx(app,t=>decideHalosImport(t,f.u.staff,{importId:imp.id,decision:'CONFIRM',expectedRowVersion:imp.rowVersion}));
   for(const [user,legal,license,seed] of [[f.u.staff,'Synthetic Reporter','99001',1],[f.u.certifier,'Synthetic Approver','99002',2]] as const){
    const p=await tx(app,t=>submitSignerProfile(t,user,store,{legalName:legal,mtLicenseNo:license,signature:syntheticSignaturePng(seed)}));
-   await tx(app,t=>decideSignerProfile(t,f.admin,{profileId:p.id,decision:'VERIFY',reason:'SYNTHETIC identity and licence checked'}));}
+   await tx(app,t=>decideSignerProfile(t,f.admin,{profileId:p.id,decision:'VERIFY',layoutReviewed:true,reason:'SYNTHETIC identity and licence checked'}));}
   await tx(app,t=>grantDelegation(t,f.u.staff,{granteeId:f.u.certifier.id,roles:['REPORTED'],authorityReference:'SYNTHETIC-SOP-NIPT-SIGNATURE-01'}));
   await approveInterpretation(f,{interpretationApproved:true,singletonApprovedProduct:'HNZ0011',twinApprovedProduct:'HNZ0011',approvalReference:'SYNTHETIC-CLINICAL-APPROVAL-NATIVE'});
   for(const x of [a,b])await recordPaperRequest(f,x,'Want');

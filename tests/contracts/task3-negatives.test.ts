@@ -33,7 +33,7 @@ it('Task 3 negatives: product, signer authority, session, idempotency, twin RG-1
   await expect(f.run(t=>submitSignerProfile(t,f.u.staff,f.store,{legalName:'Synthetic Reporter',mtLicenseNo:'99001',signature:Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>')}))).rejects.toThrow('SIGNATURE_IMAGE_FORMAT_INVALID');
   await expect(f.run(t=>submitSignerProfile(t,f.u.staff,f.store,{legalName:'Synthetic Reporter',mtLicenseNo:'MT-1',signature:syntheticSignaturePng(1)}))).rejects.toThrow();
   const pending=await f.run(t=>submitSignerProfile(t,f.u.staff,f.store,{legalName:'Synthetic Reporter',mtLicenseNo:'99001',signature:syntheticSignaturePng(1)}));
-  await expect(f.run(t=>decideSignerProfile(t,f.u.staff,{profileId:pending.id,decision:'VERIFY',reason:'SYNTHETIC self verification attempt'}))).rejects.toThrow('FORBIDDEN');
+  await expect(f.run(t=>decideSignerProfile(t,f.u.staff,{profileId:pending.id,decision:'VERIFY',layoutReviewed:true,reason:'SYNTHETIC self verification attempt'}))).rejects.toThrow('FORBIDDEN');
   await expect(f.run(t=>signerAuthority(t,f.u.staff,f.u.staff.id,'REPORTED'))).rejects.toThrow('SIGNER_PROFILE_NOT_VERIFIED');
   const sig=await signerSetup(f);
   // Another person's stored signature needs a standing delegation for that role; none exists the other way round.
@@ -53,7 +53,7 @@ it('Task 3 negatives: product, signer authority, session, idempotency, twin RG-1
   await f.run(t=>decideSignerProfile(t,cert,{profileId:certProfile,decision:'REVOKE',reason:'SYNTHETIC signature withdrawn'}));
   await expect(f.run(t=>signerAuthority(t,cert,cert.id,'APPROVED'))).rejects.toThrow('SIGNER_PROFILE_NOT_VERIFIED');
   const again=await f.run(t=>submitSignerProfile(t,cert,f.store,{legalName:'Synthetic Approver',mtLicenseNo:'99002',signature:syntheticSignaturePng(2)}));
-  await f.run(t=>decideSignerProfile(t,f.admin,{profileId:again.id,decision:'VERIFY',reason:'SYNTHETIC identity and licence checked again'}));
+  await f.run(t=>decideSignerProfile(t,f.admin,{profileId:again.id,decision:'VERIFY',layoutReviewed:true,reason:'SYNTHETIC identity and licence checked again'}));
   await f.run(t=>grantDelegation(t,f.u.staff,{granteeId:cert.id,roles:['REPORTED'],authorityReference:'SYNTHETIC-SOP-NIPT-SIGNATURE-02'}));
 
   // 3. Stale session (revoked) refuses preview and Final; an idempotency key cannot be replayed by another operator.

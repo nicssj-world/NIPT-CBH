@@ -83,7 +83,7 @@ export async function task3Fixture(cases:CaseSpec[]=[{ln:'9900099511',hn:'990009
 /** Verified signer profiles: staff (Reported by) delegates to the certifier operator; certifier signs Approved by as self. */
 export async function signerSetup(f:Awaited<ReturnType<typeof task3Fixture>>){
  const profile=async(user:Principal,name:string,license:string,seed:number)=>{const p=await f.run(t=>submitSignerProfile(t,user,f.store,{legalName:name,mtLicenseNo:license,signature:syntheticSignaturePng(seed)}));
-  await f.run(t=>decideSignerProfile(t,f.admin,{profileId:p.id,decision:'VERIFY',reason:'SYNTHETIC identity and licence checked'}));return p.id;};
+  await f.run(t=>decideSignerProfile(t,f.admin,{profileId:p.id,decision:'VERIFY',layoutReviewed:true,reason:'SYNTHETIC identity and licence checked'}));return p.id;};
  const reporterProfile=await profile(f.u.staff,'Synthetic Reporter','99001',1),approverProfile=await profile(f.u.certifier,'Synthetic Approver','99002',2);
  const delegation=await f.run(t=>grantDelegation(t,f.u.staff,{granteeId:f.u.certifier.id,roles:['REPORTED'],authorityReference:'SYNTHETIC-SOP-NIPT-SIGNATURE-01'}));
  return {reporterProfile,approverProfile,delegation:delegation.id};

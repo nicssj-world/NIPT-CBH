@@ -24,8 +24,8 @@ const locate=(list:Item[],anchor:string)=>list.find(i=>i.str===anchor)??list.fin
 const values=(name:string):ReportValues=>({patientName:name,ga:'17W 6D',sampleID:'99B990101001-1',hn:'99000001',collectDate_cbh:'20-Oct-2026',patientIDCard:'0000000000000',dob_cbh:'01-Jan-1990',receivedDate_cbh:'20-Oct-2026',
  referringPhysician:'SYNTHETIC REFERRING DOCTOR',hospitalName:'Chonburi hospital',remarks:'',sampleType:'Peripheral Blood',qc:'PASS',trisomy21_ra:'High Risk',trisomy18_ra:'Low Risk',trisomy13_ra:'Low Risk',
  risk21:'1/1.01',risk18:'1/2143998259',risk13:'1/39594481',gender:'Male',gender_cbh:'Detected',XO_NEW:'Not Detected',XXX_NEW:'Not Detected',XXY_NEW:'Not Detected',XYY_NEW:'Not Detected',fetalFaction_2:'14.70'});
-const signers=(long:boolean)=>({reported:{name:long?'Synthetic Reporter With A Long Legal Name':'Synthetic Reporter',license:'99001',date:'24-Oct-2026',signature:{bytes:syntheticSignaturePng(1),media:'image/png' as const}},
- approved:{name:long?'Synthetic Approver With Long Name':'Synthetic Approver',license:'99002',date:'25-Oct-2026',signature:{bytes:syntheticSignaturePng(2),media:'image/png' as const}}});
+const signers=(long:boolean)=>({reported:{name:long?'Synthetic Reporter With A Long Legal Name':'Synthetic Reporter',license:'99001',date:'24-Oct-2026',signature:{bytes:syntheticSignaturePng(1),media:'image/png' as const,width:240,height:80}},
+ approved:{name:long?'Synthetic Approver With Long Name':'Synthetic Approver',license:'99002',date:'25-Oct-2026',signature:{bytes:syntheticSignaturePng(2),media:'image/png' as const,width:240,height:80}}});
 /** The unfilled master with its own static signature pictures removed, so the baseline never renders a real signature. */
 function maskedMaster(bytes:Buffer){const parts=readArchive(bytes);for(const k of [...parts.keys()])if(/^word\/media\/(image[12]\.(png|jpe?g)|hdphoto1\.wdp)$/.test(k))parts.set(k,k.endsWith('.wdp')?parts.get(k)!:syntheticSignaturePng(9));return writeArchive(parts);}
 

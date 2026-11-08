@@ -49,7 +49,7 @@ describe('single APP_ADMIN with separate Reported By / Approved By personnel',()
   // each person submits their OWN profile; the administrator verifies it (never their own)
   for(const [p,name,lic,seed] of [[reporter,'Synthetic Reporter','99001',1],[approver,'Synthetic Approver','99002',2]] as const){
    const prof=await run(()=>submitSignerProfile(db,p,store,{legalName:name,mtLicenseNo:lic,signature:syntheticSignaturePng(seed)}));
-   await run(()=>decideSignerProfile(db,admin,{profileId:prof.id,decision:'VERIFY',reason:'SYNTHETIC identity and licence checked'}));
+   await run(()=>decideSignerProfile(db,admin,{profileId:prof.id,decision:'VERIFY',layoutReviewed:true,reason:'SYNTHETIC identity and licence checked'}));
   }
   // verified, but the person has not authorised the administrator to apply their signature: listed as not usable, refused
   expect((await run(()=>listSigners(db,admin,{role:'APPROVED',q:''}))).map(s=>[s.legalName,s.usable])).toEqual([['Synthetic Approver',false]]);

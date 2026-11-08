@@ -43,7 +43,7 @@ await step('word_synthetic_signers',async()=>{
 });
 const reportMaster=arg('report-master');
 if(reportMaster)await step('word_report_master_fill',async()=>{
- const slot=(name:string,license:string,date:string,seed:number):SignerSlot=>({name,license,date,signature:{bytes:signaturePng(seed),media:'image/png'}});
+ const slot=(name:string,license:string,date:string,seed:number):SignerSlot=>({name,license,date,signature:{bytes:signaturePng(seed),media:'image/png',width:240,height:80}});
  const values:ReportValues={patientName:'Synthetic Patient Name',ga:'17W 6D',sampleID:'99B990101001-1',hn:'99000001',collectDate_cbh:'20-Oct-2026',patientIDCard:'0000000000000',dob_cbh:'01-Jan-1990',receivedDate_cbh:'20-Oct-2026',referringPhysician:'SYNTHETIC REFERRING DOCTOR',hospitalName:'Synthetic hospital',remarks:'',sampleType:'Peripheral Blood',qc:'PASS',trisomy21_ra:'Low Risk',trisomy18_ra:'Low Risk',trisomy13_ra:'Low Risk',risk21:'1/2143998259',risk18:'1/2143998259',risk13:'1/39594481',gender:'Female',gender_cbh:'Not Detected',XO_NEW:'Not Detected',XXX_NEW:'Not Detected',XXY_NEW:'Not Detected',XYY_NEW:'Not Detected',fetalFaction_2:'14.70'};
  const filled=fillReport(await readFile(reportMaster),'SINGLETON',values,{reported:slot('Synthetic Reporter','99001','24-Oct-2026',1),approved:slot('Synthetic Approver','99002','25-Oct-2026',2)});
  const [pdf]=await renderDocxBatch([{id:'master',docx:filled.bytes}]);

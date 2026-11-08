@@ -61,7 +61,7 @@ export async function seedUat(db:Queryable,dirs:Dirs){
  // 3. Report signers (synthetic signatures) verified by the administrator; the staff signer delegates "Reported by" to the certifier.
  for(const [user,name,license,seed] of [[lab,'UAT Reporter Synthetic','99001',1],[certifier,'UAT Approver Synthetic','99002',2]] as const){
   const p=await tx(db,t=>submitSignerProfile(t,user,store,{legalName:name,mtLicenseNo:license,signature:signaturePng(seed)}));
-  await tx(db,t=>decideSignerProfile(t,admin,{profileId:p.id,decision:'VERIFY',reason:'UAT synthetic identity and licence checked'}));}
+  await tx(db,t=>decideSignerProfile(t,admin,{profileId:p.id,decision:'VERIFY',layoutReviewed:true,reason:'UAT synthetic identity and licence checked'}));}
  await tx(db,t=>grantDelegation(t,lab,{granteeId:ids.certifier,roles:['REPORTED'],authorityReference:'UAT-SYNTHETIC-SIGNATURE-DELEGATION'}));
  // 4. Six received LAB cases in one Owner batch through actual pooling and the dual NIFTY/HALOS export.
  const doctor=await tx(db,t=>doctorAction(t,lab,{action:'save',doctorKey:'UAT-TASK3-DOCTOR',name:'แพทย์ทดสอบ UAT',unitId:unit,vector:{width:600,height:200,strokes:[[[10,10],[40,30],[90,12]]]}})) as {id:string};
