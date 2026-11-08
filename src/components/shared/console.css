@@ -58,3 +58,10 @@
 .button.quiet:hover{background:var(--bad-bg)}
 
 @media(prefers-reduced-motion:reduce){.progress-badge.tone-testing .ui-icon::after{animation:none}}
+
+/* "ดูผลตรวจ" popup: wide enough for the three-column result table, identity line above the panel. */
+.p2-dialog:has(.result-popup){width:min(980px,calc(100vw - 32px));max-width:100%}
+.result-popup{display:grid;gap:var(--space-3);min-width:0}
+.result-popup-id{margin:0;color:var(--color-muted);font-size:.875rem;line-height:1.6;font-variant-numeric:tabular-nums}
+.result-popup-id strong{color:var(--color-ink);font-size:1rem}
+.view-result-button{white-space:nowrap}

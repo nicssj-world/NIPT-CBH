@@ -35,3 +35,6 @@
 .case-stage-released>.case-pet-evidence>summary::before{content:"7"}
 /* The result title sits in a flex header next to its icon; keep the number on the title line. */
 .anc-case-workspace .case-results #anc-results-h{display:flex;align-items:center;gap:10px}
+/* Collapsed sections: number + title + count read as one left-aligned group; only the chevron sits at the far edge. */
+.anc-case-workspace :is(.case-activity-details,.case-pet-evidence)>summary{justify-content:flex-start}
+.anc-case-workspace :is(.case-activity-details,.case-pet-evidence)>summary::after{margin-left:auto}

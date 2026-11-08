@@ -80,3 +80,6 @@ html:not([data-theme="dark"]) .anc-result{--nt:var(--color-ink);--nm:var(--color
  .anc-result .nipt-button,.anc-result .nipt-button.primary,.anc-result button.nipt-button{width:100%;min-height:48px;padding:10px 16px;font-size:15px;gap:10px}
  .anc-result .nipt-button svg{width:20px;height:20px}
 }
+/* No released result yet: same card and header as the result, one line of text below (Owner 2026-11-09). */
+.anc-result.anc-result-empty .nipt-result-header{margin-bottom:12px}
+.anc-result .anc-result-empty-text{margin:0;color:var(--nm);font-size:16px;line-height:1.65}

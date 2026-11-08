@@ -55,7 +55,8 @@ export function AncResults({caseId,onCurrentRelease}:{caseId:string;onCurrentRel
 
     {current.redraw&&<p><span className="badge warning">ต้องเก็บตัวอย่างใหม่ — รอบที่ {current.number+1}</span> {current.redraw.label}</p>}
     {current.result?<ResultCard r={current.result} round={current}/>
-     :<p className="empty-state">ยังไม่มีผลตรวจที่ปล่อยสำหรับรอบนี้{d.releaseHold?" — ยังไม่ผ่านเงื่อนไขการรับรองและออกผล":""}</p>}
+     :<div className="anc-result anc-result-empty"><header className="nipt-result-header"><span className="nipt-icon"><ResultIcon kind="file"/></span><div><h2 id="anc-results-h">ผลตรวจ NIPT</h2><p><strong>รอบที่ {current.number} (รอบปัจจุบัน)</strong>{current.collectionDate?` · เก็บตัวอย่าง ${be(current.collectionDate)}`:""}</p></div></header>
+      <p className="anc-result-empty-text">ยังไม่มีผลตรวจที่ปล่อยสำหรับรอบนี้{d.releaseHold?" — ยังไม่ผ่านเงื่อนไขการรับรองและออกผล":""}</p></div>}
     {current.notices.map(n=><p key={n.id}>{releaseLink(n,"เปิดหนังสือแจ้ง")} <span className="badge warning">หนังสือแจ้ง — ไม่ใช่ผลตรวจ</span></p>)}
    </div>}
    {earlier.length>0&&<details className="p5-history"><summary>ประวัติรอบก่อน ({earlier.length})</summary>

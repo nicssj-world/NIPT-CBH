@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import {CaseActionIcon} from "../shared/case-action-icon";
+import {ViewResultButton} from "../p5/result-popup";
 import {patientDisplayName} from "../../../packages/domain/patient-name";
 import {useCallback,useEffect,useRef,useState} from "react";
 import {api,ApiFailure,Ln,message} from "../p2/shared";
@@ -69,6 +69,6 @@ return <div className="anc-dashboard" data-mode={operational?"operational":"synt
    <td className="c-when">{received(c)}</td>
    <td className="c-progress"><ProgressView progress={p} round={c.roundNumber} extra={<>{attention(c,p.todo)}{isOtherFiscalYear(c.s1ReceivedAt,filters.fy)&&<span className="badge info">ข้ามปีงบประมาณ</span>}</>}/></td>
    <td className="c-todo"><TodoSign todo={p.todo}/></td>
-   <td className="c-actions">{c.released&&<Link className="button secondary anc-case-action" href={'/cases/'+c.id}><CaseActionIcon released/> ดูผลตรวจ<span className="sr-only"> LN {c.ln}</span></Link>}</td></tr>;})}</tbody></table></TableScroll>}
+   <td className="c-actions">{c.hasResult&&<ViewResultButton caseId={c.id} ln={c.ln} hn={c.hn} name={patientDisplayName(c.patientName?.trim()||'ยังไม่มีข้อมูลชื่อ-นามสกุล')} className="button secondary anc-case-action"/>}</td></tr>;})}</tbody></table></TableScroll>}
  <Pager label="คิวเคส ANC" sizes={SIZES} page={data.queue.page} pageSize={data.queue.pageSize} total={data.queue.total} totalPages={data.queue.totalPages} busy={stale||loading} onPage={goPage} onSize={n=>patch({pageSize:n})}/></section></>}</div>
 }
