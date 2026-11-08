@@ -416,6 +416,31 @@ export async function revalidate(db:Queryable,user:Staff,input:unknown){
  await lockChain(db,pre.round_id,pre.attempt_id,[pre.id]);const v=await versionOf(db,pre.id,true);if(v.row_version!==d.expectedRowVersion)throw new LabError('VERSION_CONFLICT',409);
  const after=await validate(db,user,v);await audit(db,user,'RESULT_REVALIDATED','RESULT_VERSION',v.id,{outcome:after.state});return {outcome:after.state};
 }
+/**
+ * One-time backlog script (Task 8, spec 5.6). READ ONLY: no lock, no insert, no update. What autoLinkUnique + validate would do with this
+ * version right now: the single clean match (if any), whether a person already decided (the DB would refuse the system link) and the gate
+ * the result would meet once linked. The gate of a not-yet-linked version is evaluated on a copy that already carries the match.
+ */
+export async function backlogRelinkPreview(db:Queryable,versionId:string){
+ const s=await resultSettings(db),v=await versionOf(db,versionId),human=await humanDecided(db,v.id);
+ if(v.state==='Unlinked'||v.state==='LinkConflict'){
+  const sm=await systemMatch(db,v,s),m=sm.match;
+  const series=m?await seriesExists(db,v.kind,m.round.id,v.id):false;
+  if(!m||series)return {roundId:m?.round.id??null,match:m?{hn:m.hn,ln:m.ln,lnHalos:m.lnHalos,rule:m.matchedOn.join('+'),contract:sm.migrationMatched?'MIGRATION-EXACT-CONTENT-v1':AUTO_LINK_CONTRACT}:null,reason:m?'SERIES_NOT_EMPTY':sm.reason,humanDecided:human,gate:null};
+  const copy:VersionRow={...v,state:'Linked',case_id:m.caseId,round_id:m.round.id,attempt_id:m.attempt.id,link_mode:'AUTO_UNIQUE'};
+  const g=await gateFor(db,copy,'VALIDATION');
+  return {roundId:m.round.id,match:{hn:m.hn,ln:m.ln,lnHalos:m.lnHalos,rule:m.matchedOn.join('+'),contract:sm.migrationMatched?'MIGRATION-EXACT-CONTENT-v1':AUTO_LINK_CONTRACT},reason:human?'HUMAN_DECISION_EXISTS':null,humanDecided:human,gate:g?{failed:g.failed,pending:g.pending,eligible:g.eligible}:null};
+ }
+ const g=v.round_id?await gateFor(db,v,'VALIDATION'):null;
+ return {roundId:v.round_id,match:null,reason:null,humanDecided:human,gate:g?{failed:g.failed,pending:g.pending,eligible:g.eligible}:null};
+}
+/** One-time backlog script: re-run the validation gate of an already linked version under the acting operator. Never reviews, certifies or sends. */
+export async function backlogRevalidate(db:Queryable,actor:Staff,versionId:string):Promise<string>{
+ const pre=await versionOf(db,versionId);
+ if(!pre.round_id||!['Linked','ValidationBlocked'].includes(pre.state))return pre.state;
+ await lockChain(db,pre.round_id,pre.attempt_id,[pre.id]);
+ return (await validate(db,actor,await versionOf(db,pre.id,true))).state;
+}
 export async function recordReview(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);
  const d=z.strictObject({versionId:uuid,valuesMatchPdf:z.literal(true),abnormalAcknowledged:z.boolean(),note:reviewNote.optional(),expectedRowVersion:rowVersion}).parse(input);
