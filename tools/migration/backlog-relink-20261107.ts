@@ -8,7 +8,7 @@
  *  Rows are appended to the report only after their COMMIT. A LinkConflict is reported and never touched (a person decided it; the board's
  *  pick/discard path is theirs). It NEVER records a review or QC5, certifies, voids, sends to HIS or picks a patient on anybody's behalf.
  *  The report is for the operator: HN and lab numbers, never a patient name. */
-import {existsSync,mkdirSync,openSync,writeSync,ftruncateSync,closeSync} from 'node:fs';
+import {existsSync,mkdirSync,rmSync,openSync,writeSync,ftruncateSync,closeSync} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -42,6 +42,14 @@ type Decision={action:'LINK'|'REVALIDATE'|'NONE';to:string;match:RelinkRow['matc
 /** THE decision, shared by the dry run and --apply. Read only. `claimed` holds the rounds an earlier row of this run links (identical in both modes). */
 async function decide(db:Queryable,actor:Staff,c:Cand,claimed:Set<string>):Promise<Decision>{
  const none=(reason:string,match:RelinkRow['match']=linkedMatch(c),rule:string|null=c.link_mode):Decision=>({action:'NONE',to:c.state,match,rule,contract:null,reason,gate:null});
+ // HALOS-generated reports link through their own frozen-export contract and exact attempt: this script only reports them (R13).
+ if(c.origin==='INTERNAL_GENERATED'){
+  if(c.state==='LinkConflict')return none('LINK_CONFLICT_NEEDS_HUMAN');
+  if(c.state==='PendingCertification')return none('ALREADY_WAITING_FOR_HIS');
+  if(c.state==='Unlinked')return none('INTERNAL_REPORT_LINKS_BY_FROZEN_EXPORT_ONLY',null,null);
+  if(c.state==='Linked'||c.state==='ValidationBlocked')return none('INTERNAL_REPORT_HANDLED_ON_BOARD');
+  return none('STATE_NOT_HANDLED');
+ }
  if(c.round_id&&c.round_id!==c.current_round_id)return none('ROUND_NOT_CURRENT');
  if(c.state==='LinkConflict')return none('LINK_CONFLICT_NEEDS_HUMAN');
  if(c.state==='PendingCertification')return none('ALREADY_WAITING_FOR_HIS');
@@ -49,7 +57,7 @@ async function decide(db:Queryable,actor:Staff,c:Cand,claimed:Set<string>):Promi
   const p=await backlogRelinkPreview(db,actor,c.id);
   if(p.humanDecided)return none('HUMAN_DECISION_EXISTS',null,null);
   if(!p.match)return none(p.reason??'NOT_A_CLEAN_MATCH',null,null);
-  if(p.reason||!p.roundId||claimed.has(p.roundId))return none(p.reason??'SERIES_NOT_EMPTY',p.match&&{hn:p.match.hn,ln:p.match.ln,lnHalos:p.match.lnHalos},p.match.rule);
+  if(p.reason||!p.roundId||claimed.has(p.roundId))return none(p.reason??'SERIES_NOT_EMPTY',null,null);
   claimed.add(p.roundId);
   return {action:'LINK',to:p.gate?.eligible?'PendingCertification':'ValidationBlocked',match:{hn:p.match.hn,ln:p.match.ln,lnHalos:p.match.lnHalos},rule:p.match.rule,contract:p.match.contract,reason:null,gate:p.gate};
  }
@@ -87,24 +95,24 @@ export async function runBacklogRelink(db:Queryable,actor:Staff,o:{apply:boolean
   await db.query('BEGIN');
   try{
    const c=await fresh(db,id);const d=await decide(db,actor,c,claimed);
-   let to=d.to,reason=d.reason;
+   let to=d.to,reason=d.reason,shown=d;
    if(d.action==='LINK'){
     const x=await autoLinkUnique(db,actor,id);
-    if(x.linked)to=x.version.state;else{to=c.state;reason=x.reason;}
+    if(x.linked)to=x.version.state;else{to=c.state;reason=x.reason;shown={...d,match:null,rule:null,contract:null};}   // refused: no predicted match next to Unlinked
    }else if(d.action==='REVALIDATE')to=await backlogRevalidate(db,actor,id);
-   const row=await rowOf(db,c,d,to,reason,false,null);
-   await audit(db,actor,'RESULT_BACKLOG_RELINK','RESULT_VERSION',id,{previousState:c.state,resultingState:to,outcome:reason?reason.replace(/[^A-Za-z0-9_.-]/g,'_').slice(0,80):'RELINKED',reasonCode:BACKLOG_REASON_CODE});
+   const row=await rowOf(db,c,shown,to,reason,false,null);
+   if(c.origin!=='INTERNAL_GENERATED')await audit(db,actor,'RESULT_BACKLOG_RELINK','RESULT_VERSION',id,{previousState:c.state,resultingState:to,outcome:reason?reason.replace(/[^A-Za-z0-9_.-]/g,'_').slice(0,80):'RELINKED',reasonCode:BACKLOG_REASON_CODE});
    await db.query('COMMIT');push(row);
   }catch(e){
    await db.query('ROLLBACK');
    const code=codeOf(e);
    // Recoverable: a refusal by the service or the DB for this one version. Anything else (lost connection, bug) stops the run; earlier versions stay committed.
    if(!(e instanceof LabError)&&!REFUSALS.test(code))throw e;
-   const c=await fresh(db,id);const none:Decision={action:'NONE',to:c.state,match:linkedMatch(c),rule:c.link_mode,contract:null,reason:code,gate:null};
+   const c=await fresh(db,id);const none:Decision={action:'NONE',to:c.state,match:c.state==='Unlinked'?null:linkedMatch(c),rule:c.state==='Unlinked'?null:c.link_mode,contract:null,reason:code,gate:null};
    await db.query('BEGIN');
    try{
     const row=await rowOf(db,c,none,c.state,code,false,null);
-    await audit(db,actor,'RESULT_BACKLOG_RELINK','RESULT_VERSION',id,{previousState:c.state,resultingState:c.state,outcome:code.replace(/[^A-Za-z0-9_.-]/g,'_').slice(0,80),reasonCode:BACKLOG_REASON_CODE});
+    if(c.origin!=='INTERNAL_GENERATED')await audit(db,actor,'RESULT_BACKLOG_RELINK','RESULT_VERSION',id,{previousState:c.state,resultingState:c.state,outcome:code.replace(/[^A-Za-z0-9_.-]/g,'_').slice(0,80),reasonCode:BACKLOG_REASON_CODE});
     await db.query('COMMIT');push(row);
    }catch(e2){await db.query('ROLLBACK');throw e2;}
   }
@@ -137,7 +145,10 @@ export function openReport(dir:string,apply:boolean){
  mkdirSync(dir,{recursive:true});
  const csv=openSync(stem+'.csv','wx'),md=openSync(stem+'.md','wx');
  writeSync(csv,'\ufeff'+COLS.join(',')+'\r\n');writeSync(md,`# Backlog re-link ${BACKLOG_REASON_CODE} - INCOMPLETE (the run has not finished)\n`);
- return {stem,append:(r:RelinkRow)=>{writeSync(csv,csvLine(r));},
+ let appended=0;
+ return {stem,append:(r:RelinkRow)=>{appended++;writeSync(csv,csvLine(r));},
+  /** Removes the empty INCOMPLETE files this run created (only if no row was written), so the same folder can be reused. */
+  discard:()=>{if(appended)return;closeSync(csv);closeSync(md);rmSync(stem+'.csv',{force:true});rmSync(stem+'.md',{force:true});},
   finish:(rows:RelinkRow[])=>{ftruncateSync(md,0);writeSync(md,markdownOf(rows,apply,dir),0);closeSync(csv);closeSync(md);}};
 }
 /** Report text without touching the file system (tests, previews). */
@@ -147,6 +158,7 @@ export const reportOf=(rows:RelinkRow[],apply:boolean)=>({csv:'\ufeff'+COLS.join
 export type Deps={connect:()=>Promise<{db:Queryable;close:()=>Promise<void>}>;verifiedBackup:()=>Promise<{at?:string|null}>;defaultOut:()=>string;log:(line:string)=>void};
 export async function main(argv:string[],deps:Deps){
  const arg=(n:string)=>{const i=argv.indexOf('--'+n);return i<0?undefined:argv[i+1];},apply=argv.includes('--apply'),out=arg('out');
+ if(out!==undefined&&(out.startsWith('--')||!out.trim()))throw new Error('OUT_DIR_INVALID');
  if(apply&&!out)throw new Error('OUT_DIR_REQUIRED_FOR_APPLY');
  if(apply){ // like the historical migration: only after a fresh verified backup; checked before any SQL
   const b=await deps.verifiedBackup().catch(()=>null),age=b?.at?Math.round((Date.now()-Date.parse(b.at))/60000):null;
@@ -155,8 +167,9 @@ export async function main(argv:string[],deps:Deps){
  const dir=path.resolve(out??deps.defaultOut());
  const report=openReport(dir,apply);   // fails (EEXIST / REPORT_FILES_EXIST) before the database is touched
  deps.log(JSON.stringify({mode:apply?'APPLY':'DRY_RUN',reportFolder:dir,note:apply?'run in a quiet period':'nothing is written to the database'}));
- const conn=await deps.connect();
+ let conn:Awaited<ReturnType<Deps['connect']>>|undefined;
  try{
+  conn=await deps.connect();
   const r=(await conn.db.query<{id:string}>("SELECT u.id FROM app_user u WHERE u.username=$1 AND u.enabled AND NOT u.must_change_password AND EXISTS(SELECT 1 FROM role_assignment a WHERE a.user_id=u.id AND a.role='APP_ADMIN' AND a.effective_from<=now() AND (a.expires_at IS NULL OR a.expires_at>now()))",[arg('actor')??'admin'])).rows[0];
   if(!r)throw new Error('APP_ADMIN_ACTOR_NOT_AVAILABLE');
   const actor:Staff={id:r.id,roles:['APP_ADMIN'],unitIds:[],permissions:[]};
@@ -164,7 +177,8 @@ export async function main(argv:string[],deps:Deps){
   report.finish(rows);
   deps.log(JSON.stringify({mode:apply?'APPLY':'DRY_RUN',rows:rows.length,report:report.stem+'.csv / .md'}));
   return {rows,report:report.stem};
- }finally{await conn.close();}
+ }catch(e){report.discard();throw e;}
+ finally{await conn?.close();}
 }
 const realDeps:Deps={
  connect:async()=>{const {pool}=await import('../../packages/db/connection');const p=pool(),client=await p.connect();return {db:client as unknown as Queryable,close:async()=>{client.release();await p.end();}};},

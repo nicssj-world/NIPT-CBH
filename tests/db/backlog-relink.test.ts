@@ -174,6 +174,7 @@ it('CLI wrapper: no verified backup, no --out for apply, or existing report file
   await expect(main(['--apply','--out',path.join(out,'x')],deps({verifiedBackup:async()=>{throw Error('no receipt');}}))).rejects.toThrow('VERIFIED_BACKUP_REQUIRED');noSql();
   await expect(main(['--apply','--out',path.join(out,'x')],deps({verifiedBackup:async()=>({at:new Date(Date.now()-48*3600000).toISOString()})}))).rejects.toThrow('VERIFIED_BACKUP_REQUIRED');noSql();
   await expect(main(['--apply'],deps())).rejects.toThrow('OUT_DIR_REQUIRED_FOR_APPLY');noSql();
+await expect(main(['--apply','--out','--actor','x'],deps())).rejects.toThrow('OUT_DIR_INVALID');noSql();  await expect(main(['--out','--apply'],deps())).rejects.toThrow('OUT_DIR_INVALID');noSql();  // a connection failure leaves no empty INCOMPLETE report behind, so the same --out can be reused  const reuse=path.join(out,'reuse');  await expect(main(['--out',reuse],deps({connect:async()=>{throw Error('CONNECT_FAILED');}}))).rejects.toThrow('CONNECT_FAILED');  expect(existsSync(path.join(reuse,'backlog-relink-dry-run.csv'))).toBe(false);expect(existsSync(path.join(reuse,'backlog-relink-dry-run.md'))).toBe(false);
   expect(existsSync(path.join(out,'x'))).toBe(false);
   const taken=path.join(out,'taken');await main(['--out',taken,'--actor','synthetic.task3.admin'],deps());   // a dry run writes its report here
   s.sql.length=0;connects=0;
@@ -194,4 +195,38 @@ it('CLI wrapper: no verified backup, no --out for apply, or existing report file
   expect(readFileSync(path.join(out,'applied','backlog-relink-apply.csv'),'utf8')).toContain(a);
   expect(ra.rows[0].to).not.toBe('Unlinked');expect(await stateOf(f,a)).toBe(ra.rows[0].to);
  }finally{rmSync(out,{recursive:true,force:true});vi.unstubAllEnvs();await f.close();}
+},600000);
+
+it('two clean Unlinked PDFs of one round: dry run and apply agree row for row (newest links, older is SERIES_NOT_EMPTY without a predicted match)',async()=>{
+ const f=await task3Fixture();try{
+  const older=await stuck(f,0,'SYNTHETIC-backlog-pair-1.pdf',{dob:'02-Feb-1985'});
+  const newer=await stuck(f,0,'SYNTHETIC-backlog-pair-2.pdf',{dob:'03-Mar-1986'});
+  const dry=await runBacklogRelink(f.db,f.admin,{apply:false});
+  const applied=await runBacklogRelink(f.db,f.admin,{apply:true});
+  expect(strip(applied.rows)).toEqual(strip(dry.rows));
+  expect(applied.rows.find(r=>r.versionId===older)).toMatchObject({to:'Unlinked',reason:'SERIES_NOT_EMPTY',match:null,rule:null,contract:null});
+  expect(applied.rows.find(r=>r.versionId===newer)!.to).not.toBe('Unlinked');
+  expect(await stateOf(f,older)).toBe('Unlinked');
+ }finally{vi.unstubAllEnvs();await f.close();}
+},600000);
+
+it('HALOS-generated (INTERNAL_GENERATED) versions are report-only in every state: no link, no revalidation, no audit, no event',async()=>{
+ const f=await task3Fixture();try{
+  const unl=await stuck(f,0,'SYNTHETIC-backlog-int-unlinked.pdf');
+  const vb=await linkedOnImport(f,1,'SYNTHETIC-backlog-int-blocked.pdf');
+  const lk=await linkedOnImport(f,2,'SYNTHETIC-backlog-int-linked.pdf');
+  await bypass(f,"UPDATE result_report_version SET state='Linked' WHERE id=$1",[lk]);
+  for(const id of [unl,vb,lk])await bypass(f,"UPDATE result_report_version SET origin='INTERNAL_GENERATED' WHERE id=$1",[id]);
+  const states=await Promise.all([unl,vb,lk].map(i=>stateOf(f,i))),before=await snapshot(f);
+  const dry=await runBacklogRelink(f.db,f.admin,{apply:false});
+  const applied=await runBacklogRelink(f.db,f.admin,{apply:true});
+  expect(strip(applied.rows)).toEqual(strip(dry.rows));
+  const by=(id:string)=>applied.rows.find(r=>r.versionId===id)!;
+  expect(by(unl)).toMatchObject({source:'HALOS',to:'Unlinked',reason:'INTERNAL_REPORT_LINKS_BY_FROZEN_EXPORT_ONLY',match:null});
+  expect(by(vb)).toMatchObject({source:'HALOS',reason:'INTERNAL_REPORT_HANDLED_ON_BOARD'});
+  expect(by(lk)).toMatchObject({source:'HALOS',from:'Linked',to:'Linked',reason:'INTERNAL_REPORT_HANDLED_ON_BOARD'});
+  expect(await Promise.all([unl,vb,lk].map(i=>stateOf(f,i)))).toEqual(states);
+  expect(await snapshot(f)).toEqual(before);                       // no link/version event, gate evaluation or audit row
+  expect((await f.db.query("SELECT count(*)::int n FROM audit_chain WHERE action='RESULT_BACKLOG_RELINK'")).rows[0]).toEqual({n:0});
+ }finally{vi.unstubAllEnvs();await f.close();}
 },600000);
