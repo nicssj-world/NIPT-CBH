@@ -421,7 +421,8 @@ export async function revalidate(db:Queryable,user:Staff,input:unknown){
  * version right now: the single clean match (if any), whether a person already decided (the DB would refuse the system link) and the gate
  * the result would meet once linked. The gate of a not-yet-linked version is evaluated on a copy that already carries the match.
  */
-export async function backlogRelinkPreview(db:Queryable,versionId:string){
+export async function backlogRelinkPreview(db:Queryable,user:Staff,versionId:string){
+ need(user,'result.review','read');
  const s=await resultSettings(db),v=await versionOf(db,versionId),human=await humanDecided(db,v.id);
  if(v.state==='Unlinked'||v.state==='LinkConflict'){
   const sm=await systemMatch(db,v,s),m=sm.match;
@@ -436,6 +437,7 @@ export async function backlogRelinkPreview(db:Queryable,versionId:string){
 }
 /** One-time backlog script: re-run the validation gate of an already linked version under the acting operator. Never reviews, certifies or sends. */
 export async function backlogRevalidate(db:Queryable,actor:Staff,versionId:string):Promise<string>{
+ need(actor,'result.review');
  const pre=await versionOf(db,versionId);
  if(!pre.round_id||!['Linked','ValidationBlocked'].includes(pre.state))return pre.state;
  await lockChain(db,pre.round_id,pre.attempt_id,[pre.id]);
