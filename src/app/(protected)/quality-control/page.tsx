@@ -28,8 +28,8 @@ export default async function QualityControlPage({searchParams}:{searchParams:Pr
  if(tab==="eqa"){
   const d=await readEqaRegistry(pool(),user,{q:q.q,year:q.year,page:q.page,pageSize:q.pageSize});
   body=<>
-   <div className="row">
-   <form method="get" className="row" role="search" aria-label="ค้นหา EQA">
+   <div className="row search-row">
+   <form method="get" className="row search-row" role="search" aria-label="ค้นหา EQA">
     <input type="hidden" name="tab" value="eqa"/>
     <label>ปี <select name="year" defaultValue={d.year??""} className="input"><option value="">ทุกปี</option>{d.years.map(y=><option key={y} value={y}>{y}</option>)}</select></label>
     <label>ค้นหา <input name="q" defaultValue={d.q??""} className="input" placeholder="HN, ชื่อ, LN, LN Halos" maxLength={80}/></label>
@@ -37,7 +37,7 @@ export default async function QualityControlPage({searchParams}:{searchParams:Pr
    </form>
    {canRegister&&<EqaRegisterForm units={units}/>}
    </div>
-   <div className="table-wrap"><table className="table data-table">
+   <div className="table-wrap" role="region" aria-label="ตารางทะเบียน EQA" tabIndex={0}><table className="table data-table">
     <caption className="sr-only">ทะเบียน EQA</caption>
     <thead><tr><th scope="col">ปี / ผู้จัด</th><th scope="col">ตัวอย่าง</th><th scope="col">LN / LN Halos</th><th scope="col">Run</th><th scope="col">สถานะการตรวจ</th><th scope="col">รายงาน</th></tr></thead>
     <tbody>{d.rows.length===0?<tr><td colSpan={6} className="muted">ยังไม่มีตัวอย่าง EQA ตามเงื่อนไขนี้</td></tr>:d.rows.map(r=><tr key={r.caseId}>
@@ -64,7 +64,7 @@ export default async function QualityControlPage({searchParams}:{searchParams:Pr
    <div className="tabs" role="group" aria-label="ชนิดตัวควบคุม">
     {[["","ทั้งหมด"],["PC","Positive Control"],["NC","Negative Control"]].map(([v,l])=><Link key={v} className="tab" aria-current={(d.control??"")===v?"page":undefined} href={href({control:v,page:""})}>{l}</Link>)}
    </div>
-   <div className="table-wrap"><table className="table data-table">
+   <div className="table-wrap" role="region" aria-label="ตารางค่า PC/NC ที่บันทึกใน Workbook" tabIndex={0}><table className="table data-table">
     <caption className="sr-only">ค่า PC/NC ที่บันทึกใน Workbook</caption>
     <thead><tr><th scope="col">Run</th><th scope="col">วันที่สร้าง Run</th><th scope="col">ชนิด</th><th scope="col">Slot</th><th scope="col">Sample ID</th><th scope="col">Library QC (ng/µL)</th><th scope="col">Extraction QC</th><th scope="col">Workbook</th><th scope="col">ตรวจทาน</th></tr></thead>
     <tbody>{d.rows.length===0?<tr><td colSpan={9} className="muted">ยังไม่มีค่า PC/NC ที่บันทึกไว้</td></tr>:d.rows.map(r=><tr key={r.runLabel+r.slot}>

@@ -504,7 +504,7 @@ label.check-label,:is(.stack,fieldset,.form-grid) > label.check-label,fieldset l
 /* Single-field search rows (registry) have helper text under the input: start-align and offset the buttons by the label.
    Multi-field filters (P5 queue) keep bottom alignment so wrapped buttons do not get extra space. */
 .search-form:not(:has(> .field ~ .field)) {align-items:flex-start;}
-.search-form:not(:has(> .field ~ .field)) > .button {margin-top:calc(14px * 1.65 + var(--space-2));}
+.search-form:not(:has(> .field ~ .field)) > .button {margin-top:calc(27px + var(--ui-field-gap,8px));}   /* = the field label block (min-height 27px + gap), so the button sits on the input's row */
 .retry-button {margin:var(--space-3) 0 var(--space-6);}
 /* Excel workbook editor. */
 .workbook-sheets {display:grid;margin:var(--space-4) 0 var(--space-6);border-top:1px solid var(--color-line);}

@@ -26,7 +26,7 @@ export default async function Overview(){const user=await currentUser();if(!user
  const stages:WorkloadStage[]=[];
  if(his!==undefined)stages.push({key:"his",href:"/inbound",label:"รับตัวอย่างจาก HIS",n:his?.review.page.total??null,parts:his?[{label:"รอไฟล์ .ok จาก HIS",n:his.waiting.total}]:[],go:"ไปรับตัวอย่าง"});
  if(lab!==undefined)stages.push(
-  {key:"ready",href:"/lab",label:"พร้อมเข้าตรวจ",n:lab?.counts.READY??null,parts:lab?[{label:"ติด Gate",n:lab.counts.GATE_BLOCKED},{label:"รอรับเจาะซ้ำ (รอบที่ 2+)",n:lab.counts.REDRAW_EXPECTED}]:[],go:"ไปงาน Lab"},
+  {key:"ready",href:"/lab",label:"พร้อมเข้าตรวจ",n:lab?.counts.READY??null,parts:lab?[{label:"ยังเข้าตรวจไม่ได้",n:lab.counts.GATE_BLOCKED},{label:"รอรับเจาะซ้ำ (รอบที่ 2+)",n:lab.counts.REDRAW_EXPECTED}]:[],go:"ไปงาน Lab"},
   {key:"batch",href:"/lab/batches",label:"อยู่ใน Batch / กำลังทำ",n:lab?.counts.IN_BATCH??null,parts:lab?[{label:"ต้องตัดสินใจ (QC ไม่ผ่าน / หยุด)",n:lab.counts.DECISION}]:[],go:"ไป Batch / Task List",hot:!!lab?.counts.DECISION});
  if(board!==undefined)stages.push({key:"results",href:"/results",label:"ผลตรวจ: ต้องจัดการ",n:board?.counts.ACTION??null,parts:board?[{label:"รอส่ง HIS",n:board.counts.READY},{label:"ส่งแล้ว",n:board.counts.SENT}]:[],go:"ไปผลตรวจ NIPT"});
  const alerts=lab?.counts.LN_HALOS_MISSING?[{text:`ไม่มี LN Halos ${lab.counts.LN_HALOS_MISSING} รายการ`,href:"/lab"}]:[];

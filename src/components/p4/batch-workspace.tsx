@@ -13,9 +13,12 @@ import {LabelDialog} from "./label-dialog";
 import {LabIcon} from "../shared/lab-icons";
 import {gaBadge,type Ga} from "./ga-badge";
 import {batchStatusText} from "./batch-status";
+import {BatchStepper} from "./batch-stepper";
+import {RepeatBadge} from "./repeat-badge";
+import {benchSteps,taskListDone,type BenchFacts,type StepKey,type StepStatus} from "./bench-progress";
 
 type Sheet={id:string;sheet_number:number;state:string;planned_work_date:string|null;planned_operator:string|null;planned_extraction_lot:string|null;planned_extraction_expiry:string|null;planned_library_lot:string|null;planned_library_expiry:string|null;placement_revision:number;plan_checked_at:string|null;execution_started_at:string|null;execution_ended_at:string|null;verified_at:string|null};
-type Slot={slot:number;sheet:number;plate:string;barcode:number;control:string|null;controlLabel:string|null;controlCode:string|null;assignment:null|{attemptId:string;roundId:string;caseId:string;roundNumber:number;hisLn:string;hn:string|null;lnHalos:string|null;labelCode:string|null;printedSampleId:string|null;attemptState:string;repeat:boolean;urgent:boolean;exceptional?:boolean;ga:Ga;labelPrints:number}};
+type Slot={slot:number;sheet:number;plate:string;barcode:number;control:string|null;controlLabel:string|null;controlCode:string|null;assignment:null|{attemptId:string;roundId:string;caseId:string;roundNumber:number;hisLn:string;hn:string|null;lnHalos:string|null;labelCode:string|null;printedSampleId:string|null;attemptState:string;repeat:boolean;repeatBadge?:string|null;urgent:boolean;exceptional?:boolean;ga:Ga;labelPrints:number}};
 type Doc={id:string;form:string;kind:string;revision:number;doc_code:string;status:string;status_reason:string|null;issued_at:string;issued_by:string;sheet_number:number|null;working_copies:number;unrecalled:number};
 type Obs={id:string;sheetId:string|null;slot:number|null;fieldId:string;item:string;label:string;cls:string;valueText:string;source:string;eventTime:string|null;eventPrecision:string;recordedAt:string;recorder:string;recordedBy:string;reviewer:string|null;status:string;candidates:{code:string;approved:boolean;outcome:string}[]|null};
 type Field={id:string;item:string;form:string;scope:string;kind:string;cls:string;label:string;source:string;sheets:number[]};
@@ -73,7 +76,17 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
  });
  const stateText=(state:string)=>(w.operational?OPERATIONAL_STATE[state]:undefined)??STEP_TEXT[state]??state;
  const [pdfView,setPdfView]=useState<string|null>(null);
- const reload=async()=>setW(await labApi<Workspace>(`/api/p4/batches/${w.batch.id}`));
+ // Step 2-4 status comes from the bench's own saved data (same definition as the bench page); null = still loading, "error" = unreadable (shown as unknown, never as done).
+ const [bench,setBench]=useState<BenchFacts|null|"error">(null);
+ const loadBench=useCallback(async()=>{try{setBench(await labApi<BenchFacts>(`/api/lab-bench/batches/${w.batch.id}`));}catch{setBench("error");}},[w.batch.id]);
+ useEffect(()=>{
+  if(!w.operational)return;
+  void Promise.resolve().then(loadBench);
+  const again=()=>{if(document.visibilityState==="visible")void loadBench();};
+  document.addEventListener("visibilitychange",again);window.addEventListener("focus",again);
+  return()=>{document.removeEventListener("visibilitychange",again);window.removeEventListener("focus",again);};
+ },[w.operational,loadBench]);
+ const reload=async()=>{setW(await labApi<Workspace>(`/api/p4/batches/${w.batch.id}`));void loadBench();};
  async function act(action:string,data:Record<string,unknown>={},ok="บันทึกแล้ว"){setBusy(true);setMsg(null);try{const res=await labApi<{warnings?:unknown}>(`/api/p4/batches/${w.batch.id}`,{action,expectedVersion:w.batch.version,...data});await reload();
    const warnings=Array.isArray(res?.warnings)?res.warnings.filter((x):x is string=>typeof x==="string"):[];setMsg({ok:true,text:ok,warnings});return true;}
   catch(e){setMsg({ok:false,text:failureText(e),details:e instanceof LabFailure?e.details:undefined});if(e instanceof LabFailure&&e.code==="VERSION_CONFLICT")await reload();return false;}finally{setBusy(false);}}
@@ -101,12 +114,19 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
  const copiesForPreWork=w.copies.filter(c=>preWork&&c.document_id===preWork.id&&c.kind==="WORKING_COPY"&&!c.recalled_at);
  const transfer=(slot:number)=>comp.slots.find(s=>s.slot===slot)?.status??"NOT_APPLICABLE";
  const finalizedAny=w.sheets.some(s=>s.placement_revision>0&&s.state!=="Cancelled"&&!EDITABLE.includes(s.state));
+ const taskStats=w.sheets.map(x=>sheetStats(w.slots,x.sheet_number));
+ const placedAll=taskStats.reduce((n,x)=>n+x.placed,0),capacityAll=taskStats.reduce((n,x)=>n+x.capacity,0);
+ const benchFacts=bench&&bench!=="error"?bench:null,steps=benchFacts?benchSteps(benchFacts):null;
+ const stepStatus:Record<StepKey,StepStatus>={
+  TASK:{done:taskListDone(w.sheets,w.batch.state==="Cancelled"),known:true,detail:`ตัวอย่าง ${placedAll}/${capacityAll} · ว่าง ${capacityAll-placedAll}`},
+  QC:{done:!!steps?.QC,known:!!steps,pending:bench===null},POOL:{done:!!steps?.POOL,known:!!steps,pending:bench===null},SEQ:{done:!!steps?.SEQ,known:!!steps,pending:bench===null}};
  const qcOpen=w.sheets.some(s=>["ExecutionRecorded","ExecutionVerified","CompletedIssued"].includes(s.state));
  return <>
   <header className="page-header"><div><p className="muted"><Link href="/lab/batches">Batch / Task List</Link></p><h1>{w.batch.runLabel}</h1><p className="muted">สถานะ Batch: <strong>{batchStatusText({...w.batch,...w.progress})}</strong> · ฉบับ {w.batch.version}{!w.operational&&<> · Template {w.batch.templateVersion} · Formula {w.batch.formulaVersion}</>}</p></div>
-   {w.batch.state!=="Cancelled"&&(w.allowed.draft||w.allowed.unlock)&&<button className="button danger-outline icon-only" type="button" aria-label={`ลบ / ยกเลิก ${w.batch.runLabel}`} title="ลบ / ยกเลิก Batch" onClick={()=>setDialog({type:"cancel"})}><LabIcon name="trash" size={22}/></button>}</header>
+   <div className="row">{w.operational&&<Link className="button secondary" href={`/lab/batches/${w.batch.id}/workbook`}><LabIcon name="file"/> ใบงาน Excel / PDF</Link>}{w.batch.state!=="Cancelled"&&(w.allowed.draft||w.allowed.unlock)&&<button className="button danger-outline icon-only" type="button" aria-label={`ลบ / ยกเลิก ${w.batch.runLabel}`} title="ลบ / ยกเลิก Batch" onClick={()=>setDialog({type:"cancel"})}><LabIcon name="trash" size={22}/></button>}</div></header>
   {w.batch.cancelReason&&<p className="notice" role="note">Batch ถูกยกเลิก: {w.batch.cancelReason}</p>}
-  <nav className="action-bar" aria-label="งานประจำ Run">{w.operational&&<><Link className="button" href={`/lab/batches/${w.batch.id}/bench`}>QC Measurements</Link><Link className="button secondary" href={`/lab/batches/${w.batch.id}/pooling`}>Pooling / QC2 / F4</Link><Link className="button secondary" href={`/lab/batches/${w.batch.id}/sequencing`}>DNB / Sequencing / F5</Link></>}<Link className="button secondary" href={`/lab/batches/${w.batch.id}/workbook`}>ใบงาน Excel / PDF</Link></nav>
+  {w.operational?<BatchStepper batchId={w.batch.id} current="TASK" status={stepStatus}/>
+   :<nav className="action-bar" aria-label="งานประจำ Run"><Link className="button secondary" href={`/lab/batches/${w.batch.id}/workbook`}>ใบงาน Excel / PDF</Link></nav>}
   {!w.operational&&w.policy==="PROCEED_SYNTHETIC_LABELLED"&&<p className="notice warning-notice" role="note">ข้อมูลจำลอง: Gate ที่ยังรอการตัดสิน (OD-01/08/16) ผ่านด้วยนโยบายจำลองและถูกระบุบนใบงาน — ไม่ใช่การรับรองทางคลินิก</p>}
   {msg&&<div className={`notice${msg.ok?" success":""}`} role={msg.ok?"status":"alert"}>{msg.text}{Array.isArray(msg.details)&&<ul>{(msg.details as {slot:number;failed:string[];pending:string[]}[]).map((d,i)=><li key={i}>ตน. {d.slot??"-"}: {[...(d.failed??[]),...(d.pending??[])].map(gateText).join(", ")}</li>)}</ul>}
    {msg.details&&!Array.isArray(msg.details)&&typeof msg.details==="object"?<pre className="details">{JSON.stringify(msg.details,null,1)}</pre>:null}</div>}
@@ -133,8 +153,8 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
     <thead><tr><th scope="col">ตน. / Plate</th><th scope="col">Barcode</th><th scope="col">Sample ID / Control</th><th scope="col">{started?"✓ ตรวจก่อน/หลังดูด":"จัดการ"}</th></tr></thead>
     <tbody>{slots.slice(strip*8,strip*8+8).map(s=><tr key={s.slot} {...dnd(s)} className={`${s.control==="positive"?"control-row row-pc":s.control==="negative"?"control-row row-nc":s.control==="blank"?"control-row row-blank":s.assignment?"":"empty-row"}${draggable&&s.assignment&&!s.control?" can-drag":""}${dragSlot===s.slot?" dragging":""}${dragSlot!==null&&overSlot===s.slot&&dropOk(s)?" drop-over":""}`}>
      <th scope="row">{s.slot}<div className="small muted">{s.plate}</div></th><td className="mono">{s.barcode}</td>
-     <td>{s.control?<><span className="badge">{s.controlLabel}</span> <span className="mono">{s.controlCode??"(ต้องระบุวันที่ปฏิบัติงาน)"}</span></>:s.assignment?<><span className={`mono strong${s.assignment.exceptional?" task-exceptional":""}`}>{s.assignment.printedSampleId}</span><div className="small">LN {s.assignment.hisLn} · HN {s.assignment.hn??"—"} · รอบที่ {s.assignment.roundNumber}{s.assignment.repeat?" · ตรวจซ้ำ":""}{s.assignment.attemptState==="Stopped"?" · หยุด":""} {gaBadge(s.assignment.ga)}{s.assignment.labelPrints===0&&<span className="badge warning" title="แจ้งเตือนเท่านั้น — จัดตำแหน่งต่อได้ พิมพ์ฉลากจากคิวงาน Lab ก่อนเริ่มปฏิบัติงาน">ยังไม่พิมพ์ฉลาก</span>}</div></>:<span className="muted">ว่าง</span>}</td>
-     <td>{editable&&s.assignment&&w.allowed.draft?<div className="row-actions"><button className="button small secondary" type="button" onClick={()=>setDialog({type:"move",slot:s.slot})}>ย้าย/สลับ</button><button className="button small secondary" type="button" onClick={()=>setDialog({type:"remove",slot:s.slot})}>ถอดออก</button></div>
+     <td>{s.control?<><span className="badge">{s.controlLabel}</span> <span className="mono">{s.controlCode??"(ต้องระบุวันที่ปฏิบัติงาน)"}</span></>:s.assignment?<><span className={`mono strong${s.assignment.exceptional?" task-exceptional":""}`}>{s.assignment.printedSampleId}</span><RepeatBadge kind={s.assignment.repeatBadge}/><div className="small">LN {s.assignment.hisLn} · HN {s.assignment.hn??"—"} · รอบที่ {s.assignment.roundNumber}{s.assignment.repeat?" · ตรวจซ้ำ":""}{s.assignment.attemptState==="Stopped"?" · หยุด":""} {gaBadge(s.assignment.ga)}{s.assignment.labelPrints===0&&<span className="badge warning" title="แจ้งเตือนเท่านั้น — จัดตำแหน่งต่อได้ พิมพ์ฉลากจากคิวงาน Lab ก่อนเริ่มปฏิบัติงาน">ยังไม่พิมพ์ฉลาก</span>}</div></>:<span className="muted">ว่าง</span>}</td>
+     <td>{editable&&s.assignment&&w.allowed.draft?<div className="row-actions"><button className="icon-btn" type="button" title="ย้าย/สลับ" aria-label="ย้าย/สลับ" onClick={()=>setDialog({type:"move",slot:s.slot})}><LabIcon name="swap" size={20}/></button><button className="icon-btn danger" type="button" title="ถอดออก" aria-label="ถอดออก" onClick={()=>setDialog({type:"remove",slot:s.slot})}><LabIcon name="minusCircle" size={20}/></button></div>
       :started&&!w.operational&&(s.control||s.assignment)?<TransferCell status={transfer(s.slot)} canRecord={sheet.state==="InExecution"||sheet.state==="ExecutionRecorded"} canDispose={w.allowed.dispositionPropose} onRecord={()=>setDialog({type:"transfer",slot:s.slot})} onDispose={()=>setDialog({type:"dispose",slot:s.slot})}/> :"—"}</td></tr>)}</tbody></table>)}</div>
    {(editable||w.allowed.metadata)&&sheet.state!=="Cancelled"&&<PlanForm key={`${sheet.id}:${w.batch.version}`} sheet={sheet} disabled={busy||!(w.allowed.draft||w.allowed.metadata)} onDirty={setPlanDirty} onSave={async d=>{const ok=await act("updatePlan",{sheetNumber:sheetNo,...d},"บันทึกข้อมูลแผนแล้ว");if(ok)setPlanDirty(false);return ok;}}/>}
    {!editable&&!w.operational&&<dl className="compact-facts plan-dl"><div><dt>ข้อมูลที่วางแผน</dt><dd>วันที่ทำ Library Preparation {displayBe(sheet.planned_work_date)} · ผู้ปฏิบัติ {sheet.planned_operator??"—"} · Extraction Lot {sheet.planned_extraction_lot??"—"} / Exp. {displayBe(sheet.planned_extraction_expiry)} · Library Lot {sheet.planned_library_lot??"—"} / Exp. {displayBe(sheet.planned_library_expiry)}</dd></div><div><dt>Placement revision</dt><dd>{sheet.placement_revision} {w.snapshots.filter(x=>x.sheet_number===sheetNo).map(x=><span key={x.id} className="mono small"> r{x.revision}:{x.content_hash.slice(0,12)}</span>)}</dd></div>

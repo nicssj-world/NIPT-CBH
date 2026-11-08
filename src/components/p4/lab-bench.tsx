@@ -7,6 +7,9 @@ import {csrf} from '../p2/shared';
 import {labApi,failureText} from './lab-api';
 import type {benchWorkspace,benchPooling} from '../../../packages/lab/bench';
 import {LabIcon,type LabIconName} from '../shared/lab-icons';
+import {BatchStepper} from './batch-stepper';
+import {RepeatBadge} from './repeat-badge';
+import {QC_STANDARDS,benchSteps,qcMissingCount,type StepKey,type StepStatus} from './bench-progress';
 import {SampleActionCenter,type ActionCenterSubject} from './action-center';
 import './lab-bench.css';
 type Data=Awaited<ReturnType<typeof benchWorkspace>>;
@@ -16,7 +19,6 @@ type Transfer={slot:number;pooled:boolean;actualVolume?:number;reason?:string};
 type SeqFiles={id:string;revision:number;files:{id:string;kind:string;filename:string;sha256:string}[]};
 type Stage='QC'|'POOL'|'SEQ';
 const STAGE_PATH:Record<Stage,string>={QC:'bench',POOL:'pooling',SEQ:'sequencing'};
-const STEPS:{key:Stage;label:string;icon:LabIconName}[]=[{key:'QC',label:'QC Measurements',icon:'flask'},{key:'POOL',label:'Pooling',icon:'layers'},{key:'SEQ',label:'Sequencing',icon:'dna'}];
 /** OWNER-LAB-049: Seq Task-G50 groups exactly as the Owner Excel Master (rows 4, 15–23, 34–37, 39–42). The on-bench
  *  "Confirm (√)" cells (B26, F28–F31) stay blank on the printed worksheet for handwriting and are not entered here. */
 const SEQ_GROUPS:{title:string;icon:LabIconName;fields:{key:string;label:string;hint?:string;type:'text'|'number'|'signed'}[]}[]=[
@@ -25,7 +27,6 @@ const SEQ_GROUPS:{title:string;icon:LabIconName;fields:{key:string;label:string;
  {title:'Sequencing',icon:'cpu',fields:[{key:'seq.dnbId',label:'DNB ID',hint:'DNBYYYYMMDD',type:'text'},{key:'seq.driveMemoryTb',label:'Hard Drive Memory (TB)',hint:'ควรมากกว่า 500 GB',type:'number'},{key:'seq.negativePressureKpa',label:'Negative Pressure (kPa)',type:'signed'}]},
  {title:'First Cycle',icon:'activity',fields:[{key:'seq.loadedDnb',label:'Loaded DNB',type:'number'},{key:'seq.q30',label:'Q30%',type:'number'},{key:'seq.bic',label:'BIC',type:'number'},{key:'seq.fit',label:'Fit',type:'number'}]},
 ];
-const QC_STANDARDS=[['standard1','Standard 1'],['standard2','Standard 2'],['standard2Concentration','Standard 2 Conc.']] as const;
 /** OWNER-LAB-042 reference criteria: patient, PC and NC ≥ 2.0 ng/µL; Blank ≤ 0.6 ng/µL. Display only — never an action. */
 function qcCriterion(kind:string,value:unknown){
  if(typeof value!=='number'||kind==='EMPTY')return null;
@@ -74,7 +75,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
   // eslint-disable-next-line react-hooks/exhaustive-deps
  },[tab,saved,data?.finalized,pool]);
  const qcRows=data?.slots.filter(s=>s.kind!=='EMPTY')??[];
- const qcMissing=qcRows.filter(s=>num(values[`slot.${s.slot}.libraryQc`])===null).length+[1,2,3].flatMap(n=>QC_STANDARDS.map(([k])=>`qc.${n}.${k}`)).filter(k=>num(values[k])===null).length;
+ const qcMissing=qcMissingCount(qcRows,values);
  /** OWNER-LAB-044: save QC → validate → calculate → open Pooling, only when every step succeeds. */
  const saveAndCalculate=()=>{
   setError('');
@@ -111,12 +112,14 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
  const sampleCell=(row:Slot)=>{const subject=subjectOf(row);
   return <>{subject?<button type="button" className={`bench-sample-button mono${row.exceptional?' bench-exceptional':''}`} onClick={()=>setCenter(subject)} aria-haspopup="dialog">{row.sampleId}</button>
    :<strong className="mono">{row.sampleId||'ว่าง'}</strong>}
+   {row.kind==='PATIENT'&&<RepeatBadge kind={row.repeatBadge}/>}
    {row.kind==='PATIENT'?<small>LN {row.hisLn} · HN {row.hn??'—'} · รอบที่ {row.roundNumber}</small>:row.kind!=='EMPTY'&&<small>{kindLabel(row.kind)}</small>}
    {row.outcomeStatus&&<small className="bench-status-text">{row.outcomeStatus}</small>}</>;};
- const steps=useMemo(()=>{
-  const qcDone=!!data?.revision&&!dirty&&qcMissing===0,poolDone=!!data?.actualPooling?.current,seqDone=poolDone&&!!data?.exports.some(e=>e.kind==='HALOS_TASK_XLSX');
-  return {QC:qcDone,POOL:poolDone,SEQ:seqDone} as Record<Stage,boolean>;
- },[data,dirty,qcMissing]);
+ // One shared definition (bench-progress.ts) so the Task List page and this page can never disagree about a step.
+ const stepStatus=useMemo<Record<StepKey,StepStatus>>(()=>{
+  const known=!!data,b=data?benchSteps(data,{values,dirty}):{QC:false,POOL:false,SEQ:false};
+  return {TASK:{done:!!data?.finalized,known},QC:{done:b.QC,known},POOL:{done:b.POOL,known},SEQ:{done:b.SEQ,known}};
+ },[data,values,dirty]);
  const status=busy?'กำลังบันทึก…':dirty||transfersDirty?'มีค่าที่ยังไม่บันทึก':data?.sourceStale?'ข้อมูลต้นทางเปลี่ยน — บันทึกเพื่อผูกข้อมูลล่าสุด':data?.revision?`บันทึกแล้ว · ฉบับ ${data.revision}`:'ยังไม่บันทึก';
  const pooledCount=currentTransfers.filter(t=>t.pooled).length;
  const poolable=(row:{slot:number;sampleId:string})=>{const s=data?.slots.find(x=>x.slot===row.slot),k=s?.kind;return !!row.sampleId&&(k==='PATIENT'||k==='PC'||k==='NC')&&!['QcFailed','Superseded','Stopped','BatchCancelled'].includes(s?.attemptState??'');};
@@ -126,12 +129,8 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
   <nav className="bench-breadcrumb" aria-label="เส้นทางใบงาน"><Link href="/lab/batches">Batch / Task List</Link><span aria-hidden="true">/</span><Link href={`/lab/batches/${batchId}`}>{data?.runLabel??'Run'}</Link></nav>
   <header className="bench-header"><h1>{data?.runLabel??'ใบงาน Lab'}</h1>
    <Link className="button secondary bench-workbook-link" href={`/lab/batches/${batchId}/workbook`}><LabIcon name="file"/>ใบงาน Excel / PDF</Link></header>
-  {/* OWNER-LAB-041: icon-led three-step navigation with active and completed states (vertical on mobile). */}
-  <ol className="bench-steps" aria-label="ขั้นตอนใบงาน">{STEPS.map((s,i)=><li key={s.key}>
-   <button type="button" className={`bench-step${tab===s.key?' active':''}${steps[s.key]?' done':''}`} aria-current={tab===s.key?'step':undefined} onClick={()=>setTab(s.key)}>
-    <span className="bench-step-icon">{steps[s.key]&&tab!==s.key?<LabIcon name="check"/>:<LabIcon name={s.icon}/>}</span>
-    <span className="bench-step-text"><small>ขั้นที่ {i+1}</small><strong>{s.label}</strong><small>{steps[s.key]?'บันทึกครบแล้ว':tab===s.key?'กำลังทำ':'ยังไม่เสร็จ'}</small></span>
-   </button></li>)}</ol>
+  {/* OWNER-LAB-041, extended 2026-11-09 to four steps (Task List first). The three bench steps switch in place; Task List is a link back to the Run page. */}
+  <BatchStepper batchId={batchId} current={tab} status={stepStatus} onSelect={setTab}/>
   {error&&<p role="alert" className="notice danger">{error}</p>}{notice&&!error&&<p role="status" className="notice success">{notice}</p>}
   {!data&&!error&&<p role="status">กำลังโหลดใบงาน…</p>}
   {data&&tab==='QC'&&<section aria-labelledby="qc-title" className="bench-section">

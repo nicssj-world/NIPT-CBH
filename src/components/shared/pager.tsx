@@ -22,7 +22,7 @@ export function Pager(p:PagerProps){
  const nav=(label:string,target:number,disabled:boolean,aria:string):ReactNode=>p.basePath&&!disabled
   ?<Link className="button secondary small" href={href(target)} aria-label={aria}>{label}</Link>
   :<button type="button" className="button secondary small" disabled={disabled||p.busy} onClick={()=>go(target)} aria-label={aria}>{label}</button>;
- return <nav className="pager" aria-label={`การแบ่งหน้า${p.label}`}>
+ return <nav className="pager" data-empty={p.total===0||undefined} aria-label={`การแบ่งหน้า${p.label}`}>
   <p className="pager-summary" role="status" aria-live="polite">{p.total===0?"ไม่มีรายการ":`แสดง ${from}–${to} จาก ${p.total} รายการ · หน้า ${p.page} จาก ${p.totalPages}`}</p>
   <div className="pager-controls">
    <label className="pager-size" htmlFor={sizeId}>แสดงต่อหน้า<select id={sizeId} aria-label="แสดงต่อหน้า" value={p.pageSize} disabled={p.busy} onChange={e=>size(Number(e.target.value))}>{sizes.map(n=><option key={n} value={n}>{n}</option>)}</select></label>

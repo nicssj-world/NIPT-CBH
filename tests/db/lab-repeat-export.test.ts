@@ -27,6 +27,8 @@ it('Task1 authorized RE_LIBRARY remains in both NIFTY and HALOS with internal li
    await tx(f.db,async db=>finalizeSheet(db,u.lab,{batchId:id,expectedVersion:await version(),sheetNumber:n}));
   }
   const initial=await tx(f.db,db=>benchWorkspace(db,u.lab,id,deps));expect(initial.finalized).toBe(true);
+  expect(initial.slots.filter(s=>s.kind==='PATIENT').map(s=>s.repeatBadge)).toContain('RE_LIBRARY');   // the repeat badge reaches the bench page
+  expect(initial.slots.filter(s=>s.kind==='PATIENT'&&s.repeatBadge)).toHaveLength(1);
   const values={...initial.values};for(const row of initial.slots)if(['PC','NC','PATIENT'].includes(row.kind))values[`slot.${row.slot}.libraryQc`]=20;
   const save=async(revision:number)=>tx(f.db,async db=>saveWorkbookDraft(db,u.lab,{batchId:id,expectedVersion:await version(),expectedRevision:revision,values},deps));
   await save(0);await expect(tx(f.db,db=>benchPooling(db,u.lab,id,deps))).rejects.toThrow('QC_NINE_STANDARDS_REQUIRED');

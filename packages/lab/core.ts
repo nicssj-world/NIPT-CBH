@@ -19,6 +19,9 @@ export const reasonText=z.string().trim().min(8).max(500).refine(v=>!/\d{13}/.te
 export const REDRAW_REASONS=['QC1_FAILED','QC_SAMPLE_FAILED','FETAL_FRACTION_LOW','SPECIMEN_PROBLEM','OTHER'] as const;
 export const REPEAT_REASONS=['QC1_LOW','LIBRARY_FAILURE','BATCH_CANCELLED','STOPPED_BY_LAB','OTHER'] as const;
 export const DISPOSITION_REASONS=['INSUFFICIENT_SAMPLE','TUBE_BROKEN','INSTRUMENT_FAILURE','CONSENT_WITHDRAWN','REDRAW_ORDERED','OTHER'] as const;
+/** Which re-test marker a sample carries (shown as a badge on every page of its Batch): Re-Sampling wins (the round itself is replaced), then the level of the repeat order that superseded it, then its own level when it is the repeat. */
+export type RepeatBadge='RE_LIBRARY'|'RE_EXTRACTION'|'RE_SAMPLING';
+export const repeatBadgeOf=(f:{redraw_stopped:boolean;parent_repeat_level:RepeatLevel|null;repeat_level:RepeatLevel|null}):RepeatBadge|null=>f.redraw_stopped?'RE_SAMPLING':f.parent_repeat_level??f.repeat_level??null;
 export const REPEAT_LEVELS=['RE_LIBRARY','RE_EXTRACTION'] as const satisfies readonly RepeatLevel[];
 
 export function need(user:Staff,action:string,operation:Operation='write',resource:Parameters<typeof authorize>[2]={}){if(!authorize(user,action,resource,operation))throw new LabError('FORBIDDEN',403);}
@@ -50,7 +53,7 @@ export const BATCH_TEMPLATE='SYNTHETIC-BATCH48-PC1-NC25-BLANK40-v1';
 export type AttemptRow={overall_ordinal:number;no_call_selected:boolean;ln_halos_resampling:boolean;attempt_id:string;case_id:string;round_id:string;attempt_number:number;attempt_state:string;repeat_order_id:string|null;printed_sample_id:string|null;resume_decision_required:boolean;qc_failed_stage:string|null;attempt_created_at:Date;
  lab_operational_route?:boolean;eqa?:boolean;round_number:number;round_state:string;received_source:string|null;received_at:Date|null;analysis_started:boolean;round_collection_date:string|null;receipt_check:Record<string,unknown>|null;specimen_accepted?:boolean;
  current_round_id:string;registration_origin:'ANC'|'LAB_DIRECT'|'HISTORICAL';unit_id:string|null;hn:string|null;ln:string;ln_verification:string;ln_halos:string|null;migration_original_ln_halos?:string|null;migration_rerun?:boolean;
- repeat_state:string|null;repeat_level:RepeatLevel|null;parent_attempt_id:string|null;open_issues:number;revoked:boolean;historical_paper?:boolean;consent_ev:string|null;request_ev:string|null;clinical_state:string|null;collection_dates:string[];
+ repeat_state:string|null;repeat_level:RepeatLevel|null;parent_attempt_id:string|null;/** level of the (non-cancelled) repeat order that superseded this attempt */parent_repeat_level:RepeatLevel|null;/** this attempt was stopped by a redraw (Re-Sampling) order */redraw_stopped:boolean;open_issues:number;revoked:boolean;historical_paper?:boolean;consent_ev:string|null;request_ev:string|null;clinical_state:string|null;collection_dates:string[];
  pregnancy:'Singleton'|'Twins'|null;pregnancy_defaulted?:boolean;ga_edd:string|null;ga_request_collection:string|null;other_relibrary:number;previously_finalized:boolean;hold:boolean;hold_stage:string|null;urgent:boolean;urgent_reason:string|null;
  slot_batch_id:string|null;slot_number:number|null;run_label:string|null;sheet_state:string|null;label_prints:number;last_label_print:Date|null};
 
@@ -60,6 +63,8 @@ export async function attemptFacts(db:Queryable,where:string,params:unknown[]):P
   r.round_number,r.state round_state,r.received_source,r.received_at,r.analysis_started,r.collection_date::text round_collection_date,r.receipt_check,
   c.current_round_id,c.registration_origin,(SELECT i.hn FROM p2_case_identity i WHERE i.case_id=c.id) hn,(labreg.round_id IS NOT NULL AND labreg.paper_request AND labreg.paper_consent) lab_operational_route,EXISTS(SELECT 1 FROM eqa_case eq WHERE eq.round_id=a.round_id) eqa,EXISTS(SELECT 1 FROM migration_record mh WHERE mh.case_id=a.case_id AND mh.round_id=a.round_id AND mh.state='IMPORTED') historical_paper,(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=c.id ORDER BY s.unit_id LIMIT 1) unit_id,l.ln,l.verification ln_verification,n.ln_halos,(n.original_round_id IS NOT NULL) ln_halos_resampling,
   o.state repeat_state,o.level repeat_level,o.parent_attempt_id,
+  (SELECT w.level FROM repeat_work_order w WHERE w.parent_attempt_id=a.id AND w.state<>'Cancelled' ORDER BY w.id DESC LIMIT 1) parent_repeat_level,
+  EXISTS(SELECT 1 FROM attempt_event e WHERE e.attempt_id=a.id AND e.to_state='Stopped' AND e.details->>'redrawRequestId' IS NOT NULL) redraw_stopped,
   (SELECT count(*) FROM his_intake_issue i WHERE i.case_id=a.case_id AND i.state IN ('Open','Proposed'))::int open_issues,
   EXISTS(SELECT 1 FROM p2_revocation v WHERE v.case_id=a.case_id) revoked,
   CASE p2_consent_latest_decision(a.round_id) WHEN 'Granted' THEN 'GRANTED' WHEN 'Declined' THEN 'DECLINED'
