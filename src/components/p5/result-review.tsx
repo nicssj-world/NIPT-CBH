@@ -22,7 +22,7 @@ type Detail={historicalReported?:boolean;migration?:{migrated:boolean;current:bo
  events:{from_state:string|null;to_state:string;reason:string|null;created_at:string;actor:string|null}[];links:{event:string;outcome:string|null;reason:string;cross_check:Cross;created_at:string;actor:string}[];
  gates:{gate:string;purpose:string;outcome:string;created_at:string;actor:string|null}[];reviews:{abnormal_acknowledged:boolean;note:string|null;created_at:string;reviewer:string}[];
  autoMatch:{caseId:string;roundId:string;attemptId:string;reason:string;linksDirectly?:boolean}|null;
- can:{propose:boolean;decide:boolean;unlink:boolean;review:boolean;certify:boolean;void:boolean;acceptRelease?:boolean;acceptInternal?:boolean}}&Task3Detail;
+ can:{propose:boolean;decide:boolean;unlink:boolean;review:boolean;certify:boolean;void:boolean}}&Task3Detail;
 const ID_FIELDS:[string,string][]=[["labNumber","เลข Lab (LN ใน PDF)"],["hn","HN"],["patientName","ชื่อ"],["dob","วันเกิด"],["collectionDate","วันที่เก็บตัวอย่าง"],["receivedDate","วันที่รับตัวอย่าง"],["reportedDate","วันที่รายงาน"],["gestationalAgeDays","อายุครรภ์ (วัน)"]];
 const RESULT_FIELDS:[string,string][]=[["result","Result"],["t21","Trisomy 21"],["t18","Trisomy 18"],["t13","Trisomy 13"],["fetalSex","เพศทารก (ถ้าแสดง)"],["xo","XO"],["xxx","XXX"],["xxy","XXY"],["xyy","XYY"],["yChromosome","โครโมโซม Y (ครรภ์แฝด)"],["fetalFraction","Fetal fraction (%)"],["qc","RESULTS QC"]];
 const METHOD_TEXT:Record<string,string>={ANCHORED:"ตรงตำแหน่ง",FALLBACK:"สำรอง — ตรวจมือ",UNREADABLE:"อ่านไม่ได้",NOT_APPLICABLE:"ไม่เกี่ยวข้อง"};

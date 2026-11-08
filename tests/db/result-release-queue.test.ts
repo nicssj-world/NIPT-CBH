@@ -154,3 +154,26 @@ it('a caps-limited read sets truncated; the normal read does not; a real Validat
   expect(a.id).toBeTruthy();
  }finally{vi.unstubAllEnvs();await f.close();}
 },300000);
+
+// FINDING (Task 6b fix round 2): without QC5 a linked ReadyGen version is NOT promoted by recordReview/revalidate. The VALIDATION gate fails
+// RG-06 ANALYSIS_COMPLETION_NOT_RECORDED and RG-07 FINAL_QC_NOT_ACCEPTED; only recordQc5 (called inside reviewExternalForRelease) supplies that evidence.
+it('a linked version without QC5 stays ValidationBlocked (ACTION) after recordReview: RG-06/RG-07 need QC5',async()=>{
+ const {proposeAutoMatch,decideLink,recordReview,validationGateIssues}=await import('../../packages/results/service');
+ const f=await task3Fixture();try{
+  const c=f.cases[0],bytes=syntheticReportPdf({kind:'SINGLETON',labNumber:c.printed,hn:c.hn,dob:'01-Jan-1990',collection:pdfDate('2026-10-20'),gaWeeks:17,gaDays:6,sex:null});
+  const intakeId=await f.run(t=>registerIntake(t,f.store,{source:'UPLOAD',relativePath:null,originalName:'SYNTHETIC-linked-no-review.pdf',actorId:f.admin.id,jobId:null},bytes));
+  await f.run(t=>parseIntake(t,f.store,intakeId,{maxBytes:10000000,acceptZip:true}));
+  await f.run(t=>reviewBenchForResult(t,f.admin,c.attemptId,{revision:1,measurementsReviewed:true,reason:'SYNTHETIC legacy paper-only result evidence review'}));
+  const id=(await f.run(t=>confirmImport(t,f.admin,{intakeIds:[intakeId]})))[0].versionId!;
+  const rv=async()=>(await f.db.query<{state:string;row_version:number}>('SELECT state,row_version FROM result_report_version WHERE id=$1',[id])).rows[0];
+  let v=await rv();
+  if(v.state==='Unlinked'){await f.run(t=>proposeAutoMatch(t,f.admin,{versionId:id,expectedRowVersion:v.row_version}));v=await rv();}
+  if(v.state==='Unlinked'){await f.run(t=>decideLink(t,f.admin,{versionId:id,decision:'APPROVE',reason:'SYNTHETIC approve link for test',expectedRowVersion:v.row_version}));v=await rv();}
+  expect((await board(f,'ACTION')).rows.some(r=>r.versionId===id)).toBe(true);
+  const out=await f.run(t=>recordReview(t,f.admin,{versionId:id,valuesMatchPdf:true,abnormalAcknowledged:false,expectedRowVersion:v.row_version}));
+  expect(out.outcome).toBe('ValidationBlocked');
+  const g=await f.run(t=>validationGateIssues(t,id));
+  expect(g.failed).toEqual(['RG-06:ANALYSIS_COMPLETION_NOT_RECORDED','RG-07:FINAL_QC_NOT_ACCEPTED']);
+  expect((await board(f,'READY')).rows.some(r=>r.versionId===id)).toBe(false);
+ }finally{vi.unstubAllEnvs();await f.close();}
+},180000);
