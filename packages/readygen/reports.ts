@@ -172,7 +172,7 @@ export async function watermark(pdf:Buffer){
  return Buffer.from(await doc.save());
 }
 type SignerPick={reportedBy?:string|null;approvedBy?:string|null};
-async function signerSlots(db:Queryable,user:Staff,store:FileStore,pick:SignerPick,final:boolean){
+export async function signerSlots(db:Queryable,user:Staff,store:FileStore,pick:SignerPick,final:boolean){
  const slot=async(role:'REPORTED'|'APPROVED',id:string|null|undefined):Promise<{slot:SignerSlot;authority:SignerAuthority|null}>=>{
   if(!id){if(final)throw new LabError(role==='REPORTED'?'REPORTED_BY_REQUIRED':'APPROVED_BY_REQUIRED',422);return {slot:{name:'—',license:'—',date:'—',signature:null},authority:null};}
   const a=await signerAuthority(db,user,id,role);

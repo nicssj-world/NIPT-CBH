@@ -31,3 +31,30 @@ export function fitDrawingXml(drawingXml:string,image:ImageSize):string{
  if(/<wp:anchor\b/.test(out)){out=shift(out,'wp:positionH',fit.offsetX);out=shift(out,'wp:positionV',fit.offsetY);}
  return out;
 }
+
+/** Why a drawing cannot be fitted safely, or null when it is a plain, unrotated, single-picture drawing with a usable frame. */
+export function unfittableReason(drawingXml:string):string|null{
+ if(/<(?:wpg|wps|wpc):|<mc:AlternateContent\b/.test(drawingXml))return 'GROUP_OR_SHAPE';
+ if(/<w:t[\s>]/.test(drawingXml))return 'TEXT_IN_DRAWING';
+ if((drawingXml.match(/<pic:pic[\s>]/g)??[]).length!==1)return 'NOT_ONE_PICTURE';
+ if(!/<a:graphicData\b[^>]*\buri="[^"]*\/drawingml\/2006\/picture"[^>]*>\s*<pic:pic[\s>]/.test(drawingXml))return 'NOT_PICTURE_GRAPHIC';
+ if(!/<wp:(?:inline|anchor)\b/.test(drawingXml))return 'NOT_INLINE_OR_ANCHOR';
+ const rot=/<a:xfrm\b[^>]*\brot="(-?\d+)"/.exec(drawingXml);if(rot&&Number(rot[1])!==0)return 'ROTATED';
+ if(/<wp:anchor\b[^>]*\bsimplePos="(?:1|true)"/.test(drawingXml))return 'SIMPLE_POS';
+ if(/<wp:align>/.test(drawingXml))return 'ALIGNED_POSITION';
+ const extent=/<wp:extent\b[^>]*\/>/.exec(drawingXml);if(!extent)return 'NO_EXTENT';
+ const cx=/\bcx="(\d+)"/.exec(extent[0]),cy=/\bcy="(\d+)"/.exec(extent[0]);if(!cx||!cy||!(Number(cx[1])>0)||!(Number(cy[1])>0))return 'FRAME_SIZE_INVALID';
+ if(!/<a:xfrm\b[^>]*>[\s\S]*?<a:ext\b[^>]*\bcx="\d+"/.test(drawingXml))return 'NO_PICTURE_EXTENT';
+ return null;
+}
+export type FitOutcome={xml:string;status:'FITTED'|`SKIPPED:${string}`;frame:Frame|null;fitted:Frame|null};
+/** Never throws: anything that cannot be proven safe leaves the drawing exactly as the master has it, with the reason as evidence. */
+export function fitDrawingSafely(drawingXml:string,image:ImageSize):FitOutcome{
+ const m=/<wp:extent\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(drawingXml),frame=m?{cx:Number(m[1]),cy:Number(m[2])}:null;
+ const skip=(why:string):FitOutcome=>({xml:drawingXml,status:`SKIPPED:${why}`,frame,fitted:frame});
+ try{
+  const why=unfittableReason(drawingXml);if(why)return skip(why);
+  const fit=fitSignature(frame!,image);
+  return {xml:fitDrawingXml(drawingXml,image),status:'FITTED',frame,fitted:{cx:fit.cx,cy:fit.cy}};
+ }catch{return skip('FIT_ERROR');}
+}

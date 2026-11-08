@@ -1,6 +1,6 @@
 import {readArchive,writeArchive,sha256,xmlEscape,xmlDecode} from '../workbook/archive';
 import {TEMPLATES} from './interpretation';
-import {fitDrawingXml} from './signature-fit';
+import {fitDrawingSafely} from './signature-fit';
 
 // Fills the Owner's Word masters (FM-WI-T-BM-17-07 Singleton / FM-WI-T-BM-17-08 Twin) at OOXML level. Layout, fonts, tables,
 // sections, disclaimer and footer are the master's own bytes; only text inside the existing runs and the two signature pictures
@@ -36,7 +36,8 @@ function paragraphs(xml:string){
    const start=xml.lastIndexOf('<pic:blipFill',m.index),close=xml.indexOf('</pic:blipFill>',m.index);
    if(start<0||close<0||xml.lastIndexOf('</pic:blipFill>',m.index)>start)throw new DocxError('DOCX_PICTURE_UNTERMINATED');
    const end=close+'</pic:blipFill>'.length;
-   // The picture's whole w:drawing (frame size and anchor position live outside pic:blipFill); a group of pictures is not fitted.
+   // The picture's whole w:drawing: the frame size and anchor position live outside pic:blipFill. Whether it can be fitted safely
+   // (plain single picture, no group/shape/text, unrotated) is decided at fit time; otherwise only the blipFill is replaced as before.
    const dStart=xml.lastIndexOf('<w:drawing',start),dEnd=xml.indexOf('</w:drawing>',end),inDrawing=dStart>=0&&dEnd>=0&&xml.lastIndexOf('</w:drawing>',start)<dStart;
    const drawing=inDrawing&&(xml.slice(dStart,dEnd).match(/<pic:pic[\s>]/g)??[]).length===1?{start:dStart,end:dEnd+'</w:drawing>'.length}:null;
    blips.push({start,end,drawing});tag.lastIndex=end;}
@@ -134,9 +135,14 @@ export function fillReport(template:Buffer,kind:TemplateKind,values:ReportValues
   if(/r:embed="rId\d+"/.test(next))throw new DocxError('DOCX_SIGNATURE_REFERENCE_REMAINS');
   const slot=r==='REPORTED'?signers.reported:signers.approved;
   // Fit the signer's picture inside the master's own frame, keeping its aspect ratio (the image bytes are never changed).
-  if(b.drawing&&slot.signature){const whole=xml.slice(b.drawing.start,b.start)+next+xml.slice(b.end,b.drawing.end),fitted=fitDrawingXml(whole,slot.signature),m=/<wp:extent cx="(\d+)" cy="(\d+)"/.exec(fitted);
-   edits.push({start:b.drawing.start,end:b.drawing.end,text:fitted});if(m)bindings.push({token:'signature.frame',value:`${m[1]}x${m[2]}`,role:r});}
+  // A fit that cannot be proven safe never stops the report: the picture keeps the template's frame and the reason is recorded.
+  const whole=b.drawing?xml.slice(b.drawing.start,b.start)+next+xml.slice(b.end,b.drawing.end):null;
+  const fit=whole&&slot.signature?fitDrawingSafely(whole,slot.signature):null;
+  if(b.drawing&&fit?.status==='FITTED')edits.push({start:b.drawing.start,end:b.drawing.end,text:fit.xml});
   else edits.push({start:b.start,end:b.end,text:next});
+  const size=(f:{cx:number;cy:number}|null)=>f?`${f.cx}x${f.cy}`:'unknown';
+  bindings.push({token:'signature.fit',value:!slot.signature?'SKIPPED:NO_SIGNATURE':!b.drawing?'SKIPPED:NOT_ONE_PICTURE':fit!.status,role:r});
+  if(fit)bindings.push({token:'signature.frame',value:size(fit.frame),role:r},{token:'signature.fitted',value:size(fit.fitted),role:r});
  }
  if(roles.size!==2)throw new DocxError('DOCX_SIGNATURE_ROLE_UNRESOLVED');
  xml=apply(xml,edits);
@@ -152,7 +158,7 @@ export function fillReport(template:Buffer,kind:TemplateKind,values:ReportValues
  // Both signature pictures must exist and be the chosen signers' images, never the transparent placeholder or the master's own.
  for(const [rid,slot,file] of [['rIdT3SigReported',signers.reported,'t3-signature-reported'],['rIdT3SigApproved',signers.approved,'t3-signature-approved']] as const){
   const target=`word/media/${file}.${media(slot)}`,bytes=parts.get(target);
-  if((xml.match(new RegExp(`r:embed="${rid}"`,'g'))??[]).length!==1||!nextRels.includes(`Id="${rid}"`)||!bytes||(slot.signature&&!bytes.equals(slot.signature.bytes)))throw new DocxError('REPORT_SIGNATURE_MISSING',{role:rid});}
+  if((xml.match(new RegExp(`r:embed="${rid}"`,'g'))??[]).length<1||!nextRels.includes(`Id="${rid}"`)||!bytes||(slot.signature&&!bytes.equals(slot.signature.bytes)))throw new DocxError('REPORT_SIGNATURE_MISSING',{role:rid});}
  for(const [part,bytes] of parts)if(/^word\/.*\.xml$/.test(part)&&bytes.toString('utf8').includes('${'))throw new DocxError('DOCX_PLACEHOLDER_REMAINS',{part});
  const bytes=writeArchive(parts);
  return {bytes,sha256:sha256(bytes),bindings,templateSha256:descriptor.sha256,templateCode:descriptor.code};

@@ -5,6 +5,7 @@ import type {Queryable} from '../db/connection';
 import type {FileStore} from '../storage';
 import {authorize} from '../security/policy';
 import {need,assertSession,audit,uuid,LabError,type Staff} from '../lab/core';
+import {crc32,deflateSync} from 'node:zlib';
 import {sha256} from '../workbook/archive';
 import {openAuthorizedDirectory} from '../integrations/authorized-share';
 import {readActiveSettings} from '../settings/service';
@@ -65,11 +66,20 @@ export function inspectTemplate(kind:TemplateKind,bytes:Buffer,fileName=''):Temp
  else if(out.code!==TEMPLATES[kind].code)err('TEMPLATE_DOCUMENT_CODE_MISMATCH',{found:out.code,expected:TEMPLATES[kind].code});
  if(!out.product)out.warnings.push({code:'TEMPLATE_PRODUCT_NOT_STATED'});
  // Structural dry run: the real fill routine (signature slots, "Reported/Approved by", license line, QC line, no leftovers).
- if(!out.errors.length){try{fillReport(bytes,kind,syntheticValues(),{reported:syntheticSigner('A'),approved:syntheticSigner('B')},{sha256:sha256(bytes),code:out.code??'UNSPECIFIED'});}
+ if(!out.errors.length){try{const skipped=signatureFitNotes(fillReport(bytes,kind,syntheticValues(),{reported:syntheticSigner('A'),approved:syntheticSigner('B')},{sha256:sha256(bytes),code:out.code??'UNSPECIFIED'}).bindings).filter(n=>!n.endsWith(':FITTED'));
+   if(skipped.length)out.warnings.push({code:'TEMPLATE_SIGNATURE_FIT_SKIPPED',detail:skipped});}
   catch(e){if(e instanceof DocxError)err('TEMPLATE_STRUCTURE_INCOMPATIBLE',{code:e.message,details:e.details});else throw e;}}
  return out;
 }
-const syntheticSigner=(tag:string):SignerSlot=>({name:`PREVIEW SIGNER ${tag}`,license:'00000',date:'01-Jan-2026',signature:null});
+/** Transparent RGBA PNG: a wide synthetic signature so the dry run exercises the real fit and signature post-checks. */
+function transparentPng(width:number,height:number){
+ const chunk=(type:string,data:Buffer)=>{const len=Buffer.alloc(4),crc=Buffer.alloc(4),td=Buffer.concat([Buffer.from(type),data]);len.writeUInt32BE(data.length);crc.writeUInt32BE(crc32(td)>>>0);return Buffer.concat([len,td,crc]);};
+ const ihdr=Buffer.alloc(13);ihdr.writeUInt32BE(width,0);ihdr.writeUInt32BE(height,4);ihdr[8]=8;ihdr[9]=6;
+ return Buffer.concat([Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]),chunk('IHDR',ihdr),chunk('IDAT',deflateSync(Buffer.alloc((width*4+1)*height))),chunk('IEND',Buffer.alloc(0))]);
+}
+const syntheticSigner=(tag:string):SignerSlot=>({name:`PREVIEW SIGNER ${tag}`,license:'00000',date:'01-Jan-2026',signature:{bytes:transparentPng(600,50),media:'image/png',width:600,height:50}});
+/** "REPORTED:FITTED" / "APPROVED:SKIPPED:GROUP_OR_SHAPE" per signature picture: whether the template's drawings let the signature be fitted. */
+export const signatureFitNotes=(bindings:{token:string;value:string;role?:string}[])=>bindings.filter(b=>b.token==='signature.fit').map(b=>`${b.role}:${b.value}`);
 /** Clearly synthetic values that read back through the real report parser (no patient data, never stored as a report). */
 export function syntheticValues():ReportValues{
  return {patientName:'ทดสอบ ตัวอย่าง (PREVIEW)',ga:'17W 6D',sampleID:'PREVIEW0000001',hn:'0000000/00',collectDate_cbh:'01-Jan-2026',patientIDCard:'-',dob_cbh:'01-Jan-1990',receivedDate_cbh:'01-Jan-2026',
@@ -124,16 +134,16 @@ export async function testTemplate(db:Queryable,user:Staff,store:FileStore,id:st
  if(r.inspection.errors.length)throw new LabError('TEMPLATE_INSPECTION_ERRORS',409,{errors:r.inspection.errors.map(e=>e.code)});
  const bytes=await store.get(r.file_sha256);if(sha256(bytes)!==r.file_sha256)throw new LabError('TEMPLATE_STORE_CORRUPT',500);
  const values=syntheticValues(),signers={reported:syntheticSigner('A'),approved:syntheticSigner('B')};
- const docx=fillReport(bytes,r.kind,values,signers,{sha256:r.file_sha256,code:r.template_code??'UNSPECIFIED'});
+ const docx=fillReport(bytes,r.kind,values,signers,{sha256:r.file_sha256,code:r.template_code??'UNSPECIFIED'}),signatureFit=signatureFitNotes(docx.bindings);
  const [pdf]=await(deps.render??renderDocxBatch)([{id:'template-preview',docx:docx.bytes}]);
  const prepared={template:r.kind,noCall:false,values,sources:{gaDays:125}} as unknown as Prepared;
  const check=await(deps.verify??verifyRendered)(pdf.bytes,prepared,signers);
  if(!check.ok){await audit(db,user,'REPORT_TEMPLATE_TEST_FAILED','REPORT_TEMPLATE',r.id,{version:r.version,outcome:'FAILED',count:check.problems.length,reasonCode:check.problems.slice(0,6).join('.').slice(0,79)});
-  return {passed:false,problems:check.problems,pages:pdf.pages};}
+  return {passed:false,problems:check.problems,pages:pdf.pages,signatureFit};}
  const preview=await store.put(await watermark(pdf.bytes));
  await db.query("UPDATE report_template_revision SET state='Validated',test_passed=true,tested_at=now(),preview_sha256=$2 WHERE id=$1",[r.id,preview]);
  await audit(db,user,'REPORT_TEMPLATE_TESTED','REPORT_TEMPLATE',r.id,{version:r.version,outcome:'PASSED'});
- return {passed:true,problems:[] as string[],pages:pdf.pages,previewSha256:preview};
+ return {passed:true,problems:[] as string[],pages:pdf.pages,previewSha256:preview,signatureFit};
 }
 export async function previewPdf(db:Queryable,user:Staff,store:FileStore,id:string){
  await assertSession(db,user);if(!authorize(user,'report.template.manage',{},'read')&&!authorize(user,'settings.approve',{},'approve'))throw new LabError('FORBIDDEN',403);

@@ -47,12 +47,16 @@ export async function submitSignerProfile(db:Queryable,user:Staff,store:FileStor
  await audit(db,user,'SIGNER_PROFILE_SUBMITTED','REPORT_SIGNER_PROFILE',row.id,{outcome:'PENDING_VERIFICATION',version:row.version});
  return {id:row.id,version:row.version,state:'PendingVerification',opaqueBackground:img.opaque};
 }
-export async function decideSignerProfile(db:Queryable,user:Staff,input:unknown){
+/** `previewPossible` tells whether the sample previews can be produced on this machine (masters and Word installed); `previewUnavailable` is honoured only when it says no. */
+export async function decideSignerProfile(db:Queryable,user:Staff,input:unknown,opts:{previewPossible?:()=>Promise<boolean>}={}){
  await assertSession(db,user);
  const d=z.strictObject({profileId:uuid,decision:z.enum(['VERIFY','REVOKE']),reason:reasonText,layoutReviewed:z.boolean().optional(),previewUnavailable:z.boolean().optional()}).parse(input);
+ if(d.decision==='VERIFY')need(user,'user.manage');   // authority first: a non-administrator gets 403, never a 422 hint
  // Verifying needs the administrator's own look at the sample reports (layoutReviewed), or an explicit, recorded 'could not preview'.
  const layout=d.decision!=='VERIFY'?null:d.layoutReviewed===true?'REVIEWED':d.previewUnavailable===true?'NOT_PREVIEWED':null;
  if(d.decision==='VERIFY'&&!layout)throw new LabError('SIGNER_LAYOUT_REVIEW_REQUIRED',422);
+ // 'layoutReviewed' is the administrator's own attestation (client-trusted, audited). 'Could not preview' is only accepted when previews really are impossible here.
+ if(layout==='NOT_PREVIEWED'&&(!opts.previewPossible||await opts.previewPossible()))throw new LabError('SIGNER_PREVIEW_AVAILABLE',409);
  // Profiles are immutable (no UPDATE grant): decisions on one profile are serialised with an advisory lock instead of a row lock.
  await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,75432863))',[d.profileId]);
  const p=(await db.query<{id:string;user_id:string}>('SELECT id,user_id FROM report_signer_profile WHERE id=$1',[d.profileId])).rows[0];if(!p)throw new LabError('NOT_FOUND',404);

@@ -21,7 +21,15 @@ export async function signerSamplePreview(db:Queryable,user:Staff,deps:ReportDep
  const bytes=await deps.store.get(p.signature_sha256),img=signatureImage(bytes);
  const slot:SignerSlot={name:p.legal_name,license:p.mt_license_no,date:'01-Jan-2026',signature:{bytes,media:img.media,width:img.width,height:img.height}};
  let docx;try{docx=fillReport(master.bytes,d.kind,syntheticValues(),{reported:slot,approved:slot},{sha256:master.sha256,code:master.code});}catch(e){if(e instanceof DocxError)throw new LabError(e.message,409,e.details);throw e;}
- let pdf;try{[pdf]=await(deps.render??renderDocxBatch)([{id:'signer-sample',docx:docx.bytes}]);}catch{throw new LabError('REPORT_RENDER_UNAVAILABLE',409);}
+ let pdf;try{[pdf]=await(deps.render??renderDocxBatch)([{id:'signer-sample',docx:docx.bytes}]);}
+ catch(e){throw new LabError(e instanceof Error&&e.message==='REPORT_NATIVE_WORD_WINDOWS_REQUIRED'?'REPORT_RENDER_UNAVAILABLE':'REPORT_PREVIEW_RENDER_FAILED',409);}
  await audit(db,user,'SIGNER_SAMPLE_PREVIEWED','REPORT_SIGNER_PROFILE',d.profileId,{outcome:d.kind});
  return {bytes:await watermark(pdf.bytes),pages:pdf.pages,templateCode:master.code};
+}
+
+/** True when both sample previews can be produced here. Only when false may an administrator verify without looking (recorded as not previewed). */
+export async function previewPossible(db:Queryable,deps:ReportDeps){
+ if(process.platform!=='win32'&&!deps.render)return false;
+ for(const kind of ['SINGLETON','TWIN'] as const)if(!await masterBytes(db,deps,kind))return false;
+ return true;
 }

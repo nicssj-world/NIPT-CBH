@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {fillReport,TOKENS,DocxError,type SignerSlot,type ReportValues} from '../../packages/readygen/docx';
+import {fillReport,TOKENS,type SignerSlot,type ReportValues} from '../../packages/readygen/docx';
 import {readArchive,writeArchive,sha256} from '../../packages/workbook/archive';
 import {signaturePng} from '../../tools/task3-uat/signature';
 import {decideSignerProfile} from '../../packages/readygen/signers';
@@ -9,7 +9,7 @@ import type {Staff} from '../../packages/lab/core';
 // before each "Reported by:" / "Approved by:" label, text-token paragraphs, licence and QC lines.
 const ph=(t:string)=>'$'+'{'+t+'}';
 const pic=(rid:string)=>`<pic:pic><pic:nvPicPr><pic:cNvPr id="1" name="s"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rid}"/><a:srcRect l="1000"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1800000" cy="600000"/></a:xfrm><a:prstGeom prst="rect"/></pic:spPr></pic:pic>`;
-const drawing=(rid:string,id:number)=>`<w:p><w:r><w:drawing><wp:anchor behindDoc="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="column"><wp:posOffset>1000000</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>-50000</wp:posOffset></wp:positionV><wp:extent cx="1800000" cy="600000"/><wp:wrapNone/><wp:docPr id="${id}" name="P${id}"/><a:graphic><a:graphicData uri="u">${pic(rid)}</a:graphicData></a:graphic></wp:anchor></w:drawing></w:r></w:p>`;
+const drawing=(rid:string,id:number)=>`<w:p><w:r><w:drawing><wp:anchor behindDoc="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="column"><wp:posOffset>1000000</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>-50000</wp:posOffset></wp:positionV><wp:extent cx="1800000" cy="600000"/><wp:wrapNone/><wp:docPr id="${id}" name="P${id}"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">${pic(rid)}</a:graphicData></a:graphic></wp:anchor></w:drawing></w:r></w:p>`;
 const para=(t:string)=>`<w:p><w:r><w:t>${t}</w:t></w:r></w:p>`;
 const tokens=TOKENS.SINGLETON.filter(t=>t!=='createdDate_cbh');
 const documentXml=`<w:document><w:body>${tokens.map(t=>para(ph(t))).join('')}${drawing('rId5',1)}${para('Reported by: (Name)')}${para('(Medical Technologist license no. 11111)')}${para('Reported Date: '+ph('createdDate_cbh'))}${drawing('rId6',2)}${para('Approved by: (Name)')}${para('(Medical Technologist license no. 22222)')}${para('Approved Date: '+ph('createdDate_cbh'))}${para('QC: PASS')}</w:body></w:document>`;
@@ -32,7 +32,10 @@ describe('fillReport signature fitting (synthetic master)',()=>{
   expect(parts.get('word/media/t3-signature-reported.png')!.equals(reported.signature!.bytes)).toBe(true);
   expect(parts.get('word/media/t3-signature-approved.png')!.equals(approved.signature!.bytes)).toBe(true);
   expect([...parts.keys()].some(k=>/master-/.test(k))).toBe(false);
-  expect(out.bindings.filter(b=>b.token==='signature.frame').map(b=>b.value)).toEqual(['1800000x150000','150000x600000']);
+  const pick=(t:string)=>out.bindings.filter(b=>b.token===t).map(b=>`${b.role}:${b.value}`);
+  expect(pick('signature.fit')).toEqual(['REPORTED:FITTED','APPROVED:FITTED']);
+  expect(pick('signature.frame')).toEqual(['REPORTED:1800000x600000','APPROVED:1800000x600000']);
+  expect(pick('signature.fitted')).toEqual(['REPORTED:1800000x150000','APPROVED:150000x600000']);
  });
  it('a signature with the frame aspect ratio leaves the frame as the master has it',()=>{
   const out=fillReport(master,'SINGLETON',values,{reported:slot(300,100,1),approved:slot(300,100,2)},descriptor),xml=readArchive(out.bytes).get('word/document.xml')!.toString('utf8');
@@ -43,14 +46,50 @@ describe('fillReport signature fitting (synthetic master)',()=>{
   const out=fillReport(master,'SINGLETON',values,{reported:none,approved:none},descriptor),parts=readArchive(out.bytes);
   expect(extents(parts.get('word/document.xml')!.toString('utf8'))).toEqual(['1800000x600000','1800000x600000']);expect(parts.get('word/media/t3-signature-reported.png')!.length).toBeGreaterThan(0);
  });
- it('refuses a master without both signature pictures',()=>{
+ it('refuses a master without both signature pictures with DOCX_SIGNATURE_ROLE_UNRESOLVED',()=>{
   const bad=writeArchive(new Map(readArchive(master)).set('word/document.xml',Buffer.from(documentXml.replace(drawing('rId6',2),''))));
-  expect(()=>fillReport(bad,'SINGLETON',values,{reported:slot(300,100,1),approved:slot(300,100,2)},{sha256:sha256(bad),code:'TEST'})).toThrow(DocxError);
+  expect(()=>fillReport(bad,'SINGLETON',values,{reported:slot(300,100,1),approved:slot(300,100,2)},{sha256:sha256(bad),code:'TEST'})).toThrow('DOCX_SIGNATURE_ROLE_UNRESOLVED');
+ });
+ it('REPORT_SIGNATURE_MISSING when the stored signature media is not the signer image',()=>{
+  const good=slot(300,100,1);let reads=0;const counting={...good,get signature(){reads++;return good.signature;}} as SignerSlot;
+  fillReport(master,'SINGLETON',values,{reported:counting,approved:slot(300,100,2)},descriptor);const total=reads;reads=0;
+  const bad={...good.signature!,bytes:Buffer.from('other')};
+  const tampered={...good,get signature(){reads++;return reads===total?bad:good.signature;}} as SignerSlot;
+  expect(()=>fillReport(master,'SINGLETON',values,{reported:tampered,approved:slot(300,100,2)},descriptor)).toThrow('REPORT_SIGNATURE_MISSING');
+ });
+});
+
+// Ruling R11: a fit that cannot be proven safe never stops a report and never distorts: the picture keeps the template's frame and the reason is recorded.
+describe('fillReport falls back to the template frame with evidence',()=>{
+ const variant=(mut:(d:string)=>string)=>{const xml=documentXml.replace(drawing('rId5',1),mut(drawing('rId5',1)));return writeArchive(new Map(readArchive(master)).set('word/document.xml',Buffer.from(xml)));};
+ const run=(m:Buffer)=>{const out=fillReport(m,'SINGLETON',values,{reported:slot(1200,100,1),approved:slot(100,400,2)},{sha256:sha256(m),code:'TEST'}),parts=readArchive(out.bytes);
+  return {xml:parts.get('word/document.xml')!.toString('utf8'),parts,fit:out.bindings.filter(b=>b.token==='signature.fit').map(b=>b.value)};};
+ const cases:[string,(d:string)=>string,string][]=[
+  ['no wp:extent',d=>d.replace(/<wp:extent\b[^>]*\/>/,''),'SKIPPED:NO_EXTENT'],
+  ['zero-size frame',d=>d.replace('<wp:extent cx="1800000"','<wp:extent cx="0"'),'SKIPPED:FRAME_SIZE_INVALID'],
+  ['rotated picture',d=>d.replace('<a:xfrm>','<a:xfrm rot="5400000">'),'SKIPPED:ROTATED'],
+  ['simplePos',d=>d.replace('<wp:anchor behindDoc="1">','<wp:anchor behindDoc="1" simplePos="1">'),'SKIPPED:SIMPLE_POS'],
+  ['aligned position',d=>d.replace('<wp:posOffset>1000000</wp:posOffset>','<wp:align>left</wp:align>'),'SKIPPED:ALIGNED_POSITION'],
+  ['two pictures in one drawing',d=>d.replace('</a:graphicData>',pic('rId5')+'</a:graphicData>'),'SKIPPED:NOT_ONE_PICTURE'],
+  ['non-picture graphic',d=>d.replace('uri="http://schemas.openxmlformats.org/drawingml/2006/picture"','uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"'),'SKIPPED:NOT_PICTURE_GRAPHIC'],
+ ];
+ it.each(cases)('%s: no throw, template frame kept, evidence recorded, signer image still used',(_n,mut,expected)=>{
+  const r=run(variant(mut));
+  expect(r.fit[0]).toBe(expected);expect(r.fit.at(-1)).toBe('FITTED');
+  expect(r.parts.get('word/media/t3-signature-reported.png')!.length).toBeGreaterThan(0);expect(r.xml).toContain('rIdT3SigReported');
+  expect(r.xml).not.toContain('rId5"');
+  expect(extents(r.xml).at(-1)).toBe('150000x600000');
+ });
+ it('a wps/wpg group with a text token inside: no DOCX_EDIT_OVERLAP, text still filled, fit skipped',()=>{
+  const m=variant(d=>d.replace('<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">','<a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"><wpg:wgp><wps:wsp><wps:txbx><w:txbxContent><w:p><w:r><w:t>'+ph('remarks')+'</w:t></w:r></w:p></w:txbxContent></wps:txbx></wps:wsp>').replace('</a:graphicData>','</wpg:wgp></a:graphicData>'));
+  const r=run(m);
+  expect(r.fit[0]).toBe('SKIPPED:GROUP_OR_SHAPE');expect(r.xml).not.toContain('remarks}');expect(r.xml).toContain('rIdT3SigReported');
  });
 });
 
 describe('decideSignerProfile layout review gate',()=>{
- const admin={id:'00000000-0000-4000-8000-000000000001',roles:[]} as unknown as Staff;
+ const admin={id:'00000000-0000-4000-8000-000000000001',roles:['APP_ADMIN'],unitIds:[],permissions:[]} as unknown as Staff;
+ const nobody={id:'00000000-0000-4000-8000-000000000003',roles:['LAB_STAFF'],unitIds:[],permissions:[]} as unknown as Staff;
  const db={query:async()=>{throw new Error('NO_DB');}} as never;
  const input={profileId:'00000000-0000-4000-8000-000000000002',decision:'VERIFY',reason:'ตรวจตัวตนและลายเซ็นแล้ว'};
  it('VERIFY without layoutReviewed (or the explicit unavailable flag) is refused before any write',async()=>{
@@ -59,7 +98,14 @@ describe('decideSignerProfile layout review gate',()=>{
  });
  it('VERIFY passes the gate with layoutReviewed or previewUnavailable; REVOKE never needs it',async()=>{
   await expect(decideSignerProfile(db,admin,{...input,layoutReviewed:true})).rejects.toThrow('NO_DB');
-  await expect(decideSignerProfile(db,admin,{...input,previewUnavailable:true})).rejects.toThrow('NO_DB');
+  await expect(decideSignerProfile(db,admin,{...input,previewUnavailable:true},{previewPossible:async()=>false})).rejects.toThrow('NO_DB');
   await expect(decideSignerProfile(db,admin,{...input,decision:'REVOKE'})).rejects.toThrow('NO_DB');
+ });
+ it('a non-administrator gets FORBIDDEN (not a 422 hint) before the review gate',async()=>{
+  await expect(decideSignerProfile(db,nobody,input)).rejects.toThrow('FORBIDDEN');
+ });
+ it('could-not-preview is refused unless previews really are impossible on this machine',async()=>{
+  await expect(decideSignerProfile(db,admin,{...input,previewUnavailable:true})).rejects.toThrow('SIGNER_PREVIEW_AVAILABLE');
+  await expect(decideSignerProfile(db,admin,{...input,previewUnavailable:true},{previewPossible:async()=>true})).rejects.toThrow('SIGNER_PREVIEW_AVAILABLE');
  });
 });

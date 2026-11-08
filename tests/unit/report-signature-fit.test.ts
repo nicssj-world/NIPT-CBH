@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {fitSignature,fitDrawingXml} from '../../packages/readygen/signature-fit';
+import {fitSignature,fitDrawingXml,fitDrawingSafely,unfittableReason} from '../../packages/readygen/signature-fit';
 import {signatureImage} from '../../packages/readygen/signers';
 import {signaturePng} from '../../tools/task3-uat/signature';
 
@@ -27,8 +27,8 @@ describe('fitSignature',()=>{
 });
 
 const pic=(w:number,h:number)=>`<pic:pic xmlns:pic="p"><pic:nvPicPr><pic:cNvPr id="1" name="sig"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdX"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${w}" cy="${h}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>`;
-const anchor=`<w:drawing><wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="5" behindDoc="1" locked="0" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="column"><wp:posOffset>1000000</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>-50000</wp:posOffset></wp:positionV><wp:extent cx="1800000" cy="600000"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapNone/><wp:docPr id="7" name="Picture 7"/><a:graphic><a:graphicData uri="u">${pic(1800000,600000)}</a:graphicData></a:graphic></wp:anchor></w:drawing>`;
-const inline=`<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="1800000" cy="600000"/><wp:docPr id="8" name="Picture 8"/><a:graphic><a:graphicData uri="u">${pic(1800000,600000)}</a:graphicData></a:graphic></wp:inline></w:drawing>`;
+const anchor=`<w:drawing><wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="5" behindDoc="1" locked="0" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="column"><wp:posOffset>1000000</wp:posOffset></wp:positionH><wp:positionV relativeFrom="paragraph"><wp:posOffset>-50000</wp:posOffset></wp:positionV><wp:extent cx="1800000" cy="600000"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapNone/><wp:docPr id="7" name="Picture 7"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">${pic(1800000,600000)}</a:graphicData></a:graphic></wp:anchor></w:drawing>`;
+const inline=`<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="1800000" cy="600000"/><wp:docPr id="8" name="Picture 8"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">${pic(1800000,600000)}</a:graphicData></a:graphic></wp:inline></w:drawing>`;
 
 describe('fitDrawingXml',()=>{
  it('anchor: resizes extent and a:ext, adds the centring offset to posOffset, leaves the rest byte-identical',()=>{
@@ -70,5 +70,17 @@ describe('signatureImage opaque',()=>{
  it('JPEG is opaque',()=>{
   const jpeg=Buffer.from([0xff,0xd8,0xff,0xc0,0x00,0x11,0x08,0x00,0x40,0x00,0x90,0x03,0x01,0x22,0x00,0x02,0x11,0x01,0x03,0x11,0x01,0xff,0xd9]);
   expect(signatureImage(jpeg)).toEqual({media:'image/jpeg',width:144,height:64,opaque:true});
+ });
+});
+
+describe('fitDrawingSafely / unfittableReason',()=>{
+ it('plain anchor and inline drawings are fittable',()=>{expect(unfittableReason(anchor)).toBeNull();expect(unfittableReason(inline)).toBeNull();
+  expect(fitDrawingSafely(inline,{width:1200,height:100})).toMatchObject({status:'FITTED',frame:{cx:1800000,cy:600000},fitted:{cx:1800000,cy:150000}});});
+ it('zero frame, invalid image size and groups never throw; the drawing is returned unchanged',()=>{
+  const zero=inline.replace('<wp:extent cx="1800000"','<wp:extent cx="0"');
+  expect(fitDrawingSafely(zero,{width:1200,height:100})).toMatchObject({xml:zero,status:'SKIPPED:FRAME_SIZE_INVALID'});
+  expect(fitDrawingSafely(inline,{width:0,height:100})).toMatchObject({xml:inline,status:'SKIPPED:FIT_ERROR'});
+  const group=inline.replace('<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">','<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><wpg:wgp>');
+  expect(fitDrawingSafely(group,{width:1,height:1}).status).toBe('SKIPPED:GROUP_OR_SHAPE');
  });
 });
