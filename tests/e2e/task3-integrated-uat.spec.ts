@@ -112,11 +112,14 @@ test('pathway A (LAB certifier): HALOS import preview/confirm, realtime search, 
   const v=(await sql<{id:string}>("SELECT v.id FROM internal_report r JOIN halos_import_row h ON h.id=r.halos_row_id JOIN result_report_version v ON v.id=r.version_id WHERE h.sample_key=$1",[c(k).halosSampleId]))[0];
   await page.goto(`/results/${v.id}`);const panel=page.getByRole('region',{name:'ที่มาของรายงาน'});
   await expect(panel.getByText('ออกรายงานในระบบ (INTERNAL_GENERATED)')).toBeVisible({timeout:30_000});
-  for(const t of ['ตรวจค่าใน PDF ตรงกับผล HALOS','ตัวตนผู้ป่วย LN/HN และรอบตรงกับรายการนี้','ตรวจการเปิดเผยเพศ/โครโมโซม Y'])await panel.getByLabel(t,{exact:false}).check();
-  const ab=panel.getByLabel('รับทราบผลผิดปกติ',{exact:false});if(await ab.count())await ab.check();
-  const bench=panel.getByLabel('ทบทวนค่าในใบงาน QC',{exact:false});if(await bench.count())await bench.check();
   if(k==='A2')await shot(page,'a-result-detail-internal');
-  await panel.getByRole('button',{name:'ตรวจรับและยืนยันส่งผล'}).click();await expect(panel.getByText('ยืนยันส่งผลแล้ว')).toBeVisible({timeout:60_000});
+  // Result-release simplification: the internal report waits in "รอส่ง HIS"; the only certify step is "ส่งที่เลือก" on the results board.
+  await page.goto('/results');await page.getByRole('tab',{name:/รอส่ง HIS/}).click();
+  await page.getByLabel('ค้นหา LN / HN / LN Halos / รหัสตัวอย่าง').fill(c(k).ln);
+  const boardRow=page.getByRole('row').filter({hasText:c(k).ln});await boardRow.getByRole('checkbox').check();
+  const reviewed=page.getByLabel('ตรวจผลรายการที่เลือกแล้ว');if(await reviewed.count())await reviewed.check();
+  const ab=page.getByLabel('รับทราบผลผิดปกติ',{exact:false});if(await ab.count())await ab.check();
+  await page.getByRole('button',{name:/ส่งที่เลือก/}).click();await expect(page.getByText('ส่ง HIS สำเร็จ 1 จาก 1 รายการ')).toBeVisible({timeout:60_000});
  }
  await axe(page,'result-detail-internal');
  await logout(page);

@@ -155,8 +155,9 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
      {d.can.review&&<div className="action-bar"><button type="button" className="button secondary" disabled={!!busy} onClick={()=>void act("revalidate",{},"ประเมิน Gate ใหม่แล้ว")}>{busy==="revalidate"?"กำลังประเมิน…":"ประเมินใหม่"}</button></div>}
     </section>}
 
-    <Task3Panel d={d} versionId={v.id} rowVersion={v.rowVersion} reload={load} abnormal={p.abnormal} requiresBenchReview={!!d.benchEvidence?.requiresReview} benchRevision={d.benchEvidence?.revision}/>
-    {d.operational&&d.can.acceptRelease&&<section className="panel" aria-labelledby="accept-h">
+    <Task3Panel d={d} versionId={v.id} reload={load}/>
+    {d.operational&&v.state==="PendingCertification"&&<section className="panel" aria-labelledby="waiting-his-h" role="status"><h2 id="waiting-his-h">รอส่ง HIS</h2><p>ผลนี้ตรวจรับแล้วและรอส่ง HIS — ANC ยังไม่เห็นผล ส่งผ่านหน้า <Link href="/results">ผลตรวจ NIPT</Link> › รอส่ง HIS</p></section>}
+    {d.operational&&d.can.acceptRelease&&v.state!=="PendingCertification"&&<section className="panel" aria-labelledby="accept-h">
      <h2 id="accept-h">ตรวจรับ PDF และยืนยันส่งผล</h2>
      <p className="help">รายงาน Final มาจากโปรแกรมวิเคราะห์ภายนอกที่รับรองผลแล้ว NIPT-CBH ไม่วิเคราะห์หรือรับรองผลทางคลินิกซ้ำ — ยืนยันครั้งเดียวเพื่อบันทึกการตรวจรับ PDF และส่งผล ระบบยังตรวจตัวตนผู้ป่วย ฉบับรายงาน ความยินยอม และ Gate ทุกข้อขณะกด</p>
      <label className="check-label"><input type="checkbox" checked={accept.external} onChange={e=>setAccept({...accept,external:e.target.checked})}/> รายงานฉบับนี้เป็น Final ที่ผ่านการรับรองจากระบบวิเคราะห์ภายนอกแล้ว</label>
@@ -169,7 +170,7 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
     </section>}
 
     {outcome?.outcome==='CertifiedReleased'&&!d.can.acceptRelease&&<section className="panel" role="status"><p><strong>ยืนยันส่งผลแล้ว</strong> — ระบบส่งไฟล์ตามนโยบายที่กำหนด การส่งไฟล์ยังไม่ใช่หลักฐานว่า HIS รับผลแล้ว</p></section>}
-    {d.can.review&&!(d.operational&&(d.can.acceptRelease||d.can.acceptInternal))&&<section className="panel" aria-labelledby="review-h">
+    {d.can.review&&!(d.operational&&d.can.acceptRelease)&&<section className="panel" aria-labelledby="review-h">
      <h2 id="review-h">ตรวจทานค่ากับ PDF</h2>
      <form className="stack" onSubmit={e=>{e.preventDefault();void act("review",{valuesMatchPdf:true,abnormalAcknowledged:ack,...(note?{note}:{})},"บันทึกการตรวจทานแล้ว").then(r=>{if(r){setValuesOk(false);setAck(false);setNote("");}});}}>
       <label className="check-label"><input type="checkbox" checked={valuesOk} onChange={e=>setValuesOk(e.target.checked)} required/> ตรวจแล้วว่าค่าทุกค่าตรงกับ PDF ต้นฉบับ</label>
@@ -180,7 +181,7 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
      <p className="help">OD-04: ผู้ตรวจทานเป็นคนเดียวกับผู้รับรองได้หากได้รับสิทธิ์ — Clinical Governance ยังไม่ลงนาม</p>
     </section>}
 
-    {d.can.certify&&!(d.operational&&(d.can.acceptRelease||d.can.acceptInternal))&&<section className="panel" aria-labelledby="certify-h">
+    {d.can.certify&&v.state!=="PendingCertification"&&!(d.operational&&d.can.acceptRelease)&&<section className="panel" aria-labelledby="certify-h">
      <h2 id="certify-h">รับรองและส่งผล</h2>
      {d.operational?<><p className="help">ทบทวน QC5 และยืนยันการรับรอง ระบบตรวจสิทธิ์และหลักฐานปัจจุบันก่อนปล่อยผลทุกครั้ง</p><fieldset><legend>QC5 ของ PDF ฉบับนี้</legend><label htmlFor="qc5-criteria">เอกสาร / เกณฑ์ที่ใช้ทบทวน</label><input id="qc5-criteria" value={qcCriteria} onChange={e=>setQcCriteria(e.target.value)}/><label htmlFor="qc5-reason">ผลทบทวน</label><textarea id="qc5-reason" value={qcReason} onChange={e=>setQcReason(e.target.value)}/><label className="check-label"><input type="checkbox" checked={qcTemplate} onChange={e=>setQcTemplate(e.target.checked)}/> ตรวจรูปแบบและค่ากับ PDF ต้นฉบับแล้ว</label><label className="check-label"><input type="checkbox" checked={qcDisclosure} onChange={e=>setQcDisclosure(e.target.checked)}/> ตรวจความยินยอมและข้อมูลที่เปิดเผยในรายงานแล้ว</label>{needsBenchReview&&<label className="check-label"><input type="checkbox" checked={benchReviewed} onChange={e=>setBenchReviewed(e.target.checked)}/> ตรวจทานค่าจริง QC1 / QC2 / Seq Task-G50 และหลักฐาน QC3/QC4 ตาม Master ล่าสุดของใบงานฉบับนี้แล้ว</label>}<button className="button secondary" disabled={!!busy||!qcTemplate||!qcDisclosure||qcCriteria.trim().length<8||qcReason.trim().length<8||(needsBenchReview&&!benchReviewed)} onClick={()=>void act('qc5',{criteriaReference:qcCriteria,reason:qcReason,templateReviewed:true,disclosureReviewed:true,abnormalAcknowledged:certAck,...benchConfirmation},'บันทึก QC5 แล้ว')}>ยืนยัน QC5</button></fieldset><label className="check-label"><input type="checkbox" checked={confirmCertification} onChange={e=>setConfirmCertification(e.target.checked)}/> ยืนยันรับรองผลด้วยบัญชีของฉัน</label></>:<p className="help">ระบบประเมิน Gate ใหม่ทั้งหมดในขณะกด และบันทึกผลการประเมินทุกครั้ง ในระยะนี้แม้ผ่าน Gate ก็จะไม่ปล่อยผล (AL-5 / OD-05 / OD-07)</p>}
      {p.abnormal&&<label className="check-label"><input type="checkbox" checked={certAck} onChange={e=>setCertAck(e.target.checked)}/> รับทราบผลผิดปกติก่อนรับรอง</label>}

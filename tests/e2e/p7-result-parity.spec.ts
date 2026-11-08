@@ -29,7 +29,7 @@ test('P7 result filters, bounded CSV, certifier diagnostic reparse and mobile ac
   await login(page,'synthetic.lab');
   const queryRequests:{url:string;method:string;body:Record<string,unknown>|null}[]=[];
   page.on('request',r=>{if(r.url().includes('/api/p5/results')){let body:Record<string,unknown>|null=null;try{body=r.postDataJSON();}catch{}queryRequests.push({url:r.url(),method:r.method(),body});}});
-  await page.goto('/results');await expect(page.getByLabel('กรองตามวันที่')).toHaveValue('REPORTED');
+  await page.goto('/results');await page.getByRole('tab',{name:/ส่งแล้ว/}).click();await page.getByText('ค้นหาขั้นสูง (ประวัติผลทั้งหมด)').click();await expect(page.getByLabel('กรองตามวันที่')).toHaveValue('REPORTED');
   await page.getByLabel('ตั้งแต่วันที่',{exact:true}).fill('2026-10-20');await page.getByLabel('ถึงวันที่',{exact:true}).fill('2026-10-20');
   await page.getByLabel('ค้นหา HN / เลข Lab / ชื่อที่อ่านได้',{exact:true}).fill(suffix);
   await page.getByLabel('เพศตามค่าที่อ่าน',{exact:true}).selectOption('Female');await page.getByLabel('QC ตามค่าที่อ่าน',{exact:true}).selectOption('PASS');
