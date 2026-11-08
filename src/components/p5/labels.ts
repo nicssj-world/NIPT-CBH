@@ -55,3 +55,10 @@ export function reasonText(r:string):string{
 export const TRI_TEXT:Record<string,string>={PASS:"ผ่าน",FAIL:"ไม่ผ่าน",PENDING:"รอการตัดสินใจ"};
 export const TRI_TONE:Record<string,""|"good"|"warning"|"bad">={PASS:"good",FAIL:"bad",PENDING:"warning"};
 export const bytes=(n:number)=>n<1024?`${n} B`:n<1048576?`${(n/1024).toFixed(1)} KB`:`${(n/1048576).toFixed(1)} MB`;
+// Results board (Action needed tab): reason codes from the board read model that HOLD_TEXT / reasonText do not already explain.
+export const BOARD_REASON_TEXT:Record<string,string>={
+ UNLINKED:"ยังไม่ได้เลือกผู้ป่วย — จับคู่จาก HN / LN ไม่ได้ชัดเจน",LINK_CONFLICT:"ข้อมูลใน PDF ขัดกับผู้ป่วยที่เลือก — ตรวจ HN / LN",
+ VALIDATION_BLOCKED:"ไม่ผ่านการตรวจเงื่อนไขก่อนส่ง",AWAITING_REVIEW:"ยังไม่ได้ตรวจรับ — จะตรวจตอนส่ง HIS",
+ REVIEW_REQUIRED:"ยังไม่ได้ตรวจรับ — จะตรวจตอนส่ง HIS",QC5_REQUIRED:"ยังไม่ได้ตรวจรับ — จะตรวจตอนส่ง HIS",
+ HOLD:"ระงับ",NOT_LINKED:"ยังไม่ได้เชื่อมกับผู้ป่วย"};
+
