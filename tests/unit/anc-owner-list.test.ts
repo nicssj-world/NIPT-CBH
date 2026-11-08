@@ -14,12 +14,12 @@ describe('Owner ANC queue ordering and full filtered tab counts',()=>{
   const b=await run({cursor:{u:0,d:Number(last.ord_d),id:last.id}});
   expect(b.rows[0].ln).toBe('0015');expect(new Set([...a.rows,...b.rows].map(r=>r.id)).size).toBe(20);
  });
- it('counts all six tabs over the full filtered set, independently of selected tab and page',async()=>{
+ it('counts all nine tabs over the full filtered set, independently of selected tab and page',async()=>{
   const a=await run({tab:'hold',limit:2});
   expect(a.total).toBe(8);expect(a.rows).toHaveLength(2);
-  expect(a.tab_counts).toEqual({all:25,pending:0,released:0,attention:17,redraw:12,hold:8});
+  expect(a.tab_counts).toEqual({all:25,pending:0,released:0,attention:17,redraw:12,hold:8,awaiting:13,testing:0,followup:12});   // stage groups: 13+0+12 = all 25
   const b=await run({q:'0025',tab:'hold'});
-  expect(b.total).toBe(0);expect(b.tab_counts).toEqual({all:1,pending:0,released:0,attention:0,redraw:0,hold:0});
+  expect(b.total).toBe(0);expect(b.tab_counts).toEqual({all:1,pending:0,released:0,attention:0,redraw:0,hold:0,awaiting:1,testing:0,followup:0});
   const c=await run({unitId:'unauthorized'});expect(c.tab_counts.all).toBe(0);
  });
 });
