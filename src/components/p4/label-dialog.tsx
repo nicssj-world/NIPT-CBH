@@ -8,8 +8,8 @@ import "./label-dialog.css";
 
 type Sample={roundId:string;hisLn:string;lnHalos:string|null;labelCode:string|null;roundNumber:number;printed:number};
 /**
- * Tube labels (OWNER-LAB-004/025/026/027): 4 stickers (50 × 20 mm) / 8 halves per sample with LN Halos, HIS LN and their
- * barcodes. Preview and print are the same server HTML; printing records an audited job and never issues a number.
+ * Tube labels (OWNER-LAB-004/025/026/027): 4 stickers (50 × 20 mm) / 8 halves per sample with LN Halos, HIS LN and the corner
+ * digits (no barcode). Preview and print are the same server HTML; printing records an audited job and never issues a number.
  * Several samples open as one selection list (live search, select/deselect, selected total) before preview/print.
  */
 export function LabelDialog({samples,onClose,onPrinted}:{samples:Sample[];onClose:()=>void;onPrinted?:()=>void}){
