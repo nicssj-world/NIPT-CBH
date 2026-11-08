@@ -7,7 +7,8 @@ import {readHisDeliveryStatuses,type HisDeliveryStatus} from './his-status';
 
 // The results board read model: one place that says which tab every report is in.
 //   ACTION = somebody must do something (a HALOS row on HOLD, or a PDF that is unlinked / in conflict / blocked / linked but not ready)
-//   READY  = waiting to be sent to HIS (PendingCertification)
+//   READY  = waiting to be sent to HIS (PendingCertification), plus Linked/ValidationBlocked versions whose ONLY open gate items are the ones that
+//            "ส่ง HIS" itself records (review + QC5) — see EVIDENCE_RECORDED_BY_SEND; they show reviewed=false
 //   SENT   = CertifiedReleased
 export type BoardRow={key:string;source:'HALOS'|'READYGEN';versionId:string|null;halosRowId:string|null;rowVersion:number|null;ln:string|null;hn:string|null;lnHalos:string|null;sampleId:string|null;template:string|null;
  abnormal:boolean;reviewed:boolean;reasons:{code:string;fixHref?:string}[];hisDelivery?:HisDeliveryStatus;pdfHref:string|null};
@@ -24,6 +25,18 @@ const schema=z.strictObject({tab:z.enum(['ACTION','READY','SENT']),q:z.string().
 const OPEN_ACTION=['Unlinked','LinkConflict','ValidationBlocked','Linked'];
 const TAB_OF:Record<string,BoardTab>={Unlinked:'ACTION',LinkConflict:'ACTION',ValidationBlocked:'ACTION',Linked:'ACTION',PendingCertification:'READY',CertifiedReleased:'SENT'};
 const STATE_REASON:Record<string,string>={Unlinked:'UNLINKED',LinkConflict:'LINK_CONFLICT',ValidationBlocked:'VALIDATION_BLOCKED',Linked:'AWAITING_REVIEW'};
+
+/** Gate items ('RG-nn:REASON', governance part dropped) that sendToHis satisfies by itself: it records the review (RG-12) and the QC5 review
+ *  (recordQc5), which makes the template/PIC approval (RG-01, operational mode = QC5 exists), the attempt state AnalysisComplete/FinalQcAccepted
+ *  (RG-06 ANALYSIS_COMPLETION_NOT_RECORDED, RG-07 FINAL_QC_NOT_ACCEPTED / QC1_ONLY_NOT_FINAL_QC_ACCEPTED) and the operational disclosure review
+ *  (RG-11 pending rules) true. Everything else (consent, identity, link, cross-check, upstream lab evidence, ...) needs a person first. */
+export const EVIDENCE_RECORDED_BY_SEND:ReadonlySet<string>=new Set(['RG-01:TEMPLATE_AND_PIC_NOT_APPROVED','RG-06:ANALYSIS_COMPLETION_NOT_RECORDED','RG-07:FINAL_QC_NOT_ACCEPTED','RG-07:QC1_ONLY_NOT_FINAL_QC_ACCEPTED','RG-11:TWIN_Y_CHROMOSOME_DISCLOSURE_RULE','RG-11:DISCLOSURE_RULE_PROPOSED_ONLY','RG-12:REVIEW_NOT_RECORDED']);
+const gateItem=(x:string,pending:boolean)=>{const [gate,...rest]=x.split(':');return pending?`${gate}:${rest[rest.length-1]}`:`${gate}:${rest.join(':')}`;};
+/** True when every open gate failure/pending is something "ส่ง HIS" records itself (and there is at least one). */
+export function isSendResolvable(g:{failed:string[];pending:string[]}):boolean{
+ const items=[...g.failed.map(x=>gateItem(x,false)),...g.pending.map(x=>gateItem(x,true))];
+ return items.length>0&&items.every(i=>EVIDENCE_RECORDED_BY_SEND.has(i));
+}
 
 type V={id:string;state:string;row_version:number;case_id:string|null;origin:string;template_kind:string;abnormal:boolean;changed:Date;ln:string|null;ln_halos:string|null;hn:string|null;sample_id:string|null;unit_id:string|null;registration_origin:string|null;is_eqa:boolean};
 
@@ -49,7 +62,11 @@ export async function releaseQueue(db:Queryable,user:Staff,deps:ReportDeps,input
 // A HALOS row on HOLD and a version of the same patient and round can both be listed (different keys): the row says the report cannot be made yet, the version is a PDF that exists. Both stay visible on purpose.
  // Computed once per call; counts, rows and total of every tab come from this one read, so counts[tab] always equals what paging that tab reaches.
  const w=await worklistAll(db,user,deps,{q:d.q,status:'HOLD',scope:d.scope},caps.halos),halos=w.rows.filter(r=>!r.versionId);
- const byTab=(t:BoardTab)=>vs.filter(v=>TAB_OF[v.state]===t);
+ // One gate evaluation per open (Linked/ValidationBlocked) version, shared by the tab decision and the ACTION reasons.
+ const gates=new Map<string,{failed:string[];pending:string[]}>();
+ for(const v of vs)if(v.state==='ValidationBlocked'||v.state==='Linked')gates.set(v.id,await validationGateIssues(db,v.id).catch(()=>({failed:[] as string[],pending:[] as string[]})));
+ const tabOf=(v:V):BoardTab=>{const g=gates.get(v.id);return g&&isSendResolvable(g)?'READY':TAB_OF[v.state];};
+ const byTab=(t:BoardTab)=>vs.filter(v=>tabOf(v)===t);
  const counts={ACTION:halos.length+byTab('ACTION').length,READY:byTab('READY').length,SENT:byTab('SENT').length};
 
  type Item={at:number;halos?:typeof halos[number];v?:V};
@@ -68,7 +85,7 @@ export async function releaseQueue(db:Queryable,user:Staff,deps:ReportDeps,input
   if(d.tab==='ACTION'){
    const codes:string[]=[STATE_REASON[v.state]];
    if(v.state==='ValidationBlocked'||v.state==='Linked'){
-    const g=await validationGateIssues(db,v.id).catch(()=>({failed:[] as string[],pending:[] as string[]}));
+    const g=gates.get(v.id)!;
     // failed = 'RG-nn:REASON', pending = 'RG-nn:GOVERNANCE:REASON'; the reason is what a person can act on.
     const gate=[...g.failed.map(x=>x.split(':')[1]),...g.pending.map(x=>x.split(':')[2])].filter(Boolean);
     if(gate.length)codes.splice(0,codes.length,...gate);

@@ -9,7 +9,7 @@ import {confirmCompletion} from '../../packages/results/completion';
 import {confirmImport,unlinkVersion,voidVersion} from '../../packages/results/service';
 import {dismissHalosRow} from '../../packages/readygen/halos-import';
 import {sendToHis} from '../../packages/results/send-his';
-import {releaseQueue,fixHrefFor,BOARD_CAPS,type BoardRow} from '../../packages/results/release-queue';
+import {isSendResolvable,EVIDENCE_RECORDED_BY_SEND,releaseQueue,fixHrefFor,BOARD_CAPS,type BoardRow} from '../../packages/results/release-queue';
 
 type F=Awaited<ReturnType<typeof task3Fixture>>;
 const rowVersion=async(f:F,id:string)=>(await f.db.query<{row_version:number}>('SELECT row_version FROM result_report_version WHERE id=$1',[id])).rows[0].row_version;
@@ -155,25 +155,53 @@ it('a caps-limited read sets truncated; the normal read does not; a real Validat
  }finally{vi.unstubAllEnvs();await f.close();}
 },300000);
 
-// FINDING (Task 6b fix round 2): without QC5 a linked ReadyGen version is NOT promoted by recordReview/revalidate. The VALIDATION gate fails
-// RG-06 ANALYSIS_COMPLETION_NOT_RECORDED and RG-07 FINAL_QC_NOT_ACCEPTED; only recordQc5 (called inside reviewExternalForRelease) supplies that evidence.
-it('a linked version without QC5 stays ValidationBlocked (ACTION) after recordReview: RG-06/RG-07 need QC5',async()=>{
- const {proposeAutoMatch,decideLink,recordReview,validationGateIssues}=await import('../../packages/results/service');
+// R9: a linked version whose only open gate items are the ones "ส่ง HIS" records itself (review + QC5) is listed in READY with reviewed=false.
+async function linkedWithoutReview(f:F,index:number){
+ const {proposeAutoMatch,decideLink}=await import('../../packages/results/service');
+ const c=f.cases[index],bytes=syntheticReportPdf({kind:'SINGLETON',labNumber:c.printed,hn:c.hn,dob:'01-Jan-1990',collection:pdfDate('2026-10-20'),gaWeeks:17,gaDays:6,sex:null});
+ const intakeId=await f.run(t=>registerIntake(t,f.store,{source:'UPLOAD',relativePath:null,originalName:`SYNTHETIC-linked-no-review-${index}.pdf`,actorId:f.admin.id,jobId:null},bytes));
+ await f.run(t=>parseIntake(t,f.store,intakeId,{maxBytes:10000000,acceptZip:true}));
+ await f.run(t=>reviewBenchForResult(t,f.admin,c.attemptId,{revision:1,measurementsReviewed:true,reason:'SYNTHETIC legacy paper-only result evidence review'}));
+ const id=(await f.run(t=>confirmImport(t,f.admin,{intakeIds:[intakeId]})))[0].versionId!;
+ const rv=async()=>(await f.db.query<{state:string;row_version:number}>('SELECT state,row_version FROM result_report_version WHERE id=$1',[id])).rows[0];
+ let v=await rv();
+ if(v.state==='Unlinked'){await f.run(t=>proposeAutoMatch(t,f.admin,{versionId:id,expectedRowVersion:v.row_version}));v=await rv();}
+ if(v.state==='Unlinked'){await f.run(t=>decideLink(t,f.admin,{versionId:id,decision:'APPROVE',reason:'SYNTHETIC approve link for test',expectedRowVersion:v.row_version}));v=await rv();}
+ return {c,id,state:v.state};
+}
+it('a linked version failing only RG-06/RG-07/RG-01 (no review, no QC5) is in READY with reviewed=false, in no other tab, and sends with reviewConfirmed',async()=>{
  const f=await task3Fixture();try{
-  const c=f.cases[0],bytes=syntheticReportPdf({kind:'SINGLETON',labNumber:c.printed,hn:c.hn,dob:'01-Jan-1990',collection:pdfDate('2026-10-20'),gaWeeks:17,gaDays:6,sex:null});
-  const intakeId=await f.run(t=>registerIntake(t,f.store,{source:'UPLOAD',relativePath:null,originalName:'SYNTHETIC-linked-no-review.pdf',actorId:f.admin.id,jobId:null},bytes));
-  await f.run(t=>parseIntake(t,f.store,intakeId,{maxBytes:10000000,acceptZip:true}));
-  await f.run(t=>reviewBenchForResult(t,f.admin,c.attemptId,{revision:1,measurementsReviewed:true,reason:'SYNTHETIC legacy paper-only result evidence review'}));
-  const id=(await f.run(t=>confirmImport(t,f.admin,{intakeIds:[intakeId]})))[0].versionId!;
-  const rv=async()=>(await f.db.query<{state:string;row_version:number}>('SELECT state,row_version FROM result_report_version WHERE id=$1',[id])).rows[0];
-  let v=await rv();
-  if(v.state==='Unlinked'){await f.run(t=>proposeAutoMatch(t,f.admin,{versionId:id,expectedRowVersion:v.row_version}));v=await rv();}
-  if(v.state==='Unlinked'){await f.run(t=>decideLink(t,f.admin,{versionId:id,decision:'APPROVE',reason:'SYNTHETIC approve link for test',expectedRowVersion:v.row_version}));v=await rv();}
-  expect((await board(f,'ACTION')).rows.some(r=>r.versionId===id)).toBe(true);
-  const out=await f.run(t=>recordReview(t,f.admin,{versionId:id,valuesMatchPdf:true,abnormalAcknowledged:false,expectedRowVersion:v.row_version}));
-  expect(out.outcome).toBe('ValidationBlocked');
-  const g=await f.run(t=>validationGateIssues(t,id));
-  expect(g.failed).toEqual(['RG-06:ANALYSIS_COMPLETION_NOT_RECORDED','RG-07:FINAL_QC_NOT_ACCEPTED']);
-  expect((await board(f,'READY')).rows.some(r=>r.versionId===id)).toBe(false);
+  const l=await linkedWithoutReview(f,0);
+  expect(['Linked','ValidationBlocked']).toContain(l.state);
+  const ready=await board(f,'READY'),action=await board(f,'ACTION');
+  const row=ready.rows.find(r=>r.versionId===l.id);
+  expect(row).toMatchObject({reviewed:false});
+  expect(action.rows.some(r=>r.versionId===l.id)).toBe(false);
+  expect(ready.counts.READY).toBe(ready.page.total);expect(action.counts.ACTION).toBe(action.page.total);
+  const r=await f.run(t=>sendToHis(t,f.admin,{idempotencyKey:randomUUID(),reviewConfirmed:true,abnormalAcknowledged:false,items:[{versionId:l.id,expectedRowVersion:row!.rowVersion!}]}));
+  expect(r.items[0].outcome).toBe('CertifiedReleased');
+  expect((await f.db.query('SELECT 1 FROM result_review WHERE version_id=$1',[l.id])).rows.length).toBe(1);
+  expect((await f.db.query('SELECT 1 FROM result_qc5_review WHERE version_id=$1',[l.id])).rows.length).toBe(1);
  }finally{vi.unstubAllEnvs();await f.close();}
 },180000);
+it('a linked version that also fails for another reason (consent revoked) stays in ACTION with its reasons',async()=>{
+ const f=await task3Fixture();try{
+  const l=await linkedWithoutReview(f,1);
+  await f.db.query("INSERT INTO p2_revocation(case_id,round_id,stage,reason,actor_id) VALUES($1,$2,'W1','SYNTHETIC consent withdrawal',$3)",[l.c.caseId,l.c.roundId,f.u.staff.id]);
+  const ready=await board(f,'READY'),action=await board(f,'ACTION');
+  expect(ready.rows.some(r=>r.versionId===l.id)).toBe(false);
+  const row=action.rows.find(r=>r.versionId===l.id);expect(row).toBeTruthy();
+  expect(row!.reasons.map(x=>x.code)).toContain('CONSENT_REVOKED');
+ }finally{vi.unstubAllEnvs();await f.close();}
+},180000);
+
+it('isSendResolvable: only items that sending records itself',()=>{
+ expect(isSendResolvable({failed:['RG-06:ANALYSIS_COMPLETION_NOT_RECORDED','RG-07:FINAL_QC_NOT_ACCEPTED','RG-12:REVIEW_NOT_RECORDED'],pending:['RG-01:OD-07:TEMPLATE_AND_PIC_NOT_APPROVED']})).toBe(true);
+ expect(isSendResolvable({failed:[],pending:['RG-11:OD-09:DISCLOSURE_RULE_PROPOSED_ONLY']})).toBe(true);
+ expect(isSendResolvable({failed:['RG-07:FINAL_QC_NOT_ACCEPTED','RG-10:CONSENT_REVOKED'],pending:[]})).toBe(false);
+ expect(isSendResolvable({failed:['RG-03:NOT_LINKED'],pending:[]})).toBe(false);
+ expect(isSendResolvable({failed:['RG-06:UPSTREAM_EVIDENCE_MISSING'],pending:[]})).toBe(false);
+ expect(isSendResolvable({failed:[],pending:['RG-09:OD-08:CLINICAL_RULES_NOT_APPROVED']})).toBe(false);
+ expect(isSendResolvable({failed:[],pending:[]})).toBe(false);
+ expect(EVIDENCE_RECORDED_BY_SEND.size).toBe(7);
+});
