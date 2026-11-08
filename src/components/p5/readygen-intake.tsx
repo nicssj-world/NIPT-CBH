@@ -32,6 +32,8 @@ export function ReadyGenIntake({canSettings,onImported}:{canSettings:boolean;onI
  const [info,setInfo]=useState<Info|null>(null),[error,setError]=useState(""),[notice,setNotice]=useState(""),[tab,setTab]=useState<"folder"|"upload">("folder");
  const [busy,setBusy]=useState<string|null>(null),[test,setTest]=useState<TestResult|null>(null),[scan,setScan]=useState<ScanResult|null>(null),[picked,setPicked]=useState<Set<string>>(new Set());
  const [uploadRejected,setUploadRejected]=useState<{name:string;code:string}[]>([]),[plan,setPlan]=useState<Plan|null>(null),[ack,setAck]=useState(false);
+ // A prepared plan (files already read, waiting for the abnormal tick) belongs to exactly one selection: any change of selection drops it.
+ const dropPlan=()=>{setPlan(null);setAck(false);};
  const abort=useRef<AbortController|null>(null),fileInput=useRef<HTMLInputElement>(null);
  useEffect(()=>{let active=true;void Promise.resolve().then(async()=>{try{const d=await labApi<Info>("/api/p5/results",{action:"query",bucket:"closed",page:1,pageSize:25});if(!active)return;setInfo(d);setTest(t=>t??d.intake.lastTest?.result??null);setScan(s=>s??d.intake.lastScan?.result??null);}catch(e){if(active)setError(failureText(e));}});return()=>{active=false;abort.current?.abort();};},[]);
  const run=async<T,>(label:string,fn:(signal:AbortSignal)=>Promise<T>)=>{abort.current?.abort();const c=new AbortController();abort.current=c;setBusy(label);setError("");setNotice("");try{return await fn(c.signal);}catch(e){if(!(e instanceof Error&&e.message==="ABORTED"))setError(jobError(e));return null;}finally{if(abort.current===c)setBusy(null);}};
@@ -74,12 +76,13 @@ export function ReadyGenIntake({canSettings,onImported}:{canSettings:boolean;onI
  const doImport=()=>run("import",async s=>{
   let p=plan;if(!p){p=await prepare(s);if(!p)return;}
   if(p.abnormal>0&&!ack){setPlan(p);return;}
-  const sum=await finish(p,ack);
+  let sum:ImportSummary={ready:0,action:0};
+  // The board is refreshed even when the queue import fails after the ready items were already confirmed.
+  try{sum=await finish(p,ack);}finally{onImported(sum);}
   const skipped=p.rejected.length;
   setNotice(`พร้อมส่ง HIS ${sum.ready} · ต้องจัดการ ${sum.action}${skipped?` · ไม่นำเข้า ${skipped} ไฟล์ (ซ้ำ/อ่านไม่ได้)`:""}`);
   setPlan(null);setAck(false);setScan(null);setPicked(new Set());if(fileInput.current)fileInput.current.value="";
-  onImported(sum);
- });
+});
  const folderMsg=(code:string|null)=>code?(FOLDER_ERROR_TEXT[code]??code):"";
  const importLabel=busy==="import"?"กำลังนำเข้า…":"นำเข้า";
  const ackNeeded=!!plan&&plan.abnormal>0&&!ack;
@@ -112,9 +115,9 @@ export function ReadyGenIntake({canSettings,onImported}:{canSettings:boolean;onI
      <p className="help" role="status">พบไฟล์ใหม่ {newFiles.length} ไฟล์ · ซ้ำ/นำเข้าแล้ว {hidden} ไฟล์ (ไม่แสดง){problems>0&&` · ใช้ไม่ได้ ${problems} ไฟล์`}{scan.truncated?` · แสดงไม่เกิน ${info?.intake.maxFilesPerScan} ไฟล์ — ย้ายไฟล์เก่าออกหรือปรับการตั้งค่า`:""}</p>
      {newFiles.length>0&&<div className="table-wrap" role="region" aria-label="ไฟล์ใหม่ในโฟลเดอร์" tabIndex={0}>
       <table className="data-table p5-scan"><caption>ไฟล์ใหม่ที่จะนำเข้า</caption>
-       <thead><tr><th scope="col"><label className="table-check-target"><input type="checkbox" aria-label="เลือกไฟล์ใหม่ทั้งหมด" checked={newFiles.every(f=>picked.has(f.path))} onChange={e=>setPicked(e.target.checked?new Set(newFiles.map(f=>f.path)):new Set())}/></label></th><th scope="col">ไฟล์</th><th scope="col">โฟลเดอร์ย่อย</th><th scope="col" className="num">ขนาด</th><th scope="col">แก้ไขล่าสุด</th><th scope="col">สถานะ</th></tr></thead>
+       <thead><tr><th scope="col"><label className="table-check-target"><input type="checkbox" aria-label="เลือกไฟล์ใหม่ทั้งหมด" checked={newFiles.every(f=>picked.has(f.path))} onChange={e=>{dropPlan();setPicked(e.target.checked?new Set(newFiles.map(f=>f.path)):new Set());}}/></label></th><th scope="col">ไฟล์</th><th scope="col">โฟลเดอร์ย่อย</th><th scope="col" className="num">ขนาด</th><th scope="col">แก้ไขล่าสุด</th><th scope="col">สถานะ</th></tr></thead>
        <tbody>{newFiles.map(f=><tr key={f.path} className={picked.has(f.path)?"selected":""}>
-        <td><label className="table-check-target"><input type="checkbox" aria-label={`เลือก ${f.name}`} checked={picked.has(f.path)} onChange={e=>setPicked(p=>{const n=new Set(p);if(e.target.checked)n.add(f.path);else n.delete(f.path);return n;})}/></label></td>
+        <td><label className="table-check-target"><input type="checkbox" aria-label={`เลือก ${f.name}`} checked={picked.has(f.path)} onChange={e=>{dropPlan();setPicked(p=>{const n=new Set(p);if(e.target.checked)n.add(f.path);else n.delete(f.path);return n;});}}/></label></td>
         <td className="p5-file">{f.name}</td><td>{f.folder||<span className="muted">(โฟลเดอร์หลัก)</span>}</td><td className="num">{bytes(f.size)}</td><td>{bkk(f.modifiedAt)}</td><td><Status tone="good">{SCAN_TEXT[f.status]??f.status}</Status></td></tr>)}</tbody>
       </table>
      </div>}
@@ -122,7 +125,7 @@ export function ReadyGenIntake({canSettings,onImported}:{canSettings:boolean;onI
      <div className="bulk-bar"><span>เลือก {picked.size} ไฟล์</span><button type="button" className="button" disabled={!picked.size||!!busy||ackNeeded} onClick={()=>void doImport()}>{importLabel}</button></div>
     </div>)}
   </div>:<div role="tabpanel" aria-label="เลือกไฟล์จากเครื่อง" className="stack">
-   <div className="field"><label htmlFor="p5-files">ไฟล์ผล (.pdf หรือ .zip) ได้สูงสุด 20 ไฟล์</label><FileDropInput id="p5-files" ref={fileInput} type="file" multiple accept=".pdf,.zip,application/pdf,application/zip" aria-describedby="p5-files-help"/>
+   <div className="field"><label htmlFor="p5-files">ไฟล์ผล (.pdf หรือ .zip) ได้สูงสุด 20 ไฟล์</label><FileDropInput id="p5-files" ref={fileInput} onChange={dropPlan} type="file" multiple accept=".pdf,.zip,application/pdf,application/zip" aria-describedby="p5-files-help"/>
     <p id="p5-files-help" className="help">ทางเลือกเมื่อไฟล์ไม่ได้อยู่ในโฟลเดอร์ผล — ระบบกักตรวจและอ่านไฟล์แบบเดียวกับไฟล์จากโฟลเดอร์ ไฟล์ละไม่เกิน {info?.intake.maxUploadMb??"…"} MB</p></div>
    {abnormalBox}
    <div className="action-bar"><button type="button" className="button" onClick={()=>void doImport()} disabled={!!busy||ackNeeded}>{importLabel}</button></div>

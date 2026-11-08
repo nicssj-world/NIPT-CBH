@@ -27,7 +27,6 @@ const ID_FIELDS:[string,string][]=[["labNumber","เลข Lab (LN ใน PDF)"]
 const RESULT_FIELDS:[string,string][]=[["result","Result"],["t21","Trisomy 21"],["t18","Trisomy 18"],["t13","Trisomy 13"],["fetalSex","เพศทารก (ถ้าแสดง)"],["xo","XO"],["xxx","XXX"],["xxy","XXY"],["xyy","XYY"],["yChromosome","โครโมโซม Y (ครรภ์แฝด)"],["fetalFraction","Fetal fraction (%)"],["qc","RESULTS QC"]];
 const METHOD_TEXT:Record<string,string>={ANCHORED:"ตรงตำแหน่ง",FALLBACK:"สำรอง — ตรวจมือ",UNREADABLE:"อ่านไม่ได้",NOT_APPLICABLE:"ไม่เกี่ยวข้อง"};
 const METHOD_TONE:Record<string,""|"good"|"warning"|"bad">={ANCHORED:"good",FALLBACK:"warning",UNREADABLE:"bad"};
-const key=()=>crypto.randomUUID().replaceAll("-","");
 const Status=({tone,children}:{tone?:string;children:React.ReactNode})=><span className={`status ${tone??""}`}>{children}</span>;
 const CROSS_KEYS=["hn","dob","pregnancy","collectionDate","gestationalAge","labNumber"];
 
@@ -37,14 +36,11 @@ function CrossTable({cross,caption}:{cross:Cross;caption:string}){
 }
 
 export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:boolean}){
- const [qcCriteria,setQcCriteria]=useState(''),[qcReason,setQcReason]=useState(''),[qcTemplate,setQcTemplate]=useState(false),[qcDisclosure,setQcDisclosure]=useState(false),[confirmCertification,setConfirmCertification]=useState(false);
  const [noticeTone,setNoticeTone]=useState<"success"|"warning-notice">("success");
  const [d,setD]=useState<Detail|null>(null),[error,setError]=useState(""),[notice,setNotice]=useState(""),[busy,setBusy]=useState<string|null>(null);
  const [choice,setChoice]=useState(""),[reason,setReason]=useState(""),[revise,setRevise]=useState(false),[nameReview,setNameReview]=useState<""|"NEW_REPORT"|"REVISION">(""),[rev,setRev]=useState({receivedDate:"",requestedBy:"",reason:""});
  const [decision,setDecision]=useState(""),[valuesOk,setValuesOk]=useState(false),[ack,setAck]=useState(false),[note,setNote]=useState("");
- const [accept,setAccept]=useState({external:false,identity:false,disclosure:false});
- const [benchReviewed,setBenchReviewed]=useState(false);
- const [certKey,setCertKey]=useState(key),[certAck,setCertAck]=useState(false),[outcome,setOutcome]=useState<{outcome:string;outboundSuppressed?:boolean;failed?:string[];pending?:string[];waitsForP4b?:boolean}|null>(null),[voidReason,setVoidReason]=useState("");
+ const [voidReason,setVoidReason]=useState("");
  const [reparseReason,setReparseReason]=useState(""),[reparseKey,setReparseKey]=useState(()=>crypto.randomUUID()),[diagnostics,setDiagnostics]=useState<{id:string;parserVersion:string;outcome:string;rejectCode:string|null;createdAt:string;reason:string}[]>([]),[maintenanceError,setMaintenanceError]=useState("");
  const loadDiagnostics=useCallback(async()=>{if(!canMaintain)return;try{const r=await labApi<{evidence:typeof diagnostics}>(`/api/p5/results/${id}/reparse`);setDiagnostics(r.evidence);setMaintenanceError("");}catch(e){setMaintenanceError(failureText(e));}},[id,canMaintain]);
  useEffect(()=>{void Promise.resolve().then(loadDiagnostics);},[loadDiagnostics]);
@@ -56,8 +52,6 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
   catch(e){if(e instanceof LabFailure&&e.code==="REVISION_DETAILS_REQUIRED")setRevise(true);setError(failureText(e));if(e instanceof LabFailure&&e.code==="VERSION_CONFLICT")await load();return null;}finally{setBusy(null);}};
  if(!d)return <><p><Link href="/results">← คิวตรวจทานผล</Link></p>{error?<p className="notice" role="alert">{error}</p>:<div className="skeleton" aria-busy="true" aria-label="กำลังโหลด"/>}</>;
  const v=d.version,p=d.parsed,isNotice=v.kind==="REDRAW_NOTICE",picked=d.candidates.find(c=>c.attempt.id===choice);
- const needsBenchReview=!!d.operational&&!!d.benchEvidence?.requiresReview&&p.results.result?.value!=="No Call";
- const benchConfirmation=needsBenchReview&&d.benchEvidence?{benchRevision:d.benchEvidence.revision,benchMeasurementsReviewed:true}:{};
  const history=[...d.events.map(e=>({at:e.created_at,text:`${e.from_state?STATE_TEXT[e.from_state]+" → ":""}${STATE_TEXT[e.to_state]??e.to_state}${e.reason?" · "+reasonText(e.reason):""}`,who:e.actor})),
   ...d.links.map(l=>({at:l.created_at,text:`${{PROPOSED:"เสนอการเชื่อมโยง",APPROVED:"ยืนยันการเชื่อมโยง",REJECTED:"ปฏิเสธข้อเสนอ",UNLINKED:"ถอดการเชื่อมโยง",AUTO_LINKED:"ระบบเชื่อมโยงอัตโนมัติ (ตรงกันชัดเจน 1 รายการ, P5-A)"}[l.event]??l.event}${l.outcome?" → "+STATE_TEXT[l.outcome]:""} · ${l.reason}`,who:l.actor})),
   ...d.gates.map(g=>({at:g.created_at,text:`ประเมิน ${g.gate} (${g.purpose==="CERTIFY_ATTEMPT"?"ขณะกดรับรอง":"ตรวจความพร้อม"}) → ${g.outcome==="RELEASE_HOLD"?"ผ่าน Gate แต่ระงับการปล่อย":g.outcome==="BLOCKED"?"ถูกบล็อก":"รอรับรอง"}`,who:g.actor})),
@@ -156,21 +150,8 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
     </section>}
 
     <Task3Panel d={d} versionId={v.id} reload={load}/>
-    {d.operational&&v.state==="PendingCertification"&&<section className="panel" aria-labelledby="waiting-his-h" role="status"><h2 id="waiting-his-h">รอส่ง HIS</h2><p>ผลนี้ตรวจรับแล้วและรอส่ง HIS — ANC ยังไม่เห็นผล ส่งผ่านหน้า <Link href="/results">ผลตรวจ NIPT</Link> › รอส่ง HIS</p></section>}
-    {d.operational&&d.can.acceptRelease&&v.state!=="PendingCertification"&&<section className="panel" aria-labelledby="accept-h">
-     <h2 id="accept-h">ตรวจรับ PDF และยืนยันส่งผล</h2>
-     <p className="help">รายงาน Final มาจากโปรแกรมวิเคราะห์ภายนอกที่รับรองผลแล้ว NIPT-CBH ไม่วิเคราะห์หรือรับรองผลทางคลินิกซ้ำ — ยืนยันครั้งเดียวเพื่อบันทึกการตรวจรับ PDF และส่งผล ระบบยังตรวจตัวตนผู้ป่วย ฉบับรายงาน ความยินยอม และ Gate ทุกข้อขณะกด</p>
-     <label className="check-label"><input type="checkbox" checked={accept.external} onChange={e=>setAccept({...accept,external:e.target.checked})}/> รายงานฉบับนี้เป็น Final ที่ผ่านการรับรองจากระบบวิเคราะห์ภายนอกแล้ว</label>
-     <label className="check-label"><input type="checkbox" checked={accept.identity} onChange={e=>setAccept({...accept,identity:e.target.checked})}/> ตรวจตัวตนผู้ป่วย (LN/HN/ชื่อ/วันเกิด) และค่าทุกค่าตรงกับ PDF ต้นฉบับแล้ว</label>
-     <label className="check-label"><input type="checkbox" checked={accept.disclosure} onChange={e=>setAccept({...accept,disclosure:e.target.checked})}/> ตรวจความยินยอมและข้อมูลที่เปิดเผยในรายงานแล้ว</label>
-     {needsBenchReview&&<label className="check-label"><input type="checkbox" checked={benchReviewed} onChange={e=>setBenchReviewed(e.target.checked)}/> ตรวจทานค่าจริง QC1 / QC2 / Seq Task-G50 และหลักฐาน QC3/QC4 ตาม Master ล่าสุดของใบงานฉบับนี้แล้ว</label>}
-     {p.abnormal&&<label className="check-label"><input type="checkbox" checked={certAck} onChange={e=>setCertAck(e.target.checked)}/> รับทราบผลผิดปกติ (High risk / Detected)</label>}
-     <div className="action-bar"><button type="button" className="button" disabled={!!busy||!accept.external||!accept.identity||!accept.disclosure||(needsBenchReview&&!benchReviewed)||(p.abnormal&&!certAck)} onClick={async()=>{const r=await act("acceptRelease",{idempotencyKey:certKey,externalFinalCertified:true,identityAndValuesMatchPdf:true,disclosureReviewed:true,abnormalAcknowledged:certAck,...benchConfirmation},"บันทึกการตรวจรับและยืนยันส่งผลแล้ว");if(r){setOutcome(r as typeof outcome);setCertKey(key());setAccept({external:false,identity:false,disclosure:false});setBenchReviewed(false);}}}>{busy==="acceptRelease"?"กำลังตรวจและบันทึก…":"ตรวจรับและยืนยันส่งผล"}</button></div>
-     {outcome&&<div role="status" className={`notice ${outcome.outcome==="CertifiedReleased"?"":"warning-notice"}`}>{outcome.outcome==="CertifiedReleased"?<p><strong>ยืนยันส่งผลแล้ว</strong> — {outcome.outboundSuppressed?"งดส่งซ้ำไป HIS ตามคำยืนยันว่ามี PDF ใน HIS แล้ว":"ระบบส่งไฟล์ไป HIS ตามคิว การส่งไฟล์ยังไม่ใช่หลักฐานว่า HIS รับผลแล้ว"}</p>:<><p><strong>ยังส่งผลไม่ได้</strong> — ไม่ผ่าน Gate</p><ul>{[...(outcome.failed??[]),...(outcome.pending??[])].map(x=>{const [code,...rest]=x.split(":");return <li key={x}>{code} {GATE_NAME[code]}: {reasonText(rest[rest.length-1])}</li>;})}</ul></>}</div>}
-    </section>}
-
-    {outcome?.outcome==='CertifiedReleased'&&!d.can.acceptRelease&&<section className="panel" role="status"><p><strong>ยืนยันส่งผลแล้ว</strong> — ระบบส่งไฟล์ตามนโยบายที่กำหนด การส่งไฟล์ยังไม่ใช่หลักฐานว่า HIS รับผลแล้ว</p></section>}
-    {d.can.review&&!(d.operational&&d.can.acceptRelease)&&<section className="panel" aria-labelledby="review-h">
+    {d.operational&&v.state!=="CertifiedReleased"&&<section className="panel" aria-labelledby="waiting-his-h" role="status"><h2 id="waiting-his-h">การส่งผลให้ ANC</h2><p>ANC จะเห็นผลหลังกด “ส่ง HIS” เท่านั้น — ส่งผ่านหน้า <Link href="/results">ผลตรวจ NIPT</Link> › รอส่ง HIS</p></section>}
+    {d.can.review&&<section className="panel" aria-labelledby="review-h">
      <h2 id="review-h">ตรวจทานค่ากับ PDF</h2>
      <form className="stack" onSubmit={e=>{e.preventDefault();void act("review",{valuesMatchPdf:true,abnormalAcknowledged:ack,...(note?{note}:{})},"บันทึกการตรวจทานแล้ว").then(r=>{if(r){setValuesOk(false);setAck(false);setNote("");}});}}>
       <label className="check-label"><input type="checkbox" checked={valuesOk} onChange={e=>setValuesOk(e.target.checked)} required/> ตรวจแล้วว่าค่าทุกค่าตรงกับ PDF ต้นฉบับ</label>
@@ -179,17 +160,6 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
       <div className="action-bar"><button className="button secondary" disabled={!valuesOk||!!busy}>{busy==="review"?"กำลังบันทึก…":"บันทึกการตรวจทาน"}</button></div>
      </form>
      <p className="help">OD-04: ผู้ตรวจทานเป็นคนเดียวกับผู้รับรองได้หากได้รับสิทธิ์ — Clinical Governance ยังไม่ลงนาม</p>
-    </section>}
-
-    {d.can.certify&&v.state!=="PendingCertification"&&!(d.operational&&d.can.acceptRelease)&&<section className="panel" aria-labelledby="certify-h">
-     <h2 id="certify-h">รับรองและส่งผล</h2>
-     {d.operational?<><p className="help">ทบทวน QC5 และยืนยันการรับรอง ระบบตรวจสิทธิ์และหลักฐานปัจจุบันก่อนปล่อยผลทุกครั้ง</p><fieldset><legend>QC5 ของ PDF ฉบับนี้</legend><label htmlFor="qc5-criteria">เอกสาร / เกณฑ์ที่ใช้ทบทวน</label><input id="qc5-criteria" value={qcCriteria} onChange={e=>setQcCriteria(e.target.value)}/><label htmlFor="qc5-reason">ผลทบทวน</label><textarea id="qc5-reason" value={qcReason} onChange={e=>setQcReason(e.target.value)}/><label className="check-label"><input type="checkbox" checked={qcTemplate} onChange={e=>setQcTemplate(e.target.checked)}/> ตรวจรูปแบบและค่ากับ PDF ต้นฉบับแล้ว</label><label className="check-label"><input type="checkbox" checked={qcDisclosure} onChange={e=>setQcDisclosure(e.target.checked)}/> ตรวจความยินยอมและข้อมูลที่เปิดเผยในรายงานแล้ว</label>{needsBenchReview&&<label className="check-label"><input type="checkbox" checked={benchReviewed} onChange={e=>setBenchReviewed(e.target.checked)}/> ตรวจทานค่าจริง QC1 / QC2 / Seq Task-G50 และหลักฐาน QC3/QC4 ตาม Master ล่าสุดของใบงานฉบับนี้แล้ว</label>}<button className="button secondary" disabled={!!busy||!qcTemplate||!qcDisclosure||qcCriteria.trim().length<8||qcReason.trim().length<8||(needsBenchReview&&!benchReviewed)} onClick={()=>void act('qc5',{criteriaReference:qcCriteria,reason:qcReason,templateReviewed:true,disclosureReviewed:true,abnormalAcknowledged:certAck,...benchConfirmation},'บันทึก QC5 แล้ว')}>ยืนยัน QC5</button></fieldset><label className="check-label"><input type="checkbox" checked={confirmCertification} onChange={e=>setConfirmCertification(e.target.checked)}/> ยืนยันรับรองผลด้วยบัญชีของฉัน</label></>:<p className="help">ระบบประเมิน Gate ใหม่ทั้งหมดในขณะกด และบันทึกผลการประเมินทุกครั้ง ในระยะนี้แม้ผ่าน Gate ก็จะไม่ปล่อยผล (AL-5 / OD-05 / OD-07)</p>}
-     {p.abnormal&&<label className="check-label"><input type="checkbox" checked={certAck} onChange={e=>setCertAck(e.target.checked)}/> รับทราบผลผิดปกติก่อนรับรอง</label>}
-     <div className="action-bar"><button type="button" className="button" disabled={!!busy||(p.abnormal&&!certAck)||(d.operational&&!confirmCertification)} onClick={async()=>{const r=await act("certify",{idempotencyKey:certKey,abnormalAcknowledged:certAck,...(d.operational?{confirmed:true}:{})},"บันทึกการประเมินขณะรับรองแล้ว");if(r){setOutcome(r as typeof outcome);setCertKey(key());}}}>{busy==="certify"?"กำลังประเมิน…":"รับรองและส่งผล"}</button></div>
-     {outcome&&<div role="status" className={`notice ${outcome.outcome==="RELEASE_HOLD"?"warning-notice":""}`}>
-      {outcome.outcome==='CertifiedReleased'?<p><strong>รับรองและปล่อยผลแล้ว</strong> — ตรวจสถานะการส่งไฟล์ในประวัติ HIS/CFS การส่งไฟล์ยังไม่ใช่หลักฐานว่า HIS รับผลแล้ว</p>:outcome.outcome==="RELEASE_HOLD"?<p><strong>ผ่าน Gate แต่ยังไม่ปล่อยผล</strong> — การปล่อยผลจริงถูกระงับจนกว่า AL-5 ผ่าน</p>
-       :<><p><strong>รับรองไม่ได้</strong> — ไม่ผ่าน Gate</p><ul>{[...(outcome.failed??[]),...(outcome.pending??[])].map(x=>{const [code,...rest]=x.split(":");return <li key={x}>{code} {GATE_NAME[code]}: {reasonText(rest[rest.length-1])}</li>;})}</ul></>}
-     </div>}
     </section>}
 
     {d.can.void&&<section className="panel" aria-labelledby="void-h">

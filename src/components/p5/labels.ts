@@ -58,7 +58,7 @@ export const bytes=(n:number)=>n<1024?`${n} B`:n<1048576?`${(n/1024).toFixed(1)}
 // Results board (Action needed tab): reason codes from the board read model that HOLD_TEXT / reasonText do not already explain.
 export const BOARD_REASON_TEXT:Record<string,string>={
  UNLINKED:"ยังไม่ได้เลือกผู้ป่วย — จับคู่จาก HN / LN ไม่ได้ชัดเจน",LINK_CONFLICT:"ข้อมูลใน PDF ขัดกับผู้ป่วยที่เลือก — ตรวจ HN / LN",
- VALIDATION_BLOCKED:"ไม่ผ่านการตรวจเงื่อนไขก่อนส่ง",AWAITING_REVIEW:"ยังไม่ได้ตรวจรับ — จะตรวจตอนส่ง HIS",
- REVIEW_REQUIRED:"ยังไม่ได้ตรวจรับ — จะตรวจตอนส่ง HIS",QC5_REQUIRED:"ยังไม่ได้ตรวจรับ — จะตรวจตอนส่ง HIS",
+ VALIDATION_BLOCKED:"ไม่ผ่านการตรวจเงื่อนไขก่อนส่ง",AWAITING_REVIEW:"เชื่อมผู้ป่วยแล้ว แต่ยังไม่ผ่านเงื่อนไขก่อนส่ง — เปิดรายละเอียดเพื่อตรวจทาน",
+ REVIEW_REQUIRED:"ยังไม่ได้ตรวจทานค่ากับ PDF — เปิดรายละเอียดเพื่อตรวจทาน",QC5_REQUIRED:"ยังไม่ได้บันทึก QC5 — เปิดรายละเอียดเพื่อตรวจทาน",
  HOLD:"ระงับ",NOT_LINKED:"ยังไม่ได้เชื่อมกับผู้ป่วย"};
 

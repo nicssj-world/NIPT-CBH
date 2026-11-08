@@ -21,18 +21,14 @@ test('Task1 external No Call displays actual parsed Result and failed QC with ex
  await login(page);const id=randomUUID(),pdf=syntheticReportPdf({kind:'SINGLETON',labNumber:'26B261023001R-1',hn:'990000001',collection:'23-Oct-2026',result:'No Call',qc:'FAIL',sex:null}),read=await extract(pdf);
  if(read.container==='ZIP_BATCH')throw Error('PDF_REQUIRED');const parsed=parseReport(read.text);
  // Render real extracted PDF facts through the actual component; clinical release is independently DB-tested.
- let submitted:Record<string,unknown>|null=null;
  const detail={operational:true,nameConflicts:[],version:{id,kind:'RESULT',templateKind:'SINGLETON',templateVersion:parsed.templateVersion,parserVersion:parsed.parserVersion,state:'ValidationBlocked',rowVersion:1,sha256:'a'.repeat(64),importedAt:'2026-10-24T00:00:00Z',roundId:randomUUID(),supersedesId:null},parsed,intake:{source:'UPLOAD',relative_path:null,original_name:'synthetic-no-call.pdf',member_name:null,size:pdf.length,container:'PDF'},target:null,proposal:null,candidates:[],gate:null,events:[],links:[],gates:[],reviews:[],autoMatch:null,can:{propose:false,decide:false,unlink:false,review:false,certify:false,void:false,acceptRelease:true},benchEvidence:{batchId:randomUUID(),runLabel:'SYNTHETIC',slot:2,revision:1,current:true,concentration:1,qcStandardCount:0,poolConcentration:null,sourceSha256:'b'.repeat(64),ownerPaperRoute:true}};
  await page.route(`**/api/p5/results/${id}`,async r=>{if(r.request().method()==='GET')await r.fulfill({json:detail});else {submitted=r.request().postDataJSON();await r.fulfill({json:{outcome:'BLOCKED',failed:['RG-06:NO_CALL_CURRENT_FAILED_ATTEMPT_AND_REVIEW_REQUIRED'],pending:[]}});}});
  await page.goto(`/results/${id}`);await expect(page.getByRole('row').filter({has:page.getByRole('rowheader',{name:'Result',exact:true})})).toContainText('No Call');
  await expect(page.getByRole('row').filter({has:page.getByRole('rowheader',{name:'RESULTS QC',exact:true})})).toContainText('FAIL');
  await expect(page.getByLabel(/ตรวจทานค่าจริง QC1/)).toHaveCount(0);
- const send=page.getByRole('button',{name:'ตรวจรับและยืนยันส่งผล',exact:true});await expect(send).toBeDisabled();
- await page.getByLabel('รายงานฉบับนี้เป็น Final ที่ผ่านการรับรองจากระบบวิเคราะห์ภายนอกแล้ว').check();await expect(send).toBeDisabled();
- await page.getByLabel('ตรวจตัวตนผู้ป่วย (LN/HN/ชื่อ/วันเกิด) และค่าทุกค่าตรงกับ PDF ต้นฉบับแล้ว').check();await expect(send).toBeDisabled();
- await page.getByLabel('ตรวจความยินยอมและข้อมูลที่เปิดเผยในรายงานแล้ว').check();await expect(send).toBeEnabled();
- await send.click();await expect(page.getByText('ยังส่งผลไม่ได้',{exact:true})).toBeVisible();
- expect(submitted).toMatchObject({externalFinalCertified:true,identityAndValuesMatchPdf:true,disclosureReviewed:true});expect(submitted).not.toHaveProperty('benchMeasurementsReviewed');
+// Result-release simplification: the detail page no longer certifies; the only certify step is "ส่ง HIS" on the results board (UNRUN).
+await expect(page.getByRole('button',{name:'ตรวจรับและยืนยันส่งผล'})).toHaveCount(0);await expect(page.getByRole('button',{name:'รับรองและส่งผล'})).toHaveCount(0);
+await expect(page.getByText('ANC จะเห็นผลหลังกด “ส่ง HIS” เท่านั้น',{exact:false})).toBeVisible();
  await mkdir(evidence,{recursive:true});await page.screenshot({path:path.join(evidence,'no-call-review.png'),fullPage:true});
 });
 

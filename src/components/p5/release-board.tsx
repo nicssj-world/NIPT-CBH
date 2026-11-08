@@ -40,7 +40,10 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras}:{tab:BoardTab;o
  const rows=useMemo(()=>data?.rows??[],[data]);
  const sel=useMemo(()=>selectedRows(rows,selected),[rows,selected]);
  const showReview=needsReviewTick(sel),showAbnormal=needsAbnormalTick(sel);
- const toggle=(key:string,on:boolean)=>setSelected(s=>{const n=new Set(s);if(on)n.add(key);else n.delete(key);return n;});
+ // The ticks belong to the selection they were given for: any change of selection clears them.
+ const changeSelection=(next:Set<string>)=>{setSelected(next);setTicks({reviewConfirmed:false,abnormalAcknowledged:false});};
+ const selectable=useMemo(()=>rows.filter(r=>r.versionId),[rows]);
+ const toggle=(key:string,on:boolean)=>{const n=new Set(selected);if(on)n.add(key);else n.delete(key);changeSelection(n);};
  const changeTab=(t:BoardTab)=>{clearSelection();setOutcomes(null);setSendError("");setNotice("");setPage(1);onTab(t);};
 
  const send=async(batch:BoardRow[])=>{
@@ -49,9 +52,10 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras}:{tab:BoardTab;o
   if(sendKey.current?.sig!==sig)sendKey.current={sig,key:crypto.randomUUID()};
   setSending(true);setSendError("");setNotice("");setOutcomes(null);
   try{const r=await labApi<{items:SendOutcome[]}>("/api/p5/results",{action:"send",idempotencyKey:sendKey.current.key,...given,items:batch.map(b=>({versionId:b.versionId,expectedRowVersion:b.rowVersion}))});
-   setOutcomes(r.items.map(o=>({outcome:o,row:batch.find(b=>b.versionId===o.versionId)!})));sendKey.current=null;clearSelection();await load();}
-  catch(e){setSendError(failureText(e));}finally{setSending(false);}};
- const sendRow=(r:BoardRow)=>{if(!canSend([r],ticks)){setSelected(s=>new Set(s).add(r.key));setNotice("ติ๊กยืนยันด้านล่างตาราง แล้วกด “ส่งที่เลือก”");return;}void send([r]);};
+   setOutcomes(r.items.map(o=>({outcome:o,row:batch.find(b=>b.versionId===o.versionId)!})));sendKey.current=null;clearSelection();}
+  catch(e){setSendError(failureText(e));setSending(false);return;}
+  setSending(false);await load();};
+ const sendRow=(r:BoardRow)=>{if(!canSend([r],ticks)){changeSelection(new Set(selected).add(r.key));setNotice("ติ๊กยืนยันด้านล่างตาราง แล้วกด “ส่งที่เลือก”");return;}void send([r]);};
  const done=async(message:string)=>{setDialog(null);setNotice(message);await load();};
 
  const empty=q?"ไม่พบรายการที่ตรงกับคำค้น":tab==="ACTION"?"ไม่มีรายการที่ต้องจัดการ":tab==="READY"?"ไม่มีผลที่รอส่ง HIS":"ยังไม่มีผลที่ส่งแล้ว";
@@ -76,7 +80,7 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras}:{tab:BoardTab;o
     <ul className="timeline">{outcomes.map(({row,outcome})=><li key={outcome.versionId}><Status tone={outcomeTone(outcome)}>{outcome.outcome==="CertifiedReleased"?"ส่งแล้ว":outcome.outcome==="BLOCKED"?"ส่งไม่ได้":"ไม่สำเร็จ"}</Status> <span className="mono">{row?.ln??row?.hn??outcome.versionId}</span> · {outcomeText(outcome,reasonLabel)}</li>)}</ul></div>}
    {!error&&<div className="table-wrap" role="region" aria-label={`รายการ${TABS.find(t=>t[0]===tab)![1]}`} tabIndex={0}>
     <table className="data-table board-table"><thead><tr>
-     {tab==="READY"&&<th scope="col"><label className="table-check-target"><input type="checkbox" aria-label="เลือกทั้งหมดที่พร้อมในหน้านี้" disabled={!rows.length} checked={rows.length>0&&rows.every(r=>selected.has(r.key))} onChange={e=>setSelected(e.target.checked?new Set(rows.filter(r=>r.versionId).map(r=>r.key)):new Set())}/></label></th>}
+     {tab==="READY"&&<th scope="col"><label className="table-check-target"><input type="checkbox" aria-label="เลือกทั้งหมดที่พร้อมในหน้านี้" disabled={!selectable.length} checked={selectable.length>0&&selectable.every(r=>selected.has(r.key))} onChange={e=>changeSelection(e.target.checked?new Set(selectable.map(r=>r.key)):new Set())}/></label></th>}
      <th scope="col">LN · HN</th><th scope="col">ที่มา</th><th scope="col">{tab==="ACTION"?"เหตุผลที่ยังส่งไม่ได้":"สถานะ"}</th><th scope="col">ไฟล์</th><th scope="col">{tab==="SENT"?"เปิด":"ดำเนินการ"}</th></tr></thead>
      <tbody>{rows.length?rows.map(r=><tr key={r.key} className={selected.has(r.key)?"selected":""}>
       {tab==="READY"&&<td><label className="table-check-target"><input type="checkbox" aria-label={`เลือก ${r.ln??r.hn??r.key}`} checked={selected.has(r.key)} onChange={e=>toggle(r.key,e.target.checked)}/></label></td>}
@@ -96,7 +100,7 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras}:{tab:BoardTab;o
     {showReview&&<label className="check-label"><input type="checkbox" checked={ticks.reviewConfirmed} onChange={e=>setTicks(t=>({...t,reviewConfirmed:e.target.checked}))}/> ตรวจผลรายการที่เลือกแล้ว</label>}
     {showAbnormal&&<label className="check-label"><input type="checkbox" checked={ticks.abnormalAcknowledged} onChange={e=>setTicks(t=>({...t,abnormalAcknowledged:e.target.checked}))}/> รับทราบผลผิดปกติ (High Risk / Detected)</label>}
     <div className="bulk-bar"><span>เลือก {sel.length} รายการ</span>
-     <button type="button" className="button secondary" disabled={sending} onClick={()=>setSelected(new Set(rows.filter(r=>r.versionId).map(r=>r.key)))}>เลือกทั้งหมดที่พร้อม</button>
+     <button type="button" className="button secondary" disabled={sending} onClick={()=>changeSelection(new Set(selectable.map(r=>r.key)))}>เลือกทั้งหมดที่พร้อม</button>
      <button type="button" className="button" disabled={sending||!canSend(sel,ticks)} onClick={()=>void send(sel)}>{sending?"กำลังส่ง HIS…":`ส่งที่เลือก (${sel.length})`}</button></div>
     <p className="help">กด “ส่ง HIS” แล้วระบบจึงรับรองผลและให้ ANC เห็นผล ก่อนหน้านั้นผลยังไม่ถูกส่งให้ ANC</p>
    </fieldset>}
