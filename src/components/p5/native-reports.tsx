@@ -113,7 +113,7 @@ function SignerPicker({role,label,value,onChange,id}:{role:"REPORTED"|"APPROVED"
   <p id={id+"-help"} className="help">{error||(chosen?(chosen.basis==="SELF"?"ลงนามด้วยลายเซ็นของท่านเอง":"ใช้ลายเซ็นตามการมอบสิทธิ์ของเจ้าของลายเซ็น — ระบบบันทึกว่าท่านเป็นผู้ออกรายงาน"):"แสดงเฉพาะผู้ลงนามที่มีโปรไฟล์ผ่านการตรวจและมีสิทธิ์ในบทบาทนี้")}</p></div>;
 }
 
-function ReportDialog({rows,pendingImport,onClose,onDone}:{rows:Row[];pendingImport?:PendingImport|null;onClose:()=>void;onDone:()=>void}){
+function ReportDialog({rows,pendingImport,onClose,onDone,onReported}:{rows:Row[];pendingImport?:PendingImport|null;onClose:()=>void;onDone:()=>void;onReported?:()=>void}){
  const single=rows.length===1?rows[0]:null;
  const [cand,setCand]=useState<Candidate|null>(null),[error,setError]=useState(""),[busy,setBusy]=useState("");
  const [reportedBy,setReportedBy]=useState(""),[approvedBy,setApprovedBy]=useState(""),[override,setOverride]=useState<""|"Singleton"|"Twins">(""),[overrideReason,setOverrideReason]=useState("");
@@ -149,7 +149,7 @@ function ReportDialog({rows,pendingImport,onClose,onDone}:{rows:Row[];pendingImp
  return <Dialog title={single?`ออกรายงาน ${single.ln??single.sampleId}`:`ออกรายงาน ${rows.length} ราย (หนึ่ง PDF ต่อผู้ป่วย)`} onClose={onClose} dirty={dirty}>
   <div className="stack t3-dialog">
    {error&&<p className="notice" role="alert">{error}</p>}
-    {queuedBatchId?<><ReportBatchProgress batchId={queuedBatchId}/><button type="button" className="button secondary" onClick={onClose}>ปิดและทำงานอื่นต่อ</button></>:<>
+    {queuedBatchId?<><ReportBatchProgress batchId={queuedBatchId} onComplete={onReported}/><button type="button" className="button secondary" onClick={onClose}>ปิดและทำงานอื่นต่อ</button></>:<>
    {single&&(!cand?<div className="skeleton" aria-busy="true" aria-label="กำลังโหลดข้อมูลรายงาน"/>:<>
     <dl className="compact-facts plan-dl t3-facts">
      <div><dt>ผู้ป่วย</dt><dd>{cand.values?.patientName??"—"} · HN <span className="mono">{cand.hn??"—"}</span> · LN <span className="mono">{cand.hisLn}</span></dd></div>
@@ -174,13 +174,13 @@ function ReportDialog({rows,pendingImport,onClose,onDone}:{rows:Row[];pendingImp
     <SignerPicker id="t3-approved" role="APPROVED" label={single?"Approved by":"Approved by (ค่าเริ่มต้นของชุด)"} value={approvedBy} onChange={setApprovedBy}/>
    </div>
    {single&&<div className="action-bar"><button type="button" className="button secondary" disabled={!!busy||!cand?.values} onClick={preview}>{busy==="preview"?"กำลังสร้างร่าง…":"ดูร่างรายงาน"}</button><span className="help">ร่างมีลายน้ำ “PREVIEW” และไม่ถูกบันทึกเป็นรายงาน</span></div>}
-   <fieldset className="stack"><legend>ยืนยันออกรายงานและผูกผลกับผู้ป่วย</legend>
+   <fieldset className="stack"><legend>ยืนยันออกรายงานและนำเข้า “รอส่ง HIS”</legend>
     <label className="check-label"><input type="checkbox" checked={confirm.content} onChange={e=>setConfirm(c=>({...c,content:e.target.checked}))}/> ตรวจผลแปล การจับคู่ผู้ป่วย รอบตัวอย่าง และข้อมูลที่เปิดเผยในรายงานของรายการที่เลือกแล้ว</label>
     {anyAbnormal&&<label className="check-label"><input type="checkbox" checked={confirm.abnormal} onChange={e=>setConfirm(c=>({...c,abnormal:e.target.checked}))}/> รับทราบผลผิดปกติของรายการที่เลือก (High Risk / Detected)</label>}
-    <p className="help">เมื่อยืนยัน ระบบสร้าง PDF ผูกผลกับผู้ป่วย และเข้าคิวส่ง HIS/CFS โดยใช้หลักฐาน Sequencing ที่ตรวจไว้แล้ว รายการที่ยังไม่พร้อมจะถูกพักพร้อมเหตุผล</p>
+    <p className="help">เมื่อยืนยัน ระบบสร้าง PDF ผูกผลกับผู้ป่วย แล้วนำรายการไปที่ “รอส่ง HIS” — ผลยังไม่ถูกส่ง HIS และ ANC ยังไม่เห็น จนกว่าจะกด “ส่ง HIS” ในรายการผลตรวจ รายการที่ยังไม่พร้อมจะถูกพักพร้อมเหตุผล</p>
    </fieldset>
    <div className="action-bar"><button type="button" className="button secondary" onClick={onClose} disabled={!!busy}>ยกเลิก</button>
-    <button type="button" className="button" disabled={!!busy||!canSubmit} onClick={finalize}>{busy==="final"?"กำลังเข้าคิวออกรายงาน…":"ยืนยันและออกรายงาน"}</button></div>
+    <button type="button" className="button" disabled={!!busy||!canSubmit} onClick={finalize}>{busy==="final"?"กำลังเข้าคิวออกรายงาน…":"ยืนยันและออกรายงาน (ไป รอส่ง HIS)"}</button></div>
    {!canSubmit&&!busy&&<p className="help">{!reportedBy||!approvedBy?"เลือก Reported by และ Approved by ก่อน":single&&cand&&!candidateReady(cand)?"รายการนี้ถูกระงับ — แก้ที่ต้นเหตุตามรายการด้านบน":release&&!releaseReady?"ยืนยันการตรวจรายการที่เลือกก่อนออกรายงาน":""}</p>}
    </>}
   </div>
@@ -189,8 +189,11 @@ function ReportDialog({rows,pendingImport,onClose,onDone}:{rows:Row[];pendingImp
 }
 
 /** scope="EQA" is the Quality Control view: the same report worklist, only for EQA specimens (they are not shown on the Results page), without the HALOS import. */
-export function NativeReports({canImport,scope="PATIENT"}:{canImport:boolean;scope?:"PATIENT"|"EQA"}){
- const [q,setQ]=useState(""),[status,setStatus]=useState("ALL"),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50);
+export function NativeReports({canImport,scope="PATIENT",onReported}:{canImport:boolean;scope?:"PATIENT"|"EQA";onReported?:()=>void}){
+ // On the Results page (PATIENT) the results board lists everything that is held or waiting; this worklist only shows what is READY to report
+ // (HALOS rows that are not a report yet appear on no board tab). The EQA/Quality Control view keeps the full worklist.
+ const readyOnly=scope==="PATIENT";
+ const [q,setQ]=useState(""),[status,setStatus]=useState(readyOnly?"READY":"ALL"),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50);
  const [data,setData]=useState<Worklist|null>(null),[loading,setLoading]=useState(false),[error,setError]=useState("");
  const [selected,setSelected]=useState<Set<string>>(new Set()),[dialog,setDialog]=useState<Row[]|null>(null),[pendingImport,setPendingImport]=useState<PendingImport|null>(null);
  const seq=useRef(0);
@@ -202,16 +205,16 @@ export function NativeReports({canImport,scope="PATIENT"}:{canImport:boolean;sco
  const toggle=(id:string,on:boolean)=>setSelected(s=>{const n=new Set(s);if(on)n.add(id);else n.delete(id);return n;});
  return <section className="panel" aria-labelledby="native-h">
   <h2 id="native-h">{scope==="EQA"?"รายงาน EQA จากผล HALOS":"รายงานจากผล HALOS"}</h2>
-  <p className="help t3-links">นำเข้าไฟล์ผลจาก HALOS แล้วออกรายงานตามแบบฟอร์มของโรงพยาบาล (FM-WI-T-BM-17-07 ครรภ์เดี่ยว / FM-WI-T-BM-17-08 ครรภ์แฝด) — หนึ่ง PDF ต่อผู้ป่วย ผ่านการตรวจรับและส่งผลชุดเดียวกับ PDF ภายนอก
+  <p className="help t3-links">นำเข้าไฟล์ผลจาก HALOS แล้วออกรายงานตามแบบฟอร์มของโรงพยาบาล (FM-WI-T-BM-17-07 ครรภ์เดี่ยว / FM-WI-T-BM-17-08 ครรภ์แฝด) — หนึ่ง PDF ต่อผู้ป่วย ออกรายงานแล้วผลจะไป “รอส่ง HIS” ในรายการผลตรวจด้านล่าง ส่งผ่านขั้นตอนเดียวกับ PDF ภายนอก
    {" "}· <Link href="/results/signers">ผู้ลงนามรายงาน</Link></p>
-  {canImport&&scope==="PATIENT"&&<details className="t3-import" open={!data||(data.page.total===0)}><summary>นำเข้าไฟล์ผล HALOS</summary><HalosImport onConfirmed={()=>{setStatus("ALL");setPage(1);setSelected(new Set());void load();}} onPrepare={(rows,pending)=>{setPendingImport(pending);setDialog(rows);}}/></details>}
+  {canImport&&scope==="PATIENT"&&<details className="t3-import" open={!data||(data.page.total===0)}><summary>นำเข้าไฟล์ผล HALOS</summary><HalosImport onConfirmed={()=>{setStatus(readyOnly?"READY":"ALL");setPage(1);setSelected(new Set());void load();}} onPrepare={(rows,pending)=>{setPendingImport(pending);setDialog(rows);}}/></details>}
   <RecentReportBatches/>
   <form className="search-form t3-search" role="search" aria-label="ค้นหารายการออกรายงาน" onSubmit={e=>e.preventDefault()}>
    <div className="field"><label htmlFor="t3-q">ค้นหา LN / HN / LN Halos / รหัส HALOS</label><input id="t3-q" type="search" autoComplete="off" maxLength={40} value={q} onChange={e=>{setQ(e.target.value);setPage(1);setSelected(new Set());}}/></div>
    {q&&<button type="button" className="button secondary" onClick={()=>{setQ("");setPage(1);setSelected(new Set());}}>ล้างคำค้น</button>}
   </form>
-  <div className="tabs result-status-filters" role="tablist" aria-label="สถานะการออกรายงาน">{TABS.map(([k,label])=><button key={k} type="button" role="tab" className="tab" aria-selected={status===k} onClick={()=>{setStatus(k);setPage(1);setSelected(new Set());}}>
-   {label}{k!=="ALL"&&data?.counts[k]!==undefined&&status==="ALL"?` (${data.counts[k]})`:""}</button>)}</div>
+  {!readyOnly&&<div className="tabs result-status-filters" role="tablist" aria-label="สถานะการออกรายงาน">{TABS.map(([k,label])=><button key={k} type="button" role="tab" className="tab" aria-selected={status===k} onClick={()=>{setStatus(k);setPage(1);setSelected(new Set());}}>
+   {label}{k!=="ALL"&&data?.counts[k]!==undefined&&status==="ALL"?` (${data.counts[k]})`:""}</button>)}</div>}
   <div aria-live="polite">{loading&&<p className="help" role="status">กำลังโหลด…</p>}{error&&<div className="notice" role="alert">{error} <button type="button" className="button small secondary" onClick={()=>void load()}>ลองใหม่</button></div>}</div>
   {!error&&<div className="table-wrap" role="region" aria-label="รายการออกรายงานจากผล HALOS" tabIndex={0}>
    <table className="data-table t3-worklist"><thead><tr><th scope="col">{data?.canFinalize&&<label className="table-check-target"><input type="checkbox" aria-label="เลือกทุกรายการที่พร้อม" disabled={!ready.length} checked={ready.length>0&&ready.every(r=>selected.has(r.rowId))} onChange={e=>setSelected(e.target.checked?new Set(ready.map(r=>r.rowId)):new Set())}/></label>}</th>
@@ -225,9 +228,9 @@ export function NativeReports({canImport,scope="PATIENT"}:{canImport:boolean;sco
      <td>{r.status==="READY"&&data.canFinalize?<button type="button" className="button small" onClick={()=>setDialog([r])}>ออกรายงาน</button>
       :r.status==="READY"||r.status==="HOLD"?<button type="button" className="button small secondary" onClick={()=>setDialog([r])}>{r.status==="HOLD"?"ดูเหตุผล":"ดูรายละเอียด"}</button>
       :r.versionId?<Link className="button small secondary" href={`/results/${r.versionId}`}>{r.status==="FINAL"?"ตรวจรับและส่งผล":"ดูผล"}</Link>:null}</td></tr>)
-     :<tr><td colSpan={6} className="empty-row">{q?"ไม่พบรายการที่ตรงกับคำค้น":"ยังไม่มีผล HALOS ที่ยืนยันนำเข้า"}</td></tr>}</tbody></table></div>}
+     :<tr><td colSpan={6} className="empty-row">{q?"ไม่พบรายการที่ตรงกับคำค้น":readyOnly?"ไม่มีผล HALOS ที่พร้อมออกรายงาน — รายการที่ถูกระงับดูได้ที่ “ต้องจัดการ”":"ยังไม่มีผล HALOS ที่ยืนยันนำเข้า"}</td></tr>}</tbody></table></div>}
   {data&&data.page.total>0&&<Pager label="รายการออกรายงาน" page={data.page.number} pageSize={data.page.size} total={data.page.total} totalPages={data.page.totalPages} busy={loading} onPage={n=>{setSelected(new Set());setPage(n);}} onSize={n=>{setSelected(new Set());setPageSize(n);setPage(1);}}/>}
   {selected.size>0&&<div className="bulk-bar"><span>เลือก {selected.size} ราย</span><button type="button" className="button" onClick={()=>setDialog((data?.rows??[]).filter(r=>selected.has(r.rowId)))}>ออกรายงานที่เลือก</button></div>}
-  {dialog&&<ReportDialog rows={dialog} pendingImport={pendingImport} onClose={()=>{setDialog(null);setPendingImport(null);void load();}} onDone={()=>{setSelected(new Set());void load();}}/>}
+  {dialog&&<ReportDialog rows={dialog} pendingImport={pendingImport} onClose={()=>{setDialog(null);setPendingImport(null);void load();}} onDone={()=>{setSelected(new Set());void load();}} onReported={onReported}/>}
  </section>;
 }
