@@ -1,6 +1,7 @@
 import {z} from 'zod';
 import type {Queryable} from '../db/connection';
 import {assertSession,need,caseVisible,type Staff} from '../lab/core';
+import {authorize} from '../security/policy';
 import {worklistAll,type ReportDeps} from '../readygen/reports';
 import {validationGateIssues,releaseReviewed} from './service';
 import {readHisDeliveryStatuses,type HisDeliveryStatus} from './his-status';
@@ -95,5 +96,5 @@ export async function releaseQueue(db:Queryable,user:Staff,deps:ReportDeps,input
   rows.push({key:`version:${v.id}`,source:v.origin==='INTERNAL_GENERATED'?'HALOS':'READYGEN',versionId:v.id,halosRowId:null,rowVersion:v.row_version,ln:v.ln,hn:v.hn,lnHalos:v.ln_halos,sampleId:v.sample_id,template:v.template_kind,
    abnormal:v.abnormal,reviewed:d.tab==='READY'||d.tab==='SENT'?await releaseReviewed(db,v.id):false,reasons,...(delivery.get(v.id)?{hisDelivery:delivery.get(v.id)}:{}),pdfHref:`/api/p5/results/${v.id}/file`});
  }
- return {rows,counts,truncated:w.truncated||versionsTruncated,page:{number:d.page,size:d.pageSize,total,totalPages:Math.max(1,Math.ceil(total/d.pageSize)),hasNext:start+d.pageSize<total}};
+ return {rows,counts,canRevise:authorize(user,'result.revise'),truncated:w.truncated||versionsTruncated,page:{number:d.page,size:d.pageSize,total,totalPages:Math.max(1,Math.ceil(total/d.pageSize)),hasNext:start+d.pageSize<total}};
 }

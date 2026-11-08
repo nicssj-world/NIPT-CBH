@@ -14,7 +14,7 @@ import {DiscardDialog,PickPatientDialog} from "./release-board-dialogs";
 // One results board: Action needed / Waiting for HIS / Sent. The server (releaseQueue `board`) decides which tab a row belongs to and why;
 // this component only lists, selects and calls the existing actions. A result is never shown as visible to ANC before "ส่ง HIS" succeeded.
 export type BoardRow={key:string;source:"HALOS"|"READYGEN";versionId:string|null;halosRowId:string|null;rowVersion:number|null;ln:string|null;hn:string|null;lnHalos:string|null;sampleId:string|null;template:string|null;abnormal:boolean;reviewed:boolean;reasons:{code:string;fixHref?:string}[];hisDelivery?:HisDeliveryStatus;pdfHref:string|null};
-type Board={rows:BoardRow[];counts:Record<BoardTab,number>;truncated:boolean;page:{number:number;size:number;total:number;totalPages:number;hasNext:boolean}};
+type Board={rows:BoardRow[];counts:Record<BoardTab,number>;canRevise:boolean;truncated:boolean;page:{number:number;size:number;total:number;totalPages:number;hasNext:boolean}};
 const TABS:[BoardTab,string][]=[["ACTION","ต้องจัดการ"],["READY","รอส่ง HIS"],["SENT","ส่งแล้ว"]];
 const HELP:Record<BoardTab,string>={ACTION:"รายการที่ยังส่ง HIS ไม่ได้ — แก้ตามเหตุผลที่แสดง เลือกผู้ป่วย หรือทิ้งรายการ",READY:"ผลที่นำเข้าหรือออกรายงานแล้ว ยังไม่ถูกส่ง — ANC จะเห็นผลหลังกด “ส่ง HIS” สำเร็จเท่านั้น",SENT:"ผลที่ส่ง HIS แล้ว เรียงใหม่สุดก่อน"};
 const TEMPLATE_TEXT:Record<string,string>={SINGLETON:"ครรภ์เดี่ยว",TWIN:"ครรภ์แฝด"};
@@ -23,7 +23,7 @@ const Status=({tone,children}:{tone?:string;children:ReactNode})=><span classNam
 const who=(r:BoardRow)=><><span className="mono">{r.ln??"—"}</span>{r.lnHalos&&<span className="help"> · LN Halos {r.lnHalos}</span>}<br/><span className="mono">{r.hn??"—"}</span></>;
 const source=(r:BoardRow)=><>{r.source==="HALOS"?"HALOS":"ReadyGen"}{r.template&&<div className="help">{TEMPLATE_TEXT[r.template]??r.template}</div>}{r.sampleId&&<div className="help mono">{r.sampleId}</div>}</>;
 
-export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras}:{tab:BoardTab;onTab:(t:BoardTab)=>void;refreshKey?:number;sentExtras?:ReactNode}){
+export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}:{tab:BoardTab;onTab:(t:BoardTab)=>void;refreshKey?:number;sentExtras?:ReactNode;scope?:"PATIENT"|"EQA"}){
  const [q,setQ]=useState(""),[term,setTerm]=useState(""),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50);
  const [data,setData]=useState<Board|null>(null),[counts,setCounts]=useState<Board["counts"]|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(""),[notice,setNotice]=useState("");
  const [selected,setSelected]=useState<Set<string>>(new Set()),[ticks,setTicks]=useState({reviewConfirmed:false,abnormalAcknowledged:false});
@@ -31,8 +31,8 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras}:{tab:BoardTab;o
  const [dialog,setDialog]=useState<{kind:"pick"|"discard";row:BoardRow}|null>(null);
  const seq=useRef(0),sendKey=useRef<{sig:string;key:string}|null>(null);
  const load=useCallback(async()=>{const n=++seq.current;setLoading(true);
-  try{const d=await labApi<Board>("/api/p5/results",{action:"board",tab,page,pageSize,...(term?{q:term}:{})});if(n===seq.current){setData(d);setCounts(d.counts);setError("");}}
-  catch(e){if(n===seq.current){setData(null);setError(failureText(e));}}finally{if(n===seq.current)setLoading(false);}},[tab,page,pageSize,term]);
+  try{const d=await labApi<Board>("/api/p5/results",{action:"board",tab,page,pageSize,scope,...(term?{q:term}:{})});if(n===seq.current){setData(d);setCounts(d.counts);setError("");}}
+  catch(e){if(n===seq.current){setData(null);setError(failureText(e));}}finally{if(n===seq.current)setLoading(false);}},[tab,page,pageSize,term,scope]);
  useEffect(()=>{void Promise.resolve().then(load);},[load,refreshKey]);
  // Realtime search: typing filters after a short pause (same behaviour as the HALOS worklist it replaces).
  useEffect(()=>{const t=setTimeout(()=>{setTerm(q.trim());setPage(1);},q?300:0);return()=>clearTimeout(t);},[q]);
@@ -61,7 +61,7 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras}:{tab:BoardTab;o
  const empty=q?"ไม่พบรายการที่ตรงกับคำค้น":tab==="ACTION"?"ไม่มีรายการที่ต้องจัดการ":tab==="READY"?"ไม่มีผลที่รอส่ง HIS":"ยังไม่มีผลที่ส่งแล้ว";
  const cols=tab==="READY"?7:6;
  return <section className="panel release-board" aria-labelledby="board-h">
-  <h2 id="board-h">ผลตรวจ NIPT</h2>
+  <h2 id="board-h">{scope==="EQA"?"รับรองรายงาน EQA":"ผลตรวจ NIPT"}</h2>
   <form className="search-form" role="search" aria-label="ค้นหารายการผลตรวจ" onSubmit={e=>e.preventDefault()}>
    <div className="field"><label htmlFor="board-q">ค้นหา LN / HN / LN Halos / รหัสตัวอย่าง</label><input id="board-q" type="search" autoComplete="off" maxLength={40} value={q} onChange={e=>{setQ(e.target.value);clearSelection();}}/></div>
    {q&&<button type="button" className="button secondary" onClick={()=>{setQ("");clearSelection();}}>ล้างคำค้น</button>}
@@ -92,7 +92,7 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras}:{tab:BoardTab;o
       <td><span className="action-bar">
        {tab==="READY"&&r.versionId&&<button type="button" className="button small" disabled={sending} onClick={()=>sendRow(r)}>ส่ง HIS</button>}
        {tab==="ACTION"&&r.versionId&&r.reasons.some(x=>x.code==="UNLINKED")&&<button type="button" className="button small" onClick={()=>setDialog({kind:"pick",row:r})}>เลือกผู้ป่วย</button>}
-       {tab==="ACTION"&&<button type="button" className="button small secondary" onClick={()=>setDialog({kind:"discard",row:r})}>ทิ้งรายการนี้</button>}
+       {tab==="ACTION"&&data?.canRevise&&<button type="button" className="button small secondary" onClick={()=>setDialog({kind:"discard",row:r})}>ทิ้งรายการนี้</button>}
        {r.versionId&&<Link className="button small secondary" href={`/results/${r.versionId}`}>รายละเอียด</Link>}
       </span></td></tr>)
       :<tr><td colSpan={cols} className="empty-row">{loading?"กำลังโหลด…":empty}</td></tr>}</tbody></table></div>}

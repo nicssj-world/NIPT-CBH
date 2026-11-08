@@ -89,6 +89,9 @@ it('dismissed HALOS row no longer appears in reportWorklist; reason under 8 char
   const row=(await f.db.query<{id:string}>("INSERT INTO halos_import_row(import_id,sheet,row_number,raw,sample_raw,sample_key,classification,reason) VALUES($1,'result',2,'{}','SYNTHETIC-1','SYNTHETIC-1','UNMATCHED','NO_MAPPING') RETURNING id",[imp])).rows[0].id;
   const list=()=>f.run(t=>reportWorklist(t,f.admin,{store:f.store},{status:'ALL'}));
   expect((await list()).rows.map(r=>r.rowId)).toContain(row);
+  // Hiding is irreversible: LAB_STAFF (result.review only) is refused, the row stays listed.
+  await expect(f.run(t=>dismissHalosRow(t,f.u.staff,{rowId:row,reason:'SYNTHETIC staff must not hide this row'}))).rejects.toMatchObject({code:'FORBIDDEN'});
+  expect((await list()).rows.map(r=>r.rowId)).toContain(row);
   await expect(f.run(t=>dismissHalosRow(t,f.admin,{rowId:row,reason:'short'}))).rejects.toThrow();
   await expect(f.run(t=>dismissHalosRow(t,f.admin,{rowId:row,reason:'contains 1234567890123 id'}))).rejects.toThrow();
   expect((await list()).rows.map(r=>r.rowId)).toContain(row);

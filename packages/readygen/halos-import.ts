@@ -168,6 +168,8 @@ export async function readHalosSource(db:Queryable,user:Staff,store:FileStore,id
  */
 export async function dismissHalosRow(db:Queryable,user:Staff,input:unknown):Promise<void>{
  await assertSession(db,user);need(user,'result.review');
+ // Hiding is irreversible (no un-hide yet) and a hidden row's report is never produced: the same authority as voiding a version.
+ need(user,'result.revise');
  const d=z.strictObject({rowId:uuid,reason:reasonText}).parse(input);
  const row=(await db.query<{id:string}>('SELECT id FROM halos_import_row WHERE id=$1 FOR UPDATE',[d.rowId])).rows[0];
  if(!row)throw new LabError('NOT_FOUND',404);
