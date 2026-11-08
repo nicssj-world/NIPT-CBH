@@ -70,3 +70,21 @@
 /* Lab registration keeps its dialog open; the cases registered in this sitting are listed under the form. */
 .registered-list{list-style:none;margin:0;padding:0;display:grid;gap:var(--space-2,8px)}
 .registered-list li{padding:var(--space-2,8px) var(--space-3,12px);border:1px solid var(--color-line,#d6e2ee);border-radius:var(--radius-md,8px);background:var(--good-bg,#f0fdf4);line-height:1.5;overflow-wrap:break-word}
+
+.match-status{display:inline-flex;align-items:center;gap:var(--space-1,4px);margin:0;font-weight:600;color:var(--good-text,#166534);line-height:1.5}
+.match-status svg{flex:none}
+.registered-list li .match-status{margin-inline-start:var(--space-2,8px)}
+.paper-note{display:flex;align-items:flex-start;gap:var(--space-2,8px);margin:0;padding:var(--space-2,8px) var(--space-3,12px);border:1px solid var(--color-line,#d6e2ee);border-radius:var(--radius-md,8px);background:var(--surface-soft,#eef5fb);color:var(--color-text,#1b2b3a);line-height:1.5;overflow-wrap:break-word}
+.paper-note svg{flex:none;margin-top:3px}
+.match-status.failed{color:var(--danger-text,#991b1b)}
+.match-status.pending{color:var(--color-muted,#475569);font-weight:500}
+.registered-list li[data-state="failed"]{background:var(--danger-bg,#fef2f2);border-color:var(--danger-line,#fecaca)}
+.registered-main{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1,4px) var(--space-2,8px)}
+.registered-main .icon-btn{margin-inline-start:auto}
+.registration-summary{display:grid;gap:var(--space-2,8px);padding:var(--space-3,12px);border:1px solid var(--color-line,#d6e2ee);border-radius:var(--radius-md,8px);background:var(--surface-soft,#eef5fb)}
+.registration-summary p,.registration-summary ul{margin:0}
+.registration-summary ul{padding-inline-start:var(--space-4,16px)}
+.registration-summary svg{vertical-align:text-bottom}
+.registration-summary .summary-counts{display:flex;flex-wrap:wrap;gap:var(--space-2,8px) var(--space-4,16px)}
+.registration-summary .summary-counts span{display:inline-flex;align-items:center;gap:var(--space-1,4px)}
+.registration-summary:focus{outline:2px solid var(--color-focus,#005fcc);outline-offset:2px}
