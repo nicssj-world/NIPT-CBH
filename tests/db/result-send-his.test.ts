@@ -7,7 +7,8 @@ import {syntheticReportPdf} from '../../tools/his-simulator/result-pdf';
 import {registerIntake,parseIntake} from '../../packages/results/intake';
 import {reviewBenchForResult} from '../../packages/lab/bench-review';
 import {confirmCompletion} from '../../packages/results/completion';
-import {ancCaseResults,unlinkVersion,proposeLink,decideLink} from '../../packages/results/service';
+import {ancCaseResults,unlinkVersion,proposeLink,decideLink,voidVersion,attestHisPresence,withdrawHisAttestation} from '../../packages/results/service';
+import {releaseQueue} from '../../packages/results/release-queue';
 import {sendToHis} from '../../packages/results/send-his';
 
 type F=Awaited<ReturnType<typeof task3Fixture>>;
@@ -204,5 +205,83 @@ it('EQA item: CertifiedReleased with no outbox job',async()=>{
   expect(r.items[0]).toEqual({versionId:p.id,outcome:'CertifiedReleased'});
   expect(await count(f,'SELECT 1 FROM result_release WHERE version_id=$1',[p.id])).toBe(1);
   expect(await count(f,OUTBOX)).toBe(0);
+ }finally{vi.unstubAllEnvs();await f.close();}
+},180000);
+
+it('EQA report: board scope EQA lists it in READY (PATIENT scope does not), Send HIS certifies it, and no HIS outbox job is created (F1)',async()=>{
+ const f=await task3Fixture([{ln:'9900099511',hn:'9900099951',pregnancy:'Singleton',sheet:1,eqa:{surname:'SYNTHETICEQA',firstName:'SAMPLE',dob:'1990-01-01'}},{ln:'9900099512',hn:'9900099952',pregnancy:'Singleton',sheet:2},{ln:'9900099513',hn:'9900099953',pregnancy:'Twins',sheet:3}]);try{
+  const p=await pending(f,0);
+  const board=(scope?:'EQA'|'PATIENT')=>f.run(t=>releaseQueue(t,f.admin,{store:f.store},{tab:'READY',...(scope?{scope}:{})}));
+  expect((await board('EQA')).rows.map(r=>r.versionId)).toContain(p.id);
+  expect((await board()).rows.map(r=>r.versionId)).not.toContain(p.id);
+  const r=await send(f,[p]);
+  expect(r.items[0]).toEqual({versionId:p.id,outcome:'CertifiedReleased'});
+  expect((await f.db.query<{state:string}>('SELECT state FROM result_report_version WHERE id=$1',[p.id])).rows[0].state).toBe('CertifiedReleased');
+  expect(await count(f,OUTBOX)).toBe(0);
+  const sent=await f.run(t=>releaseQueue(t,f.admin,{store:f.store},{tab:'SENT',scope:'EQA'}));
+  expect(sent.rows.map(x=>x.versionId)).toContain(p.id);
+ }finally{vi.unstubAllEnvs();await f.close();}
+},180000);
+
+it('void is refused while an active HIS-presence attestation exists; after withdrawing it the void succeeds (F2)',async()=>{
+ const f=await task3Fixture();try{
+  const p=await pending(f,0);
+  const att=await f.run(t=>attestHisPresence(t,f.u.staff,{versionId:p.id,confirmed:true}));
+  const voidIt=async()=>f.run(async t=>voidVersion(t,f.admin,{versionId:p.id,reason:'SYNTHETIC discard this waiting item',expectedRowVersion:await rowVersion(f,p.id)}));
+  await expect(voidIt()).rejects.toMatchObject({code:'HIS_ATTESTATION_ACTIVE',status:409});
+  expect((await f.db.query<{state:string}>('SELECT state FROM result_report_version WHERE id=$1',[p.id])).rows[0].state).toBe('PendingCertification');
+  await f.run(t=>withdrawHisAttestation(t,f.u.staff,{attestationId:att.id,reason:'SYNTHETIC HIS does not hold it'}));
+  expect(await voidIt()).toEqual({outcome:'Voided'});
+ }finally{vi.unstubAllEnvs();await f.close();}
+},180000);
+
+/** Makes the version's QC5 look like it was recorded for another attempt (synthetic DB, triggers off). */
+async function bindQc5ToOtherAttempt(f:F,id:string){
+ const other=(await f.db.query<{id:string}>('SELECT a.id FROM analytical_attempt a WHERE a.id<>(SELECT attempt_id FROM result_report_version WHERE id=$1) LIMIT 1',[id])).rows[0].id;
+ await f.db.query('ALTER TABLE result_qc5_review DISABLE TRIGGER USER');
+ await f.db.query('UPDATE result_qc5_review SET attempt_id=$2 WHERE version_id=$1',[id,other]);
+ await f.db.query('ALTER TABLE result_qc5_review ENABLE TRIGGER USER');
+}
+
+it('QC5 bound to another attempt: item ERROR QC5_BOUND_TO_OTHER_ATTEMPT, nothing written, sibling released (F4a)',async()=>{
+ const f=await task3Fixture();try{
+  const a=await pending(f,0),b=await pending(f,1);
+  await bindQc5ToOtherAttempt(f,a.id);
+  const r=await send(f,[a,b]);
+  expect(r.items[0]).toMatchObject({versionId:a.id,outcome:'ERROR',code:'QC5_BOUND_TO_OTHER_ATTEMPT'});
+  expect(r.items[1]).toEqual({versionId:b.id,outcome:'CertifiedReleased'});
+  expect(await count(f,'SELECT 1 FROM result_review WHERE version_id=$1',[a.id])).toBe(1);
+  expect(await count(f,'SELECT 1 FROM result_release WHERE version_id=$1',[a.id])).toBe(0);
+  expect(await count(f,OUTBOX)).toBe(1);
+ }finally{vi.unstubAllEnvs();await f.close();}
+},180000);
+
+it('a reviewed, gate-eligible version still in Linked/ValidationBlocked is validated first and then released instead of failing the DB transition guard (F4b)',async()=>{
+ const f=await task3Fixture();try{
+  const a=await pending(f,0),b=await pending(f,1);
+  // Put a and b back to Linked / ValidationBlocked with review + QC5 intact (what a relink-then-revalidate leaves behind).
+  await f.db.query('ALTER TABLE result_report_version DISABLE TRIGGER USER');
+  await f.db.query("UPDATE result_report_version SET state='Linked' WHERE id=$1",[a.id]);await f.db.query("UPDATE result_report_version SET state='ValidationBlocked' WHERE id=$1",[b.id]);
+  await f.db.query('ALTER TABLE result_report_version ENABLE TRIGGER USER');
+  const r=await send(f,[a,b]);
+  expect(r.items).toEqual([{versionId:a.id,outcome:'CertifiedReleased'},{versionId:b.id,outcome:'CertifiedReleased'}]);
+  expect(await count(f,'SELECT 1 FROM result_release WHERE version_id=ANY($1::uuid[])',[[a.id,b.id]])).toBe(2);
+ }finally{vi.unstubAllEnvs();await f.close();}
+},180000);
+
+it('a database guard exception (plain P0001 with an UPPER_SNAKE code) fails only its own item; siblings are released and the failed item leaves no rows (F4c)',async()=>{
+ const f=await task3Fixture();try{
+  const a=await pending(f,0),b=await pending(f,1);
+  // A guard that raises for version a only, exactly like the release guards do.
+  await f.db.query("CREATE FUNCTION synthetic_release_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.version_id='"+a.id+"' THEN RAISE EXCEPTION 'SYNTHETIC_RELEASE_GUARD_REFUSED'; END IF; RETURN NEW; END $$");
+  await f.db.query('CREATE TRIGGER synthetic_release_guard BEFORE INSERT ON result_release FOR EACH ROW EXECUTE FUNCTION synthetic_release_guard()');
+  try{
+   const r=await send(f,[a,b]);
+   expect(r.items[0]).toEqual({versionId:a.id,outcome:'ERROR',code:'SYNTHETIC_RELEASE_GUARD_REFUSED'});
+   expect(r.items[1]).toEqual({versionId:b.id,outcome:'CertifiedReleased'});
+   expect(await count(f,'SELECT 1 FROM result_release WHERE version_id=$1',[a.id])).toBe(0);
+   expect((await f.db.query<{state:string}>('SELECT state FROM result_report_version WHERE id=$1',[a.id])).rows[0].state).toBe('PendingCertification');
+   expect(await count(f,OUTBOX)).toBe(1);
+  }finally{await f.db.query('DROP TRIGGER synthetic_release_guard ON result_release');await f.db.query('DROP FUNCTION synthetic_release_guard()');}
  }finally{vi.unstubAllEnvs();await f.close();}
 },180000);

@@ -362,7 +362,7 @@ const REVIEW_CURRENT_SQL="EXISTS(SELECT 1 FROM result_review w WHERE w.version_i
 const OPEN_PROPOSAL_SQL="EXISTS(SELECT 1 FROM result_link_event e WHERE e.version_id=$1 AND e.event='PROPOSED' AND NOT EXISTS(SELECT 1 FROM result_link_event y WHERE y.version_id=e.version_id AND y.event IN ('APPROVED','REJECTED','UNLINKED') AND y.sequence>e.sequence))";
 async function gateFor(db:Queryable,v:VersionRow,purpose:Purpose,certifierId?:string):Promise<GateDecision|null>{
  if(!v.round_id||v.kind==='UNKNOWN')return null;
- const s=await resultSettings(db),operational=await operationalWorkflow(db),qc5=operational?(await db.query<{id:string;no_call_valid:boolean}>('SELECT id,task1_no_call_qc5_valid(q) no_call_valid FROM result_qc5_review q WHERE version_id=$1 AND report_sha256=$2',[v.id,v.sha256])).rows[0]:null,operationalReviewed=!!qc5;
+ const s=await resultSettings(db),operational=await operationalWorkflow(db),qc5=operational?(await db.query<{id:string;no_call_valid:boolean}>('SELECT id,task1_no_call_qc5_valid(q) no_call_valid FROM result_qc5_review q WHERE version_id=$1 AND report_sha256=$2 AND attempt_id IS NOT DISTINCT FROM $3',[v.id,v.sha256,v.attempt_id])).rows[0]:null,operationalReviewed=!!qc5;
  const templateApproved=operational?operationalReviewed:s.picVersion!=='unvalidated'&&!v.template_version.includes('UNAPPROVED');
  const x=(await db.query<{open_proposal:boolean;latest:boolean;active_release:boolean;reviewed:boolean;redraw_at:Date|null;certifier:boolean;unit_id:string|null}>(
   `SELECT ${OPEN_PROPOSAL_SQL} open_proposal,
@@ -597,7 +597,7 @@ export async function validationGateIssues(db:Queryable,versionId:string){const 
  *  open link proposal, QC5 bound to this exact report sha256 (or, for a migrated record, the current migration review). */
 export async function releaseReviewed(db:Queryable,versionId:string):Promise<boolean>{
  const id=uuid.parse(versionId);
- const x=(await db.query<{reviewed:boolean;open_proposal:boolean;qc5:boolean}>(`SELECT ${REVIEW_CURRENT_SQL} reviewed,${OPEN_PROPOSAL_SQL} open_proposal,EXISTS(SELECT 1 FROM result_qc5_review q JOIN result_report_version v ON v.id=q.version_id WHERE q.version_id=$1 AND q.report_sha256=v.sha256) qc5`,[id])).rows[0];
+ const x=(await db.query<{reviewed:boolean;open_proposal:boolean;qc5:boolean}>(`SELECT ${REVIEW_CURRENT_SQL} reviewed,${OPEN_PROPOSAL_SQL} open_proposal,EXISTS(SELECT 1 FROM result_qc5_review q JOIN result_report_version v ON v.id=q.version_id WHERE q.version_id=$1 AND q.report_sha256=v.sha256 AND q.attempt_id IS NOT DISTINCT FROM v.attempt_id) qc5`,[id])).rows[0];
  if(!x.reviewed||x.open_proposal)return false;
  return x.qc5||(await migrationResultEvidence(db,id)).reviewed;
 }
@@ -714,6 +714,8 @@ export async function voidVersion(db:Queryable,user:Staff,input:unknown){
  need(user,'result.revise');const v=await versionOf(db,d.versionId,true);if(v.row_version!==d.expectedRowVersion)throw new LabError('VERSION_CONFLICT',409);
  if(v.state==='CertifiedReleased')throw new LabError('RELEASE_HOLD_AL5',423);
  if(!VOIDABLE_STATES.includes(v.state))throw new LabError('VOID_STATE_NOT_ALLOWED',409,{state:v.state});
+ // HIS already holds this result by the user's own statement: discarding it here would leave HIS with a result NIPT-CBH no longer has. Withdraw the attestation first.
+ if((await db.query<{attested:boolean}>('SELECT task3_his_presence_attested($1) attested',[v.id])).rows[0].attested)throw new LabError('HIS_ATTESTATION_ACTIVE',409);
  const after=await move(db,v,'Voided',user.id,d.reason);await audit(db,user,'RESULT_IMPORT_VOIDED','RESULT_VERSION',v.id,{outcome:after.state});return {outcome:after.state};
 }
 
@@ -739,8 +741,10 @@ export async function pickPatient(db:Queryable,user:Staff,input:unknown):Promise
  if(v.origin==='EXTERNAL_READYGEN'&&v.kind==='RESULT'&&['Linked','ValidationBlocked'].includes(v.state)&&!await releaseReviewed(db,v.id)){
   await db.query('SAVEPOINT pick_review');
   try{
-   const hasQc5=(await db.query('SELECT 1 FROM result_qc5_review WHERE version_id=$1',[v.id])).rows.length>0;
-   if(hasQc5)await recordReview(db,user,{versionId:v.id,valuesMatchPdf:true,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:v.row_version});
+   const qc5=(await db.query<{attempt_id:string|null}>('SELECT attempt_id FROM result_qc5_review WHERE version_id=$1',[v.id])).rows[0];
+   // A QC5 bound to another attempt (the PDF was unlinked and picked again) can never serve this link: nothing is written, the PDF is discarded and re-imported.
+   if(qc5&&qc5.attempt_id!==v.attempt_id)throw new LabError('QC5_BOUND_TO_OTHER_ATTEMPT',409);
+   if(qc5)await recordReview(db,user,{versionId:v.id,valuesMatchPdf:true,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:v.row_version});
    else await reviewExternalForRelease(db,user,{versionId:v.id,expectedRowVersion:v.row_version,abnormalAcknowledged:d.abnormalAcknowledged});
    await db.query('RELEASE SAVEPOINT pick_review');
   }catch(e){

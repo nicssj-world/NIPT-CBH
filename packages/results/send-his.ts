@@ -3,15 +3,20 @@ import {z} from 'zod';
 import type {Queryable} from '../db/connection';
 import {assertSession,need,uuid,LabError,type Staff} from '../lab/core';
 import {operationalWorkflow} from '../lab/operational';
-import {certifyAttempt,recordReview,releaseReviewed,reviewExternalForRelease,reviewInternalForRelease} from './service';
+import {certifyAttempt,recordReview,releaseReviewed,reviewExternalForRelease,reviewInternalForRelease,revalidate,validationGateIssues} from './service';
 
 export type SendHisOutcome={versionId:string;outcome:'CertifiedReleased'|'BLOCKED'|'ERROR';code?:string;failed?:string[];pending?:string[];details?:unknown};
 const sendSchema=z.strictObject({idempotencyKey:uuid,reviewConfirmed:z.boolean(),abnormalAcknowledged:z.boolean(),items:z.array(z.strictObject({versionId:uuid,expectedRowVersion:z.number().int().positive()})).min(1).max(100)});
 
 const MIGRATION_GUARDS=/^MIGRATION_(CURRENT_SOURCE_REQUIRED|REVIEW_BINDING_AUTHORITY_REQUIRED|RELEASE_CURRENT_AUTHORITY_REQUIRED)$/;
-/** migration_result_review BEFORE INSERT guards raise plain PostgreSQL exceptions (P0001) with a fixed message.
- *  Untested: the dev fixtures have no migrated-record result. Every other non-LabError still aborts the whole call (fail closed). */
-const isMigrationGuard=(e:unknown)=>!(e instanceof LabError)&&typeof e==='object'&&e!==null&&(e as {code?:string}).code==='P0001'&&MIGRATION_GUARDS.test(String((e as {message?:string}).message));
+/** Database guard triggers raise plain PostgreSQL exceptions (SQLSTATE P0001) whose message is a stable UPPER_SNAKE code (e.g. RELEASE_CURRENT_QC5_AUTHORITY_REQUIRED).
+ *  Such an exception belongs to ONE item: it becomes that item's ERROR (spec 5.5, one failing item never fails the batch). Any other non-LabError
+ *  (connection loss, syntax error, unknown shape) still aborts the whole call (fail closed). The three migration_result_review guards keep their own code. */
+const guardCode=(e:unknown):string|null=>{
+ if(e instanceof LabError||typeof e!=='object'||e===null||(e as {code?:string}).code!=='P0001')return null;
+ const m=String((e as {message?:string}).message);
+ return MIGRATION_GUARDS.test(m)?'MIGRATION_REVIEW_PRECONDITION_FAILED':/^[A-Z][A-Z0-9_]+$/.test(m)?m:null;
+};
 
 /**
  * "ส่ง HIS" (result-release simplification, Task 4): the only step that certifies a result that waits in PendingCertification.
@@ -33,7 +38,7 @@ export async function sendToHis(db:Queryable,user:Staff,input:unknown):Promise<{
   await db.query('SAVEPOINT send_his_item');
   try{
    const key='send-'+createHash('sha256').update(d.idempotencyKey+versionId).digest('hex').slice(0,48);
-   const row=async()=>(await db.query<{state:string;origin:'EXTERNAL_READYGEN'|'INTERNAL_GENERATED';row_version:number;abnormal:boolean}>("SELECT state,origin,row_version,coalesce((parsed->>'abnormal')::boolean,false) abnormal FROM result_report_version WHERE id=$1",[versionId])).rows[0];
+   const row=async()=>(await db.query<{state:string;origin:'EXTERNAL_READYGEN'|'INTERNAL_GENERATED';row_version:number;abnormal:boolean;attempt_id:string|null}>("SELECT state,origin,row_version,attempt_id,coalesce((parsed->>'abnormal')::boolean,false) abnormal FROM result_report_version WHERE id=$1",[versionId])).rows[0];
    let v=await row();if(!v)throw new LabError('NOT_FOUND',404);
    if(v.state==='CertifiedReleased'){done.set(versionId,{versionId,outcome:'CertifiedReleased'});await db.query('RELEASE SAVEPOINT send_his_item');continue;}
    const replay=(await db.query('SELECT 1 FROM result_gate_evaluation WHERE idempotency_key=$1',[key])).rows.length>0;
@@ -44,13 +49,25 @@ export async function sendToHis(db:Queryable,user:Staff,input:unknown):Promise<{
     if(!await releaseReviewed(db,versionId)){
      if(!d.reviewConfirmed)throw new LabError('REVIEW_CONFIRMATION_REQUIRED',422);
      // result_qc5_review is unique per version: a version that already has QC5 (stale review only) gets a new review alone.
-     const hasQc5=(await db.query('SELECT 1 FROM result_qc5_review WHERE version_id=$1',[versionId])).rows.length>0;
-     if(hasQc5)await recordReview(db,user,{versionId,valuesMatchPdf:true,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:v.row_version});
+     // A QC5 bound to ANOTHER attempt (the PDF was unlinked and picked again) can never serve this link: refuse, nothing written.
+     const qc5=(await db.query<{attempt_id:string|null}>('SELECT attempt_id FROM result_qc5_review WHERE version_id=$1',[versionId])).rows[0];
+     if(qc5&&qc5.attempt_id!==v.attempt_id)throw new LabError('QC5_BOUND_TO_OTHER_ATTEMPT',409);
+     if(qc5)await recordReview(db,user,{versionId,valuesMatchPdf:true,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:v.row_version});
      else{
       const review=v.origin==='INTERNAL_GENERATED'?reviewInternalForRelease:reviewExternalForRelease;
       await review(db,user,{versionId,expectedRowVersion:v.row_version,abnormalAcknowledged:d.abnormalAcknowledged});
      }
      v=(await row())!;
+    }
+    // Already reviewed (or just reviewed) but still Linked/ValidationBlocked: the DB only allows Linked -> PendingCertification -> CertifiedReleased, so validate first.
+    if(v.state==='Linked'||v.state==='ValidationBlocked'){
+     await revalidate(db,user,{versionId,expectedRowVersion:v.row_version});
+     v=(await row())!;
+     if(v.state!=='PendingCertification'){
+      const g=await validationGateIssues(db,versionId);
+      done.set(versionId,{versionId,outcome:'BLOCKED',failed:g.failed,pending:g.pending});
+      await db.query('RELEASE SAVEPOINT send_his_item');continue;
+     }
     }
    }
    const r=await certifyAttempt(db,user,{versionId,idempotencyKey:key,abnormalAcknowledged:d.abnormalAcknowledged,expectedRowVersion:v.row_version,confirmed:true});
@@ -58,7 +75,8 @@ export async function sendToHis(db:Queryable,user:Staff,input:unknown):Promise<{
    await db.query('RELEASE SAVEPOINT send_his_item');
   }catch(e){
    await db.query('ROLLBACK TO SAVEPOINT send_his_item');await db.query('RELEASE SAVEPOINT send_his_item');
-   if(isMigrationGuard(e)){done.set(versionId,{versionId,outcome:'ERROR',code:'MIGRATION_REVIEW_PRECONDITION_FAILED'});continue;}
+   const code=guardCode(e);
+   if(code){done.set(versionId,{versionId,outcome:'ERROR',code});continue;}
    if(!(e instanceof LabError))throw e;
    done.set(versionId,{versionId,outcome:'ERROR',code:e.code,...(e.details!==undefined?{details:e.details}:{})});
   }
