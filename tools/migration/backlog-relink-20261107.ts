@@ -176,6 +176,8 @@ export async function main(argv:string[],deps:Deps){
   const {rows}=await runBacklogRelink(conn.db,actor,{apply,onRow:report.append});
   report.finish(rows);
   deps.log(JSON.stringify({mode:apply?'APPLY':'DRY_RUN',rows:rows.length,report:report.stem+'.csv / .md'}));
+  // The report names patients (HN/LN) and, without --out, sits in the server's temp folder: say so as the very last line.
+  if(out===undefined)deps.log('รายงานมี HN/LN — ลบโฟลเดอร์เมื่อใช้งานเสร็จ');
   return {rows,report:report.stem};
  }catch(e){report.discard();throw e;}
  finally{await conn?.close();}
