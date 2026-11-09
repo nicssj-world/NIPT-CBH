@@ -33,3 +33,8 @@
  .nhso-field dt{grid-column:1 / -1}
 }
 @media (prefers-reduced-motion:reduce){.nhso-tile{transition:none}}
+
+/* The date fields carry a hint line under the input, the search field does not: align everything to the top so the boxes sit on one row. */
+.nhso-board .search-form{align-items:flex-start}
+.nhso-board .search-form>.button{margin-top:calc(27px + var(--ui-field-gap,8px))}
+@media(max-width:600px){.nhso-board .search-form>.button{margin-top:0}}
