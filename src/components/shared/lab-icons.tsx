@@ -12,6 +12,7 @@ const PATHS={
  layers:"M12 3 2 8l10 5 10-5zM2 13l10 5 10-5M2 18l10 5 10-5",
  file:"M6 2h9l5 5v15H6zM14 2v6h6M9 13h7M9 17h7",
  check:"m5 12 4 4 10-10",
+ copy:"M9 9h11v12H9zM5 15H4V3h11v1",
  trash:"M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3",
  eye:"M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6z",
  pencil:"M4 20h4L19 9l-4-4L4 16zM13 7l4 4",

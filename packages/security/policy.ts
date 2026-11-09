@@ -79,6 +79,8 @@ const rows = {
   "result.revise": "--PY---R-",
   "result.read.released": "UUYY-B---",
   "result.read.obsolete": "--YY---R-",
+  // ลงผลสปสช. (Owner 2026-11-09): lab staff copy a released result into the NHSO system and record that it was entered.
+  "nhso.entry": "--YY-----",
   "his.retry": "--YY-Y-R-",
   "his.reconcile": "--YY--YR-",
   "integration.configure": "-----YYR-",
