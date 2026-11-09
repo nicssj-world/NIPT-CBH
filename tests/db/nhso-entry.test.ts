@@ -111,3 +111,26 @@ it('a case that chose neither สปสช. nor self-pay is treated as สปส
   await expect(f.run(t=>markNotNhso(t,{...f.admin,roles:['ANC_NURSE']},{releaseId:a}))).rejects.toMatchObject({code:'FORBIDDEN'});
  }finally{await f.close();}
 },600000);
+
+it('a paper case reads GA and ครรภ์ที่ from the Lab paper request check; a request with no stated entitlement is still read',async()=>{
+ const f=await fixture();try{
+  const a=await release(f,0),c=f.cases[0];
+  const paper=(panel:object,at='now()')=>f.db.query(`INSERT INTO p2_paper_review(case_id,round_id,kind,template_version,document_reference,panel,status,location,reason,verifier_id,created_at)
+   VALUES($1,$2,'REQUEST','CBH-FM01-v1','SYNTHETIC-PAPER','${JSON.stringify(panel)}','Verified','SYNTHETIC','SYNTHETIC_TEST',$3,${at})`,[c.caseId,c.roundId,f.admin.id]);
+  // The Lab registration of the fixture says 17+6; the paper check (the later, explicit record) says 20+2 and gravida 3.
+  await paper({gaWeeks:20,gaDays:2,gravida:3,pregnancyType:'Singleton'});
+  let d=await f.run(t=>nhsoDetail(t,f.store,f.admin,a));
+  expect(d.patient).toMatchObject({gaWeeks:20,gaDays:2,gravida:3});
+  expect(d.row.entitlement).toBe('UNSPECIFIED');
+  // A newer paper check replaces the older one; leaving ครรภ์ที่ empty there keeps the earlier value (same pregnancy).
+  await paper({gaWeeks:21,gaDays:0,gravida:null,pregnancyType:'Singleton'},"now()+interval '1 second'");
+  d=await f.run(t=>nhsoDetail(t,f.store,f.admin,a));
+  expect(d.patient).toMatchObject({gaWeeks:21,gaDays:0,gravida:3});
+  // The electronic/Lab-typed request with a BLANK entitlement is still the source of ครรภ์ที่ (it used to be skipped).
+  await request(f,0,'',5);
+  d=await f.run(t=>nhsoDetail(t,f.store,f.admin,a));
+  expect(d.patient.gravida).toBe(5);
+  expect(d.row.entitlement).toBe('UNSPECIFIED');
+  expect((await board(f,'PENDING')).rows.map(r=>r.releaseId)).toEqual([a]);
+ }finally{await f.close();}
+},600000);

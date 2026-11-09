@@ -17,19 +17,21 @@ export type NhsoTab='PENDING'|'DONE'|'NOT_NHSO';
 export type NhsoRow={releaseId:string;caseId:string;ln:string;hn:string|null;name:string|null;certifiedAt:string;reissued:boolean;entitlement:'NHSO'|'UNSPECIFIED';entry:{kind:'CONFIRMED'|'NOT_NHSO';at:string;by:string|null}|null};
 
 type R={release_id:string;case_id:string;round_id:string;certified_at:Date;ln:string;hn:string|null;name:string|null;registration_origin:string;unit_id:string|null;
- draft:RequestDraft|null;entry_kind:string|null;entry_at:Date|null;entry_by:string|null;reissued:boolean};
+ draft:RequestDraft|null;entitlement:string|null;entry_kind:string|null;entry_at:Date|null;entry_by:string|null;reissued:boolean};
 
 const ROWS_SQL=`SELECT r.id release_id,r.case_id,r.round_id,r.certified_at,l.ln,i.hn,c.registration_origin,
   (SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=r.case_id ORDER BY s.unit_id LIMIT 1) unit_id,
-  w.draft,COALESCE(NULLIF(btrim(pet.parsed->>'name'),''),NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),'')) AS name,
+  w.draft,ent.entitlement,COALESCE(NULLIF(btrim(pet.parsed->>'name'),''),NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),'')) AS name,
   e.kind entry_kind,e.at entry_at,COALESCE(NULLIF(btrim(u.display_name),''),u.username) entry_by,
   EXISTS(SELECT 1 FROM result_release p WHERE p.round_id=r.round_id AND p.kind='RESULT' AND p.id<>r.id
    AND (SELECT x.kind FROM nhso_result_entry_event x WHERE x.release_id=p.id ORDER BY x.sequence DESC LIMIT 1)='CONFIRMED') reissued
  FROM result_release r JOIN nipt_case c ON c.id=r.case_id JOIN specimen_round s ON s.id=r.round_id JOIN case_ln l ON l.id=s.case_ln_id
  LEFT JOIN p2_case_identity i ON i.case_id=c.id
  LEFT JOIN LATERAL (SELECT w.draft FROM p2_workspace w JOIN specimen_round x ON x.id=w.round_id
-   WHERE w.case_id=r.case_id AND COALESCE(btrim(w.draft#>>'{patient,entitlement}'),'')<>''
-   ORDER BY (w.round_id=r.round_id) DESC,x.round_number DESC LIMIT 1) w ON true
+   WHERE w.case_id=r.case_id ORDER BY (w.round_id=r.round_id) DESC,x.round_number DESC LIMIT 1) w ON true
+ LEFT JOIN LATERAL (SELECT btrim(w2.draft#>>'{patient,entitlement}') entitlement FROM p2_workspace w2 JOIN specimen_round x2 ON x2.id=w2.round_id
+   WHERE w2.case_id=r.case_id AND COALESCE(btrim(w2.draft#>>'{patient,entitlement}'),'')<>''
+   ORDER BY (w2.round_id=r.round_id) DESC,x2.round_number DESC LIMIT 1) ent ON true
  LEFT JOIN LATERAL (SELECT f.parsed FROM his_order_current o JOIN his_inbound_file_current f ON f.id=o.inbound_file_id
    WHERE o.round_id=r.round_id ORDER BY o.his_received_at DESC LIMIT 1) pet ON true
  LEFT JOIN LATERAL (SELECT x.kind,x.at,x.actor_id FROM nhso_result_entry_event x WHERE x.release_id=r.id ORDER BY x.sequence DESC LIMIT 1) e ON true
@@ -39,7 +41,7 @@ const ROWS_SQL=`SELECT r.id release_id,r.case_id,r.round_id,r.certified_at,l.ln,
 
 /** Owner 2026-11-09: only an explicit "self-pay / เรียกเก็บ" entitlement stays out. A case that chose neither (blank, paper request from the Lab, unrecognised text)
  *  is treated as สปสช.; staff can mark it "not สปสช." on this page. Only cases the user may see. */
-const kindOf=(r:R)=>entitlementKind(r.draft?.patient?.entitlement);
+const kindOf=(r:R)=>entitlementKind(r.entitlement);
 const eligible=(user:Staff,r:R)=>kindOf(r)!=='SELF_PAY'&&caseVisible(user,{unit_id:r.unit_id,registration_origin:r.registration_origin});
 const toRow=(r:R):NhsoRow=>({releaseId:r.release_id,caseId:r.case_id,ln:r.ln,hn:r.hn,name:r.name,certifiedAt:new Date(r.certified_at).toISOString(),reissued:r.reissued,
  entitlement:kindOf(r)==='NHSO'?'NHSO':'UNSPECIFIED',
@@ -88,14 +90,22 @@ export async function nhsoDetail(db:Queryable,store:FileStore,user:Staff,release
  const receivedAt=round?.received_at??(file?.received?new Date(file.received):null);
  const serviceDate=receivedAt?bangkokIsoDay(new Date(receivedAt)):null;
  const dob=file?.dob??r.draft?.patient?.dob??null;
+ // GA weeks/days and "ครรภ์ที่": a paper case's Lab staff record them in the paper request check (p2_paper_review.panel). GA is "at the draw of this round", so only this
+ // round's check counts; gravida is the same for the whole pregnancy, so any round's check may supply it (this round first). Then the Lab registration, then the electronic request.
+ const papers=(await db.query<{round_id:string;panel:{gaWeeks?:number|null;gaDays?:number|null;gravida?:number|null}}>(
+  `SELECT round_id,panel FROM p2_paper_review WHERE case_id=$1 AND kind='REQUEST' ORDER BY (round_id=$2) DESC,created_at DESC LIMIT 20`,[r.case_id,r.round_id])).rows;
+ const paperGa=papers.find(p=>p.round_id===r.round_id&&Number.isInteger(p.panel?.gaWeeks)&&Number.isInteger(p.panel?.gaDays));
+ const paperGravida=papers.find(p=>Number.isInteger(p.panel?.gravida))?.panel.gravida??null;
  const reg=(await db.query<{ga_weeks:number|null;ga_days:number|null}>('SELECT ga_weeks,ga_days FROM lab_operational_registration WHERE round_id=$1',[r.round_id])).rows[0];
- let ga:{weeks:number;days:number}|null=reg&&reg.ga_weeks!==null&&reg.ga_days!==null?{weeks:reg.ga_weeks,days:reg.ga_days}:null;
+ let ga:{weeks:number;days:number}|null=paperGa?{weeks:paperGa.panel.gaWeeks!,days:paperGa.panel.gaDays!}:reg&&reg.ga_weeks!==null&&reg.ga_days!==null?{weeks:reg.ga_weeks,days:reg.ga_days}:null;
  if(!ga&&r.draft?.pregnancy){try{ga=gaParts(calculations(r.draft).gaDays);}catch{ga=null;}}
+ // An electronic request with an EDD but no recorded draw date: count GA to the service date instead of leaving it blank.
+ if(!ga&&serviceDate&&r.draft?.pregnancy?.edd&&!r.draft.pregnancy.collectionDate){ga=gaParts(280+Math.round((Date.parse(serviceDate)-Date.parse(r.draft.pregnancy.edd))/86400000));}
  const task=(await db.query<{at:Date|null}>(`SELECT min(a.assigned_at) at FROM result_release rr JOIN result_report_version v ON v.id=rr.version_id
    JOIN lab_slot_assignment a ON a.attempt_id=v.attempt_id AND a.removed_at IS NULL WHERE rr.id=$1`,[r.release_id])).rows[0];
- const gravida=r.draft?.pregnancy?.gravida;
+ const draftGravida=r.draft?.pregnancy?.gravida,gravida=typeof draftGravida==='number'?draftGravida:paperGravida;
  await recordPhiAccess(db,user.id,[r.case_id],'CASE_DETAIL_VIEW');
- return {row:toRow(r),patient:{nationalId,ageYears:ageOnDate(dob,serviceDate),gravida:typeof gravida==='number'?gravida:null,gaWeeks:ga?.weeks??null,gaDays:ga?.days??null,
+ return {row:toRow(r),patient:{nationalId,ageYears:ageOnDate(dob,serviceDate),gravida,gaWeeks:ga?.weeks??null,gaDays:ga?.days??null,
   serviceDate,testDate:task?.at?bangkokIsoDay(new Date(task.at)):null}};
 }
 
