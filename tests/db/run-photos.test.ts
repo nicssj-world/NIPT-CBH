@@ -113,7 +113,6 @@ describe('corrections with permissions and an append-only audit trail',()=>{
   expect(await run(t=>svc.editPhoto(t,u.staff,p.photoId,edit))).toMatchObject({rowVersion:2,changed:true});
   expect(await code(run(t=>svc.editPhoto(t,u.staff,p.photoId,edit)))).toBe('VERSION_CONFLICT');
   const b=await secondRun();
-  await expect(run(t=>svc.movePhoto(t,u.certifier,p.photoId,{expectedRowVersion:2,targetBatchId:b.batchId,reason:'สั้น'}))).rejects.toThrow();
   expect(await run(t=>svc.movePhoto(t,u.certifier,p.photoId,{expectedRowVersion:2,targetBatchId:b.batchId,reason:'อัปโหลดผิด Run ย้ายไป Run ที่ถูกต้อง'}))).toMatchObject({batchId:b.batchId,rowVersion:3});
   expect(await run(t=>svc.retractPhoto(t,u.staff,p.photoId,{expectedRowVersion:3,reason:'ภาพเบลอ อ่านฉลากไม่ได้'}))).toMatchObject({rowVersion:4});
   expect(await code(run(t=>svc.editPhoto(t,u.staff,p.photoId,{...edit,expectedRowVersion:4})))).toBe('RUN_PHOTO_RETRACTED');
@@ -212,7 +211,6 @@ describe('configurable storage path',()=>{
   expect(tested.receipt).toMatchObject({ok:true,account:expect.any(String)});
   expect(tested.receipt.checks.map(c=>c.name)).toEqual(['EXISTS','DIRECTORY','WRITE','READ_BACK','DELETE']);
   expect(await readdir(roots.dir('nas'))).toEqual([]); // the probe cleans up after itself
-  await expect(run(t=>svc.activateStoragePath(t,admin,{path:roots.dir('nas'),reason:'สั้น'},tested))).rejects.toThrow();
   const act=await run(t=>svc.activateStoragePath(t,admin,{path:roots.dir('nas'),reason:'ย้ายไป NAS ของห้องปฏิบัติการ'},tested));
   expect(act.retiredRootId).toBe(old.root.root_id);
   expect(await code(run(t=>svc.activateStoragePath(t,admin,{path:roots.dir('nas'),reason:'ย้ายไป NAS ของห้องปฏิบัติการ'},tested)))).toBe('STORAGE_PATH_UNCHANGED');

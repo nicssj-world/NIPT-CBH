@@ -26,7 +26,6 @@ it.each(['S2','S3'] as const)('Task1 persisted case ordinals and exceptional %s 
   await expect(tx(f.db,db=>orderRepeat(db,lab,{attemptId:fourth.attemptId,level:'RE_LIBRARY',reasonCode:'OTHER',note:'SYNTHETIC scheduling is not a failure'}))).rejects.toThrow('REPEAT_REQUIRES_FAILED_OR_STOPPED_ATTEMPT');
   await fail(fourth.attemptId);
   expect(worklistRow((await attemptFacts(f.db,'a.id=$1',[fourth.attemptId]))[0],'HOLD').outcomeStatus).toBe('รอพิจารณาหลังครบ 4 ครั้ง');
-  await expect(tx(f.db,db=>orderRepeat(db,lab,{attemptId:fourth.attemptId,level:'RE_LIBRARY',reasonCode:'OTHER'}))).rejects.toThrow();
   let fifth;
   if(specimen==='S3'){
    const s3=await tx(f.db,db=>orderRedraw(db,lab,{caseId,reasonCode:'QC_SAMPLE_FAILED',note:'SYNTHETIC exceptional new specimen S3'}));

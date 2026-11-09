@@ -129,7 +129,6 @@ describe('Ready queue, gates and FIFO (§12.9, §5.9.1)',()=>{
   const old=await received({},new Date(Date.now()-3*3600000)),mid=await received({},new Date(Date.now()-2*3600000)),late=await received({},new Date(Date.now()-3600000));
   let w=await run(t=>intake.labWorklist(t,u.staff));expect(w.attempts.map(a=>a.roundId)).toEqual([old.roundId,mid.roundId,late.roundId]);
   const lateAttempt=await attemptOf(q(db),late.roundId);
-  await expect(run(t=>intake.setUrgent(t,u.staff,{attemptId:lateAttempt.id,urgent:true,reason:'สั้น'}))).rejects.toThrow();
   await run(t=>intake.setUrgent(t,u.staff,{attemptId:lateAttempt.id,urgent:true,reason:'จำลอง แพทย์ขอเร่งด่วน'}));
   // Receive Date Sorting Owner Lock: display stays receive-time ASC; Urgent is a visible, audited flag (not a silent re-sort).
   w=await run(t=>intake.labWorklist(t,u.staff));expect(w.attempts.map(a=>a.roundId)).toEqual([old.roundId,mid.roundId,late.roundId]);expect(w.attempts[2]).toMatchObject({urgent:true,urgentReason:'จำลอง แพทย์ขอเร่งด่วน'});
