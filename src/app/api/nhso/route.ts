@@ -1,6 +1,6 @@
 import {NextResponse,type NextRequest} from "next/server";
 import {withTransaction} from "../../../../packages/db/connection";
-import {nhsoBoard,nhsoDetail,confirmNhsoEntry,cancelNhsoEntry} from "../../../../packages/results/nhso-entry";
+import {nhsoBoard,nhsoDetail,confirmNhsoEntry,markNotNhso,cancelNhsoEntry} from "../../../../packages/results/nhso-entry";
 import {protect,readJson} from "../../../server/http";
 import {p5Error,p5Mutation,noStore,resultStore} from "../../../server/p5";
 
@@ -13,6 +13,7 @@ export async function POST(request:NextRequest){return p5Mutation(request,"NHSO_
  const r=await withTransaction<unknown>(db=>{
   if(action==="board")return nhsoBoard(db,user,data);
   if(action==="confirm")return confirmNhsoEntry(db,user,data);
+  if(action==="notNhso")return markNotNhso(db,user,data);
   if(action==="cancel")return cancelNhsoEntry(db,user,data);
   throw new Error("INVALID_REQUEST");});
  return NextResponse.json(r,{headers:noStore});});}

@@ -1,10 +1,11 @@
 -- ลงผลสปสช. (Owner 2026-11-09): staff copy a released result into the NHSO system by hand, then confirm here.
 -- One insert-only event stream per certified release: the latest event is the current state (CONFIRMED = entered,
--- CANCELLED = back to pending). A reissued result is a new release and so starts pending again. No patient data is stored.
+-- NOT_NHSO = staff say the entitlement is not สปสช., CANCELLED = back to pending from either). A reissued result is a new release
+-- and so starts pending again. No patient data is stored.
 CREATE TABLE nhso_result_entry_event(
  sequence bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
  release_id uuid NOT NULL REFERENCES result_release(id),
- kind text NOT NULL CHECK(kind IN ('CONFIRMED','CANCELLED')),
+ kind text NOT NULL CHECK(kind IN ('CONFIRMED','NOT_NHSO','CANCELLED')),
  actor_id uuid NOT NULL REFERENCES app_user,
  at timestamptz NOT NULL DEFAULT clock_timestamp()
 );

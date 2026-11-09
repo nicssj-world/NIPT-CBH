@@ -6,7 +6,7 @@ import {AncResults} from "../p5/anc-results";
 import {CopyButton} from "../shared/copy-button";
 import {formatBe,formatBeDateTime} from "../../../packages/domain/thai-date";
 import {nationalIdCopy,nationalIdDisplay} from "../../../packages/results/nhso-format";
-import type {NhsoDetail,NhsoRow} from "../../../packages/results/nhso-entry";
+import type {NhsoDetail,NhsoRow,NhsoTab} from "../../../packages/results/nhso-entry";
 import "./nhso.css";
 
 const beDay=(iso:string|null)=>{if(!iso)return null;try{return formatBe(iso.slice(0,10));}catch{return null;}};
@@ -26,19 +26,21 @@ export function nhsoItems(p:NhsoDetail["patient"]):Item[]{
  ];
 }
 
-export function NhsoDialog({row,tab,onClose,onChanged}:{row:NhsoRow;tab:"PENDING"|"DONE";onClose:()=>void;onChanged:(message:string)=>void}){
+export function NhsoDialog({row,tab,onClose,onChanged}:{row:NhsoRow;tab:NhsoTab;onClose:()=>void;onChanged:(message:string)=>void}){
  const [detail,setDetail]=useState<NhsoDetail|null>(null),[error,setError]=useState(""),[busy,setBusy]=useState(false),[copiedCount,setCopiedCount]=useState(0),[reload,setReload]=useState(0);
  useEffect(()=>{let live=true;
   void labApi<NhsoDetail>(`/api/nhso?releaseId=${encodeURIComponent(row.releaseId)}`).then(d=>{if(live){setDetail(d);setError("");}}).catch(e=>{if(live){setDetail(null);setError(failureText(e));}});
   return()=>{live=false;};},[row.releaseId,reload]);
- const act=async(action:"confirm"|"cancel")=>{
+ const act=async(action:"confirm"|"notNhso"|"cancel")=>{
   setBusy(true);setError("");
-  try{await labApi("/api/nhso",{action,releaseId:row.releaseId});onChanged(action==="confirm"?`ยืนยันการลงผลสปสช. LN ${row.ln} แล้ว — ย้ายไปที่ “ลงผลแล้ว”`:`ยกเลิกการลงผล LN ${row.ln} แล้ว — กลับไปที่ “ต้องลงผล”`);}
+  const done={confirm:`ยืนยันการลงผลสปสช. LN ${row.ln} แล้ว — ย้ายไปที่ “ลงผลแล้ว”`,notNhso:`ระบุว่า LN ${row.ln} ไม่ใช่สิทธิ สปสช. แล้ว — ย้ายไปที่ “ไม่ใช่สิทธิ สปสช.”`,cancel:`ยกเลิก LN ${row.ln} แล้ว — กลับไปที่ “ต้องลงผล”`}[action];
+  try{await labApi("/api/nhso",{action,releaseId:row.releaseId});onChanged(done);}
   catch(e){setError(failureText(e));setBusy(false);}
  };
  const items=detail?nhsoItems(detail.patient):[],total=items.filter(i=>i.copy!==null).length;
  return <Dialog title="ลงผลสปสช." onClose={onClose}><div className="nhso-popup">
   <p className="nhso-id">{row.name&&<strong>{row.name}</strong>}{row.name&&" · "}HN {row.hn??"ยังไม่ยืนยัน"} · LN <Ln value={row.ln}/>{row.reissued&&<span className="badge warning">ผลถูกแก้ไข ต้องลงใหม่</span>}</p>
+  {tab==="PENDING"&&row.entitlement==="UNSPECIFIED"&&<p className="notice warning-notice" role="note">ใบ Request ไม่ได้ระบุสิทธิ จึงถือเป็นสิทธิ สปสช. — ถ้าไม่ใช่สิทธิ สปสช. กด “ไม่ใช่สิทธิ สปสช.” ด้านล่าง</p>}
   {error&&<div className="notice" role="alert">{error} <button type="button" className="button small secondary" onClick={()=>setReload(n=>n+1)}>ลองใหม่</button></div>}
   <section aria-labelledby="nhso-patient-h" className="nhso-section">
    <h3 id="nhso-patient-h">1. ข้อมูลคนไข้ <span className="help">กดไอคอนเพื่อคัดลอกทีละค่า</span></h3>
@@ -56,9 +58,10 @@ export function NhsoDialog({row,tab,onClose,onChanged}:{row:NhsoRow;tab:"PENDING
   </section>
   <footer className="nhso-footer action-bar">
    {tab==="PENDING"
-    ?<button type="button" className="button" disabled={busy||!detail} onClick={()=>void act("confirm")}>{busy?"กำลังบันทึก…":"ยืนยันการลงผล"}</button>
-    :<><p className="help nhso-by">ยืนยันแล้วโดย {row.entry?.by??"—"}{row.entry&&` · ${formatBeDateTime(row.entry.at)}`}</p>
-     <button type="button" className="button secondary danger" disabled={busy} onClick={()=>void act("cancel")}>{busy?"กำลังบันทึก…":"ยกเลิกการลงผล"}</button></>}
+    ?<><button type="button" className="button secondary" disabled={busy} onClick={()=>void act("notNhso")}>ไม่ใช่สิทธิ สปสช.</button>
+     <button type="button" className="button" disabled={busy||!detail} onClick={()=>void act("confirm")}>{busy?"กำลังบันทึก…":"ยืนยันการลงผล"}</button></>
+    :<><p className="help nhso-by">{tab==="DONE"?"ยืนยันแล้วโดย":"ระบุว่าไม่ใช่สิทธิ สปสช. โดย"} {row.entry?.by??"—"}{row.entry&&` · ${formatBeDateTime(row.entry.at)}`}</p>
+     <button type="button" className="button secondary danger" disabled={busy} onClick={()=>void act("cancel")}>{busy?"กำลังบันทึก…":tab==="DONE"?"ยกเลิกการลงผล":"ยกเลิก — กลับไปที่ต้องลงผล"}</button></>}
    <button type="button" className="button secondary" onClick={onClose}>ปิด</button>
   </footer>
  </div></Dialog>;

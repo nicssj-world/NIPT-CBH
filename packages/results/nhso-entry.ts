@@ -12,8 +12,9 @@ import {recordPhiAccess} from '../db/phi-access';
 // ลงผลสปสช. (Owner 2026-11-09). Lists every certified, Active result of a patient whose request records the NHSO (สปสช.) entitlement;
 // staff copy the patient data into the NHSO system and confirm here. The state is the latest nhso_result_entry_event of that release
 // (migration 208). A reissued result is a new release, so it comes back as pending with `reissued` set.
-export type NhsoTab='PENDING'|'DONE';
-export type NhsoRow={releaseId:string;caseId:string;ln:string;hn:string|null;name:string|null;certifiedAt:string;reissued:boolean;entry:{at:string;by:string|null}|null};
+export type NhsoTab='PENDING'|'DONE'|'NOT_NHSO';
+/** `entitlement` UNSPECIFIED = the request chose neither สปสช. nor self-pay (treated as สปสช.). `entry` is the current CONFIRMED / NOT_NHSO decision, if any. */
+export type NhsoRow={releaseId:string;caseId:string;ln:string;hn:string|null;name:string|null;certifiedAt:string;reissued:boolean;entitlement:'NHSO'|'UNSPECIFIED';entry:{kind:'CONFIRMED'|'NOT_NHSO';at:string;by:string|null}|null};
 
 type R={release_id:string;case_id:string;round_id:string;certified_at:Date;ln:string;hn:string|null;name:string|null;registration_origin:string;unit_id:string|null;
  draft:RequestDraft|null;entry_kind:string|null;entry_at:Date|null;entry_by:string|null;reissued:boolean};
@@ -36,12 +37,15 @@ const ROWS_SQL=`SELECT r.id release_id,r.case_id,r.round_id,r.certified_at,l.ln,
  WHERE r.state='Active' AND r.kind='RESULT' AND c.registration_origin<>'HISTORICAL'
   AND NOT EXISTS(SELECT 1 FROM eqa_case q WHERE q.case_id=r.case_id)`;
 
-/** Only a case the user may see, whose request says สปสช. */
-const eligible=(user:Staff,r:R)=>entitlementKind(r.draft?.patient?.entitlement)==='NHSO'&&caseVisible(user,{unit_id:r.unit_id,registration_origin:r.registration_origin});
+/** Owner 2026-11-09: only an explicit "self-pay / เรียกเก็บ" entitlement stays out. A case that chose neither (blank, paper request from the Lab, unrecognised text)
+ *  is treated as สปสช.; staff can mark it "not สปสช." on this page. Only cases the user may see. */
+const kindOf=(r:R)=>entitlementKind(r.draft?.patient?.entitlement);
+const eligible=(user:Staff,r:R)=>kindOf(r)!=='SELF_PAY'&&caseVisible(user,{unit_id:r.unit_id,registration_origin:r.registration_origin});
 const toRow=(r:R):NhsoRow=>({releaseId:r.release_id,caseId:r.case_id,ln:r.ln,hn:r.hn,name:r.name,certifiedAt:new Date(r.certified_at).toISOString(),reissued:r.reissued,
- entry:r.entry_kind==='CONFIRMED'&&r.entry_at?{at:new Date(r.entry_at).toISOString(),by:r.entry_by}:null});
+ entitlement:kindOf(r)==='NHSO'?'NHSO':'UNSPECIFIED',
+ entry:(r.entry_kind==='CONFIRMED'||r.entry_kind==='NOT_NHSO')&&r.entry_at?{kind:r.entry_kind,at:new Date(r.entry_at).toISOString(),by:r.entry_by}:null});
 
-const boardSchema=z.strictObject({tab:z.enum(['PENDING','DONE']),q:z.string().trim().max(40).default(''),page:z.number().int().min(1).max(1000).default(1),pageSize:z.number().int().min(10).max(100).default(50)});
+const boardSchema=z.strictObject({tab:z.enum(['PENDING','DONE','NOT_NHSO']),q:z.string().trim().max(40).default(''),page:z.number().int().min(1).max(1000).default(1),pageSize:z.number().int().min(10).max(100).default(50)});
 /** Upper bound of releases one board call reads; `truncated` says it cut rows off. */
 export const NHSO_CAP=5000;
 
@@ -52,12 +56,13 @@ export async function nhsoBoard(db:Queryable,user:Staff,input:unknown,cap=NHSO_C
    AND ($1='' OR l.ln LIKE $1||'%' OR ltrim(COALESCE(i.hn,''),'0') LIKE ltrim($1,'0')||'%')
   ORDER BY r.certified_at,r.id LIMIT $2`,[q,cap+1])).rows;
  const truncated=fetched.length>cap,all=fetched.slice(0,cap).filter(r=>eligible(user,r));
- const done=all.filter(r=>r.entry_kind==='CONFIRMED'),pending=all.filter(r=>r.entry_kind!=='CONFIRMED');
- // Pending: oldest release first (work the queue in order). Entered: most recently entered first.
- const list=d.tab==='PENDING'?pending:done.sort((a,b)=>new Date(b.entry_at!).getTime()-new Date(a.entry_at!).getTime());
+ const done=all.filter(r=>r.entry_kind==='CONFIRMED'),notNhso=all.filter(r=>r.entry_kind==='NOT_NHSO'),pending=all.filter(r=>r.entry_kind!=='CONFIRMED'&&r.entry_kind!=='NOT_NHSO');
+ // Pending: oldest release first (work the queue in order). Entered / marked not สปสช.: most recent first.
+ const recent=(rows:R[])=>rows.sort((a,b)=>new Date(b.entry_at!).getTime()-new Date(a.entry_at!).getTime());
+ const list=d.tab==='PENDING'?pending:recent(d.tab==='DONE'?done:notNhso);
  const total=list.length,start=(d.page-1)*d.pageSize,slice=list.slice(start,start+d.pageSize);
  await recordPhiAccess(db,user.id,slice.map(r=>r.case_id),'REGISTRY_VIEW');
- return {rows:slice.map(toRow),counts:{PENDING:pending.length,DONE:done.length},truncated,
+ return {rows:slice.map(toRow),counts:{PENDING:pending.length,DONE:done.length,NOT_NHSO:notNhso.length},truncated,
   page:{number:d.page,size:d.pageSize,total,totalPages:Math.max(1,Math.ceil(total/d.pageSize)),hasNext:start+d.pageSize<total}};
 }
 
@@ -95,16 +100,21 @@ export async function nhsoDetail(db:Queryable,store:FileStore,user:Staff,release
 }
 
 const actionSchema=z.strictObject({releaseId:uuid});
-async function record(db:Queryable,user:Staff,input:unknown,kind:'CONFIRMED'|'CANCELLED'){
+type Decision='CONFIRMED'|'NOT_NHSO'|'CANCELLED';
+const AUDIT_ACTION:Record<Decision,string>={CONFIRMED:'NHSO_ENTRY_CONFIRMED',NOT_NHSO:'NHSO_ENTRY_MARKED_NOT_NHSO',CANCELLED:'NHSO_ENTRY_CANCELLED'};
+/** CONFIRMED / NOT_NHSO only from pending; CANCELLED (back to pending) only from one of those two. Each is one insert-only event under a per-release lock. */
+async function record(db:Queryable,user:Staff,input:unknown,kind:Decision){
  await assertSession(db,user);need(user,'nhso.entry','write');
  const {releaseId}=actionSchema.parse(input);
  await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['nhso:'+releaseId]);
  const r=await eligibleRelease(db,user,releaseId);
- if(kind==='CONFIRMED'&&r.entry_kind==='CONFIRMED')throw new LabError('NHSO_ALREADY_CONFIRMED',409);
- if(kind==='CANCELLED'&&r.entry_kind!=='CONFIRMED')throw new LabError('NHSO_NOT_CONFIRMED',409);
+ const decided=r.entry_kind==='CONFIRMED'||r.entry_kind==='NOT_NHSO';
+ if(kind!=='CANCELLED'&&decided)throw new LabError('NHSO_ALREADY_DECIDED',409);
+ if(kind==='CANCELLED'&&!decided)throw new LabError('NHSO_NOT_DECIDED',409);
  await db.query('INSERT INTO nhso_result_entry_event(release_id,kind,actor_id) VALUES($1,$2,$3)',[r.release_id,kind,user.id]);
- await audit(db,user,kind==='CONFIRMED'?'NHSO_ENTRY_CONFIRMED':'NHSO_ENTRY_CANCELLED','RESULT_RELEASE',r.release_id,{resultingState:kind});
+ await audit(db,user,AUDIT_ACTION[kind],'RESULT_RELEASE',r.release_id,{resultingState:kind});
  return {releaseId:r.release_id,state:kind};
 }
 export const confirmNhsoEntry=(db:Queryable,user:Staff,input:unknown)=>record(db,user,input,'CONFIRMED');
+export const markNotNhso=(db:Queryable,user:Staff,input:unknown)=>record(db,user,input,'NOT_NHSO');
 export const cancelNhsoEntry=(db:Queryable,user:Staff,input:unknown)=>record(db,user,input,'CANCELLED');
