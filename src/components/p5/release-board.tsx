@@ -62,7 +62,7 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
   try{const r=await labApi<{items:{versionId:string;outcome:"SHOWN"|"LINKED_AND_SHOWN"|"LINKED_NOT_SHOWN"|"NOT_CHANGED";reason:string|null}[]}>("/api/p5/results",{action:"attestBatch",confirmed:true,items:batch.map(b=>({versionId:b.versionId}))});
    setShownResult({ok:r.items.filter(i=>i.outcome==="SHOWN"||i.outcome==="LINKED_AND_SHOWN").length,failed:r.items.filter(i=>i.outcome==="NOT_CHANGED"||i.outcome==="LINKED_NOT_SHOWN").map(i=>({row:batch.find(b=>b.versionId===i.versionId)!,code:i.reason??"ERROR",linked:i.outcome==="LINKED_NOT_SHOWN"}))});clearSelection();setShownTick(false);}
   catch(e){setSendError(failureText(e));setShowing(false);return;}
-  setShowing(false);await load();};
+  setShowing(false);await load();window.setTimeout(()=>document.getElementById("board-shown-result")?.scrollIntoView({block:"center",behavior:"smooth"}),50);};
  const done=async(message:string)=>{setDialog(null);setNotice(message);await load();};
 
  const empty=q?"ไม่พบรายการที่ตรงกับคำค้น":tab==="ACTION"?"ไม่มีรายการที่ต้องจัดการ":tab==="READY"?"ไม่มีผลที่รอส่ง HIS":"ยังไม่มีผลที่ส่งแล้ว";
@@ -83,7 +83,7 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
     {sendError&&<p className="notice" role="alert">{sendError}</p>}
     {data?.truncated&&<p className="notice warning-notice" role="status">แสดงเฉพาะรายการล่าสุด — ใช้ช่องค้นหา</p>}
    </div>
-   {shownResult&&<div className="stack board-outcomes" role="status"><strong>แสดงผลในหน้าคนไข้แล้ว {shownResult.ok} รายการ{shownResult.failed.length?` · ทำไม่สำเร็จ ${shownResult.failed.length} รายการ`:""}</strong>{shownResult.failed.length>0&&<ul className="timeline">{shownResult.failed.map(f=><li key={f.row.key}><Status tone="warning">ยังไม่ได้ทำ</Status> <span className="mono">{f.row.ln??f.row.hn??f.row.key}</span> · {f.linked?"เชื่อมผู้ป่วยแล้ว แต่ยังระบุไม่ได้: ":""}{attestErrorText(f.code)}</li>)}</ul>}</div>}
+   {shownResult&&<div id="board-shown-result" className="stack board-outcomes" role="status" tabIndex={-1}><strong>แสดงผลในหน้าคนไข้แล้ว {shownResult.ok} รายการ{shownResult.failed.length?` · ทำไม่สำเร็จ ${shownResult.failed.length} รายการ`:""}</strong>{shownResult.failed.length>0&&<ul className="timeline">{shownResult.failed.map(f=><li key={f.row.key}><Status tone="warning">ยังไม่ได้ทำ</Status> <span className="mono">{f.row.ln??f.row.hn??f.row.key}</span> · {f.linked?"เชื่อมผู้ป่วยแล้ว แต่ยังระบุไม่ได้: ":""}{attestErrorText(f.code)}</li>)}</ul>}</div>}
    {outcomes&&<div role="status" className="stack board-outcomes" aria-label="ผลการส่ง HIS"><strong>ส่ง HIS สำเร็จ {outcomes.filter(o=>o.outcome.outcome==="CertifiedReleased").length} จาก {outcomes.length} รายการ</strong>
     <ul className="timeline">{outcomes.map(({row,outcome})=><li key={outcome.versionId}><Status tone={outcomeTone(outcome)}>{outcome.outcome==="CertifiedReleased"?"ส่งแล้ว":outcome.outcome==="BLOCKED"?"ส่งไม่ได้":"ไม่สำเร็จ"}</Status> <span className="mono">{row?.ln??row?.hn??outcome.versionId}</span> · {outcomeText(outcome,reasonLabel)}</li>)}</ul></div>}
    {!error&&<div className="table-wrap" role="region" aria-label={`รายการ${TABS.find(t=>t[0]===tab)![1]}`} tabIndex={0}>
