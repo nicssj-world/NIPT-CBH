@@ -49,7 +49,7 @@ export function Task3Panel({d,versionId,reload}:{d:Task3Detail;versionId:string;
     :d.can.attestHis?<div className="stack">
      <label className="check-label"><input type="checkbox" checked={attest} onChange={e=>setAttest(e.target.checked)}/> <strong>มีผลใน HIS แล้ว</strong> — ข้าพเจ้าตรวจแล้วว่า HIS มีผลฉบับนี้อยู่แล้ว ระบบจะไม่ส่งซ้ำ</label>
      <div className="field"><label htmlFor="t3-attest-note">หมายเหตุ (ไม่บังคับ)</label><input id="t3-attest-note" value={attestNote} maxLength={500} onChange={e=>setAttestNote(e.target.value)}/></div>
-     <div className="action-bar"><button type="button" className="button secondary" disabled={!!busy||!attest} onClick={()=>run("attestHis",{confirmed:true,...(attestNote.trim()?{note:attestNote.trim()}:{})},"บันทึก “มีผลใน HIS แล้ว” — จะไม่ส่งผลนี้เข้า HIS")}>บันทึก</button></div></div>
+     <div className="action-bar"><button type="button" className="button secondary" disabled={!!busy||!attest} onClick={()=>run("attestHis",{confirmed:true,sameConfirmed:true,...(attestNote.trim()?{note:attestNote.trim()}:{})},"บันทึก “มีผลใน HIS แล้ว” — จะไม่ส่งผลนี้เข้า HIS")}>บันทึก</button></div></div>
     :<p className="help">ยังไม่มีการบันทึก — เมื่อกด “ส่ง HIS” ระบบจะส่งเข้า HIS ตามขั้นตอนปกติ</p>}
   </div>
 

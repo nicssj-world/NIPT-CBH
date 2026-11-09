@@ -41,7 +41,7 @@ export const outcomeTone=(o:SendOutcome)=>o.outcome==="CertifiedReleased"?"good"
 export const canShowOnPatient=(r:{versionId:string|null;reasons:{code:string}[]})=>!!r.versionId;
 export const ATTEST_ERROR_TEXT:Record<string,string>={
  HIS_ATTESTATION_LINKED_RESULT_REQUIRED:"ยังไม่ได้เชื่อมโยงกับผู้ป่วย — กด “เลือกผู้ป่วย” ก่อน",
- HIS_ATTESTATION_IDENTITY_MISMATCH:"PDF ไม่ตรงกับผู้ป่วยที่เชื่อมไว้ (HN / วันเกิด / เลข Lab) — ตรวจก่อน",
+ HIS_ATTESTATION_IDENTITY_MISMATCH:"ข้อมูลใน PDF ต่างจากผู้ป่วยที่เชื่อมไว้ — ถ้าตรวจแล้วว่าเป็นคนเดียวกัน เปิด “รายละเอียด” แล้วติ๊ก “มีผลใน HIS แล้ว” ได้เลย",
  HUMAN_DECISION_EXISTS:"มีคนตัดสินใจเรื่องผู้ป่วยของ PDF นี้ไว้แล้ว — กด “เลือกผู้ป่วย”",SERIES_NOT_EMPTY:"รอบนี้มีผลอีกฉบับอยู่แล้ว — ตรวจรายการ หรือกด “เลือกผู้ป่วย”",LINK_CONFLICT_NEEDS_HUMAN:"มีข้อขัดแย้งในการเชื่อมโยง — ให้คนตัดสินที่หน้ารายละเอียด",ROUND_NOT_CURRENT:"ไม่ใช่รอบปัจจุบันของเคส",NOT_AN_EXTERNAL_PDF:"ไม่ใช่ PDF จากภายนอก",NOT_A_CLEAN_MATCH:"ระบบจับคู่ผู้ป่วยไม่ได้ชัดเจน — กด “เลือกผู้ป่วย”",
  HIS_ATTESTATION_EXISTS:"ระบุไว้แล้วก่อนหน้านี้",HIS_ATTESTATION_TRANSFER_EXISTS:"เริ่มส่ง HIS แล้ว — ตรวจสถานะการส่ง",
  FORBIDDEN:"ไม่มีสิทธิ์ทำรายการนี้",VERSION_CONFLICT:"มีผู้อื่นเปลี่ยนรายการนี้ — โหลดใหม่แล้วลองอีกครั้ง"};

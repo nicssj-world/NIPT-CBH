@@ -675,16 +675,17 @@ async function identityMismatch(db:Queryable,v:VersionRow):Promise<boolean>{
  const t=(await db.query<{hn:string|null;printed_sample_id:string|null;ln_halos:string|null;ln:string}>('SELECT i.hn,(SELECT a.printed_sample_id FROM analytical_attempt a WHERE a.id=$2) printed_sample_id,n.ln_halos,l.ln FROM specimen_round_current r JOIN case_ln l ON l.id=r.case_ln_id LEFT JOIN p2_case_identity i ON i.case_id=r.case_id LEFT JOIN specimen_lab_number n ON n.round_id=r.id WHERE r.id=$1',[v.round_id,v.attempt_id])).rows[0];
  if(!t)return true;
  const c=crossCheck(v.parsed,t,await roundRequest(db,v.round_id),0);
- return c.hn==='MISMATCH'||c.dob==='MISMATCH'||c.labNumber==='MISMATCH';
+ // Owner 2026-11-09: a different lab number alone does not block when HN and date of birth both agree.
+ return c.hn==='MISMATCH'||c.dob==='MISMATCH'||(c.labNumber==='MISMATCH'&&!(c.hn==='MATCH'&&c.dob==='MATCH'));
 }
 export async function attestHisPresence(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'his.reconcile');
- const d=z.strictObject({versionId:uuid,confirmed:z.literal(true),note:z.string().trim().max(500).refine(x=>!/\d{13}/.test(x),'REASON_TEXT_INVALID').optional()}).parse(input);
+ const d=z.strictObject({versionId:uuid,confirmed:z.literal(true),sameConfirmed:z.boolean().optional(),note:z.string().trim().max(500).refine(x=>!/\d{13}/.test(x),'REASON_TEXT_INVALID').optional()}).parse(input);
  const pre=await versionOf(db,d.versionId);
  if(pre.kind!=='RESULT'||!pre.round_id||!['Linked','ValidationBlocked','PendingCertification','CertifiedReleased'].includes(pre.state))throw new LabError('HIS_ATTESTATION_LINKED_RESULT_REQUIRED',409);
  await lockChain(db,pre.round_id,pre.attempt_id,[pre.id]);const v=await versionOf(db,pre.id,true);
  if((await db.query('SELECT 1 FROM result_his_attestation WHERE version_id=$1 AND withdrawn_at IS NULL',[v.id])).rows[0])throw new LabError('HIS_ATTESTATION_EXISTS',409);
- if(await identityMismatch(db,v))throw new LabError('HIS_ATTESTATION_IDENTITY_MISMATCH',409);
+ if(!d.sameConfirmed&&await identityMismatch(db,v))throw new LabError('HIS_ATTESTATION_IDENTITY_MISMATCH',409);   // a person who says "this is the same patient" decides; only automatic and bulk paths are guarded
  const release=(await db.query<{id:string}>("SELECT id FROM result_release WHERE version_id=$1 AND state='Active'",[v.id])).rows[0];
  // Once a transfer exists the delivery has started; HIS state is then reconciled through P6, never by this checkbox.
  if(release&&(await db.query('SELECT 1 FROM p6_transfer WHERE clinical_release_id=$1',[release.id])).rows[0])throw new LabError('HIS_ATTESTATION_TRANSFER_EXISTS',409);

@@ -6,7 +6,7 @@ import {syntheticReportPdf} from '../../tools/his-simulator/result-pdf';
 import {registerIntake,parseIntake} from '../../packages/results/intake';
 import {reviewBenchForResult} from '../../packages/lab/bench-review';
 import {confirmCompletion} from '../../packages/results/completion';
-import {confirmImport,unlinkVersion,pickPatient,withdrawHisAttestation,ancCaseResults} from '../../packages/results/service';
+import {confirmImport,unlinkVersion,pickPatient,withdrawHisAttestation,attestHisPresence,ancCaseResults} from '../../packages/results/service';
 import {showInHisBatch} from '../../packages/results/his-present';
 import {releaseQueue} from '../../packages/results/release-queue';
 
@@ -14,16 +14,16 @@ import {releaseQueue} from '../../packages/results/release-queue';
 type F=Awaited<ReturnType<typeof task3Fixture>>;
 const rowVersion=async(f:F,id:string)=>(await f.db.query<{row_version:number}>('SELECT row_version FROM result_report_version WHERE id=$1',[id])).rows[0].row_version;
 const stateOf=async(f:F,id:string)=>(await f.db.query<{state:string}>('SELECT state FROM result_report_version WHERE id=$1',[id])).rows[0].state;
-async function importPdf(f:F,index:number,name:string,hn?:string){
- const c=f.cases[index],bytes=syntheticReportPdf({kind:'SINGLETON',labNumber:c.printed,hn:hn??c.hn,dob:'01-Jan-1990',collection:pdfDate('2026-10-20'),gaWeeks:17,gaDays:6,sex:null});
+async function importPdf(f:F,index:number,name:string,hn?:string,lab?:string){
+ const c=f.cases[index],bytes=syntheticReportPdf({kind:'SINGLETON',labNumber:lab??c.printed,hn:hn??c.hn,dob:'01-Jan-1990',collection:pdfDate('2026-10-20'),gaWeeks:17,gaDays:6,sex:null});
  const intakeId=await f.run(t=>registerIntake(t,f.store,{source:'UPLOAD',relativePath:null,originalName:name,actorId:f.admin.id,jobId:null},bytes));
  await f.run(t=>parseIntake(t,f.store,intakeId,{maxBytes:10000000,acceptZip:true}));
  await f.run(t=>reviewBenchForResult(t,f.admin,c.attemptId,{revision:1,measurementsReviewed:true,reason:'SYNTHETIC legacy paper-only result evidence review'}));
  return {c,intakeId};
 }
 /** Linked and waiting to be sent ("รอส่ง HIS"). */
-async function pending(f:F,index:number){
- const {c,intakeId}=await importPdf(f,index,`SYNTHETIC-shown-${index}.pdf`);
+async function pending(f:F,index:number,lab?:string){
+ const {c,intakeId}=await importPdf(f,index,`SYNTHETIC-shown-${index}.pdf`,undefined,lab);
  const done=await f.run(t=>confirmCompletion(t,f.admin,{idempotencyKey:randomUUID(),abnormalAcknowledged:false,items:[{intakeId,caseId:c.caseId,roundId:c.roundId,attemptId:c.attemptId}]}));
  expect(done.items[0].outcome).toBe('PendingCertification');
  return {c,id:done.items[0].versionId!};
@@ -139,5 +139,28 @@ it('any external PDF, not a fixed list: the board action links a clean unlinked 
   // an HALOS-generated report is ours to send, never "already in HIS"
   const internal=(await f.db.query<{id:string}>("SELECT id FROM result_report_version WHERE origin='INTERNAL_GENERATED' LIMIT 1")).rows[0];
   if(internal){const x=await f.run(t=>showInHisBatch(t,f.admin,{confirmed:true,items:[{versionId:internal.id}]}));expect(x.items[0]).toMatchObject({outcome:'NOT_CHANGED',reason:'NOT_AN_EXTERNAL_PDF'});}
+ }finally{await f.close();}
+},600000);
+
+// Owner 2026-11-09: HN and date of birth both agree, so a different lab number printed on the PDF alone does not stop it from being shown on the patient.
+it('a different lab number on the PDF does not block when HN and date of birth both match',async()=>{
+ const f=await task3Fixture();try{
+  const a=await pending(f,0);
+  await f.db.query("ALTER TABLE result_report_version DISABLE TRIGGER USER");   // synthetic DB only: pretend the PDF printed another lab number
+  await f.db.query("UPDATE result_report_version SET parsed=jsonb_set(parsed,'{identifiers,labNumber,value}','\"SYNTH-OTHER-LAB-1\"') WHERE id=$1",[a.id]);
+  await f.db.query("ALTER TABLE result_report_version ENABLE TRIGGER USER");
+  const r=await f.run(t=>showInHisBatch(t,f.admin,{confirmed:true,items:[{versionId:a.id}]}));
+  expect(r.items[0].outcome).toBe('SHOWN');
+ }finally{await f.close();}
+},600000);
+
+it('a person who confirms "same patient" on the detail page is not stopped by the identity guard',async()=>{
+ const f=await task3Fixture();try{
+  const a=await pending(f,0),c=a.c;
+  await f.db.query("INSERT INTO p2_workspace(round_id,case_id,draft,request_mode,consent_mode,updated_by) VALUES($1,$2,'{}','Paper','Paper',$3) ON CONFLICT(round_id) DO NOTHING",[c.roundId,c.caseId,f.admin.id]);
+  await f.db.query(`INSERT INTO p2_paper_review(case_id,round_id,kind,template_version,document_reference,panel,status,location,reason,verifier_id) VALUES($1,$2,'REQUEST','CBH-FM01-v1','SYNTHETIC-PAPER',$3,'Verified','SYNTHETIC','SYNTHETIC_TEST',$4)`,[c.caseId,c.roundId,JSON.stringify({dob:'1991-05-05',gaWeeks:17,gaDays:6,pregnancyType:'Singleton'}),f.admin.id]);
+  await expect(f.run(t=>attestHisPresence(t,f.admin,{versionId:a.id,confirmed:true}))).rejects.toThrow('HIS_ATTESTATION_IDENTITY_MISMATCH');
+  await f.run(t=>attestHisPresence(t,f.admin,{versionId:a.id,confirmed:true,sameConfirmed:true}));
+  expect(await shownToAnc(f,c.caseId)).toHaveLength(1);
  }finally{await f.close();}
 },600000);
