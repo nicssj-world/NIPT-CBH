@@ -31,7 +31,7 @@ check('OWNER-LAB-041','Bench shows three numbered steps QC -> Pooling -> Sequenc
 check('OWNER-LAB-041','Workbook PDF action separate from the three steps','bench','lab',present('ใบงาน Excel / PDF'));
 check('OWNER-LAB-042','QC criteria exact: Patient/PC/NC >= 2.0 ng/µL, restart extraction wording; Blank <= 0.6','bench','lab',present('ตัวอย่าง, Positive control และ Negative control ควรมีความเข้มข้น ≥ 2.0 ng/µL หากไม่เป็นไปตามเกณฑ์ให้เริ่มสกัดใหม่อีกครั้ง','Blank control ควรมีความเข้มข้น ≤ 0.6 ng/µL'));
 check('OWNER-LAB-045','Pooling shows Total and EB with µL; removed "เลือกตำแหน่งที่ทำ Pooling แล้วกดบันทึก" copy','pooling','lab',t=>/Total\s*\n?[\d.,]+µL/.test(t)&&/EB\s*\n?[\d.,]+µL/.test(t)&&!t.includes('เลือกตำแหน่งที่ทำ Pooling แล้วกดบันทึก'));
-check('OWNER-LAB-048','Pooling has one-click select-all of valid samples','pooling','lab',present('เลือกตัวอย่างที่ใช้ได้ทั้งหมด'));
+check('OWNER-LAB-048','Pooling has no tick or select-all; QC2 is saved with one button (Owner 2026-11-09)','pooling','lab',t=>!t.includes('เลือกตัวอย่างที่ใช้ได้ทั้งหมด')&&t.includes('บันทึก QC2'));
 check('OWNER-LAB-049','Seq page: First Cycle group has Loaded DNB, Q30%, BIC, Fit in order','seq','lab',t=>{const i=['First Cycle','Loaded DNB','Q30%','BIC','Fit'].map(s=>t.indexOf(s));return i.every(x=>x>=0)&&i.every((x,k)=>k===0||x>i[k-1]);});
 check('OWNER-LAB-049','Seq page has no "ยืนยัน" confirmation fields/buttons','seq','lab',t=>!/ยืนยัน/.test(t));
 check('OWNER-LAB-049','Seq page keeps Preview/Print, XLSX export and PDF Result import','seq','lab',present('ดูตัวอย่าง / พิมพ์','ส่งออก XLSX 2 ไฟล์','นำเข้า PDF Result'));

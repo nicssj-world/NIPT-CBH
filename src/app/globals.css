@@ -192,7 +192,12 @@ fieldset {border:0;padding:0;margin:0;}
 .p5-facts {margin:0;}
 .p5-file {overflow-wrap:break-word;min-width:16ch;max-width:42ch;}
 .p5-scan,.p5-queue {min-width:760px;}
-.coverage-table {min-width:980px;}
+.coverage-table {width:100%;min-width:0;}
+.coverage-table th,.coverage-table td {overflow-wrap:anywhere;vertical-align:top;}
+.coverage-table td:first-child {min-width:7.5rem;overflow-wrap:break-word;}
+.coverage-table td:last-child {min-width:11rem;}
+.coverage-table th:nth-child(2),.coverage-table td:nth-child(2),.coverage-table th:nth-child(6),.coverage-table td:nth-child(6) {white-space:nowrap;overflow-wrap:normal;}   /* Plan (§13.2 #1) and Phase stay on one line */
+@media (max-width:700px) {.coverage-table {min-width:720px;}}   /* very narrow screens scroll inside the region instead of squeezing every column */
 .data-table .status,.p5-nowrap {white-space:nowrap;}
 .p5-hash {overflow-wrap:anywhere;font-size:.8125rem;}
 .data-table .num,.p5-scan .num {text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}

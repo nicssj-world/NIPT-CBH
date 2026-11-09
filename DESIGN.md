@@ -1,89 +1,186 @@
-# NIPT CBH Design System
+---
+name: NIPT CBH
+description: Thai-first hospital laboratory console. Light-blue wayfinding, dense tables, status always in words.
+colors:
+  canvas: "#f5f9fc"
+  surface: "#ffffff"
+  ink: "#10283b"
+  muted: "#4f6476"
+  line: "#d8e6f0"
+  input-line: "#6b8094"
+  raised: "#edf4f9"
+  brand: "#14476b"
+  brand-hover: "#0e3552"
+  focus: "#005fcc"
+  info: "#0b4f7a"
+  success: "#17603b"
+  warning: "#7a4f00"
+  danger: "#a1253e"
+  good-bg: "#e5f4ea"
+  warn-bg: "#fff2d1"
+  bad-bg: "#fce8ed"
+  info-bg: "#e4f0f9"
+  shell-bg: "#e3f1fb"
+  shell-active: "#c6e3f6"
+  shell-ink: "#0b2f4a"
+  shell-muted: "#4f6f86"
+  sign: "#a9daf5"
+  sign-edge: "#2b8fd0"
+  sign-soft: "#e3f2fb"
+  on-sign: "#0b2f4a"
+typography:
+  body:
+    fontFamily: "Noto Sans Thai, sans-serif"
+    fontSize: "1rem"
+    fontWeight: 400
+    lineHeight: 1.65
+  h1:
+    fontFamily: "Noto Sans Thai, sans-serif"
+    fontSize: "clamp(1.6rem, 3vw, 2rem)"
+    fontWeight: 600
+    lineHeight: 1.4
+  h2:
+    fontFamily: "Noto Sans Thai, sans-serif"
+    fontSize: "1.25rem"
+    fontWeight: 600
+    lineHeight: 1.5
+  label:
+    fontFamily: "Noto Sans Thai, sans-serif"
+    fontSize: "0.8125rem"
+    fontWeight: 600
+    lineHeight: 1.55
+rounded:
+  sm: "6px"
+  md: "8px"
+  lg: "12px"
+  pill: "999px"
+spacing:
+  xs: "4px"
+  sm: "8px"
+  md: "12px"
+  lg: "16px"
+  xl: "24px"
+  xxl: "32px"
+components:
+  button-primary:
+    backgroundColor: "{colors.brand}"
+    textColor: "{colors.surface}"
+    rounded: "{rounded.lg}"
+    height: "48px"
+  button-secondary:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.brand}"
+    rounded: "{rounded.lg}"
+    height: "48px"
+  icon-button:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.brand}"
+    rounded: "{rounded.md}"
+    size: "44px"
+  next-sign:
+    backgroundColor: "{colors.sign}"
+    textColor: "{colors.on-sign}"
+    rounded: "{rounded.sm}"
+    padding: "5px 12px"
+  panel:
+    backgroundColor: "{colors.surface}"
+    rounded: "{rounded.lg}"
+    padding: "24px"
+---
+
+# Design System: NIPT CBH
 
 ## Overview
 
-Thai-first hospital operations. Light theme ตาม baseline ที่ล็อกไว้; a dark theme toggle is supported and contrast-checked but light is the focus (confirmed 2026-10-19). งาน Lab ใช้ทะเบียนและตารางที่อ่านเร็วบน desktop, งาน ANC ใช้ form-first บน tablet/มือถือ. ระบบแสดงสถานะรอบปัจจุบันและแยกประวัติชัดเจน.
+A Thai-first operating console for a hospital NIPT laboratory and its ANC clinics. The nurse wants to know three things: was the specimen received, is it being analysed, is the result out. The laboratory wants to know where each Run stands and what is left to do. The interface is a wayfinding system: light-blue signs say where you are and where to go next, tables are dense and quiet, and nothing relies on colour alone.
 
-Previous record (pre-V2 values): `docs/ux-projectwide/DESIGN.legacy-2026-10-19.md`.
+Light theme is the default and the focus; the dark theme is supported and contrast-checked. Tokens live in `src/app/globals.css` (`:root` and `html[data-theme="dark"]`); the shell is in `src/components/shell.css`; shared console parts (progress cell, signs, icon button) are in `src/components/shared/console.css`. This file replaces the earlier "Concept B" record (Owner 2026-11-09); the older record is kept in `docs/ux-projectwide/DESIGN.legacy-2026-10-19.md`.
+
+Product rules that the design must never break are in `PRODUCT.md`: dates are Buddhist Era, LN keeps its leading zeroes, status is always a word, no new approvals or extra clicks, no patient data in URLs or browser storage.
 
 ## Colors
 
-Source: `src/app/globals.css`, "Premium UX V2, approved Concept B" `:root` block (overrides the earlier `@theme` values) and `html[data-theme="dark"]`.
+Names are stable (other CSS reads them); values were retuned to the light-blue palette.
 
 | Role | Token | Light | Dark |
 | --- | --- | --- | --- |
-| Text | `--color-ink` | #172e46 | #eaf0f7 |
-| Secondary text | `--color-muted` | #52687d | #adbed0 |
-| Primary / hover | `--color-brand` / `--color-brand-hover` | #075985 / #06476a | #7dd3fc / #a7e2fc |
-| Text on primary | `--on-primary` | #fff | #092d43 |
-| Page / panel | `--color-canvas` / `--color-surface` | #f3f6fa / #fff | #0c1422 / #142236 |
-| Raised (table head, chips) | `--raised` | #eaf1f7 | #1b3048 |
-| Borders / input borders | `--color-line` / `--input-line` | #dce5ee / #718398 | #344b64 / #8195ab |
-| Success / warning / danger | `--color-success` / `--color-warning` / `--color-danger` | #17603b / #80510a / #a1253e | #8ee8b1 / #f6d388 / #ffb1bf |
-| Status backgrounds | `--good-bg` / `--warn-bg` / `--bad-bg` / `--info-bg` | #e7f5ec / #fff3d6 / #fce9ee / #e6f3fc | tonal darks |
+| Page / panel | `--color-canvas` / `--color-surface` | #f5f9fc / #fff | #0a141c / #122130 |
+| Text / secondary text | `--color-ink` / `--color-muted` | #10283b / #4f6476 | #e6f1f9 / #9db4c6 |
+| Primary / hover | `--color-brand` / `--color-brand-hover` | #14476b / #0e3552 | #8fcdf1 / #b5def6 |
+| Borders / input border | `--color-line` / `--input-line` | #d8e6f0 / #6b8094 | #24394c / #7f97ab |
+| Raised (table head, chips) | `--raised` | #edf4f9 | #182a3b |
+| Success / warning / danger | `--color-success` / `--color-warning` / `--color-danger` | #17603b / #7a4f00 / #a1253e | #8ee8b1 / #f6d388 / #ffb1bf |
+| Status backgrounds | `--good-bg` / `--warn-bg` / `--bad-bg` / `--info-bg` | #e5f4ea / #fff2d1 / #fce8ed / #e4f0f9 | tonal darks |
+| Shell (sidebar, top bar) | `--shell-bg` / `--shell-active` / `--shell-ink` | #e3f1fb / #c6e3f6 / #0b2f4a | #0c1b27 / #16314a / #e4f2fc |
+| Wayfinding sign | `--sign` / `--sign-edge` / `--on-sign` / `--sign-soft` | #a9daf5 / #2b8fd0 / #0b2f4a / #e3f2fb | #8fcdf1 / #8fcdf1 / #06223a / #123049 |
 | Keyboard focus | `--color-focus` | #005fcc | #38bdf8 |
 
-Status always contains text; colour is supplemental. No page-level colour overrides. Focus colour is for keyboard focus only. Selected and current states use `--info-bg` with a `--color-brand` border, not the focus outline.
+- The accent is the sign blue. It marks the current place (top-bar rule, active navigation item) and the next step (`.next-sign`). Everything else is neutral blue-grey.
+- Status always contains text; colour is supplemental. A status uses an icon plus a word, never a coloured dot alone.
+- The last four digits of an LN are red (`.ln-tail`, `--color-danger`) everywhere an LN is shown, through the `Ln` component only. Never print an LN as raw text.
+- Small text must reach 4.5:1 on its own background. Page-local palettes (for example `sample-storage.module.css`) follow the same floor.
+- Focus colour is for keyboard focus only.
 
 ## Typography
 
-Locally bundled Noto Sans Thai and Noto Sans (OFL) via `@fontsource`; no font or CDN network dependency.
-- **Body:** 16 px, line-height 1.65.
-- **Headings:** weight 600; h1 1.75 rem (24 px under 600 px), h2 1.25 rem.
-- **Labels:** 14 px.
-- **Help text:** 13 px.
-- **Tables:** 14 px.
-- **Numerals:** LN stays text to preserve leading zeroes. Use tabular figures for LN, counts and times.
-- **Dates:** every user-facing date is Buddhist Era, `วว/ดด/ปปปป` (`formatBe` / `ThaiDateInput`). ISO CE appears only in APIs.
+Noto Sans Thai (OFL), bundled locally through `@fontsource`; no font or CDN network dependency.
+
+- Body 16 px, line-height 1.65. Thai text never goes below line-height 1.5 and never uses letter-spacing.
+- h1 `clamp(1.6rem, 3vw, 2rem)`, h2 1.25 rem (section titles on the case page are 20 px), weight 600.
+- Table text 14–15 px; labels and chips 13 px (`.8125rem`) at weight 600; help text 13 px.
+- Thai has no word spaces: headings and paragraphs use `overflow-wrap: break-word` (not `anywhere`, which splits syllables inside flex and grid cells).
+- Numerals: tabular figures for LN, counts and times. LN is text so leading zeroes survive.
+- Dates are Buddhist Era, `วว/ดด/ปปปป`, through `formatBe`/`ThaiDateInput`. ISO CE appears only in APIs.
 
 ## Layout
 
-- **Spacing:** 4 px base; scale 4/8/12/16/24/32/48 px.
-- **Desktop:** 244 px sidebar, content up to 1600 px; data-table pages go full width.
-- **Under 900 px:** the sidebar becomes a dialog menu.
-- **Under 600 px:** single-column forms, and buttons are full width except inline controls (BE calendar button, dialog close, photo stage bar).
-- **Controls:** at least 48 px tall; inline links and small buttons at least 44 px.
-- **Verified widths:** 1440, 1280, 768, 390 and 375 px, with `tools/ux-audit/audit.ts`.
+- **Spacing** is a 4 px base: 4 / 8 / 12 / 16 / 24 / 32 / 48.
+- **Lab and administrators:** 240 px left sidebar on `--shell-bg`, grouped by work (daily work, laboratory, results, system), with a thin top bar showing a group / page breadcrumb over a 4 px sign-blue rule. Content is up to 1440 px; data-table pages use the full width.
+- **ANC nurses:** a top navigation bar with the same rule and sign-blue active item.
+- **Breakpoints:** 900 px (sidebar becomes a menu, tables become cards) and 600 px (single-column forms, full-width buttons except inline controls).
+- **Tables:** a real `<table>` on desktop, row height `--row-h` 56 px, sticky header, toolbar controls `--control-h` 44 px. Form controls in dialogs are 52 px (`--ui-control-height`). Inline links and small buttons are at least 44 px.
+- **Scrollable regions:** `.table-wrap` is always `role="region"` with a Thai `aria-label` and `tabIndex={0}`. A top scroll rail appears only when the table overflows.
+- **The case page** has one layout for every role: numbered sections, in a fixed order per stage (registered, received, released) that CSS applies and `tests/unit/case-page-order.test.ts` locks. Do not reorder.
+- Verified at 1440, 1280, 768, 390 and 375 px with `tools/ux-audit/audit.ts`.
 
 ## Elevation & Depth
 
-- Panels are white with a soft `--surface-shadow`, radius 16 px (12 px on phones).
+- Panels are white with a hairline `--color-line` border and a very soft `--surface-shadow`; radius 12 px.
 - Nested panels flatten into a top border, never card-in-card.
-- Dialogs use the same surface over a 60 % ink scrim.
-- The only fixed layers are the skip link and the local UAT banner.
+- Dialogs use the same surface over a 60 % ink scrim. The only fixed layers are the skip link, the sticky table header, the sticky save bar and the local UAT banner.
 
 ## Shapes
 
-- Buttons and inputs: radius 9 px.
-- Panels: 16 px.
-- Chips and badges: 6 px.
-- Keyboard outline: 3 px, with a 3 px offset.
+- Panels and primary buttons 12 px; inputs and icon buttons 8 px; chips and signs 6 px; status pills and progress tracks fully round (999 px).
+- Section numbers are a 26 px circle on `--raised`; section icons sit in a 40 px rounded tile on `--info-bg`.
+- Keyboard outline 3 px with a 3 px offset.
 
 ## Components
 
-The shared primitives are:
-- Native Button / Input / Select / Textarea patterns.
-- `Field` (label, help, error with `aria-describedby`), `Dialog`, `ErrorNotice` and `Status` (`src/components/p2/shared.tsx`).
-- `ThaiDateInput`, `ThaiDateTimeInput` and `ThaiDateFormField` (`src/components/shared/thai-date-input.tsx`).
-- Navigation and AppFrame, plus registry, timeline and definition list.
-
-Patterns standardised in the 2026-10-19 project-wide pass:
-- **Action groups:** sibling buttons always sit in `.action-bar` (wrapping row, 12 px gap). Never stack bare buttons with no gap. A destructive action is never adjacent without a gap.
-- **Scrollable tables:** `.table-wrap` is always `role="region"` with a Thai `aria-label` and `tabIndex={0}`, so it is keyboard-scrollable (WCAG 2.1.1).
-- **Checkbox rows:** `label.check-label` keeps the box and its text on one line inside `.stack`, `fieldset` and form grids.
-- **Search rows:**
-  - A single-field `.search-form` aligns its buttons with the input, not with the helper text.
-  - A multi-field filter keeps bottom alignment.
+- **Buttons:** primary (filled brand), secondary (surface with brand text and `--color-line` border), danger variants for destructive actions, kept apart from the main action. Sibling buttons sit in `.action-bar` with a 12 px gap.
+- **Icon button (`.icon-btn`):** 44 px square, one outlined glyph from `LabIcon`, brand colour (red for destructive). The accessible name is `aria-label` and the same text is the `title` tooltip, for example "ลบรายการลงทะเบียน LN …".
+- **Status pill and progress cell:** an icon, a word and, for ANC, a three-step track (รับตัวอย่าง → ตรวจวิเคราะห์ → มีผลตรวจ). ANC screens use people language ("กำลังตรวจวิเคราะห์"), never laboratory stage names. A repeat blood draw adds a "เจาะเลือดครั้งที่ N" chip.
+- **Next sign (`.next-sign`):** the nurse's next step as a sign-blue link with an arrow; it opens the case. Empty when nothing is pending: there is no "nothing to do" text.
+- **Run header (Lab):** four steps — Task List, QC Measurements, Pooling, Sequencing — each with icon, step number and evidence-based status words ("ล็อกตำแหน่งครบแล้ว", "บันทึกครบแล้ว", "ยังไม่เสร็จ", "ไม่ทราบสถานะ" when unreadable, never "done" by default). The Batch list badge shows the furthest saved step.
+- **Repeat badge:** a text-labelled pill "Re-Library", "Re-Extraction" or "Re-Sampling" with an icon, beside the sample ID on every Run page.
+- **Case section header:** icon tile, then the number, then the title, for every section (the HIS and NIPT result sections set the pattern). Collapsed sections (history, HIS order history) use the same header inside `<summary>`.
+- **Registry table:** columns คุณแม่ · อายุครรภ์ (GA) ณ วันเจาะเลือด · วัน/เวลารับสิ่งส่งตรวจ · ความคืบหน้า · สิ่งที่ต้องทำ · actions. GA over 18+0 is red with a warning icon and "เกิน 18 สัปดาห์".
+- **Lab registration dialog:** each LN/HN is matched with its PET as it is entered and listed with an icon and words (matched, not matched with the reason, duplicate); one confirm button registers only the matched entries and shows a summary of registered, not registered and the numbers to check. The Lab channel is paper only, so there is no consent choice.
+- **Shared primitives:** `Field` (label, help, error with `aria-describedby`), `Dialog`, `ErrorNotice`, `Status`, `Ln`, `Pager`, `ThaiDateInput`, `TableScroll` (`src/components/p2/shared.tsx`, `src/components/shared/`).
 - **Error versus empty:** a failed load shows the error and a retry, never an empty state beside it.
-- **Overview shortcuts:** `QuickActions` lists only destinations the sidebar already grants (same `authorize` checks), with a one-line purpose each. Links only, with no counts and no new step.
-- **Settings sub-navigation:** `AdminNavLink` marks `aria-current="page"`.
-- **Disclosure:** a flex `summary` draws its own chevron, because the native marker is lost.
 
 ## Do's and Don'ts
 
-- Keep Thai labels, current-round context, visible focus and large controls.
-- Use server authorization on every operation; display authorized actions only.
-- Preserve LN and source provenance; never ask staff to receive S1 again after HIS.
-- Do not add approvals, confirmations, mandatory uploads or extra clicks in UI work.
-- Do not put patient data in browser storage, URLs, logs or design fixtures.
-- Do not mark a generated baseline or automated axe result as formal user acceptance.
+Do
+- Keep Thai labels, the current-round context, visible focus and 44 px targets.
+- Show status as icon plus word; show the same status words on every page of a Run.
+- Use the `Ln` component for every LN, and Buddhist Era for every date.
+- Use server authorization on every operation and display only the actions the user is allowed.
+- Check any new text against `PRODUCT.md` and the Owner decision register before changing wording, tab names, column order or button labels.
+
+Don't
+- Add approvals, confirmations, mandatory uploads or extra clicks in UI work.
+- Rely on colour alone, put letter-spacing or a line-height below 1.5 on Thai text, or let `overflow-wrap: anywhere` split Thai syllables.
+- Reorder the case page sections, or reintroduce a tick, a barcode on the tube label, or a consent choice in Lab registration without a new Owner decision.
+- Put patient data in browser storage, URLs, logs or design fixtures.
+- Present a generated baseline or an automated axe result as formal user acceptance.

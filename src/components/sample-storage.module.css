@@ -7,7 +7,7 @@
  --storage-violet-soft:var(--ss-f2ecfc,#f2ecfc);
  --storage-line:var(--ss-dce5ec,#dce5ec);
  --storage-ink:var(--ss-18324d,#18324d);
- --storage-muted:var(--ss-667b91,#667b91);
+ --storage-muted:var(--ss-667b91,#52687d);   /* 5.0:1 or better on white and every soft tint of this page (was #667b91 at 3.8-4.4:1) */
  color:var(--storage-ink);
  width:100%;
 }

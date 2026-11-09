@@ -92,18 +92,17 @@ const bg=(page,sel)=>page.evaluate(s=>{const e=document.querySelector(s);return 
   rec('OWNER-LAB-042','red criteria text does not auto-order a repeat (no repeat action in the QC table)',!/Re-Extraction|สั่งสกัดใหม่/.test(await page.locator('.qc-table').innerText()),{});
   rec('OWNER-LAB-044','QC has "บันทึกร่าง" separate from "บันทึกและคำนวณ Pooling"',await page.getByRole('button',{name:'บันทึกร่าง'}).count()===1&&await page.getByRole('button',{name:'บันทึกและคำนวณ Pooling'}).count()===1,{});
   await page.screenshot({path:OUT+'/bench-qc-1440.png'});
-  await go(page,base);await page.getByRole('button',{name:/ขั้นที่ 2/}).click();await page.waitForTimeout(500);
+  await go(page,base);await page.getByRole('button',{name:'Pooling',exact:true}).click();await page.waitForTimeout(500);
   const pc=page.getByLabel('Pool Library concentration (ng/µL)');const note='เกณฑ์ของความเข้มข้น Pooling DNA Library คือ 3.00–3.60 ng/µL';
   rec('OWNER-LAB-045','neutral QC2 note exact text',(await page.locator('#pool-criterion').innerText()).includes(note),{});
   const out=async v=>{await pc.fill(String(v));await page.waitForTimeout(150);return /นอกเกณฑ์/.test(await page.locator('#pool-criterion').innerText());};
   const o=[await out('2.99'),await out('3.00'),await out('3.60'),await out('3.61')];rec('OWNER-LAB-045','QC2 bounds 3.00–3.60 inclusive: 2.99 out, 3.00 ok, 3.60 ok, 3.61 out',JSON.stringify(o)==='[true,false,false,true]',o);
-  await go(page,base);await page.getByRole('button',{name:/ขั้นที่ 2/}).click();await page.waitForTimeout(500);
-  const count=async()=>Number((await page.locator('.bench-pool-toolbar span').innerText()).match(/(\d+) ตำแหน่ง/)[1]);const before=await count();
-  await page.getByRole('button',{name:'เลือกตัวอย่างที่ใช้ได้ทั้งหมด'}).click();const all=await count();
-  const boxes=page.getByRole('checkbox',{name:/Pooling จริง ตำแหน่ง/});const n=await boxes.count();let toggled=false;for(let i=0;i<n;i++){const b=boxes.nth(i);if(await b.isEnabled()&&await b.isChecked()){await b.uncheck();toggled=true;break;}}
-  const after=await count();rec('OWNER-LAB-048','Select-all then un-tick one exception lowers the actual-pooled count by one',toggled&&after===all-1,{before,all,after});
-  await go(page,base);await page.getByRole('button',{name:/ขั้นที่ 2/}).click();await page.waitForTimeout(500);rec('OWNER-LAB-048','nothing persisted without "บันทึก Pooling จริง" (reload returns saved count)',await count()===before,{reloaded:await count(),before});
-  await page.getByRole('button',{name:/ขั้นที่ 3/}).click();await page.waitForTimeout(500);
+  await go(page,base);await page.getByRole('button',{name:'Pooling',exact:true}).click();await page.waitForTimeout(500);
+  // Owner 2026-11-09: no tick and no select-all; the toolbar states how many positions enter Pooling by the CSV rule, and QC2 is saved with "บันทึก QC2".
+  const countText=await page.locator('.bench-pool-toolbar span').innerText();const pooled=Number((countText.match(/(\d+) ตำแหน่ง/)||[])[1]);
+  rec('OWNER-LAB-048','Pooling has no tick and no select-all; the toolbar states how many positions enter Pooling (superseded 2026-11-09)',pooled>0&&(await page.getByRole('checkbox',{name:/Pooling จริง ตำแหน่ง/}).count())===0&&(await page.getByRole('button',{name:'เลือกตัวอย่างที่ใช้ได้ทั้งหมด'}).count())===0,{countText});
+  rec('OWNER-LAB-048','QC2 is saved with "บันทึก QC2", which records the actual pooling',(await page.getByRole('button',{name:'บันทึก QC2',exact:true}).count())===1,{});
+  await page.getByRole('button',{name:'Sequencing',exact:true}).click();await page.waitForTimeout(500);
   const groups=await page.locator('.seq-group legend').evaluateAll(l=>l.map(x=>({t:x.innerText.trim(),icon:!!x.querySelector('svg')})));rec('OWNER-LAB-049','Seq groups each carry an icon; First Cycle group present',groups.length>=4&&groups.every(g=>g.icon)&&groups.some(g=>/First Cycle/.test(g.t)),groups);
   rec('OWNER-LAB-049','no "ยืนยัน" inputs/buttons on Seq',await page.getByRole('button',{name:/ยืนยัน/}).count()===0&&await page.getByLabel(/ยืนยัน/).count()===0,{});
   // accessibility (016/050)

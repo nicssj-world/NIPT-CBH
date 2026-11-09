@@ -96,18 +96,11 @@ if(want('044')||want('013')){
   await p.screenshot({path:OUT+'/qc-to-pooling-1440.png'});
  }
  if(want('013')){
-  await p.goto(base,{waitUntil:'networkidle'});await p.getByRole('button',{name:/ขั้นที่ 2/}).click();await p.waitForTimeout(700);
-  const pencil=p.getByRole('button',{name:/แก้ปริมาตรตำแหน่ง/}).first();rec('OWNER-LAB-013','Pooling rows offer a volume popup (pencil)',await pencil.count()>0,{});
-  await pencil.click();const d=p.getByRole('dialog');await d.waitFor({timeout:8000}).catch(()=>{});const dt=(await d.innerText().catch(()=>'')).replace(/\s+/g,' ');
-  rec('OWNER-LAB-013','the popup opens (measured/calculated volume shown, close available)',await d.count()===1,{dialog:dt.slice(0,160),buttons:await d.getByRole('button').allInnerTexts().catch(()=>[])});
-  const input=d.locator('input').first();await input.fill('1.22');
-  const apply=d.getByRole('button',{name:/ตกลง|ใช้ค่า|ใช้|ยืนยัน|บันทึก/}).first();await apply.click();await p.waitForTimeout(600);
-  const ov=p.locator('td.bench-volume-override').first();const txt=(await ov.innerText().catch(()=>'')).replace(/\s+/g,' ');
-  rec('OWNER-LAB-013','the user-edited volume is highlighted and keeps the calculated value visible ("แก้จาก …")',txt.includes('1.22')&&/แก้จาก/.test(txt),{txt});
+  await p.goto(base,{waitUntil:'networkidle'});await p.getByRole('button',{name:'Pooling',exact:true}).click();await p.waitForTimeout(700);
+  // Owner 2026-11-09: the per-position volume popup and the tick were removed (pooling is done on the machine from the exported PDF/CSV).
+  rec('OWNER-LAB-013','Pooling rows no longer offer a volume pencil or a tick (superseded 2026-11-09)',(await p.getByRole('button',{name:/แก้ปริมาตรตำแหน่ง/}).count())===0&&(await p.getByRole('checkbox',{name:/Pooling จริง/}).count())===0,{});
   rec('OWNER-LAB-013','a volume below 2 µL is flagged red',(await p.locator('td.bench-volume-low').count())>=1,{});
-  await p.screenshot({path:OUT+'/pooling-edited-volume-1440.png'});
-  await p.reload({waitUntil:'networkidle'});await p.getByRole('button',{name:/ขั้นที่ 2/}).click();await p.waitForTimeout(600);
-  rec('OWNER-LAB-013','the edit is not persisted until "บันทึก Pooling จริง" (a reload returns the calculated value)',(await p.locator('td.bench-volume-override').count())===0,{});
+  await p.screenshot({path:OUT+'/pooling-volumes-1440.png'});
  }
  await c.close();
 }

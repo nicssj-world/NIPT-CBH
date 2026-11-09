@@ -15,12 +15,9 @@ for(const [w,theme] of [[375,'light'],[768,'light'],[1440,'light'],[1440,'dark']
  const m=await p.evaluate(()=>{const a=document.querySelector('main [role="alert"].notice');const n=[...document.querySelectorAll('main .tabs, main .action-bar, main .task-tabs, main [role=tablist]')].find(e=>e.compareDocumentPosition(a)&Node.DOCUMENT_POSITION_PRECEDING);if(!n)return null;const ra=a.getBoundingClientRect(),rn=n.getBoundingClientRect();return {gap:Math.round(rn.top-ra.bottom),h:Math.round(ra.height),overflow:document.documentElement.scrollWidth>innerWidth+1,clipped:a.scrollHeight>a.clientHeight+1||a.scrollWidth>a.clientWidth+1,next:n.className||n.getAttribute('role')}});
  rec('OWNER-LAB-040',`${w}${theme[0]}: 16–20 px between the alert and the navigation below it, nothing clipped or overflowing`,!!m&&m.gap>=16&&m.gap<=20&&!m.overflow&&!m.clipped,m);
  await p.screenshot({path:`${OUT}/alert-spacing-${w}-${theme}.png`});await c.close();}
-// manual volume highlight on the Pooling tab (not saved)
-{const {c,p}=await login(1440,'light');await p.goto(`${O}/lab/batches/${fx.finalBatchId}/bench`,{waitUntil:'networkidle'});await p.getByRole('button',{name:/ขั้นที่ 2/}).click();await p.waitForTimeout(600);
- const pencil=p.getByRole('button',{name:/แก้ปริมาตรตำแหน่ง/}).first();await pencil.click();const d=p.getByRole('dialog');await d.waitFor({timeout:8000});const inp=d.getByRole('textbox').or(d.locator('input')).first();await inp.fill('1.22');
- await d.getByRole('button',{name:/ตกลง|ใช้|บันทึก|ยืนยัน/}).first().click();await p.waitForTimeout(500);
- const cell=await p.locator('td.bench-volume-override').first();const txt=(await cell.innerText().catch(()=>'')).replace(/\s+/g,' ');const low=await p.locator('td.bench-volume-low').count();
- rec('OWNER-LAB-013','a manually edited volume is highlighted and shows the calculated value it replaced',txt.includes('1.22')&&/แก้จาก/.test(txt),{txt});rec('OWNER-LAB-047','a volume below 2 µL is flagged red (calculated and edited values are shown separately)',low>=1,{low});
- await p.screenshot({path:OUT+'/pool-edited-volume-1440.png'});await p.reload({waitUntil:'networkidle'});await p.getByRole('button',{name:/ขั้นที่ 2/}).click();await p.waitForTimeout(500);
- rec('OWNER-LAB-047','the edit is not persisted until "บันทึก Pooling จริง" (reload returns the calculated value)',(await p.locator('td.bench-volume-override').count())===0,{});await c.close();}
+// Pooling tab (Owner 2026-11-09): no tick, no select-all and no per-position volume edit any more; a volume below 2 µL is still flagged red
+{const {c,p}=await login(1440,'light');await p.goto(`${O}/lab/batches/${fx.finalBatchId}/bench`,{waitUntil:'networkidle'});await p.getByRole('button',{name:'Pooling',exact:true}).click();await p.waitForTimeout(600);
+ rec('OWNER-LAB-013','Pooling rows no longer offer a volume pencil or a tick (superseded 2026-11-09)',(await p.getByRole('button',{name:/แก้ปริมาตรตำแหน่ง/}).count())===0&&(await p.getByRole('checkbox',{name:/Pooling จริง/}).count())===0,{});
+ rec('OWNER-LAB-047','a volume below 2 µL is flagged red',(await p.locator('td.bench-volume-low').count())>=1,{});
+ await p.screenshot({path:OUT+'/pool-volumes-1440.png'});await c.close();}
 await b.close();writeFileSync('.local/claude-evidence-20261025/acceptance-extra3.json',JSON.stringify(res,null,1));console.log(`\n${res.filter(r=>r.ok).length}/${res.length} checks passed`);
