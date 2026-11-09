@@ -1,3 +1,5 @@
+import {workbookError} from '../../src/server/workbook';
+import type {Queryable} from '../../packages/db/connection';
 import {it,expect,vi} from 'vitest';
 import {readFileSync,copyFileSync,existsSync,rmSync} from 'node:fs';
 import path from 'node:path';
@@ -44,4 +46,47 @@ it('exports work with no template variable set when the pinned templates sit bes
   const pair=await f.run(t=>exportSeqPair(t,f.u.staff,{batchId:f.batchId,revision,idempotencyKey:randomUUID()},deps));
   expect(pair.files.map(x=>x.kind).sort()).toEqual(['HALOS_TASK_XLSX','NIFTY_XLSX']);
  }finally{for(const p of placed)rmSync(p,{force:true});vi.unstubAllEnvs();await f.close();}
+},300000);
+
+it('reports every incomplete specimen with its slot, sample and missing fields, preserves atomic export, and succeeds after correction',async()=>{
+ const f=await task3Fixture();
+ try{
+  const deps={master:readFileSync(process.env.NIPT_TASK_MASTER_PATH!),store:f.store,render:async()=>{throw Error('NO_NATIVE_PRINT');}};
+  // Model two incomplete source records without changing immutable clinical evidence.
+  const incomplete=(db:Queryable):Queryable=>({query:async<T>(sql:string,values?:unknown[])=>{
+   const result=await db.query<T>(sql,values);
+   if(sql.startsWith('SELECT l.ln,')&&f.cases.slice(0,2).some(c=>c.roundId===values?.[0])){
+    return {rows:result.rows.map(row=>({...row,edd:null,pregnancy:null})) as T[]};
+   }
+   return result;
+  }});
+  const counts=async()=>(await f.db.query('SELECT (SELECT count(*) FROM lab_bench_export) exports,(SELECT count(*) FROM lab_seq_export_pair) pairs,(SELECT count(*) FROM lab_actual_pooling) pooling')).rows[0];
+  const before=await counts();
+  for(const kind of ['single','pair']){
+   const error=await f.run(async db=>{if(kind==='single')await benchExport(incomplete(db),f.u.staff,{batchId:f.batchId,revision:1,kind:'NIFTY_XLSX'},deps);
+    else await exportSeqPair(incomplete(db),f.u.staff,{batchId:f.batchId,revision:1,idempotencyKey:randomUUID()},deps);
+   }).then(()=>null,e=>e);
+   expect(error).toMatchObject({code:'VENDOR_EXPORT_VALIDATION_FAILED',details:{issues:f.cases.slice(0,2).map(c=>({sampleId:c.printed,caseId:c.caseId,problems:['ยังไม่ได้ระบุกำหนดคลอด (EDD)','ยังไม่ได้ระบุประเภทครรภ์ (ครรภ์เดี่ยว/แฝด)']}))}});
+   expect(error.details.issues.map((i:{slot:number})=>i.slot)).toEqual([2,17]);
+   const response=workbookError(error),body=await response.json();
+   expect(response.status).toBe(409);
+   expect(body.error).toContain('ส่งออก XLSX ไม่สำเร็จ');
+   expect(body.details.issues).toHaveLength(2);
+   expect(JSON.stringify(body)).not.toContain(f.cases[0].hn);
+   expect(await counts()).toEqual(before);
+  }
+  const invalid=(db:Queryable):Queryable=>({query:async<T>(sql:string,values?:unknown[])=>{
+   const result=await db.query<T>(sql,values);
+   if(!sql.startsWith('SELECT l.ln,'))return result;
+   const index=f.cases.findIndex(c=>c.roundId===values?.[0]);
+   return {rows:result.rows.map(row=>({...row,...(index===0?{sha256:null}:index===1?{draft:{patient:{dob:'1980-01-01'}}}:{edd:'2020-01-01'})})) as T[]};
+  }});
+  const invalidError=await f.run(db=>benchExport(invalid(db),f.u.staff,{batchId:f.batchId,revision:1,kind:'NIFTY_XLSX'},deps)).then(()=>null,e=>e);
+  expect(invalidError.details.issues).toHaveLength(3);
+  expect(invalidError.details.issues.map((i:{problems:string[]})=>i.problems.join(' '))).toEqual([
+   expect.stringContaining('ไม่พบหลักฐาน PET'),expect.stringContaining('ข้อมูลตัวตน'),expect.stringContaining('ไม่สอดคล้องกัน'),
+  ]);
+  expect(await counts()).toEqual(before);
+  await expect(f.run(db=>exportSeqPair(db,f.u.staff,{batchId:f.batchId,revision:1,idempotencyKey:randomUUID()},deps))).resolves.toMatchObject({files:expect.arrayContaining([expect.objectContaining({kind:'NIFTY_XLSX'}),expect.objectContaining({kind:'HALOS_TASK_XLSX'})])});
+ }finally{await f.close();}
 },300000);

@@ -3,6 +3,8 @@ export const NIFTY_TEMPLATE_SHA256='07c2cd582b85769b789a0ec1f952d623664366c96dcb
 export type VendorPatient={attemptId?:string;roundId?:string;caseId?:string;overallOrdinal?:number;slot:number;kind:'PATIENT';sampleId:string;ln:string;hn:string;name:string;identity:string;dob:string;collectionAt:string;receivedAt:string;edd:string;pregnancy:'Singleton'|'Twins';doctor:string};
 export type VendorControl={slot:1|25;kind:'PC'|'NC';sampleId:string};
 export type VendorRow=VendorPatient|VendorControl;
+/** Export diagnostics omit names, HN, national IDs and raw PET contents. */
+export type VendorExportIssue={slot:number;sampleId:string;caseId:string|null;problems:string[]};
 /** Only the approved NIFTY identifier column drops the analytical suffix. */
 export const niftySampleId=(sampleId:string)=>sampleId.replace(/-[12]$/,'');
 function dateOnly(value:string){if(!/^\d{4}-\d{2}-\d{2}$/.test(value)||new Date(value+'T00:00:00Z').toISOString().slice(0,10)!==value)throw Error('VENDOR_DATE_INVALID');return value.slice(5,7)+'/'+value.slice(8,10)+'/'+value.slice(0,4);}

@@ -83,6 +83,10 @@ html[data-theme="dark"] .lab-bench {--row-pc:#3d2226;--row-nc:#1c3a2a;--row-blan
 .bench-failures summary {cursor:pointer;font-weight:600;padding-block:10px;}
 .bench-failures ul {margin:var(--space-2) 0 0;padding:0;list-style:none;display:grid;gap:var(--space-2);}
 .bench-files {display:grid;gap:var(--space-3);}
+.bench-export-errors {display:grid;gap:var(--space-3);overflow-wrap:anywhere;}
+.bench-export-errors p {margin:0;}
+.bench-export-errors > ul {margin:0;padding-inline-start:var(--space-6);display:grid;gap:var(--space-4);}
+.bench-export-errors li ul {margin-block:var(--space-1);padding-inline-start:var(--space-4);}
 
 /* LEGACY-023 sticky save bar: status left, actions right, one save per step; content keeps space below it. */
 .worksheet-save-bar {position:sticky;bottom:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--space-3);margin:0 calc(-1 * var(--space-6)) calc(-1 * var(--space-6));padding:var(--space-3) var(--space-6) max(var(--space-3),env(safe-area-inset-bottom));border-top:1px solid var(--color-line);border-radius:0 0 var(--radius) var(--radius);background:var(--color-surface);box-shadow:0 -6px 16px color-mix(in srgb,var(--color-ink) 8%,transparent);}

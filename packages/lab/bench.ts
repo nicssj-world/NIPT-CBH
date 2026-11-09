@@ -8,7 +8,7 @@ import {uuid,LabError,need,audit,type Staff} from './core';
 import {batchDetail,type PlacementPayload} from './batch';
 import {workbookWorkspace,type WorkbookDeps} from '../workbook/service';
 import {calculateOwnerPooling,exportOwnerPoolingCsv,ownerDilution,poolConcentrationOutOfRange,type PhysicalQc} from '../pooling/owner-master';
-import {exportOwnerNifty,petDisplayName,type VendorRow} from '../sequencing/owner-export';
+import {exportOwnerNifty,patientVendorValues,petDisplayName,type VendorRow,type VendorExportIssue,type VendorPatient} from '../sequencing/owner-export';
 import {readPet} from '../inbound/process';
 import type {RequestDraft} from '../p2/schema';
 import {digest} from '../pooling/calculation';
@@ -68,7 +68,7 @@ export async function benchExport(db:Queryable,user:Staff,input:unknown,deps:Wor
  }else{
   need(user,'handoff.create');
   const template=ownerTemplatePath('NIPT_NIFTY_XLSX_TEMPLATE');if(!template)throw new LabError('NIFTY_TEMPLATE_REQUIRED',409);
-  const rows:VendorRow[]=[],repeating=await repeatAttemptIds(db,s.slots);
+  const rows:VendorRow[]=[],issues:VendorExportIssue[]=[],repeating=await repeatAttemptIds(db,s.slots);
   for(const slot of s.slots){
    if(slot.control==='blank'||!slot.control&&!slot.attemptId)continue;
    if(!slot.control&&slot.attemptId&&repeating.has(slot.attemptId))continue; // failed/replaced by a Re-xxx: not sent to the vendor
@@ -79,21 +79,34 @@ export async function benchExport(db:Queryable,user:Staff,input:unknown,deps:Wor
      EXISTS(SELECT 1 FROM task_workbook_revision w WHERE w.batch_id=p.batch_id AND NULLIF(btrim(w.values->>'seq.date'),'') IS NOT NULL AND NULLIF(btrim(w.values->>'seq.operator'),'') IS NOT NULL)
      OR EXISTS(SELECT 1 FROM p4c_sequencing_attempt q JOIN p4c_dnb_attempt d ON d.id=q.dnb_id WHERE d.batch_id=p.batch_id)
     )) previous_seq FROM analytical_attempt a WHERE a.id=$1`,[slot.attemptId,d.batchId])).rows[0];
-   if(!lineage||!niftyPatientEligible({attemptNumber:lineage.attempt_number,repeatOrderId:lineage.repeat_order_id,previousSeqOnSameRound:lineage.previous_seq}))throw new LabError('VENDOR_ATTEMPT_PROVENANCE_REQUIRED',409,{slot:slot.slot});
+   const issue=(problems:string[])=>issues.push({slot:slot.slot,sampleId:slot.printedSampleId??'',caseId:slot.caseId??null,problems});
+   const problems:string[]=[];
+   if(!lineage||!niftyPatientEligible({attemptNumber:lineage.attempt_number,repeatOrderId:lineage.repeat_order_id,previousSeqOnSameRound:lineage.previous_seq}))problems.push('ไม่พบหลักฐานลำดับการตรวจหรือคำสั่งตรวจซ้ำที่ถูกต้อง — กรุณาติดต่อผู้รับผิดชอบห้อง Lab');
    const source=(await db.query<{ln:string;hn:string;sha256:string|null;filename:string|null;draft:RequestDraft|null;doctor:string|null;edd:string|null;pregnancy:'Singleton'|'Twins'|null;eqa:boolean;eqa_name:string|null;eqa_dob:string|null;eqa_collection:string|null;received_at:Date|null}>(`SELECT l.ln,i.hn,f.sha256,f.filename,w.draft,COALESCE(d.name,ld.name) doctor,COALESCE(w.draft#>>'{pregnancy,edd}',lr.edd::text,(q.collection_date+(280-(q.ga_weeks*7+q.ga_days)))::text) edd,COALESCE(w.draft#>>'{pregnancy,type}',lr.pregnancy,q.pregnancy) pregnancy,
      (q.case_id IS NOT NULL) eqa,q.surname||'^^'||q.first_name eqa_name,q.dob::text eqa_dob,q.collection_date::text eqa_collection,r.received_at
     FROM specimen_round r JOIN case_ln l ON l.id=r.case_ln_id JOIN p2_case_identity i ON i.case_id=r.case_id LEFT JOIN eqa_case q ON q.round_id=r.id
     LEFT JOIN his_order o ON o.round_id=r.id LEFT JOIN his_inbound_file f ON f.id=o.inbound_file_id
     LEFT JOIN p2_workspace w ON w.round_id=r.id LEFT JOIN p2_doctor_version d ON d.id=(w.draft#>>'{ordering,doctorVersionId}')::uuid
     LEFT JOIN LATERAL (SELECT * FROM lab_operational_registration x WHERE x.case_id=r.case_id ORDER BY (x.round_id=r.id) DESC,x.created_at DESC LIMIT 1) lr ON true LEFT JOIN p2_doctor_version ld ON ld.id=lr.doctor_version_id WHERE r.id=$1 AND r.case_id=$2`,[slot.roundId,slot.caseId])).rows[0];
-   if(!source||!source.edd||!['Singleton','Twins'].includes(source.pregnancy??''))throw new LabError('VENDOR_REQUEST_PROVENANCE_REQUIRED',409,{slot:slot.slot});
+   if(!source?.edd)problems.push('ยังไม่ได้ระบุกำหนดคลอด (EDD)');
+   if(!['Singleton','Twins'].includes(source?.pregnancy??''))problems.push('ยังไม่ได้ระบุประเภทครรภ์ (ครรภ์เดี่ยว/แฝด)');
    // EQA: the organizer's referral card supplies the identity printed into the vendor file; every other specimen still requires its PET.
-   if(!source.eqa&&(!source.sha256||!source.filename))throw new LabError('VENDOR_REQUEST_PROVENANCE_REQUIRED',409,{slot:slot.slot});
-   const pet=source.eqa?{ln:source.ln,hn:source.hn,name:source.eqa_name!,identity:'',dob:source.eqa_dob!,specimenAt:new Date(source.eqa_collection+'T12:00:00+07:00').toISOString(),receivedAt:new Date(source.received_at!).toISOString()}
+   if(!source?.eqa&&(!source?.sha256||!source?.filename))problems.push('ไม่พบหลักฐาน PET ของตัวอย่าง — กรุณาติดต่อผู้รับผิดชอบการรับสิ่งส่งตรวจ');
+   if(problems.length){issue(problems);continue;}
+   let pet;
+   try{pet=source.eqa?{ln:source.ln,hn:source.hn,name:source.eqa_name!,identity:'',dob:source.eqa_dob!,specimenAt:new Date(source.eqa_collection+'T12:00:00+07:00').toISOString(),receivedAt:new Date(source.received_at!).toISOString()}
     :await readPet(deps.store,source as typeof source&{sha256:string;filename:string});
-   if(pet.ln!==source.ln||pet.hn!==source.hn||source.draft?.patient.syntheticName&&petDisplayName(source.draft?.patient.syntheticName)!==petDisplayName(pet.name)||source.draft?.patient.dob&&source.draft?.patient.dob!==pet.dob.slice(0,10))throw new LabError('VENDOR_IDENTITY_MISMATCH',409,{slot:slot.slot});
-   rows.push({attemptId:slot.attemptId!,roundId:slot.roundId!,caseId:slot.caseId!,overallOrdinal:lineage.overall_ordinal,slot:slot.slot,kind:'PATIENT',sampleId:slot.printedSampleId!,ln:pet.ln,hn:pet.hn,name:pet.name,identity:pet.identity,dob:pet.dob.slice(0,10),collectionAt:pet.specimenAt,receivedAt:pet.receivedAt,edd:source.edd,pregnancy:source.pregnancy as 'Singleton'|'Twins',doctor:source.doctor??''});
+   }catch{issue(['อ่านหรือยืนยันหลักฐานตัวอย่างไม่สำเร็จ — กรุณาติดต่อผู้ดูแลระบบ']);continue;}
+   if(pet.ln!==source.ln||pet.hn!==source.hn||source.draft?.patient.syntheticName&&petDisplayName(source.draft?.patient.syntheticName)!==petDisplayName(pet.name)||source.draft?.patient.dob&&source.draft?.patient.dob!==pet.dob.slice(0,10)){issue(['ข้อมูลตัวตนในใบคำขอไม่ตรงกับ PET — กรุณาตรวจสอบเอกสารต้นทาง']);continue;}
+   const row:VendorPatient={attemptId:slot.attemptId!,roundId:slot.roundId!,caseId:slot.caseId!,overallOrdinal:lineage.overall_ordinal,slot:slot.slot,kind:'PATIENT',sampleId:slot.printedSampleId!,ln:pet.ln,hn:pet.hn,name:pet.name,identity:pet.identity,dob:pet.dob.slice(0,10),collectionAt:pet.specimenAt,receivedAt:pet.receivedAt,edd:source.edd!,pregnancy:source.pregnancy as 'Singleton'|'Twins',doctor:source.doctor??''};
+   try{patientVendorValues(row,rows.length+1);}catch(e){
+    const code=e instanceof Error?e.message:'';
+    const text:Record<string,string>={VENDOR_DATE_INVALID:'รูปแบบวันเกิดหรือกำหนดคลอด (EDD) ไม่ถูกต้อง',VENDOR_PET_TIMESTAMP_REQUIRED:'วันและเวลาเจาะเลือดหรือรับตัวอย่างไม่ถูกต้อง — กรุณาตรวจสอบ PET',VENDOR_SOURCE_DATES_INCONSISTENT:'วันเกิด วันเจาะเลือด วันรับตัวอย่าง หรือกำหนดคลอด (EDD) ไม่สอดคล้องกัน — กรุณาตรวจสอบเอกสารต้นทาง',VENDOR_MATCHED_IDENTITY_REQUIRED:'ข้อมูลตัวตนหรือรหัสตัวอย่างไม่ครบหรือไม่ถูกต้อง'};
+    issue([text[code]??'ข้อมูลวันที่ของตัวอย่างไม่ถูกต้อง — กรุณาตรวจสอบเอกสารต้นทาง']);continue;
+   }
+   rows.push(row);
   }
+  if(issues.length)throw new LabError('VENDOR_EXPORT_VALIDATION_FAILED',409,{issues});
   const exported=exportOwnerNifty(await readFile(template),rows);bytes=exported.bytes;mapping=exported.mapping;sourceHash=digest({revision:s.workbook.draft!.id,rows});
   await recordPhiAccess(db,user.id,s.slots.flatMap(slot=>slot.caseId?[slot.caseId]:[]),'CASE_DETAIL_VIEW');
  }

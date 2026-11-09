@@ -4,7 +4,9 @@ import {useEffect,useMemo,useState} from 'react';
 import {Dialog} from '../p2/shared';
 import {PdfPreview} from '../shared/pdf-preview';
 import {csrf} from '../p2/shared';
-import {labApi,failureText} from './lab-api';
+import {labApi,failureText,LabFailure} from './lab-api';
+import {VendorExportNotice} from './vendor-export-notice';
+import type {VendorExportIssue} from '../../../packages/sequencing/owner-export';
 import type {benchWorkspace,benchPooling} from '../../../packages/lab/bench';
 import {LabIcon,type LabIconName} from '../shared/lab-icons';
 import {BatchStepper} from './batch-stepper';
@@ -55,6 +57,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
  const [preview,setPreview]=useState<null|{title:string;url:string|null;retry:()=>void;error?:string}>(null);
  const [poolAmount,setPoolAmount]=useState<string|null>(null);
  const [seqFiles,setSeqFiles]=useState<SeqFiles|null>(null);
+ const [exportIssues,setExportIssues]=useState<VendorExportIssue[]>([]);
  const [center,setCenter]=useState<ActionCenterSubject|null>(null);
  // OWNER-LAB-047: a saved actual-pooling record from an older QC/placement source is never re-applied over the recomputed table.
  const setTab=(next:Stage)=>{setTabState(next);const url=new URL(window.location.href);url.pathname=`/lab/batches/${batchId}/${STAGE_PATH[next]}`;window.history.replaceState(window.history.state,'',url);};
@@ -65,7 +68,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
  const change=(key:string,value:unknown)=>{setSeqFiles(null);setValues(v=>({...v,[key]:value}));setDirty(true);setNotice('');if(/^slot\.\d+\.libraryQc$|^qc\.[123]\.|^pool\.amount$/.test(key))setPool(null);};
  const saved=!!data?.revision&&!dirty&&!data.sourceStale;
  async function saveDraft(draftValues=values){if(!data)return null;await labApi(workbookApi,{action:'saveDraft',expectedVersion:data.version,expectedRevision:data.revision,values:draftValues});setSeqFiles(null);return reload();}
- async function run(work:()=>Promise<void>){setBusy(true);setError('');setNotice('');try{await work();}catch(e){setError(failureText(e));}finally{setBusy(false);}}
+ async function run(work:()=>Promise<void>){setBusy(true);setError('');setExportIssues([]);setNotice('');try{await work();}catch(e){setError(failureText(e));if(e instanceof LabFailure&&e.code==='VENDOR_EXPORT_VALIDATION_FAILED'){setExportIssues((e.details as {issues:VendorExportIssue[]}).issues);setSeqFiles(null);}}finally{setBusy(false);}}
  const calculate=async()=>{setPool(await labApi<Pool>(api,{action:'pool'}));};
  // Load the saved calculation when Pooling opens on a saved, finalized source (no button press needed to see the table).
  useEffect(()=>{if(tab==='POOL'&&saved&&data?.finalized&&!pool&&!busy)void Promise.resolve().then(()=>run(calculate));
@@ -96,12 +99,12 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
  async function fetchExport(kind:'POOL_CSV'|'NIFTY_XLSX'|'QC'|'POOL'|'SEQ'){
   const isWorkbook=kind!=='POOL_CSV'&&kind!=='NIFTY_XLSX',sheet=kind==='QC'?'QC measurements':kind==='POOL'?'Pooling Table':'Seq Task-G50';
   const response=await fetch(isWorkbook?workbookApi:api,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','x-csrf-token':csrf()},body:JSON.stringify(isWorkbook?{action:'export',revision:data!.revision,format:'PDF',sheet}:{action:'export',revision:data!.revision,kind})});
-  if(!response.ok){const e=await response.json().catch(()=>({}));throw Error(e.error??e.code??'ออกเอกสารไม่สำเร็จ');}
+  if(!response.ok){const e=await response.json().catch(()=>({}));throw new LabFailure(e.code??'REQUEST_FAILED',e.error??'ออกเอกสารไม่สำเร็จ',e.details,response.status);}
   return response.blob();
  }
  /** OWNER-LAB-046 / LEGACY-025: the PDF opens in the modal from the exact response bytes; failures stay in the modal with Retry. */
  function openPdf(kind:'QC'|'POOL'|'SEQ',title:string){
-  const load=()=>{setPreview(p=>p&&{...p,url:null,error:undefined});fetchExport(kind).then(blob=>setPreview(p=>p?{...p,url:URL.createObjectURL(blob)}:p)).catch(e=>setPreview(p=>p?{...p,error:e instanceof Error?e.message:'ออกเอกสารไม่สำเร็จ'}:p));};
+  const load=()=>{setPreview(p=>p&&{...p,url:null,error:undefined});fetchExport(kind).then(blob=>setPreview(p=>p?{...p,url:URL.createObjectURL(blob)}:p)).catch(e=>setPreview(p=>p?{...p,error:e instanceof LabFailure?e.text:e instanceof Error?e.message:'ออกเอกสารไม่สำเร็จ'}:p));};
   setPreview({title,url:null,retry:load});load();
  }
  const downloadCsv=()=>run(async()=>{const url=URL.createObjectURL(await fetchExport('POOL_CSV'));const a=document.createElement('a');a.href=url;a.download=`${data!.runLabel.replace('/','-')}-POOL_CSV.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);});
@@ -130,7 +133,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
    <Link className="button secondary bench-workbook-link" href={`/lab/batches/${batchId}/workbook`}><LabIcon name="file"/>ใบงาน Excel / PDF</Link></header>
   {/* OWNER-LAB-041, extended 2026-11-09 to four steps (Task List first). The three bench steps switch in place; Task List is a link back to the Run page. */}
   <BatchStepper batchId={batchId} current={tab} status={stepStatus} onSelect={setTab}/>
-  {error&&<p role="alert" className="notice danger">{error}</p>}{notice&&!error&&<p role="status" className="notice success">{notice}</p>}
+  {exportIssues.length>0?<VendorExportNotice issues={exportIssues}/>:error&&<p role="alert" className="notice danger">{error}</p>}{notice&&!error&&<p role="status" className="notice success">{notice}</p>}
   {!data&&!error&&<p role="status">กำลังโหลดใบงาน…</p>}
   {data&&tab==='QC'&&<section aria-labelledby="qc-title" className="bench-section">
    <div className="bench-section-head"><h2 id="qc-title"><LabIcon name="flask"/>QC Measurements</h2>
