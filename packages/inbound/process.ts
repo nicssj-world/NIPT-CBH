@@ -55,6 +55,8 @@ export async function applyS1(db:Queryable,file:{id:string},pet:Pet,target:Targe
 
 /** Clinical workspace reconciliation stays blank-only; current demographics use the separate applied-PET projection. */
 async function reconcilePetPatient(db:Queryable,caseId:string,roundId:string,pet:Pet){
+ // A PET without a name or date of birth fills nothing (the DB function requires both); what the nurse already entered stays.
+ if(!pet.name.trim()||!pet.dob)return;
  const result=(await db.query<{result:{filled:string[];conflicts:string[];pending:string[]}}>('SELECT p2_reconcile_pet_patient($1,$2,$3,$4) AS result',[caseId,roundId,pet.name.trim(),pet.dob.slice(0,10)])).rows[0]?.result;
  if(!result)return;
  if(result.filled.length)await db.query("INSERT INTO case_event(case_id,event_type,details) VALUES($1,'PET_IDENTITY_UPDATED',$2)",[caseId,{fields:result.filled,synthetic:true}]);

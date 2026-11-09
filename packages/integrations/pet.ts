@@ -19,11 +19,11 @@ export function parsePet(bytes:Buffer,filename:string):Pet{
  // NIPTY_handover test_empty_citizen_id_ok: HIS may send no citizen ID (P[33] '301^'). Matching uses LN + HN, so an empty ID is
  // accepted as in the legacy parser; a present ID is still validated.
  const [ward,rawIdentity='']=p[33].split('^');
- // Owner 2026-11-09 (LN 2631070010 had a TAB inside the name): registration matches on LN + HN, so those two stay strict and everything else is
+ // Owner 2026-11-09 (LN 2631070010 had a TAB inside the name): registration matches on LN + HN, so those two stay strict and everything else is optional/cleaned.
  // cleaned instead of rejecting the whole file. Name: control characters (tab included) become one space; sex outside F/M/U/O is 'U';
  // a citizen ID that is not clean after removing spaces/control characters is treated as "not sent" (as when HIS sends none).
- const name=p[5].replace(/[\u0000-\u001f\u007f]+/g,' ').replace(/\s+/g,' ').trim(),sex=['F','M','U','O'].includes(p[8])?p[8]:'U',cleanId=rawIdentity.replace(/[\u0000- \u007f]+/g,''),identity=cleanId.length>100?'':cleanId;
- if(operationalDataEnabled()&&(!/^[A-Za-z0-9][A-Za-z0-9./-]{0,31}$/.test(p[3])||!name||name.length>500))throw Error('INVALID_PATIENT_IDENTITY');return {ln:p[2],hn:p[3],name,dob:wireDate(p[7]),sex,receivedAt:wireDate(collectionReceipt[1]),specimenAt:wireDate(collectionReceipt[0]),orderAt:wireDate(p[21]),ward,identity,hash:sha256(bytes),filename};
+ const name=p[5].replace(/[\u0000-\u001f\u007f]+/g,' ').replace(/\s+/g,' ').trim().slice(0,500),sex=['F','M','U','O'].includes(p[8])?p[8]:'U',cleanId=rawIdentity.replace(/[\u0000- \u007f]+/g,''),identity=cleanId.length>100?'':cleanId;
+ if(operationalDataEnabled()&&(!/^[A-Za-z0-9][A-Za-z0-9./-]{0,31}$/.test(p[3])))throw Error('INVALID_PATIENT_IDENTITY');return {ln:p[2],hn:p[3],name,dob:p[7].trim()===''?'':wireDate(p[7]),sex,receivedAt:wireDate(collectionReceipt[1]),specimenAt:wireDate(collectionReceipt[0]),orderAt:wireDate(p[21]),ward,identity,hash:sha256(bytes),filename};
 }
 export function syntheticPet(index:number,date='20261011120000'){const ln=`99000${String(index).padStart(7,'0')}`;const p=Array<string>(35).fill('');Object.assign(p,{0:'P',1:'1',2:ln,3:`SYNTHETIC-HN-${index}`,5:'SYNTHETIC^^นาง SYNTHETIC',7:'20000101',8:'F',21:date,23:date+'^'+date,33:`SYNTHETIC-WARD^SYNTHETIC-ID-${index}`});const o=Array<string>(29).fill('');Object.assign(o,{0:'O',1:'1',4:'^^^70096^B^0',14:date,18:'7'});return {ln,filename:ln+'-7.pet',bytes:iconv.encode(['H',p.join('|'),o.join('|'),'L|1|N'].join('\r\n'),'windows-874')};}
 
