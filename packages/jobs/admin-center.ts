@@ -68,6 +68,8 @@ const FROM={
  HIS_TRANSFER:`FROM nipt_his_transfer_overview() j`
 } as const;
 const STATUS={OUTBOX:OUTBOX_STATUS_SQL,ARCHIVE:ARCHIVE_STATUS_SQL,HIS_TRANSFER:TRANSFER_STATUS_SQL} as const;
+/** Owner 2026-11-10: finished work is only interesting for a day; anything that still needs attention is always listed. */
+const RECENT=(s:keyof typeof STATUS)=>`(${STATUS[s]}<>'COMPLETED' OR j.created_at>now()-interval '24 hours')`;
 const KIND={OUTBOX:'j.kind',ARCHIVE:"'nas_pdf_archive'",HIS_TRANSFER:"'his_transfer'"} as const;
 const ATTEMPTS={OUTBOX:'NULL::int',ARCHIVE:'j.attempts',HIS_TRANSFER:'j.attempts'} as const;
 const ERROR={OUTBOX:'NULL::text',ARCHIVE:'j.last_error',HIS_TRANSFER:'j.last_code'} as const;
@@ -77,8 +79,8 @@ export async function readWorkerQueueOverview(db:Queryable,user:Principal,raw:un
  admin(user);
  const f=pageSchema.parse(raw);
  const counts=await Promise.all((['OUTBOX','ARCHIVE','HIS_TRANSFER'] as const).map(async scope=>
-  (await db.query<{kind:string;status:string;count:number}>(`SELECT ${KIND[scope]} kind,${STATUS[scope]} status,count(*)::int count ${FROM[scope]} GROUP BY 1,2 ORDER BY 1,2`)).rows.map(r=>({...r,scope}))));
- const s=f.scope,where=f.status?`WHERE ${STATUS[s]}=$1`:'',args=f.status?[f.status]:[];
+  (await db.query<{kind:string;status:string;count:number}>(`SELECT ${KIND[scope]} kind,${STATUS[scope]} status,count(*)::int count ${FROM[scope]} WHERE ${RECENT(scope)} GROUP BY 1,2 ORDER BY 1,2`)).rows.map(r=>({...r,scope}))));
+ const s=f.scope,where=f.status?`WHERE ${RECENT(s)} AND ${STATUS[s]}=$1`:`WHERE ${RECENT(s)}`,args=f.status?[f.status]:[];
   const total=Number((await db.query<{n:string}>(`SELECT count(*)::text n ${FROM[s]} ${where}`,args)).rows[0].n);
  const pages=Math.max(1,Math.ceil(total/f.pageSize)),page=Math.min(f.page,pages);
  const rows=(await db.query<QueueRow>(`SELECT j.id,${KIND[s]} kind,${STATUS[s]} status,j.created_at,${ATTEMPTS[s]} attempts,${ERROR[s]} error
