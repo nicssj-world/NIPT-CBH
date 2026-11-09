@@ -4,7 +4,7 @@ import {z} from 'zod';
 import type {Queryable} from '../db/connection';
 import {need,uuid,LabError,audit,type Staff} from './core';
 import {savedSource,benchSource,benchPooling,benchExport,qcSourceHash} from './bench';
-import {repeatAttemptIds} from './repeat-slots';
+import {repeatAttemptIds,vendorExportable} from './repeat-slots';
 import type {WorkbookDeps} from '../workbook/service';
 import {digest} from '../pooling/calculation';
 import {exportOwnerTaskImport} from '../sequencing/owner-task-import';
@@ -52,7 +52,10 @@ export async function exportSeqPair(db:Queryable,user:Staff,input:unknown,deps:W
   await audit(db,user,'LAB_ACTUAL_POOLING_RECORDED','lab_actual_pooling',created.id,{version:d.revision,outcome:'AUTO_FROM_SAVED_TASK_AT_EXPORT'});
   actual={id:created.id,qc_source_sha256:sourceHash,members:auto.filter(m=>m.sampleId) as never,current:true};
  }
- const members=actual.members.filter(m=>m.pooled).map(m=>{
+ // Owner 2026-11-09: the HALOS import lists the same specimens as the NIFTY request - every occupied position except a Blank and a Re-xxx slot.
+ // A position whose pooling volume is below 2 µL (not pooled) stays in the file; it is not removed.
+ const repeating=await repeatAttemptIds(db,s.slots);
+ const members=actual.members.filter(m=>{const slot=s.slots.find(x=>x.slot===m.slot);return !!slot&&vendorExportable(slot,repeating);}).map(m=>{
   const slot=s.slots.find(s=>s.slot===m.slot),sampleId=slot?.printedSampleId??slot?.printedControlId;
   if(!slot||sampleId!==m.sampleId||(slot.attemptId??null)!==m.attemptId)throw new LabError('ACTUAL_POOLING_MAPPING_STALE',409);
   return {slot:m.slot,sampleId,attemptId:slot.attemptId,roundId:slot.roundId,caseId:slot.caseId,overallOrdinal:slot.overallOrdinal??null};

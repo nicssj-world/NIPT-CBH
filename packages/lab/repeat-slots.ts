@@ -13,3 +13,6 @@ export async function repeatAttemptIds(db:Queryable,slots:{attemptId?:string|nul
  const rows=(await db.query<{id:string}>('SELECT id::text id FROM analytical_attempt WHERE state=ANY($2) AND id::text=ANY($1)',[ids,[...REPEAT_ATTEMPT_STATES]])).rows;
  return new Set(rows.map(r=>r.id));
 }
+
+/** Which positions go to the vendor files (HALOS import and NIFTY request): every occupied position except a Blank and a Re-xxx slot. Pooling volume is not a condition - a position below 2 µL stays in the files (Owner 2026-11-09). */
+export const vendorExportable=(slot:{control?:string|null;attemptId?:string|null;printedSampleId?:string|null;printedControlId?:string|null},repeating:Set<string>)=>slot.control!=='blank'&&!!(slot.printedSampleId??slot.printedControlId)&&(!!slot.control||!!slot.attemptId&&!repeating.has(slot.attemptId));

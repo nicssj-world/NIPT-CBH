@@ -9,6 +9,8 @@ function dateOnly(value:string){if(!/^\d{4}-\d{2}-\d{2}$/.test(value)||new Date(
 function bangkok(value:string){if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)||!Number.isFinite(Date.parse(value)))throw Error('VENDOR_PET_TIMESTAMP_REQUIRED');const local=new Date(Date.parse(value)+7*3600000).toISOString();return {day:local.slice(0,10),text:dateOnly(local.slice(0,10))+' '+local.slice(11,16)};}
 /** CP874 is decoded by the PET parser. Reorder LIS surname^^prefix firstname into display name. */
 export function petDisplayName(value:string){const [surname,prefix='',given='']=value.split('^');return value.includes('^^')?[given.trim(),surname.trim()].filter(Boolean).join(' '):value.includes('^')?[prefix.trim(),given.trim(),surname.trim()].filter(Boolean).join(' '):value.trim();}
+/** The approved NIFTY template's own Positive/Negative control rows carry GA 13,5 and Singleton. */
+export const CONTROL_GESTATIONAL_WEEK='13,5';
 export function patientVendorValues(p:VendorPatient,index:number){
  if(!p.name.trim()||!p.ln||!p.hn||!/^[A-Za-z0-9-]+$/.test(p.sampleId))throw Error('VENDOR_MATCHED_IDENTITY_REQUIRED');
  const collection=bangkok(p.collectionAt),received=bangkok(p.receivedAt);dateOnly(p.edd);dateOnly(p.dob);
@@ -28,11 +30,16 @@ export function exportOwnerNifty(template:Buffer,rows:VendorRow[]){
  const rowXml=[...sheet.matchAll(/<row\b[^>]*\br="(\d+)"[^>]*>[\s\S]*?<\/row>/g)];
  const sourceRow=(n:number)=>rowXml.find(r=>Number(r[1])===n)?.[0];
  if(!sourceRow(2)||!sourceRow(48)||!sourceRow(49))throw Error('NIFTY_TEMPLATE_ROWS_REQUIRED');
+ // Owner 2026-11-09: every column marked * is filled on the Positive/Negative control rows too (A-I). A control has no patient, so it takes the Run's own span of dates
+ // (earliest collection, latest receipt among the exported patients; the control's code date when there are none) and the approved template's control values for GA and fetus type.
+ const stamp=(t:string)=>t.slice(6,10)+t.slice(0,2)+t.slice(3,5)+t.slice(11),times=patients.map((p,i)=>patientVendorValues(p,i+1));
+ const fromCode=(id:string)=>{const m=/^\d{2}N\d(\d{4})(\d{2})(\d{2})/.exec(id);return m?`${m[2]}/${m[3]}/${m[1]} 00:00`:'';};
+ const control={collection:times.length?times.map(v=>v.E).sort((a,b)=>stamp(a).localeCompare(stamp(b)))[0]:fromCode(ordered.at(-2)!.sampleId),received:times.length?times.map(v=>v.F).sort((a,b)=>stamp(b).localeCompare(stamp(a)))[0]:fromCode(ordered.at(-2)!.sampleId),ga:CONTROL_GESTATIONAL_WEEK,fetus:'Singleton'};
  const columns=['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','Z','AA'];
  const filled=ordered.map((row,index)=>{
   const n=index+2,source=row.kind==='PATIENT'?2:row.kind==='PC'?48:49;
   let xml=sourceRow(source)!.replace(/\br="([A-Z]*)(\d+)"/g,(_,col)=>`r="${col}${n}"`);
-  const values:Record<string,string|number>=row.kind==='PATIENT'?patientVendorValues(row,index+1):{A:niftySampleId(row.sampleId),B:'HNZ0011',C:'Peripheral Blood',D:'6~35°C',E:'',F:'',G:'',H:'',I:'K Tube',J:'',K:row.kind==='PC'?'Positive control':'Negative Control',L:'',M:'',N:'',O:'',P:'Chonburi hospital',R:'',Z:'',AA:''};
+  const values:Record<string,string|number>=row.kind==='PATIENT'?patientVendorValues(row,index+1):{A:niftySampleId(row.sampleId),B:'HNZ0011',C:'Peripheral Blood',D:'6~35°C',E:control.collection,F:control.received,G:control.ga,H:control.fetus,I:'K Tube',J:'',K:row.kind==='PC'?'Positive control':'Negative Control',L:'',M:'',N:'',O:'',P:'Chonburi hospital',R:'',Z:'',AA:''};
   for(const col of columns){const re=new RegExp(`<c\\b([^>]*\\br="${col}${n}"[^>]*)(?:/>|>[\\s\\S]*?</c>)`),match=re.exec(xml);if(!match)throw Error('NIFTY_COLUMN_MISSING:'+col);const v=col==='Q'?'ANC':values[col],attrs=match[1].replace(/\s+t="[^"]*"/g,'');const replacement=typeof v==='number'?`<c${attrs}><v>${v}</v></c>`:`<c${attrs} t="inlineStr"><is><t xml:space="preserve">${xmlEscape(v)}</t></is></c>`;xml=xml.replace(match[0],replacement);}
   return xml;
  });
