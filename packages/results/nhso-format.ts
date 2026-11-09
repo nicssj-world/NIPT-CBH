@@ -15,3 +15,9 @@ export function nationalIdCopy(value:string|null|undefined):string|null{
 export function gaParts(totalDays:number|null|undefined):{weeks:number;days:number}|null{
  return typeof totalDays==='number'&&Number.isInteger(totalDays)&&totalDays>=0?{weeks:Math.floor(totalDays/7),days:totalDays%7}:null;
 }
+/** GA counted from the EDD to a day (YYYY-MM-DD): 280 days minus the days still to run. Null when either date is missing, malformed, or the result is negative. */
+export function gaFromEdd(edd:string|null|undefined,day:string|null|undefined):{weeks:number;days:number}|null{
+ if(!edd||!day||!/^\d{4}-\d{2}-\d{2}$/.test(edd)||!/^\d{4}-\d{2}-\d{2}$/.test(day))return null;
+ const a=Date.parse(edd),b=Date.parse(day);
+ return Number.isNaN(a)||Number.isNaN(b)?null:gaParts(280+Math.round((b-a)/86400000));
+}

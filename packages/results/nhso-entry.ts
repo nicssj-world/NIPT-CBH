@@ -4,9 +4,9 @@ import type {FileStore} from '../storage';
 import {assertSession,need,caseVisible,audit,uuid,LabError,type Staff} from '../lab/core';
 import {entitlementKind} from '../forms/request-contract';
 import {parsePet} from '../integrations/pet';
-import {ageOnDate,calculations,type RequestDraft} from '../p2/schema';
+import {ageOnDate,type RequestDraft} from '../p2/schema';
 import {bangkokIsoDay} from '../domain/thai-date';
-import {gaParts} from './nhso-format';
+import {gaFromEdd} from './nhso-format';
 import {recordPhiAccess} from '../db/phi-access';
 
 // ลงผลสปสช. (Owner 2026-11-09). Lists every certified, Active result of a patient whose request records the NHSO (สปสช.) entitlement;
@@ -82,13 +82,14 @@ export async function nhsoDetail(db:Queryable,store:FileStore,user:Staff,release
  const r=await eligibleRelease(db,user,releaseId);
  const round=(await db.query<{received_at:Date|null}>('SELECT received_at FROM specimen_round_current WHERE id=$1',[r.round_id])).rows[0];
  // The PET of this round; a round without its own PET (e.g. a redraw received in NIPT) uses the case's latest one.
- const file=(await db.query<{sha256:string;filename:string;dob:string|null;received:string|null}>(`SELECT f.sha256,f.filename,left(f.parsed->>'dob',10) dob,f.parsed->>'receivedAt' received
+ const file=(await db.query<{sha256:string;filename:string;dob:string|null;drawn:string|null;received:string|null}>(`SELECT f.sha256,f.filename,left(f.parsed->>'dob',10) dob,left(f.parsed->>'specimenAt',10) drawn,f.parsed->>'receivedAt' received
    FROM his_order_current o JOIN his_inbound_file_current f ON f.id=o.inbound_file_id JOIN specimen_round x ON x.id=o.round_id
    WHERE x.case_id=$1 ORDER BY (o.round_id=$2) DESC,x.round_number DESC,o.his_received_at DESC LIMIT 1`,[r.case_id,r.round_id])).rows[0];
  let nationalId:string|null=null;
  if(file){try{nationalId=parsePet(await store.get(file.sha256),file.filename).identity.trim()||null;}catch{nationalId=null;}}
  const receivedAt=round?.received_at??(file?.received?new Date(file.received):null);
  const serviceDate=receivedAt?bangkokIsoDay(new Date(receivedAt)):null;
+ const drawDay=file?.drawn&&/^\d{4}-\d{2}-\d{2}$/.test(file.drawn)?file.drawn:null;
  const dob=file?.dob??r.draft?.patient?.dob??null;
  // GA weeks/days and "ครรภ์ที่": a paper case's Lab staff record them in the paper request check (p2_paper_review.panel). GA is "at the draw of this round", so only this
  // round's check counts; gravida is the same for the whole pregnancy, so any round's check may supply it (this round first). Then the Lab registration, then the electronic request.
@@ -98,9 +99,9 @@ export async function nhsoDetail(db:Queryable,store:FileStore,user:Staff,release
  const paperGravida=papers.find(p=>Number.isInteger(p.panel?.gravida))?.panel.gravida??null;
  const reg=(await db.query<{ga_weeks:number|null;ga_days:number|null}>('SELECT ga_weeks,ga_days FROM lab_operational_registration WHERE round_id=$1',[r.round_id])).rows[0];
  let ga:{weeks:number;days:number}|null=paperGa?{weeks:paperGa.panel.gaWeeks!,days:paperGa.panel.gaDays!}:reg&&reg.ga_weeks!==null&&reg.ga_days!==null?{weeks:reg.ga_weeks,days:reg.ga_days}:null;
- if(!ga&&r.draft?.pregnancy){try{ga=gaParts(calculations(r.draft).gaDays);}catch{ga=null;}}
- // An electronic request with an EDD but no recorded draw date: count GA to the service date instead of leaving it blank.
- if(!ga&&serviceDate&&r.draft?.pregnancy?.edd&&!r.draft.pregnancy.collectionDate){ga=gaParts(280+Math.round((Date.parse(serviceDate)-Date.parse(r.draft.pregnancy.edd))/86400000));}
+ // Owner 2026-11-09: GA is counted at the blood-draw date, which the PET carries (specimenAt); the request's own draw date is the fallback, the service date the last resort.
+ if(!ga)ga=gaFromEdd(r.draft?.pregnancy?.edd,drawDay??r.draft?.pregnancy?.collectionDate??serviceDate);
+ // Owner 2026-11-09: the test date is the day the specimen was placed in the Task List, because placing it there starts the analysis.
  const task=(await db.query<{at:Date|null}>(`SELECT min(a.assigned_at) at FROM result_release rr JOIN result_report_version v ON v.id=rr.version_id
    JOIN lab_slot_assignment a ON a.attempt_id=v.attempt_id AND a.removed_at IS NULL WHERE rr.id=$1`,[r.release_id])).rows[0];
  const draftGravida=r.draft?.pregnancy?.gravida,gravida=typeof draftGravida==='number'?draftGravida:paperGravida;

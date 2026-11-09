@@ -134,3 +134,19 @@ it('a paper case reads GA and ครรภ์ที่ from the Lab paper reques
   expect((await board(f,'PENDING')).rows.map(r=>r.releaseId)).toEqual([a]);
  }finally{await f.close();}
 },600000);
+
+it('GA from an EDD is counted at the PET blood-draw date, not the date typed in the request (Owner 2026-11-09)',async()=>{
+ const f=await fixture();try{
+  const a=await release(f,0),c=f.cases[0];
+  // No Lab-registration GA and no paper check, so the electronic request's EDD is the only source (test set-up removes the registration row).
+  await f.db.query('ALTER TABLE lab_operational_registration DISABLE TRIGGER USER');
+  await f.db.query('DELETE FROM lab_operational_registration WHERE round_id=$1',[c.roundId]);
+  await f.db.query('ALTER TABLE lab_operational_registration ENABLE TRIGGER USER');
+  const draft={...emptyRequest,patient:{...emptyRequest.patient,entitlement:'NHSO'},pregnancy:{...emptyRequest.pregnancy,gravida:1,edd:'2027-03-24',collectionDate:'2026-10-22'}};
+  await f.db.query(`INSERT INTO p2_workspace(round_id,case_id,draft,request_mode,consent_mode,updated_by) VALUES($1,$2,$3,'Electronic','Electronic',$4)
+   ON CONFLICT(round_id) DO UPDATE SET draft=EXCLUDED.draft,version=p2_workspace.version+1`,[c.roundId,c.caseId,JSON.stringify(draft),f.admin.id]);
+  const d=await f.run(t=>nhsoDetail(t,f.store,f.admin,a));
+  // PET draw date 2026-10-20 → 17+6 (the typed 2026-10-22 would have given 18+1)
+  expect(d.patient).toMatchObject({gaWeeks:17,gaDays:6,gravida:1,serviceDate:'2026-10-20'});
+ }finally{await f.close();}
+},600000);

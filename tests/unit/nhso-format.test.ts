@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {gaParts,nationalIdCopy,nationalIdDisplay} from '../../packages/results/nhso-format';
+import {gaFromEdd,gaParts,nationalIdCopy,nationalIdDisplay} from '../../packages/results/nhso-format';
 import {nhsoItems} from '../../src/components/nhso/nhso-dialog';
 
 describe('ลงผลสปสช. display and copy rules',()=>{
@@ -26,5 +26,17 @@ describe('ลงผลสปสช. display and copy rules',()=>{
   const items=nhsoItems({nationalId:null,ageYears:null,gravida:0,gaWeeks:null,gaDays:null,serviceDate:null,testDate:null});
   expect(items.filter(i=>i.copy===null).map(i=>i.key)).toEqual(['id','age','gaw','gad','service','test']);
   expect(items.find(i=>i.key==='gravida')!.copy).toBe('0');
+ });
+});
+
+describe('GA from the EDD',()=>{
+ it('counts 280 days to the given day',()=>{
+  expect(gaFromEdd('2027-03-24','2026-10-20')).toEqual({weeks:17,days:6});
+  expect(gaFromEdd('2027-03-24','2026-10-22')).toEqual({weeks:18,days:1});
+  expect(gaFromEdd('2026-11-01','2026-11-01')).toEqual({weeks:40,days:0});
+ });
+ it('is null when a date is missing or malformed, or the day is before conception',()=>{
+  expect(gaFromEdd(null,'2026-10-20')).toBeNull();expect(gaFromEdd('2027-03-24',undefined)).toBeNull();
+  expect(gaFromEdd('24/03/2570','2026-10-20')).toBeNull();expect(gaFromEdd('2027-03-24','2026-01-01')).toBeNull();
  });
 });
