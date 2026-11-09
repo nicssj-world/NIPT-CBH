@@ -36,7 +36,7 @@ export function ParseErrorActions({fileId,action}:{fileId:string;action:'delete'
  };
  if(action==='delete'&&!confirming)return <button type="button" className="button secondary small" onClick={()=>setConfirming(true)}>ลบรายการ</button>;
  return <div className="stack">
-  {action==='delete'&&<p className="help">แถวนี้จะถูกลบจากฐานข้อมูลและกู้คืนไม่ได้ ระบบจะเก็บ path/hash/LN/รุ่น พร้อมผู้ลบและเวลาไว้กันเนื้อหาเดิมกลับมา ส่วนไฟล์ต้นฉบับบน HIS จะไม่ถูกแก้ไข และ LN ยังถูกบล็อกจนกว่าไฟล์รุ่นใหม่จาก path เดิมจะอ่านผ่าน · ถ้าเนื้อหาเดิมนี้อ่านผ่านด้วยตัวอ่านปัจจุบัน ระบบจะนำเข้าให้เองในรอบสแกนถัดไปและปลดบล็อก</p>}
+  {action==='delete'&&<p className="help">แถวนี้จะถูกลบจากฐานข้อมูลและกู้คืนไม่ได้ ระบบจะเก็บ path/hash/LN/รุ่น พร้อมผู้ลบและเวลาไว้กันเนื้อหาเดิมกลับมา ส่วนไฟล์ต้นฉบับบน HIS จะไม่ถูกแก้ไข และการลงทะเบียน LN นั้นไม่ถูกบล็อกเพราะรายการที่ลบ · ถ้าเนื้อหาเดิมนี้อ่านผ่านด้วยตัวอ่านปัจจุบัน ระบบจะนำเข้าให้เองในรอบสแกนถัดไป ถ้ายังไม่ผ่าน หน้านี้จะแสดงรหัสสาเหตุเมื่อค้นหา LN</p>}
   <div className="pager-buttons">
    <button type="button" className={`button small${action==='delete'?' danger':''}`} disabled={busy} onClick={()=>void submit()}>{busy?(action==='delete'?'กำลังลบรายการ…':'กำลังนำกลับ…'):action==='delete'?'ยืนยันลบรายการ':'นำกลับเข้ารายการ'}</button>
    {action==='delete'&&<button type="button" className="button secondary small" disabled={busy} onClick={()=>setConfirming(false)}>ยกเลิก</button>}

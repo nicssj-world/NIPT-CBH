@@ -71,7 +71,7 @@ export default async function InboundPage({searchParams}:{searchParams:Promise<R
     <ul className="stack">
      {diagnosis.files.map((f,i)=><li key={"f"+i}>ไฟล์ที่เก็บไว้: {STATE[f.state]??f.state}{f.errorCode?` · รหัส ${f.errorCode}`:""}{f.dayFolder?` · โฟลเดอร์ ${dayText(f.dayFolder)}`:""}</li>)}
      {diagnosis.sightings.map((x,i)=><li key={"s"+i}>เห็นไฟล์ .pet ในโฟลเดอร์ {dayText(x.dayFolder)} · {x.byteSize} ไบต์ · เห็นครั้งแรก {when(x.firstSeenAt)} · {x.stored?"มีไฟล์เก็บไว้ในระบบ":"ไม่มีไฟล์ที่เก็บไว้"}</li>)}
-     {diagnosis.deleted.map((x,i)=><li key={"d"+i}>ลบรายการอ่านไฟล์ไม่ได้ (โฟลเดอร์ {dayText(x.dayFolder)}) เมื่อ {when(x.deletedAt)} · {x.superseded?"มีไฟล์ใหม่แทนแล้ว":x.released?"อนุญาตให้อ่านซ้ำแล้ว":"ยังถูกบล็อก"}</li>)}
+     {diagnosis.deleted.map((x,i)=><li key={"d"+i}>ลบรายการอ่านไฟล์ไม่ได้ (โฟลเดอร์ {dayText(x.dayFolder)}) เมื่อ {when(x.deletedAt)} · {x.superseded?"มีไฟล์ใหม่แทนแล้ว":x.released?"อนุญาตให้อ่านซ้ำแล้ว":"รอตรวจซ้ำ"}{x.deletedReason?` · รหัสตอนถูกลบ ${x.deletedReason}`:""}{x.probeReason?` · ตัวอ่านปัจจุบันตรวจ ${when(x.probedAt)} ยังไม่ผ่าน รหัส ${x.probeReason}`:""}</li>)}
      {diagnosis.waiting.map((x,i)=><li key={"w"+i}>.pet โฟลเดอร์ {dayText(x.dayFolder)} · {x.okSeenAt?`มี .ok เมื่อ ${when(x.okSeenAt)}`:"ยังไม่มี .ok"} · เห็นล่าสุด {when(x.lastSeenAt)}</li>)}
     </ul></section>;})()}
   <section className="panel" aria-labelledby="inbound-issues"><h2 id="inbound-issues">รายการที่ต้องตรวจ ({queue.review.page.total})</h2>

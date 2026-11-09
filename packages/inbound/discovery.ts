@@ -84,9 +84,14 @@ async function discoverOne(db:Queryable,store:FileStore,options:DiscoveryOptions
  // A deleted ParseError keeps a tombstone so the same broken bytes are not reported again. It must not hide a valid PET for ever (Owner 2026-11-09):
  // when the reader now accepts those exact bytes, they are ingested like any new file and the tombstone is superseded below.
  if(purged){
-  let readableNow=false;
-  if(classifyPet(bytes)==='NIPT'){try{redactPet(parsePet(bytes,name),options.lookupKey);readableNow=true;}catch{/* still unreadable: stays skipped */}}
-  if(!readableNow){await source(hash,null,bytes.length);counts.sameContent++;return null;}
+  let readableNow=false,why='PROCESSING_FAILED';
+  const kind=classifyPet(bytes);
+  if(kind==='NIPT'){try{redactPet(parsePet(bytes,name),options.lookupKey);readableNow=true;}catch(e){why=errorCode(e);}}else why=kind==='INVALID_ENCODING'?'INVALID_ENCODING':kind==='MALFORMED'?'INVALID_FIELDS':'NOT_NIPT';
+  if(!readableNow){
+   // Still unreadable: stays skipped, but the reason goes into this scan's counters (skip_<LN>_<REASON>) so the page can show it.
+   const key=`skip_${filenameLn}_${why}`,bag=counts as unknown as Record<string,number>;bag[key]=(bag[key]??0)+1;
+   await source(hash,null,bytes.length);counts.sameContent++;return null;
+  }
   if((await db.query('INSERT INTO his_inbound_file_purge_release(sha256) VALUES($1) ON CONFLICT DO NOTHING RETURNING sha256',[hash])).rows.length)
    await appendAudit(db,{action:'INBOUND_PURGED_FILE_REACCEPTED',resourceType:'his_inbound_file',details:{outcome:'REACCEPTED',reasonCode:'READABLE_NOW',previousState:'Deleted',resultingState:'Ready',synthetic:process.env.NIPT_MODE!=='operational'}});
  }

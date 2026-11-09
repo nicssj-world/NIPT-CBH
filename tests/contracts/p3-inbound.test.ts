@@ -388,6 +388,30 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
   expect(await rows<{event:string}>(f.db,'SELECT event FROM his_inbound_file_purge_event WHERE sha256=$1',[sha])).toEqual([{event:'SUPERSEDED'}]);
  });
 
+ it('AT-HISIN-12c a deleted ParseError that the reader still rejects records why, and never blocks a valid PET for the same LN (Owner 2026-11-09)',async()=>{
+  const LN12='990001000059',DAY2='20261011';
+  const pet=await writePet(f.root,DAY,{ln:LN12,hn:HN,receivedAt:'20261012090000'},{ok:false});
+  const invalid=iconv.encode(iconv.decode(pet.bytes,'windows-874').split('\r\n').slice(0,2).join('\r\n'),'windows-874');
+  await writeFile(pet.path,invalid);await writeOk(f.root,DAY,pet.filename);
+  expect((await cycle(f,{now:NOW})).counts.parseError).toBe(1);
+  const file=(await rows<{id:string}>(f.db,"SELECT id FROM his_inbound_file WHERE state='ParseError'"))[0];
+  const lab=await addUser(f.db,'LAB_STAFF','synthetic.p3.probe');
+  await reviewParseError(f.db,lab,file.id,'delete');
+  await f.db.exec(await readFile('packages/db/roles.sql','utf8'));
+  await f.db.query('SET ROLE worker_rw');
+  try{expect((await cycle(f,{now:later(1)})).counts).toMatchObject({sameContent:1,parseError:0,stored:0,[`skip_${LN12}_INVALID_FIELDS`]:1});}finally{await f.db.query('RESET ROLE');}   // the reader's current reason is in the scan counters
+  const diagnosis=(await lnDiagnosis(f.db,LN12))!;
+  expect(diagnosis.deleted).toMatchObject([{released:false,superseded:false,probeReason:'INVALID_FIELDS'}]);
+  expect(lnVerdict(diagnosis)).toMatchObject({tone:'bad',text:expect.stringContaining('INVALID_FIELDS')});
+  // A valid PET for the same LN in another day folder is registrable: the deleted row does not block it.
+  await writePet(f.root,DAY2,{ln:LN12,hn:HN,receivedAt:'20261011090000'});
+  const {lab:registrant}=await registrar(f.db);
+  await f.db.query('SET ROLE worker_rw');
+  try{await cycle(f,{now:later(2),lookbackDays:3});}finally{await f.db.query('RESET ROLE');}
+  const found=await lookupRegistrationPet(f.db,registrant,{ln:LN12},{store:f.store,lookupKey:f.lookupKey});
+  expect(found.candidates.map(c=>c.ln)).toEqual([LN12]);
+ });
+
  it('AT-HISIN-13 touching an unchanged oversized ParseError does not restore its deleted row',async()=>{
   const pet=await writePet(f.root,DAY,{ln:'990001000054',hn:HN,receivedAt:'20261012090000'});
   await writeFile(pet.path,Buffer.alloc(MAX_PET_BYTES+1,0x41));
