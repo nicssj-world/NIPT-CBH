@@ -61,7 +61,7 @@ export function NhsoBoard(){
    {!error&&<TableScroll label={TAB_LABEL[tab]} railLabel="แถบเลื่อนแนวนอนของตารางลงผลสปสช.">
     <table className="data-table"><thead><tr><th scope="col">LN</th><th scope="col">HN</th><th scope="col">ชื่อ-นามสกุล</th><th scope="col">ออกผลเมื่อ</th><th scope="col">{tab==="PENDING"?"สถานะ":tab==="DONE"?"ลงผลเมื่อ":"ระบุเมื่อ"}</th></tr></thead>
      <tbody>{rows.length?rows.map(r=><tr key={r.resultId}>
-      <td><button type="button" className="nhso-ln" aria-haspopup="dialog" onClick={()=>setOpen(r)}><Ln value={r.ln}/><span className="sr-only"> เปิดข้อมูลสำหรับลงผลสปสช.</span></button></td>
+      <td><button type="button" className="nhso-ln" aria-haspopup="dialog" onClick={()=>setOpen(r)}><Ln value={r.ln}/>{r.lnHalos&&<span className="nhso-halos num">{r.lnHalos}</span>}<span className="sr-only"> เปิดข้อมูลสำหรับลงผลสปสช.</span></button></td>
       <td className="num">{r.hn??"—"}</td><td>{r.name??"—"}</td><td className="num">{formatBeDateTime(r.certifiedAt)}</td>
       <td>{tab==="PENDING"?<><span className="status warning">ต้องลงผล</span>{r.entitlement==="UNSPECIFIED"&&<span className="badge info">ไม่ได้ระบุสิทธิ</span>}{r.reissued&&<span className="badge warning">ผลถูกแก้ไข ต้องลงใหม่</span>}</>
        :<><span className="num">{r.entry?formatBeDateTime(r.entry.at):"—"}</span><span className="cell-sub">โดย {r.entry?.by??"—"}</span></>}</td></tr>)

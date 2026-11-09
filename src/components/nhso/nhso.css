@@ -38,3 +38,5 @@
 .nhso-board .search-form{align-items:flex-start}
 .nhso-board .search-form>.button{margin-top:calc(27px + var(--ui-field-gap,8px))}
 @media(max-width:600px){.nhso-board .search-form>.button{margin-top:0}}
+.nhso-ln{display:grid;justify-items:start;gap:2px}
+.nhso-halos{font-size:.8125rem;color:var(--color-muted);text-decoration:none}

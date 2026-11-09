@@ -39,8 +39,7 @@ export function NhsoDialog({row,tab,onClose,onChanged}:{row:NhsoRow;tab:NhsoTab;
  };
  const items=detail?nhsoItems(detail.patient):[],total=items.filter(i=>i.copy!==null).length;
  return <Dialog title="ลงผลสปสช." onClose={onClose}><div className="nhso-popup">
-  <p className="nhso-id">{row.name&&<strong>{row.name}</strong>}{row.name&&" · "}HN {row.hn??"ยังไม่ยืนยัน"} · LN <Ln value={row.ln}/>{row.reissued&&<span className="badge warning">ผลถูกแก้ไข ต้องลงใหม่</span>}</p>
-  {tab==="PENDING"&&row.entitlement==="UNSPECIFIED"&&<p className="notice warning-notice" role="note">ใบ Request ไม่ได้ระบุสิทธิ จึงถือเป็นสิทธิ สปสช. — ถ้าไม่ใช่สิทธิ สปสช. กด “ไม่ใช่สิทธิ สปสช.” ด้านล่าง</p>}
+  <p className="nhso-id">{row.name&&<strong>{row.name}</strong>}{row.name&&" · "}HN {row.hn??"ยังไม่ยืนยัน"} · LN <Ln value={row.ln}/>{row.lnHalos&&<> · LN Halos <span className="num">{row.lnHalos}</span></>}{row.reissued&&<span className="badge warning">ผลถูกแก้ไข ต้องลงใหม่</span>}</p>
   {error&&<div className="notice" role="alert">{error} <button type="button" className="button small secondary" onClick={()=>setReload(n=>n+1)}>ลองใหม่</button></div>}
   <section aria-labelledby="nhso-patient-h" className="nhso-section">
    <h3 id="nhso-patient-h">1. ข้อมูลคนไข้ <span className="help">กดไอคอนเพื่อคัดลอกทีละค่า</span></h3>

@@ -1,3 +1,4 @@
+import {patientDisplayName} from '../domain/patient-name';
 import {z} from 'zod';
 import type {Queryable} from '../db/connection';
 import type {FileStore} from '../storage';
@@ -15,9 +16,9 @@ import {recordPhiAccess} from '../db/phi-access';
 // (migration 208). A reissued result is a new release, so it comes back as pending with `reissued` set.
 export type NhsoTab='PENDING'|'DONE'|'NOT_NHSO';
 /** `entitlement` UNSPECIFIED = the request chose neither สปสช. nor self-pay (treated as สปสช.). `entry` is the current CONFIRMED / NOT_NHSO decision, if any. */
-export type NhsoRow={resultId:string;caseId:string;ln:string;hn:string|null;name:string|null;certifiedAt:string;reissued:boolean;entitlement:'NHSO'|'UNSPECIFIED';entry:{kind:'CONFIRMED'|'NOT_NHSO';at:string;by:string|null}|null};
+export type NhsoRow={resultId:string;caseId:string;ln:string;lnHalos:string|null;hn:string|null;name:string|null;certifiedAt:string;reissued:boolean;entitlement:'NHSO'|'UNSPECIFIED';entry:{kind:'CONFIRMED'|'NOT_NHSO';at:string;by:string|null}|null};
 
-type R={subject_id:string;source:'RELEASE'|'HISTORICAL';version_id:string;case_id:string;round_id:string;certified_at:Date;ln:string;hn:string|null;name:string|null;registration_origin:string;unit_id:string|null;
+type R={subject_id:string;source:'RELEASE'|'HISTORICAL';version_id:string;case_id:string;round_id:string;certified_at:Date;ln:string;ln_halos:string|null;hn:string|null;name:string|null;registration_origin:string;unit_id:string|null;
  draft:RequestDraft|null;entitlement:string|null;entry_kind:string|null;entry_at:Date|null;entry_by:string|null;reissued:boolean};
 
 /** Same meaning as ANC's "มีผลตรวจแล้ว": a certified NIPT-CBH release, or a result HIS already holds / the previous system reported (historical_reported_result, no release).
@@ -26,13 +27,13 @@ const ROWS_SQL=`WITH subj AS (
   SELECT rr.id subject_id,'RELEASE' source,rr.version_id,rr.case_id,rr.round_id,rr.certified_at FROM result_release rr WHERE rr.state='Active' AND rr.kind='RESULT'
   UNION ALL
   SELECT h.version_id,'HISTORICAL',h.version_id,h.case_id,h.round_id,h.imported_at FROM historical_reported_result h)
- SELECT r.subject_id,r.source,r.version_id,r.case_id,r.round_id,r.certified_at,l.ln,i.hn,c.registration_origin,
+ SELECT r.subject_id,r.source,r.version_id,r.case_id,r.round_id,r.certified_at,l.ln,n.ln_halos,i.hn,c.registration_origin,
   (SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=r.case_id ORDER BY s.unit_id LIMIT 1) unit_id,
   w.draft,ent.entitlement,COALESCE(NULLIF(btrim(pet.parsed->>'name'),''),NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),'')) AS name,
   e.kind entry_kind,e.at entry_at,COALESCE(NULLIF(btrim(u.display_name),''),u.username) entry_by,
   (r.source='RELEASE' AND EXISTS(SELECT 1 FROM result_release p WHERE p.round_id=r.round_id AND p.kind='RESULT' AND p.id<>r.subject_id
    AND (SELECT x.kind FROM nhso_result_entry_event x WHERE x.release_id=p.id ORDER BY x.sequence DESC LIMIT 1)='CONFIRMED')) reissued
- FROM subj r JOIN nipt_case c ON c.id=r.case_id JOIN specimen_round s ON s.id=r.round_id JOIN case_ln l ON l.id=s.case_ln_id
+ FROM subj r JOIN nipt_case c ON c.id=r.case_id JOIN specimen_round s ON s.id=r.round_id JOIN case_ln l ON l.id=s.case_ln_id LEFT JOIN specimen_lab_number n ON n.round_id=r.round_id
  LEFT JOIN p2_case_identity i ON i.case_id=c.id
  LEFT JOIN LATERAL (SELECT w.draft FROM p2_workspace w JOIN specimen_round x ON x.id=w.round_id
    WHERE w.case_id=r.case_id ORDER BY (w.round_id=r.round_id) DESC,x.round_number DESC LIMIT 1) w ON true
@@ -50,7 +51,7 @@ const ROWS_SQL=`WITH subj AS (
  *  is treated as สปสช.; staff can mark it "not สปสช." on this page. Only cases the user may see. */
 const kindOf=(r:R)=>entitlementKind(r.entitlement);
 const eligible=(user:Staff,r:R)=>kindOf(r)!=='SELF_PAY'&&caseVisible(user,{unit_id:r.unit_id,registration_origin:r.registration_origin});
-const toRow=(r:R):NhsoRow=>({resultId:r.subject_id,caseId:r.case_id,ln:r.ln,hn:r.hn,name:r.name,certifiedAt:new Date(r.certified_at).toISOString(),reissued:r.reissued,
+const toRow=(r:R):NhsoRow=>({resultId:r.subject_id,caseId:r.case_id,ln:r.ln,lnHalos:r.ln_halos,hn:r.hn,name:r.name?patientDisplayName(r.name):null,certifiedAt:new Date(r.certified_at).toISOString(),reissued:r.reissued,
  entitlement:kindOf(r)==='NHSO'?'NHSO':'UNSPECIFIED',
  entry:(r.entry_kind==='CONFIRMED'||r.entry_kind==='NOT_NHSO')&&r.entry_at?{kind:r.entry_kind,at:new Date(r.entry_at).toISOString(),by:r.entry_by}:null});
 
@@ -67,7 +68,7 @@ async function selectRows(db:Queryable,user:Staff,d:{tab:NhsoTab;q:string;from?:
  const q=d.q.replace(/[%_\-]/g,'');
  const fetched=(await db.query<R>(`${ROWS_SQL}
    AND ($1='' OR l.ln LIKE $1||'%' OR ltrim(COALESCE(i.hn,''),'0') LIKE ltrim($1,'0')||'%')
-  ORDER BY r.certified_at,r.subject_id LIMIT $2`,[q,cap+1])).rows;
+  ORDER BY n.ln_halos NULLS LAST,r.certified_at,r.subject_id LIMIT $2`,[q,cap+1])).rows;
  const truncated=fetched.length>cap,all=fetched.slice(0,cap).filter(r=>eligible(user,r));
  const done=all.filter(r=>r.entry_kind==='CONFIRMED'),notNhso=all.filter(r=>r.entry_kind==='NOT_NHSO'),pending=all.filter(r=>r.entry_kind!=='CONFIRMED'&&r.entry_kind!=='NOT_NHSO');
  // Pending: oldest release first (work the queue in order). Entered / marked not สปสช.: most recent first.
@@ -96,8 +97,8 @@ export async function exportNhsoXlsx(db:Queryable,user:Staff,input:unknown,cap=N
  if(truncated)throw new LabError('NHSO_EXPORT_TOO_LARGE',409);
  for(let i=0;i<list.length;i+=200)await recordPhiAccess(db,user.id,list.slice(i,i+200).map(r=>r.case_id),'REGISTRY_VIEW');
  const be=(x:Date)=>formatBe(bangkokIsoDay(new Date(x)));
- const table=[['ลำดับ','LN','HN','วันที่ออกผล','สิทธิ','สถานะ','วันที่/เวลาที่บันทึก','ผู้บันทึก'],
-  ...list.map((r,i)=>[String(i+1),formatLn(r.ln),r.hn??'',be(r.certified_at),kindOf(r)==='NHSO'?'สปสช.':'ไม่ได้ระบุสิทธิ',STATUS_TEXT[d.tab],
+ const table=[['ลำดับ','LN','LN Halos','HN','วันที่ออกผล','สิทธิ','สถานะ','วันที่/เวลาที่บันทึก','ผู้บันทึก'],
+  ...list.map((r,i)=>[String(i+1),formatLn(r.ln),r.ln_halos??'',r.hn??'',be(r.certified_at),kindOf(r)==='NHSO'?'สปสช.':'ไม่ได้ระบุสิทธิ',STATUS_TEXT[d.tab],
    r.entry_at&&d.tab!=='PENDING'?formatBeDateTime(new Date(r.entry_at)):'',d.tab!=='PENDING'?(r.entry_by??''):''])];
  await audit(db,user,'NHSO_ENTRY_EXPORTED','RESULT_RELEASE',undefined,{count:list.length,outcome:'XLSX'});
  return {bytes:simpleXlsx('ลงผลสปสช.',table),count:list.length,table};

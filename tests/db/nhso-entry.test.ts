@@ -175,9 +175,9 @@ it('date range and Excel export: the range filters the date each tab shows, the 
   const before=(await f.db.query<{n:number}>("SELECT count(*)::int n FROM phi_access_log WHERE purpose='REGISTRY_VIEW'")).rows[0].n;
   const x=await f.run(t=>exportNhsoXlsx(t,f.admin,{tab:'DONE',from:today,to:today}));
   expect(x.count).toBe(1);expect(x.bytes.subarray(0,2).toString()).toBe('PK');
-  expect(x.table[0]).toEqual(['ลำดับ','LN','HN','วันที่ออกผล','สิทธิ','สถานะ','วันที่/เวลาที่บันทึก','ผู้บันทึก']);
-  expect(x.table[1].slice(0,3)).toEqual(['1',f.cases[0].ln.length===10?`${f.cases[0].ln.slice(0,2)}-${f.cases[0].ln.slice(2,5)}-${f.cases[0].ln.slice(5,6)}-${f.cases[0].ln.slice(6)}`:f.cases[0].ln,f.cases[0].hn]);
-  expect(x.table[1][4]).toBe('สปสช.');expect(x.table[1][5]).toBe('ลงผลแล้ว');expect(x.table[1][6]).toMatch(/^\d{2}\/\d{2}\/25\d{2}/);
+  expect(x.table[0]).toEqual(['ลำดับ','LN','LN Halos','HN','วันที่ออกผล','สิทธิ','สถานะ','วันที่/เวลาที่บันทึก','ผู้บันทึก']);
+  expect([...x.table[1].slice(0,2),x.table[1][3]]).toEqual(['1',f.cases[0].ln.length===10?`${f.cases[0].ln.slice(0,2)}-${f.cases[0].ln.slice(2,5)}-${f.cases[0].ln.slice(5,6)}-${f.cases[0].ln.slice(6)}`:f.cases[0].ln,f.cases[0].hn]);
+  expect(x.table[1][5]).toBe('สปสช.');expect(x.table[1][6]).toBe('ลงผลแล้ว');expect(x.table[1][7]).toMatch(/^\d{2}\/\d{2}\/25\d{2}/);
   expect(JSON.stringify(x.table)).not.toContain(ID);                      // no national ID
   expect(JSON.stringify(x.table)).not.toMatch(/SYNTHETIC|นาง/);   // no patient name (the recorder column is the staff member, not the patient)
   expect((await f.db.query<{n:number}>("SELECT count(*)::int n FROM phi_access_log WHERE purpose='REGISTRY_VIEW'")).rows[0].n).toBe(before+1);
