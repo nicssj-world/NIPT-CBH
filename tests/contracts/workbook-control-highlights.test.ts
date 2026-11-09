@@ -2,12 +2,14 @@ import {it,expect} from 'vitest';
 import {existsSync,readFileSync} from 'node:fs';
 import {generateTaskWorkbook,MASTER_SHA256} from '../../packages/workbook/master';
 import {readArchive,sha256} from '../../packages/workbook/archive';
+import {applyPoolingLayout} from '../../packages/workbook/pooling-layout';
 
 const source=process.env.NIPT_TASK_MASTER_PATH??'.local/lab-owner-evidence/lab-combined-master.xlsx';
 // The immutable owner file is external to the repository. An explicitly configured missing file still fails.
 it.skipIf(!process.env.NIPT_TASK_MASTER_PATH&&!existsSync(source))('highlights only PC1, NC25 and BLANK40 in generated files, preserving master, formulas and every other cell',()=>{
  const master=readFileSync(source);
- const before=readArchive(master),after=readArchive(generateTaskWorkbook(master,{}).bytes);
+ // The generated workbook is built on the versioned Pooling layout (Barcode column inserted, 2026-11-07); the master itself stays immutable.
+ const before=readArchive(master);applyPoolingLayout(before);const after=readArchive(generateTaskWorkbook(master,{}).bytes);
  const styles=after.get('xl/styles.xml')!.toString();
  const fills=[.../<fills\b[^>]*>([\s\S]*?)<\/fills>/.exec(styles)![1].matchAll(/<fill>[\s\S]*?<\/fill>/g)].map(m=>m[0]);
  const xfs=[.../<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/.exec(styles)![1].matchAll(/<xf\b[^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g)].map(m=>m[0]);
