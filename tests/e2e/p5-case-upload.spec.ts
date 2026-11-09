@@ -75,7 +75,7 @@ test("Case page upload: a wrong patient's PDF is refused; the right one is check
  // Second person approves the link on the result page; the round then waits for acceptance (nothing released).
  const cert=await as(browser,"synthetic.certifier");
  try{await cert.page.goto(reviewUrl!);await cert.page.getByLabel("เหตุผลการตัดสิน (ผู้ยืนยันคนที่สอง)").fill("ตรวจตัวตนจากการอัปโหลดในหน้าผู้ป่วยแล้ว");
-  await cert.page.getByRole("button",{name:"ยืนยันการเชื่อมโยง"}).click();await expect(cert.page.getByText("ถูกบล็อกโดย Gate").first()).toBeVisible();}finally{await cert.close();}
+  await cert.page.getByRole("button",{name:"ยืนยันการเชื่อมโยง"}).click();await expect(cert.page.getByText("ยังไม่ผ่านเงื่อนไขส่งผล").first()).toBeVisible();}finally{await cert.close();}
  await page.reload();await expect(page.getByRole("region",{name:"สถานะผล PDF แต่ละรอบ"})).toContainText("รอตรวจรับ");
  expect(await count("SELECT count(*)::int n FROM result_release")).toBe(0);
  // ANC never gets the upload panel.

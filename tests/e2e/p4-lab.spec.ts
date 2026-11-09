@@ -154,7 +154,7 @@ test("AT-SORT-01/02: registry receive column defaults newest first; Ready Queue 
  await sortButton.click();await expect(page.getByRole("button",{name:/ปัจจุบันเก่าไปใหม่/})).toContainText("↑");
  await expect.poll(async()=>{const o=await lnOrder();return o.indexOf(cases[0].ln)<o.indexOf(cases[1].ln);}).toBe(true);
  await axe(page);
- await page.goto("/lab");await page.getByRole("tab",{name:/ติด Gate|พร้อมเข้าตรวจ/}).first().click();
+ await page.goto("/lab");await page.getByRole("tab",{name:/ติดเงื่อนไข|พร้อมเข้าตรวจ/}).first().click();
  const header=page.getByRole("columnheader",{name:/วันที่\/เวลารับ/});await expect(header).toHaveAttribute("aria-sort","ascending");
  const rows=async()=>(await page.locator("tbody tr td:nth-child(2)").allTextContents()).map(t=>t.replace(/\D/g,""));
  let r=await rows();expect(r.indexOf(cases[0].ln)).toBeLessThan(r.indexOf(cases[1].ln));

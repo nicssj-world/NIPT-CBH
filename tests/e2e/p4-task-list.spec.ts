@@ -233,7 +233,7 @@ test("T1-03/T1-06: urgent Slot 40 replaces the previous Ready sample without los
  const urgent=page.locator("details.task-exact-fill",{hasText:"Urgent Fill — งานด่วน"});await urgent.locator("summary").click();
  const fillUrgent=async(index:number)=>{
   await urgent.getByLabel("ค้นหา LN Halos / HIS LN / HN").fill(cases[index].ln);
-  const sample=urgent.getByLabel("ตัวอย่างที่ผ่าน Gate");await expect(sample.locator(`option[value="${ids[index].id}"]`)).toHaveCount(1);await sample.selectOption(ids[index].id);
+  const sample=urgent.getByLabel("ตัวอย่างที่ผ่านเงื่อนไข");await expect(sample.locator(`option[value="${ids[index].id}"]`)).toHaveCount(1);await sample.selectOption(ids[index].id);
   await urgent.getByLabel("ตำแหน่งปลายทาง").selectOption("40");await urgent.getByLabel("เหตุผลงานด่วน / แทรกคิว").fill(`จำลอง T1-03 Urgent ${index+1}`);
   await urgent.getByRole("button",{name:"เพิ่มลงตำแหน่ง 40",exact:true}).click();
   await expect(page.getByRole("row",{name:/^40 /})).toContainText(cases[index].ln);
