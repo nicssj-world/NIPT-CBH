@@ -694,21 +694,6 @@ export async function attestHisPresence(db:Queryable,user:Staff,input:unknown){
  await audit(db,user,'RESULT_HIS_PRESENCE_ATTESTED','RESULT_VERSION',v.id,{outcome:release?'SUPPRESSED_PENDING_DELIVERY':'SUPPRESSED_BEFORE_RELEASE'});
  return {id:row.id,effect:release?'SUPPRESSED_PENDING_DELIVERY':'SUPPRESSED_BEFORE_RELEASE'};
 }
-/** Owner 2026-11-09: many results at once (e.g. the backlog the previous system already sent to HIS). One person's confirmation covers the list; each item
- *  runs in its own savepoint, so one that cannot be attested (not linked yet, identity differs ...) never stops the others and is reported with its reason. */
-export type AttestOutcome={versionId:string;outcome:'ATTESTED'|'FAILED';code?:string};
-export async function attestHisPresenceBatch(db:Queryable,user:Staff,input:unknown):Promise<{items:AttestOutcome[]}>{
- await assertSession(db,user);need(user,'his.reconcile');
- const d=z.strictObject({confirmed:z.literal(true),items:z.array(z.strictObject({versionId:uuid})).min(1).max(100),note:z.string().trim().max(500).refine(x=>!/d{13}/.test(x),'REASON_TEXT_INVALID').optional()}).parse(input);
- const items:AttestOutcome[]=[];
- for(const it of d.items){
-  await db.query('SAVEPOINT attest_item');
-  try{await attestHisPresence(db,user,{versionId:it.versionId,confirmed:true,...(d.note?{note:d.note}:{})});await db.query('RELEASE SAVEPOINT attest_item');items.push({versionId:it.versionId,outcome:'ATTESTED'});}
-  catch(e){await db.query('ROLLBACK TO SAVEPOINT attest_item');await db.query('RELEASE SAVEPOINT attest_item');if(!(e instanceof LabError))throw e;items.push({versionId:it.versionId,outcome:'FAILED',code:e.code});}
- }
- await audit(db,user,'RESULT_HIS_PRESENCE_ATTESTED_BATCH','RESULT_VERSION',undefined,{count:items.filter(i=>i.outcome==='ATTESTED').length,outcome:'BATCH'});
- return {items};
-}
 export async function withdrawHisAttestation(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'his.reconcile');
  const d=z.strictObject({attestationId:uuid,reason:reasonText}).parse(input);

@@ -20,13 +20,14 @@ describe('outcome text',()=>{
 });
 
 describe('"มีผลใน HIS แล้ว" on the board (Owner 2026-11-09)',()=>{
- it('only a result already linked to a patient can be marked; an unlinked one is picked first',()=>{
+ it('any report with a PDF can be selected, linked or not (an unlinked one is linked by the clean rule, else its reason is shown)',()=>{
   expect(canShowOnPatient({versionId:'v',reasons:[{code:'MIGRATION_LINK_REQUIRED'}]})).toBe(true);
-  expect(canShowOnPatient({versionId:'v',reasons:[{code:'UNLINKED'}]})).toBe(false);
+  expect(canShowOnPatient({versionId:'v',reasons:[{code:'UNLINKED'}]})).toBe(true);
   expect(canShowOnPatient({versionId:null,reasons:[]})).toBe(false);          // a HALOS row with no report yet
  });
  it('every reason the batch can return has Thai text, and an unknown one still reads as Thai',()=>{
   for(const code of ['HIS_ATTESTATION_LINKED_RESULT_REQUIRED','HIS_ATTESTATION_IDENTITY_MISMATCH','HIS_ATTESTATION_EXISTS','HIS_ATTESTATION_TRANSFER_EXISTS','FORBIDDEN','VERSION_CONFLICT'])expect(attestErrorText(code)).toMatch(/[ก-๙]/);
   expect(attestErrorText('SOMETHING_NEW')).toBe('ทำรายการไม่สำเร็จ');
+  expect(attestErrorText('AUTO_MATCH_NOT_UNAMBIGUOUS')).toContain('เลือกผู้ป่วย');
  });
 });

@@ -6,7 +6,8 @@ import {syntheticReportPdf} from '../../tools/his-simulator/result-pdf';
 import {registerIntake,parseIntake} from '../../packages/results/intake';
 import {reviewBenchForResult} from '../../packages/lab/bench-review';
 import {confirmCompletion} from '../../packages/results/completion';
-import {confirmImport,unlinkVersion,pickPatient,attestHisPresenceBatch,withdrawHisAttestation,ancCaseResults} from '../../packages/results/service';
+import {confirmImport,unlinkVersion,pickPatient,withdrawHisAttestation,ancCaseResults} from '../../packages/results/service';
+import {showInHisBatch} from '../../packages/results/his-present';
 import {releaseQueue} from '../../packages/results/release-queue';
 
 // Owner 2026-11-09: a result HIS already holds is shown to ANC on the patient, leaves "ต้องจัดการ", and is never sent again.
@@ -45,8 +46,8 @@ it('"มีผลใน HIS แล้ว": the result shows on the patient and l
   expect((await board(f,'READY')).counts.READY).toBe(2);
   expect(await shownToAnc(f,a.c.caseId)).toEqual([]);                                   // not visible to ANC before anything is said about HIS
 
-  const r=await f.run(t=>attestHisPresenceBatch(t,f.admin,{confirmed:true,items:[{versionId:a.id}]}));
-  expect(r.items).toEqual([{versionId:a.id,outcome:'ATTESTED'}]);
+  const r=await f.run(t=>showInHisBatch(t,f.admin,{confirmed:true,items:[{versionId:a.id}]}));
+  expect(r.items.map(i=>[i.versionId,i.outcome,i.reason])).toEqual([[a.id,'SHOWN',null]]);
   // on the patient, as a result the previous system / HIS already holds
   const shown=await shownToAnc(f,a.c.caseId);
   expect(shown).toHaveLength(1);expect(shown[0]).toMatchObject({state:'HistoricalReported',historical:true});
@@ -69,14 +70,15 @@ it('"มีผลใน HIS แล้ว": the result shows on the patient and l
 it('a batch reports each item: one that cannot be attested (not linked yet) does not stop the others',async()=>{
  const f=await task3Fixture();try{
   const a=await pending(f,0),u=await unlinked(f,1);
-  const r=await f.run(t=>attestHisPresenceBatch(t,f.admin,{confirmed:true,items:[{versionId:u.id},{versionId:a.id}]}));
-  expect(r.items).toEqual([{versionId:u.id,outcome:'FAILED',code:'HIS_ATTESTATION_LINKED_RESULT_REQUIRED'},{versionId:a.id,outcome:'ATTESTED'}]);
+  const r=await f.run(t=>showInHisBatch(t,f.admin,{confirmed:true,items:[{versionId:u.id},{versionId:a.id}]}));
+  // u was unlinked by a person, so the clean rule leaves it to a person
+  expect(r.items.map(i=>[i.versionId,i.outcome,i.reason])).toEqual([[u.id,'NOT_CHANGED','HUMAN_DECISION_EXISTS'],[a.id,'SHOWN',null]]);
   expect(await shownToAnc(f,a.c.caseId)).toHaveLength(1);
   expect(await stateOf(f,u.id)).toBe('Unlinked');
   // rules of the call itself
-  await expect(f.run(t=>attestHisPresenceBatch(t,f.admin,{confirmed:false,items:[{versionId:a.id}]}))).rejects.toThrow();
-  await expect(f.run(t=>attestHisPresenceBatch(t,f.admin,{confirmed:true,items:[]}))).rejects.toThrow();
-  await expect(f.run(t=>attestHisPresenceBatch(t,{...f.admin,roles:['ANC_NURSE']},{confirmed:true,items:[{versionId:a.id}]}))).rejects.toMatchObject({code:'FORBIDDEN'});
+  await expect(f.run(t=>showInHisBatch(t,f.admin,{confirmed:false,items:[{versionId:a.id}]}))).rejects.toThrow();
+  await expect(f.run(t=>showInHisBatch(t,f.admin,{confirmed:true,items:[]}))).rejects.toThrow();
+  await expect(f.run(t=>showInHisBatch(t,{...f.admin,roles:['ANC_NURSE']},{confirmed:true,items:[{versionId:a.id}]}))).rejects.toMatchObject({code:'FORBIDDEN'});
   expect((await f.db.query("SELECT 1 FROM audit_chain WHERE action='RESULT_HIS_PRESENCE_ATTESTED_BATCH'")).rows.length).toBeGreaterThanOrEqual(1);
  }finally{await f.close();}
 },600000);
@@ -106,12 +108,36 @@ it('a linked result whose date of birth contradicts the patient is refused, and 
   const review=(dob:string,at:string)=>f.db.query(`INSERT INTO p2_paper_review(case_id,round_id,kind,template_version,document_reference,panel,status,location,reason,verifier_id,created_at)
    VALUES($1,$2,'REQUEST','CBH-FM01-v1','SYNTHETIC-PAPER',$3,'Verified','SYNTHETIC','SYNTHETIC_TEST',$4,${at})`,[c.caseId,c.roundId,JSON.stringify({dob,gaWeeks:17,gaDays:6,pregnancyType:'Singleton'}),f.admin.id]);
   await review('1991-05-05','now()');
-  const refused=await f.run(t=>attestHisPresenceBatch(t,f.admin,{confirmed:true,items:[{versionId:a.id}]}));
-  expect(refused.items).toEqual([{versionId:a.id,outcome:'FAILED',code:'HIS_ATTESTATION_IDENTITY_MISMATCH'}]);
+  const refused=await f.run(t=>showInHisBatch(t,f.admin,{confirmed:true,items:[{versionId:a.id}]}));
+  expect(refused.items.map(i=>[i.versionId,i.outcome,i.reason])).toEqual([[a.id,'NOT_CHANGED','HIS_ATTESTATION_IDENTITY_MISMATCH']]);
   expect(await shownToAnc(f,c.caseId)).toEqual([]);
   await review('1990-01-01',"now()+interval '1 second'");                               // corrected on the request
-  const ok=await f.run(t=>attestHisPresenceBatch(t,f.admin,{confirmed:true,items:[{versionId:a.id}]}));
-  expect(ok.items[0].outcome).toBe('ATTESTED');
+  const ok=await f.run(t=>showInHisBatch(t,f.admin,{confirmed:true,items:[{versionId:a.id}]}));
+  expect(ok.items[0].outcome).toBe('SHOWN');
   expect(await shownToAnc(f,c.caseId)).toHaveLength(1);
+ }finally{await f.close();}
+},600000);
+
+/** What the OLD rule left behind: imported, never linked, no person touched it (confirmImport outside a transaction skips the link step). */
+async function stale(f:F,index:number,hn?:string){
+ const {c,intakeId}=await importPdf(f,index,`SYNTHETIC-shown-stale-${index}.pdf`,hn);
+ const r=await confirmImport(f.db,f.admin,{intakeIds:[intakeId]});expect(r[0].outcome).toBe('Unlinked');
+ return {c,id:r[0].versionId!};
+}
+it('any external PDF, not a fixed list: the board action links a clean unlinked PDF and shows it, and leaves an unclean one for a person with the reason',async()=>{
+ const f=await task3Fixture();try{
+  const clean=await stale(f,0),unclean=await stale(f,1,f.cases[2].hn),linked=await pending(f,2);
+  const r=await f.run(t=>showInHisBatch(t,f.admin,{confirmed:true,items:[{versionId:clean.id},{versionId:unclean.id},{versionId:linked.id}]}));
+  expect(r.items.map(i=>[i.versionId,i.outcome])).toEqual([[clean.id,'LINKED_AND_SHOWN'],[unclean.id,'NOT_CHANGED'],[linked.id,'SHOWN']]);
+  expect(r.items[1].reason).toBeTruthy();
+  expect(await shownToAnc(f,clean.c.caseId)).toHaveLength(1);
+  expect(await shownToAnc(f,linked.c.caseId)).toHaveLength(1);
+  expect(await stateOf(f,unclean.id)).toBe('Unlinked');
+  expect(await shownToAnc(f,unclean.c.caseId)).toEqual([]);
+  expect((await f.db.query('SELECT 1 FROM result_release')).rows).toHaveLength(0);
+  expect((await f.db.query('SELECT 1 FROM p6_transfer')).rows).toHaveLength(0);
+  // an HALOS-generated report is ours to send, never "already in HIS"
+  const internal=(await f.db.query<{id:string}>("SELECT id FROM result_report_version WHERE origin='INTERNAL_GENERATED' LIMIT 1")).rows[0];
+  if(internal){const x=await f.run(t=>showInHisBatch(t,f.admin,{confirmed:true,items:[{versionId:internal.id}]}));expect(x.items[0]).toMatchObject({outcome:'NOT_CHANGED',reason:'NOT_AN_EXTERNAL_PDF'});}
  }finally{await f.close();}
 },600000);

@@ -27,7 +27,7 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
  const [q,setQ]=useState(""),[term,setTerm]=useState(""),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50);
  const [data,setData]=useState<Board|null>(null),[counts,setCounts]=useState<Board["counts"]|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(""),[notice,setNotice]=useState("");
  const [selected,setSelected]=useState<Set<string>>(new Set()),[ticks,setTicks]=useState({reviewConfirmed:false,abnormalAcknowledged:false});
- const [shownTick,setShownTick]=useState(false),[showing,setShowing]=useState(false),[shownResult,setShownResult]=useState<{ok:number;failed:{row:BoardRow;code:string}[]}|null>(null);
+ const [shownTick,setShownTick]=useState(false),[showing,setShowing]=useState(false),[shownResult,setShownResult]=useState<{ok:number;failed:{row:BoardRow;code:string;linked:boolean}[]}|null>(null);
  const [sending,setSending]=useState(false),[outcomes,setOutcomes]=useState<{row:BoardRow;outcome:SendOutcome}[]|null>(null),[sendError,setSendError]=useState("");
  const [dialog,setDialog]=useState<{kind:"pick"|"discard";row:BoardRow}|null>(null);
  const seq=useRef(0),sendKey=useRef<{sig:string;key:string}|null>(null);
@@ -59,8 +59,8 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
  const sendRow=(r:BoardRow)=>{if(!canSend([r],ticks)){changeSelection(new Set(selected).add(r.key));setNotice("ติ๊กยืนยันด้านล่างตาราง แล้วกด “ส่งที่เลือก”");return;}void send([r]);};
  // "มีผลใน HIS แล้ว" for the selected rows: shown on the patient, off this list, never sent again. One confirmation covers the list; each row is reported.
  const showOnPatient=async()=>{const batch=selectedRows(rows,selected).filter(canShowOnPatient);if(!batch.length||!shownTick)return;setShowing(true);setSendError("");setShownResult(null);
-  try{const r=await labApi<{items:{versionId:string;outcome:"ATTESTED"|"FAILED";code?:string}[]}>("/api/p5/results",{action:"attestBatch",confirmed:true,items:batch.map(b=>({versionId:b.versionId}))});
-   setShownResult({ok:r.items.filter(i=>i.outcome==="ATTESTED").length,failed:r.items.filter(i=>i.outcome==="FAILED").map(i=>({row:batch.find(b=>b.versionId===i.versionId)!,code:i.code??"ERROR"}))});clearSelection();setShownTick(false);}
+  try{const r=await labApi<{items:{versionId:string;outcome:"SHOWN"|"LINKED_AND_SHOWN"|"LINKED_NOT_SHOWN"|"NOT_CHANGED";reason:string|null}[]}>("/api/p5/results",{action:"attestBatch",confirmed:true,items:batch.map(b=>({versionId:b.versionId}))});
+   setShownResult({ok:r.items.filter(i=>i.outcome==="SHOWN"||i.outcome==="LINKED_AND_SHOWN").length,failed:r.items.filter(i=>i.outcome==="NOT_CHANGED"||i.outcome==="LINKED_NOT_SHOWN").map(i=>({row:batch.find(b=>b.versionId===i.versionId)!,code:i.reason??"ERROR",linked:i.outcome==="LINKED_NOT_SHOWN"}))});clearSelection();setShownTick(false);}
   catch(e){setSendError(failureText(e));setShowing(false);return;}
   setShowing(false);await load();};
  const done=async(message:string)=>{setDialog(null);setNotice(message);await load();};
@@ -83,7 +83,7 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
     {sendError&&<p className="notice" role="alert">{sendError}</p>}
     {data?.truncated&&<p className="notice warning-notice" role="status">แสดงเฉพาะรายการล่าสุด — ใช้ช่องค้นหา</p>}
    </div>
-   {shownResult&&<div className="stack board-outcomes" role="status"><strong>แสดงผลในหน้าคนไข้แล้ว {shownResult.ok} รายการ{shownResult.failed.length?` · ทำไม่สำเร็จ ${shownResult.failed.length} รายการ`:""}</strong>{shownResult.failed.length>0&&<ul className="timeline">{shownResult.failed.map(f=><li key={f.row.key}><Status tone="warning">ยังไม่ได้ทำ</Status> <span className="mono">{f.row.ln??f.row.hn??f.row.key}</span> · {attestErrorText(f.code)}</li>)}</ul>}</div>}
+   {shownResult&&<div className="stack board-outcomes" role="status"><strong>แสดงผลในหน้าคนไข้แล้ว {shownResult.ok} รายการ{shownResult.failed.length?` · ทำไม่สำเร็จ ${shownResult.failed.length} รายการ`:""}</strong>{shownResult.failed.length>0&&<ul className="timeline">{shownResult.failed.map(f=><li key={f.row.key}><Status tone="warning">ยังไม่ได้ทำ</Status> <span className="mono">{f.row.ln??f.row.hn??f.row.key}</span> · {f.linked?"เชื่อมผู้ป่วยแล้ว แต่ยังระบุไม่ได้: ":""}{attestErrorText(f.code)}</li>)}</ul>}</div>}
    {outcomes&&<div role="status" className="stack board-outcomes" aria-label="ผลการส่ง HIS"><strong>ส่ง HIS สำเร็จ {outcomes.filter(o=>o.outcome.outcome==="CertifiedReleased").length} จาก {outcomes.length} รายการ</strong>
     <ul className="timeline">{outcomes.map(({row,outcome})=><li key={outcome.versionId}><Status tone={outcomeTone(outcome)}>{outcome.outcome==="CertifiedReleased"?"ส่งแล้ว":outcome.outcome==="BLOCKED"?"ส่งไม่ได้":"ไม่สำเร็จ"}</Status> <span className="mono">{row?.ln??row?.hn??outcome.versionId}</span> · {outcomeText(outcome,reasonLabel)}</li>)}</ul></div>}
    {!error&&<div className="table-wrap" role="region" aria-label={`รายการ${TABS.find(t=>t[0]===tab)![1]}`} tabIndex={0}>
@@ -110,14 +110,16 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
     <div className="bulk-bar"><span>เลือก {sel.length} รายการ</span>
      <button type="button" className="button secondary" disabled={sending} onClick={()=>changeSelection(new Set(selectable.map(r=>r.key)))}>เลือกทั้งหมดที่พร้อม</button>
      <button type="button" className="button" disabled={sending||!canSend(sel,ticks)} onClick={()=>void send(sel)}>{sending?"กำลังส่ง HIS…":`ส่งที่เลือก (${sel.length})`}</button></div>
+    <div className="bulk-bar"><label className="check-label"><input type="checkbox" checked={shownTick} onChange={e=>setShownTick(e.target.checked)}/> ผลที่เลือก<strong> มีใน HIS แล้ว</strong> (ไม่ต้องส่งซ้ำ)</label>
+     <button type="button" className="button secondary" disabled={showing||!shownTick||!sel.length} onClick={()=>void showOnPatient()}>{showing?"กำลังบันทึก…":`ไม่ส่ง — แสดงผลในหน้าคนไข้ (${sel.length})`}</button></div>
     <p className="help">กด “ส่ง HIS” แล้วระบบจึงรับรองผลและให้ ANC เห็นผล ก่อนหน้านั้นผลยังไม่ถูกส่งให้ ANC</p>
    </fieldset>}
    {tab==="ACTION"&&selectable.length>0&&<fieldset className="stack board-send" aria-label="แสดงผลในหน้าคนไข้ สำหรับผลที่มีใน HIS แล้ว">
     <label className="check-label"><input type="checkbox" checked={shownTick} onChange={e=>setShownTick(e.target.checked)}/> ยืนยันว่าผลที่เลือก<strong> มีใน HIS แล้ว</strong> (ระบบเดิมหรือผู้ใช้ส่งไปแล้ว)</label>
     <div className="bulk-bar"><span>เลือก {sel.length} รายการ</span>
      <button type="button" className="button secondary" disabled={showing} onClick={()=>changeSelection(new Set(selectable.map(r=>r.key)))}>เลือกทั้งหมดที่ทำได้</button>
-     <button type="button" className="button" disabled={showing||!shownTick||!sel.length} onClick={()=>void showOnPatient()}>{showing?"กำลังบันทึก…":`แสดงผลในหน้าคนไข้ (${sel.length})`}</button></div>
-    <p className="help">ANC จะเห็นผลจาก PDF ฉบับจริงในหน้าคนไข้ รายการจะออกจากแท็บนี้ และ <strong>ไม่ส่ง HIS ซ้ำ</strong> · ใช้ได้เฉพาะรายการที่เชื่อมโยงกับผู้ป่วยแล้ว — รายการที่ยังไม่เลือกผู้ป่วย ให้กด “เลือกผู้ป่วย” แล้วติ๊ก “มีผลใน HIS แล้ว”</p>
+     <button type="button" className="button" disabled={showing||!shownTick||!sel.length} onClick={()=>void showOnPatient()}>{showing?"กำลังบันทึก…":`ผูกกับคนไข้และแสดงผล (${sel.length})`}</button></div>
+    <p className="help">ANC จะเห็นผลจาก PDF ฉบับจริงในหน้าคนไข้ รายการจะออกจากแท็บนี้ และ <strong>ไม่ส่ง HIS ซ้ำ</strong> · PDF ที่ยังไม่เลือกผู้ป่วยจะถูกผูกให้เมื่อ HN และเลข Lab ตรงกับ Attempt เดียวเท่านั้น ที่เหลือจะแจ้งเหตุผล แล้วกด “เลือกผู้ป่วย” และติ๊ก “มีผลใน HIS แล้ว”</p>
    </fieldset>}
    {data&&data.page.total>0&&<Pager label="รายการผลตรวจ" page={data.page.number} pageSize={data.page.size} total={data.page.total} totalPages={data.page.totalPages} busy={loading} onPage={n=>{clearSelection();setPage(n);}} onSize={n=>{clearSelection();setPageSize(n);setPage(1);}}/>}
    {tab==="SENT"&&sentExtras}
