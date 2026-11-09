@@ -1,4 +1,5 @@
 import {displayBeDateTime} from "../../../packages/domain/thai-date";
+import {LabIcon} from "../shared/lab-icons";
 import type {CasePetEvidence} from "../../../packages/inbound/case-pet-evidence";
 
 const FILE_STATE:Record<string,string>={
@@ -15,7 +16,7 @@ const COUNTS:[keyof CasePetEvidence["counts"],string,string][]=[
 /** Read-only provenance. Four different counts are shown separately because a scan, a file, a receipt and a specimen are different things. */
 export function PetEvidencePanel({evidence}:{evidence:CasePetEvidence}){
   return <details className="panel case-pet-evidence">
-  <summary id="pet-evidence-title">ประวัติคำสั่งตรวจจาก HIS</summary>
+  <summary id="pet-evidence-title"><span className="case-sec-icon" aria-hidden="true"><LabIcon name="database" size={22}/></span>ประวัติคำสั่งตรวจจาก HIS</summary>
   {evidence.evidence==="NONE"
    ?<p className="muted">ไม่มีไฟล์ PET ในระบบสำหรับเคสนี้ (เช่นเคสนำเข้าจากระบบเดิมหรือยังไม่ได้รับ PET) ระบบไม่คาดเดาจำนวน</p>
    :<>

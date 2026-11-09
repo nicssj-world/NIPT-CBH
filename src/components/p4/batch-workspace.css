@@ -51,9 +51,4 @@ html[data-theme="dark"] .lab-task-panel { --row-pc: #3d2226; --row-nc: #1c3a2a; 
 .plate-table tr.row-blank > *, .data-table tr.row-blank > * { background: var(--row-blank); }
 
 /* Row actions as icon buttons (Owner 2026-11-09): 44px targets, same accessible names as the old text buttons, tooltip on hover. */
-.icon-btn{display:inline-grid;place-items:center;width:44px;height:44px;border:1px solid transparent;border-radius:8px;background:none;color:var(--color-brand);cursor:pointer}
-.icon-btn:hover{background:var(--raised);border-color:var(--color-line)}
-.icon-btn.danger{color:var(--color-danger)}
-.icon-btn.danger:hover{background:var(--bad-bg)}
-.icon-btn:focus-visible{outline:3px solid var(--color-focus);outline-offset:2px}
 .page-header .row{align-items:center}

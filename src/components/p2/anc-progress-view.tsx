@@ -1,3 +1,4 @@
+import Link from "next/link";
 import {STEPS,stepStates,type Progress} from "./anc-progress";
 
 /** Hand-drawn 24px stroke icons, one weight (no glyphs or emoji standing in for an icon system). */
@@ -36,4 +37,4 @@ export function GaText({ga}:{ga?:{weeks:number;days:number;over18:boolean}|null}
 }
 
 /** The nurse's own next step, drawn as a wayfinding sign. Empty when nothing is pending (Owner: no "nothing to do" text). */
-export function TodoSign({todo}:{todo:string}){return todo?<span className="next-sign">{todo}</span>:null;}
+export function TodoSign({todo,caseId,ln}:{todo:string;caseId:string;ln?:string}){return todo?<Link className="next-sign" href={`/cases/${caseId}`} aria-label={ln?`${todo} · เปิดเคส LN ${ln}`:`${todo} · เปิดเคส`}>{todo}</Link>:null;}

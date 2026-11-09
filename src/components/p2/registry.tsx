@@ -1,6 +1,7 @@
 "use client";
 import "./anc-workspace.css";
 import "../shared/console.css";
+import {LabIcon} from "../shared/lab-icons";
 import "./registry.css";
 import {LabRegistration} from "./lab-registration";
 import {registryProgress} from "./anc-progress";
@@ -41,7 +42,7 @@ export function Registry({canAnc,canLab,overview=false,initialAncRegistration=fa
  const name=(c:Row)=>patientDisplayName(c.patient_name?.trim()||"ยังไม่มีข้อมูลชื่อ-นามสกุล");
  const lnLink=(c:Row)=><Link className="registry-ln-link" href={"/cases/"+c.id} aria-label={"ดูเคส LN "+c.ln}><Ln value={c.ln}/></Link>;
  // Owner 2026-11-08: the LN link opens the case; "ดูผลตรวจ" only where a result exists; the duplicate "รายละเอียดตัวอย่าง" button is gone.
- const actionsFor=(c:Row)=><span className="registry-case-actions">{(c.hasResult??c.released)&&<ViewResultButton caseId={c.id} ln={c.ln} hn={c.hn} name={name(c)} className="button secondary registry-case-action"/>}{removable(c)&&<button type="button" className="button danger quiet registry-case-action" onClick={()=>{setVoidError("");setVoidTarget(c);}}>ลบรายการลงทะเบียน<span className="sr-only"> LN {c.ln}</span></button>}</span>;
+ const actionsFor=(c:Row)=><span className="registry-case-actions">{(c.hasResult??c.released)&&<ViewResultButton caseId={c.id} ln={c.ln} hn={c.hn} name={name(c)} className="button secondary registry-case-action"/>}{removable(c)&&<button type="button" className="icon-btn danger registry-case-action" title="ลบรายการลงทะเบียน" aria-label={`ลบรายการลงทะเบียน LN ${c.ln}`} onClick={()=>{setVoidError("");setVoidTarget(c);}}><LabIcon name="trash" size={20}/></button>}</span>;
  const sortReceived=<button type="button" className="th-sort" aria-label={`เรียงตามวันที่/เวลารับสิ่งส่งตรวจ ปัจจุบัน${sort==="registered"?"เรียงตามวันที่ลงทะเบียน: ใหม่สุดก่อน":sort==="desc"?"ใหม่ไปเก่า":"เก่าไปใหม่"} กดเพื่อสลับ`} onClick={()=>{const next=sort==="registered"?"desc":sort==="desc"?"asc":"desc";setSort(next);setPage(1);}}>วันที่/เวลารับสิ่งส่งตรวจ <span aria-hidden="true">{sort==="registered"?"↕":sort==="asc"?"↑":"↓"}</span></button>;
  return <div className={"registry-page "+(ancView?"anc-registry":"case-registry")}><header className="page-header"><div><h1>{overview?"พื้นที่ทำงาน NIPT":"ทะเบียนกลาง"}</h1><p className="page-meta">{data?<><span className="num">{data.page.total.toLocaleString("th-TH")}</span> {ancView?"คน":"เคส"} · </>:null}{p2Text(operational,"ทะเบียนเดียวสำหรับ ANC และ Lab · แสดงรอบปัจจุบัน")}</p></div><div className="action-bar">{canLab&&<button className={canAnc?"button secondary":"button"} onClick={()=>setLabRegistration(true)}>ลงทะเบียนโดย Lab</button>}{canAnc&&<button className="button" onClick={()=>open("ANC")}>{ancView?"ลงทะเบียนคุณแม่ใหม่":"ลงทะเบียน ANC"}</button>}</div></header>{showRemovalNotice&&<p className="notice success" role="status">ลบรายการลงทะเบียนสำเร็จ รายการถูกนำออกจากทะเบียนกลางแล้ว โดยยังเก็บประวัติการทำรายการไว้</p>}{overview&&actions}
  <form className="registry-toolbar" role="search" onSubmit={e=>e.preventDefault()}><Field label="ค้นหา LN / HN / ชื่อ-นามสกุล" help={`ค้นหาอัตโนมัติขณะพิมพ์ · เฉพาะรายการในสิทธิ์${canLab?" · Lab ค้น LN Halos ได้":""}`}>{id=><div className="search-input-wrap"><input id={id} type="search" value={q} autoComplete="off" onChange={e=>setQ(e.target.value)}/>{q&&<button aria-label="ล้างคำค้น" type="button" className="search-clear" onClick={()=>setQ("")}>×</button>}</div>}</Field><button type="button" className="toggle-chip" aria-pressed={sort==="registered"} onClick={()=>{setSort("registered");setPage(1);}}>เรียงตามวันที่ลงทะเบียน: ใหม่สุดก่อน</button></form>
@@ -52,7 +53,7 @@ export function Registry({canAnc,canLab,overview=false,initialAncRegistration=fa
     <td className="c-ga"><GaText ga={c.ga}/></td>
     <td className="c-when">{received(c)}</td>
     <td className="c-progress"><ProgressView progress={p} round={c.round_number} extra={paper(c)}/></td>
-    <td className="c-todo"><TodoSign todo={p.todo}/></td>
+    <td className="c-todo"><TodoSign todo={p.todo} caseId={c.id} ln={c.ln}/></td>
     <td className="c-actions">{actionsFor(c)}</td></tr>;})}</tbody></>
   :<><thead><tr><th scope="col">LN / HN</th><th scope="col">ชื่อ-นามสกุล</th><th scope="col" aria-sort={sort==="registered"?"none":sort==="asc"?"ascending":"descending"}>{sortReceived}</th><th scope="col">ข้อมูลตัวอย่าง</th><th scope="col">สถานะปัจจุบัน</th><th scope="col"><span className="sr-only">การทำรายการ</span></th></tr></thead>
    <tbody>{data.cases.map(c=><tr className="registry-row" key={c.id}>

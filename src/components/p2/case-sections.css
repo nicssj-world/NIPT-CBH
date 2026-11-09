@@ -38,3 +38,8 @@
 /* Collapsed sections: number + title + count read as one left-aligned group; only the chevron sits at the far edge. */
 .anc-case-workspace :is(.case-activity-details,.case-pet-evidence)>summary{justify-content:flex-start}
 .anc-case-workspace :is(.case-activity-details,.case-pet-evidence)>summary::after{margin-left:auto}
+
+/* Every numbered section opens the same way as HIS (1) and the NIPT result (3): icon tile, then the number, then the title (Owner 2026-11-09). */
+.anc-case-workspace .case-sec-icon{order:-1;display:inline-flex;align-items:center;justify-content:center;flex:0 0 40px;width:40px;height:40px;border-radius:10px;background:var(--info-bg);color:var(--color-brand)}
+.anc-case-workspace :is(.case-laboratory,.case-request,.case-documents,.clinical-readiness) h2:first-of-type{font-size:20px;line-height:1.3}
+.anc-case-workspace :is(.case-activity-details,.case-pet-evidence)>summary{font-weight:700}

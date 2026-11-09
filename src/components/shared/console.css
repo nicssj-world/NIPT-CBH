@@ -65,3 +65,9 @@
 .result-popup-id{margin:0;color:var(--color-muted);font-size:.875rem;line-height:1.6;font-variant-numeric:tabular-nums}
 .result-popup-id strong{color:var(--color-ink);font-size:1rem}
 .view-result-button{white-space:nowrap}
+/* Icon-only action button (44px target); the accessible name comes from aria-label and the same text is the tooltip. */
+.icon-btn{display:inline-grid;place-items:center;width:44px;height:44px;border:1px solid transparent;border-radius:8px;background:none;color:var(--color-brand);cursor:pointer}
+.icon-btn:hover{background:var(--raised);border-color:var(--color-line)}
+.icon-btn.danger{color:var(--color-danger)}
+.icon-btn.danger:hover{background:var(--bad-bg)}
+.icon-btn:focus-visible{outline:3px solid var(--color-focus);outline-offset:2px}
