@@ -8,7 +8,7 @@ import {reviewBenchForResult} from '../../packages/lab/bench-review';
 import {confirmCompletion} from '../../packages/results/completion';
 import {sendToHis} from '../../packages/results/send-his';
 import {emptyRequest} from '../../packages/p2/schema';
-import {nhsoBoard,nhsoDetail,confirmNhsoEntry,markNotNhso,cancelNhsoEntry} from '../../packages/results/nhso-entry';
+import {nhsoBoard,nhsoDetail,exportNhsoXlsx,confirmNhsoEntry,markNotNhso,cancelNhsoEntry} from '../../packages/results/nhso-entry';
 
 type F=Awaited<ReturnType<typeof task3Fixture>>;
 const ID='1101700203451';
@@ -148,5 +148,38 @@ it('GA from an EDD is counted at the PET blood-draw date, not the date typed in 
   const d=await f.run(t=>nhsoDetail(t,f.store,f.admin,a));
   // PET draw date 2026-10-20 → 17+6 (the typed 2026-10-22 would have given 18+1)
   expect(d.patient).toMatchObject({gaWeeks:17,gaDays:6,gravida:1,serviceDate:'2026-10-20'});
+ }finally{await f.close();}
+},600000);
+
+it('date range and Excel export: the range filters the date each tab shows, the export mirrors the screen and holds no name or national ID',async()=>{
+ const f=await fixture();try{
+  await request(f,0,'NHSO');await request(f,1,'SELF_PAY');
+  const a=await release(f,0);await release(f,1);
+  const today=new Date(Date.now()+7*3600000).toISOString().slice(0,10),tomorrow=new Date(Date.now()+31*3600000).toISOString().slice(0,10),yesterday=new Date(Date.now()-17*3600000).toISOString().slice(0,10);
+  // PENDING is filtered by the day the result was certified
+  expect((await f.run(t=>nhsoBoard(t,f.admin,{tab:'PENDING',from:today,to:today}))).rows).toHaveLength(1);
+  const future=await f.run(t=>nhsoBoard(t,f.admin,{tab:'PENDING',from:tomorrow}));
+  expect(future.rows).toEqual([]);expect(future.counts).toEqual({PENDING:1,DONE:0,NOT_NHSO:0});   // the cards keep the totals
+  await f.run(t=>confirmNhsoEntry(t,f.admin,{releaseId:a}));
+  // DONE is filtered by the day it was entered
+  expect((await f.run(t=>nhsoBoard(t,f.admin,{tab:'DONE',from:today,to:today}))).rows.map(r=>r.releaseId)).toEqual([a]);
+  expect((await f.run(t=>nhsoBoard(t,f.admin,{tab:'DONE',to:yesterday}))).rows).toEqual([]);
+  expect((await f.run(t=>nhsoBoard(t,f.admin,{tab:'DONE',from:tomorrow}))).rows).toEqual([]);
+  await expect(f.run(t=>nhsoBoard(t,f.admin,{tab:'DONE',from:'20/10/2569'}))).rejects.toThrow();
+
+  const before=(await f.db.query<{n:number}>("SELECT count(*)::int n FROM phi_access_log WHERE purpose='REGISTRY_VIEW'")).rows[0].n;
+  const x=await f.run(t=>exportNhsoXlsx(t,f.admin,{tab:'DONE',from:today,to:today}));
+  expect(x.count).toBe(1);expect(x.bytes.subarray(0,2).toString()).toBe('PK');
+  expect(x.table[0]).toEqual(['ลำดับ','LN','HN','วันที่ออกผล','สิทธิ','สถานะ','วันที่/เวลาที่บันทึก','ผู้บันทึก']);
+  expect(x.table[1].slice(0,3)).toEqual(['1',f.cases[0].ln.length===10?`${f.cases[0].ln.slice(0,2)}-${f.cases[0].ln.slice(2,5)}-${f.cases[0].ln.slice(5,6)}-${f.cases[0].ln.slice(6)}`:f.cases[0].ln,f.cases[0].hn]);
+  expect(x.table[1][4]).toBe('สปสช.');expect(x.table[1][5]).toBe('ลงผลแล้ว');expect(x.table[1][6]).toMatch(/^\d{2}\/\d{2}\/25\d{2}/);
+  expect(JSON.stringify(x.table)).not.toContain(ID);                      // no national ID
+  expect(JSON.stringify(x.table)).not.toMatch(/SYNTHETIC|นาง/);   // no patient name (the recorder column is the staff member, not the patient)
+  expect((await f.db.query<{n:number}>("SELECT count(*)::int n FROM phi_access_log WHERE purpose='REGISTRY_VIEW'")).rows[0].n).toBe(before+1);
+  expect((await f.db.query("SELECT 1 FROM audit_chain WHERE action='NHSO_ENTRY_EXPORTED'")).rows).toHaveLength(1);
+  // an empty range exports a header-only file; a list longer than the cap is refused, never cut off
+  expect((await f.run(t=>exportNhsoXlsx(t,f.admin,{tab:'DONE',from:tomorrow}))).table).toHaveLength(1);
+  await expect(f.run(t=>exportNhsoXlsx(t,f.admin,{tab:'DONE'},0))).rejects.toMatchObject({code:'NHSO_EXPORT_TOO_LARGE'});
+  await expect(f.run(t=>exportNhsoXlsx(t,{...f.admin,roles:['ANC_NURSE']},{tab:'DONE'}))).rejects.toMatchObject({code:'FORBIDDEN'});
  }finally{await f.close();}
 },600000);

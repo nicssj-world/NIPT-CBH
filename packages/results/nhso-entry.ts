@@ -5,7 +5,8 @@ import {assertSession,need,caseVisible,audit,uuid,LabError,type Staff} from '../
 import {entitlementKind} from '../forms/request-contract';
 import {parsePet} from '../integrations/pet';
 import {ageOnDate,type RequestDraft} from '../p2/schema';
-import {bangkokIsoDay} from '../domain/thai-date';
+import {bangkokIsoDay,formatBe,formatBeDateTime} from '../domain/thai-date';
+import {simpleXlsx} from '../workbook/simple-xlsx';
 import {gaFromEdd} from './nhso-format';
 import {recordPhiAccess} from '../db/phi-access';
 
@@ -47,13 +48,17 @@ const toRow=(r:R):NhsoRow=>({releaseId:r.release_id,caseId:r.case_id,ln:r.ln,hn:
  entitlement:kindOf(r)==='NHSO'?'NHSO':'UNSPECIFIED',
  entry:(r.entry_kind==='CONFIRMED'||r.entry_kind==='NOT_NHSO')&&r.entry_at?{kind:r.entry_kind,at:new Date(r.entry_at).toISOString(),by:r.entry_by}:null});
 
-const boardSchema=z.strictObject({tab:z.enum(['PENDING','DONE','NOT_NHSO']),q:z.string().trim().max(40).default(''),page:z.number().int().min(1).max(1000).default(1),pageSize:z.number().int().min(10).max(100).default(50)});
+const day=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v=>!Number.isNaN(Date.parse(v)),'DATE_INVALID');
+const filter={tab:z.enum(['PENDING','DONE','NOT_NHSO']),q:z.string().trim().max(40).default(''),from:day.optional(),to:day.optional()};
+const boardSchema=z.strictObject({...filter,page:z.number().int().min(1).max(1000).default(1),pageSize:z.number().int().min(10).max(100).default(50)});
+const exportSchema=z.strictObject(filter);
 /** Upper bound of releases one board call reads; `truncated` says it cut rows off. */
 export const NHSO_CAP=5000;
 
-export async function nhsoBoard(db:Queryable,user:Staff,input:unknown,cap=NHSO_CAP){
- await assertSession(db,user);need(user,'nhso.entry','read');
- const d=boardSchema.parse(input),q=d.q.replace(/[%_\\-]/g,'');
+/** The visible, filtered list of one tab. The date range applies to the date that tab shows: certified day for PENDING, decision day for DONE / NOT_NHSO (Bangkok days).
+ *  The counts of the three tabs ignore the date range so the cards keep showing totals. */
+async function selectRows(db:Queryable,user:Staff,d:{tab:NhsoTab;q:string;from?:string;to?:string},cap:number){
+ const q=d.q.replace(/[%_\-]/g,'');
  const fetched=(await db.query<R>(`${ROWS_SQL}
    AND ($1='' OR l.ln LIKE $1||'%' OR ltrim(COALESCE(i.hn,''),'0') LIKE ltrim($1,'0')||'%')
   ORDER BY r.certified_at,r.id LIMIT $2`,[q,cap+1])).rows;
@@ -61,11 +66,35 @@ export async function nhsoBoard(db:Queryable,user:Staff,input:unknown,cap=NHSO_C
  const done=all.filter(r=>r.entry_kind==='CONFIRMED'),notNhso=all.filter(r=>r.entry_kind==='NOT_NHSO'),pending=all.filter(r=>r.entry_kind!=='CONFIRMED'&&r.entry_kind!=='NOT_NHSO');
  // Pending: oldest release first (work the queue in order). Entered / marked not สปสช.: most recent first.
  const recent=(rows:R[])=>rows.sort((a,b)=>new Date(b.entry_at!).getTime()-new Date(a.entry_at!).getTime());
- const list=d.tab==='PENDING'?pending:recent(d.tab==='DONE'?done:notNhso);
+ const inRange=(r:R)=>{const at=d.tab==='PENDING'?r.certified_at:r.entry_at;if(!at)return false;const x=bangkokIsoDay(new Date(at));return(!d.from||x>=d.from)&&(!d.to||x<=d.to);};
+ const list=(d.tab==='PENDING'?pending:recent(d.tab==='DONE'?done:notNhso)).filter(inRange);
+ return {list,truncated,counts:{PENDING:pending.length,DONE:done.length,NOT_NHSO:notNhso.length}};
+}
+
+export async function nhsoBoard(db:Queryable,user:Staff,input:unknown,cap=NHSO_CAP){
+ await assertSession(db,user);need(user,'nhso.entry','read');
+ const d=boardSchema.parse(input),{list,truncated,counts}=await selectRows(db,user,d,cap);
  const total=list.length,start=(d.page-1)*d.pageSize,slice=list.slice(start,start+d.pageSize);
  await recordPhiAccess(db,user.id,slice.map(r=>r.case_id),'REGISTRY_VIEW');
- return {rows:slice.map(toRow),counts:{PENDING:pending.length,DONE:done.length,NOT_NHSO:notNhso.length},truncated,
+ return {rows:slice.map(toRow),counts,truncated,
   page:{number:d.page,size:d.pageSize,total,totalPages:Math.max(1,Math.ceil(total/d.pageSize)),hasNext:start+d.pageSize<total}};
+}
+
+const formatLn=(v:string)=>/^\d{10}$/.test(v)?`${v.slice(0,2)}-${v.slice(2,5)}-${v.slice(5,6)}-${v.slice(6)}`:v;
+const STATUS_TEXT:Record<NhsoTab,string>={PENDING:'ต้องลงผล',DONE:'ลงผลแล้ว',NOT_NHSO:'ไม่ใช่สิทธิ สปสช.'};
+/** Excel of one tab with the same search and date range as the screen, for the monthly check against สปสช. Names and national IDs are not exported (LN and HN identify the case);
+ *  the export is recorded as PHI access and in the audit. A list longer than the cap is refused rather than exported cut off. */
+export async function exportNhsoXlsx(db:Queryable,user:Staff,input:unknown,cap=NHSO_CAP){
+ await assertSession(db,user);need(user,'nhso.entry','read');
+ const d=exportSchema.parse(input),{list,truncated}=await selectRows(db,user,d,cap);
+ if(truncated)throw new LabError('NHSO_EXPORT_TOO_LARGE',409);
+ for(let i=0;i<list.length;i+=200)await recordPhiAccess(db,user.id,list.slice(i,i+200).map(r=>r.case_id),'REGISTRY_VIEW');
+ const be=(x:Date)=>formatBe(bangkokIsoDay(new Date(x)));
+ const table=[['ลำดับ','LN','HN','วันที่ออกผล','สิทธิ','สถานะ','วันที่/เวลาที่บันทึก','ผู้บันทึก'],
+  ...list.map((r,i)=>[String(i+1),formatLn(r.ln),r.hn??'',be(r.certified_at),kindOf(r)==='NHSO'?'สปสช.':'ไม่ได้ระบุสิทธิ',STATUS_TEXT[d.tab],
+   r.entry_at&&d.tab!=='PENDING'?formatBeDateTime(new Date(r.entry_at)):'',d.tab!=='PENDING'?(r.entry_by??''):''])];
+ await audit(db,user,'NHSO_ENTRY_EXPORTED','RESULT_RELEASE',undefined,{count:list.length,outcome:'XLSX'});
+ return {bytes:simpleXlsx('ลงผลสปสช.',table),count:list.length,table};
 }
 
 async function eligibleRelease(db:Queryable,user:Staff,releaseId:string){

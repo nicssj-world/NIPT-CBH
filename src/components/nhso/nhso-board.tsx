@@ -2,7 +2,8 @@
 import {useCallback,useEffect,useRef,useState} from "react";
 import {createPortal} from "react-dom";
 import {labApi,failureText} from "../p4/lab-api";
-import {Ln} from "../p2/shared";
+import {Ln,csrf} from "../p2/shared";
+import {ThaiDateInput} from "../shared/thai-date-input";
 import {Pager} from "../shared/pager";
 import {TableScroll} from "../shared/table-scroll";
 import {LabIcon} from "../shared/lab-icons";
@@ -15,21 +16,29 @@ type Board={rows:NhsoRow[];counts:Record<NhsoTab,number>;truncated:boolean;page:
 const TILES:{tab:NhsoTab;label:string;sub:string;icon:"clipboard"|"check"}[]=[
  {tab:"PENDING",label:"ตัวอย่างที่ต้องลงผล",sub:"มีผลตรวจแล้ว ยังไม่ได้ลงในระบบสปสช.",icon:"clipboard"},
  {tab:"DONE",label:"ลงผลแล้ว",sub:"ยืนยันการลงผลสปสช.แล้ว",icon:"check"}];
+const RANGE_LABEL:Record<NhsoTab,string>={PENDING:"วันที่ออกผล",DONE:"วันที่ลงผล",NOT_NHSO:"วันที่ระบุ"};
 const TAB_LABEL:Record<NhsoTab,string>={PENDING:"รายการที่ต้องลงผล",DONE:"รายการที่ลงผลแล้ว",NOT_NHSO:"รายการที่ไม่ใช่สิทธิ สปสช."};
 
 export function NhsoBoard(){
- const [tab,setTab]=useState<NhsoTab>("PENDING"),[q,setQ]=useState(""),[term,setTerm]=useState(""),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50);
+ const [tab,setTab]=useState<NhsoTab>("PENDING"),[q,setQ]=useState(""),[term,setTerm]=useState(""),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50),[from,setFrom]=useState(""),[to,setTo]=useState(""),[exporting,setExporting]=useState(false);
  const [data,setData]=useState<Board|null>(null),[counts,setCounts]=useState<Board["counts"]|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(""),[notice,setNotice]=useState("");
  const [open,setOpen]=useState<NhsoRow|null>(null),seq=useRef(0);
  const load=useCallback(async()=>{const n=++seq.current;setLoading(true);
-  try{const d=await labApi<Board>("/api/nhso",{action:"board",tab,page,pageSize,...(term?{q:term}:{})});if(n===seq.current){setData(d);setCounts(d.counts);setError("");}}
-  catch(e){if(n===seq.current){setData(null);setError(failureText(e));}}finally{if(n===seq.current)setLoading(false);}},[tab,page,pageSize,term]);
+  try{const d=await labApi<Board>("/api/nhso",{action:"board",tab,page,pageSize,...(term?{q:term}:{}),...(from?{from}:{}),...(to?{to}:{})});if(n===seq.current){setData(d);setCounts(d.counts);setError("");}}
+  catch(e){if(n===seq.current){setData(null);setError(failureText(e));}}finally{if(n===seq.current)setLoading(false);}},[tab,page,pageSize,term,from,to]);
  useEffect(()=>{void Promise.resolve().then(load);},[load]);
  useEffect(()=>{const t=setTimeout(()=>{setTerm(q.trim());setPage(1);},q?300:0);return()=>clearTimeout(t);},[q]);
  const pick=(t:NhsoTab)=>{setNotice("");setPage(1);setTab(t);};
  const changed=async(message:string)=>{setOpen(null);setNotice(message);await load();};
  const rows=data?.rows??[];
- const empty=q?"ไม่พบรายการที่ตรงกับคำค้น":tab==="PENDING"?"ไม่มีตัวอย่างที่ต้องลงผล":tab==="DONE"?"ยังไม่มีตัวอย่างที่ลงผลแล้ว":"ยังไม่มีตัวอย่างที่ระบุว่าไม่ใช่สิทธิ สปสช.";
+ const range=(set:(v:string)=>void)=>(v:string)=>{set(v);setPage(1);};
+ // POST + blob (not a link) so a searched LN/HN never appears in a URL.
+ const exportXlsx=async()=>{setExporting(true);setError("");
+  try{const r=await fetch("/api/nhso",{method:"POST",cache:"no-store",headers:{"content-type":"application/json","x-csrf-token":csrf()},body:JSON.stringify({action:"export",tab,...(term?{q:term}:{}),...(from?{from}:{}),...(to?{to}:{})})});
+   if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.error??"ส่งออกไม่สำเร็จ กรุณาลองอีกครั้ง");}
+   const url=URL.createObjectURL(await r.blob()),a=document.createElement("a");a.href=url;a.download=`nhso-${tab.toLowerCase().replace("_","-")}.xlsx`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);}
+  catch(e){setError(e instanceof Error?e.message:"ส่งออกไม่สำเร็จ กรุณาลองอีกครั้ง");}finally{setExporting(false);}};
+ const empty=q||from||to?"ไม่พบรายการที่ตรงกับตัวกรอง":tab==="PENDING"?"ไม่มีตัวอย่างที่ต้องลงผล":tab==="DONE"?"ยังไม่มีตัวอย่างที่ลงผลแล้ว":"ยังไม่มีตัวอย่างที่ระบุว่าไม่ใช่สิทธิ สปสช.";
  return <div className="nhso-board stack">
   <header className="page-header"><div><h1>ลงผลสปสช.</h1><p className="page-meta">ผู้ป่วยสิทธิ สปสช. (รวมเคสที่ไม่ได้ระบุสิทธิ) ที่รับรองและออกผลตรวจแล้ว — เปิด LN เพื่อคัดลอกข้อมูลไปลงในระบบสปสช. แล้วกด “ยืนยันการลงผล” ถ้าไม่ใช่สิทธิ สปสช. กด “ไม่ใช่สิทธิ สปสช.”</p></div></header>
   <div className="nhso-tiles" role="tablist" aria-label="สถานะการลงผลสปสช.">{TILES.map(t=><button key={t.tab} type="button" role="tab" id={`nhso-tab-${t.tab}`} aria-selected={tab===t.tab} aria-controls="nhso-panel" className={"nhso-tile"+(t.tab==="PENDING"?" need":"")} onClick={()=>pick(t.tab)}>
@@ -38,7 +47,10 @@ export function NhsoBoard(){
   <section className="panel" role="tabpanel" id="nhso-panel" aria-labelledby={`nhso-tab-${tab}`}>
    <form className="search-form" role="search" aria-label="ค้นหารายการลงผลสปสช." onSubmit={e=>e.preventDefault()}>
     <div className="field"><label htmlFor="nhso-q">ค้นหา LN / HN</label><input id="nhso-q" type="search" autoComplete="off" maxLength={40} value={q} onChange={e=>setQ(e.target.value)}/></div>
-    {q&&<button type="button" className="button secondary" onClick={()=>setQ("")}>ล้างคำค้น</button>}
+    <div className="field"><label htmlFor="nhso-from">{RANGE_LABEL[tab]} ตั้งแต่</label><ThaiDateInput id="nhso-from" value={from} onChange={range(setFrom)}/></div>
+    <div className="field"><label htmlFor="nhso-to">ถึง</label><ThaiDateInput id="nhso-to" value={to} onChange={range(setTo)}/></div>
+    {(q||from||to)&&<button type="button" className="button secondary" onClick={()=>{setQ("");setFrom("");setTo("");setPage(1);}}>ล้างตัวกรอง</button>}
+    {data&&data.page.total>0&&<button type="button" className="button secondary" disabled={exporting} onClick={()=>void exportXlsx()}><LabIcon name="download" size={18}/> {exporting?"กำลังสร้างไฟล์…":"ส่งออก Excel"}</button>}
    </form>
    <div aria-live="polite">
     {loading&&<p className="help" role="status">กำลังโหลด…</p>}
