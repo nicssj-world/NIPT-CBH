@@ -724,9 +724,11 @@ export async function voidVersion(db:Queryable,user:Staff,input:unknown){
  * Both link steps keep their own authority (result.link.manual propose + approve), their events and audit rows; nothing here releases or sends anything.
  * A PDF that already has QC5 for this exact file (relink after an earlier review) only needs a fresh review, exactly as sendToHis does.
  */
+/** Owner 2026-11-09: choosing a patient on the results board needs no typed reason. The link history keeps who picked and when; this fixed text says how. */
+export const PICK_DEFAULT_REASON='เลือกผู้ป่วยจากหน้าผลตรวจ NIPT';
 export async function pickPatient(db:Queryable,user:Staff,input:unknown):Promise<{state:string;reviewSkipped?:string}>{
  await assertSession(db,user);
- const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,caseId:uuid,roundId:uuid,attemptId:uuid.nullable(),reason:reasonText,abnormalAcknowledged:z.boolean().default(false)}).parse(input);
+ const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,caseId:uuid,roundId:uuid,attemptId:uuid.nullable(),reason:reasonText.default(PICK_DEFAULT_REASON),abnormalAcknowledged:z.boolean().default(false)}).parse(input);
  need(user,'result.link.manual','propose');need(user,'result.link.manual','approve');
  const pre=await versionOf(db,d.versionId);
  if(pre.state!=='Unlinked')throw new LabError('LINK_REQUIRES_UNLINKED',409);

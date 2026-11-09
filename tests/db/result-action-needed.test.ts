@@ -7,7 +7,7 @@ import {syntheticReportPdf} from '../../tools/his-simulator/result-pdf';
 import {registerIntake,parseIntake} from '../../packages/results/intake';
 import {reviewBenchForResult} from '../../packages/lab/bench-review';
 import {confirmCompletion} from '../../packages/results/completion';
-import {confirmImport,unlinkVersion,voidVersion,pickPatient} from '../../packages/results/service';
+import {confirmImport,unlinkVersion,voidVersion,pickPatient,PICK_DEFAULT_REASON} from '../../packages/results/service';
 import {dismissHalosRow} from '../../packages/readygen/halos-import';
 import {reportWorklist,prepareReport} from '../../packages/readygen/reports';
 import {sendToHis} from '../../packages/results/send-his';
@@ -58,6 +58,20 @@ it('void works from LinkConflict, Linked, ValidationBlocked and PendingCertifica
   expect(await stateOf(f,again.id)).toBe('CertifiedReleased');
  }finally{vi.unstubAllEnvs();await f.close();}
 },300000);
+
+it('pickPatient needs no typed reason: it links and records the standard text, who and when',async()=>{
+ const f=await task3Fixture();try{
+  const {c,intakeId}=await importPdf(f,0,'SYNTHETIC-pick-no-reason.pdf',0,f.u.certifier);
+  const id=(await f.run(t=>confirmImport(t,f.admin,{intakeIds:[intakeId]})))[0].versionId!;
+  if(await stateOf(f,id)!=='Unlinked')await f.run(async t=>unlinkVersion(t,f.admin,{versionId:id,reason:'SYNTHETIC test returns the link to the manual path',expectedRowVersion:await rowVersion(f,id)}));
+  const r=await f.run(async t=>pickPatient(t,f.u.certifier,{versionId:id,expectedRowVersion:await rowVersion(f,id),caseId:c.caseId,roundId:c.roundId,attemptId:c.attemptId}));
+  expect(r.state).toBe('PendingCertification');
+  const ev=(await f.db.query<{event:string;reason:string;actor_id:string}>('SELECT event,reason,actor_id FROM result_link_event WHERE version_id=$1 ORDER BY sequence',[id])).rows.slice(-2);
+  expect(ev.map(e=>e.event)).toEqual(['PROPOSED','APPROVED']);
+  expect(ev.map(e=>e.reason)).toEqual([PICK_DEFAULT_REASON,PICK_DEFAULT_REASON]);
+  expect(ev[0].actor_id).toBe(f.u.certifier.id);
+ }finally{await f.close();}
+},600000);
 
 it('pickPatient by one person links a ReadyGen PDF and reaches PendingCertification',async()=>{
  const f=await task3Fixture();try{
