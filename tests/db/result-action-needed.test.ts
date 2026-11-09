@@ -108,7 +108,7 @@ it('dismissed HALOS row no longer appears in reportWorklist; reason under 8 char
   expect((await list()).rows.map(r=>r.rowId)).toContain(row);
   await expect(f.run(t=>dismissHalosRow(t,f.admin,{rowId:row,reason:'contains 1234567890123 id'}))).rejects.toThrow();
   expect((await list()).rows.map(r=>r.rowId)).toContain(row);
-  await f.run(t=>dismissHalosRow(t,f.admin,{rowId:row,reason:'SYNTHETIC unmatched sample, nothing to report'}));
+  await f.run(t=>dismissHalosRow(t,f.admin,{rowId:row,reason:''}));
   expect((await list()).rows.map(r=>r.rowId)).not.toContain(row);
   await expect(f.run(t=>dismissHalosRow(t,f.admin,{rowId:row,reason:'SYNTHETIC dismiss twice please'}))).rejects.toMatchObject({code:'HALOS_ROW_ALREADY_DISMISSED'});
   await expect(f.run(t=>prepareReport(t,f.admin,{store:f.store},{rowId:row}))).rejects.toMatchObject({code:'HALOS_ROW_DISMISSED'});

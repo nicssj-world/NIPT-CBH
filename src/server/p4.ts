@@ -54,7 +54,7 @@ export function p4Error(error:unknown){
  const db=/^[A-Z][A-Z0-9_]+$/.test(code)?code:null;
  const status=error instanceof LabError?error.status:code==="UNAUTHENTICATED"?401:code==="FORBIDDEN"||code==="CSRF_REJECTED"?403:db?409:400;
  const slot=error instanceof LabError?(error.details as {slot?:unknown}|undefined)?.slot:undefined,known=MESSAGES[code];
- return NextResponse.json({code:db??"INVALID_REQUEST",error:(known&&typeof slot==="number"?`ตำแหน่ง ${slot}: ${known}`:known)??(status===401?"กรุณาเข้าสู่ระบบอีกครั้ง":status===403?"ไม่มีสิทธิ์ทำรายการนี้":"ทำรายการไม่สำเร็จ กรุณาตรวจข้อมูลแล้วลองอีกครั้ง"),...(error instanceof LabError&&error.details?{details:error.details}:{})},{status,headers:noStore});
+ return NextResponse.json({code:db??"INVALID_REQUEST",error:(known&&typeof slot==="number"?`ตำแหน่ง ${slot}: ${known}`:known)??(status===401?"กรุณาเข้าสู่ระบบอีกครั้ง":status===403?"ไม่มีสิทธิ์ทำรายการนี้":`ทำรายการไม่สำเร็จ กรุณาตรวจข้อมูลแล้วลองอีกครั้ง${/^[A-Z][A-Z0-9_]{2,60}$/.test(code)?` (${code})`:""}`),...(error instanceof LabError&&error.details?{details:error.details}:{})},{status,headers:noStore});
 }
 /** The failed operation has rolled back; denials are then audited in an independent transaction (same rule as P2). */
 export async function p4Mutation(request:NextRequest,operation:string,fn:(user:Awaited<ReturnType<typeof protect>>)=>Promise<Response>){
