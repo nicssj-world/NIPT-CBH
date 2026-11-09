@@ -1,5 +1,5 @@
 // Thai vocabulary shared by the P5 screens. Status is always text; colour only supplements it (DESIGN.md).
-export const STATE_TEXT:Record<string,string>={HistoricalReported:"มีผลแล้ว · ออกรายงานแล้วจากระบบเดิม",Imported:"นำเข้าแล้ว",Parsed:"อ่านค่าแล้ว",RejectedImport:"รูปแบบไม่รู้จัก — ใช้ไม่ได้",Unlinked:"รอเชื่อมโยงกับรอบ/Attempt",LinkConflict:"ข้อมูลไม่ตรง — ต้องแก้",
+export const STATE_TEXT:Record<string,string>={HistoricalReported:"มีผลแล้ว",Imported:"นำเข้าแล้ว",Parsed:"อ่านค่าแล้ว",RejectedImport:"รูปแบบไม่รู้จัก — ใช้ไม่ได้",Unlinked:"รอเชื่อมโยงกับรอบ/Attempt",LinkConflict:"ข้อมูลไม่ตรง — ต้องแก้",
  Linked:"เชื่อมโยงแล้ว",ValidationBlocked:"ยังไม่ผ่านเงื่อนไขส่งผล",PendingCertification:"รอรับรอง",CertifiedReleased:"ปล่อยผลแล้ว",Superseded:"ถูกแทนด้วยฉบับแก้ไข",Voided:"ยกเลิกแล้ว"};
 export const STATE_TONE:Record<string,""|"good"|"warning"|"bad">={HistoricalReported:"good",Unlinked:"warning",LinkConflict:"bad",ValidationBlocked:"bad",PendingCertification:"warning",CertifiedReleased:"good",Linked:"good",RejectedImport:"bad"};
 export const KIND_TEXT:Record<string,string>={SINGLETON:"ผลตรวจ ครรภ์เดี่ยว",TWIN:"ผลตรวจ ครรภ์แฝด",REDRAW_NOTICE:"หนังสือแจ้ง — ไม่ใช่ผลตรวจ",UNKNOWN:"รูปแบบไม่รู้จัก"};

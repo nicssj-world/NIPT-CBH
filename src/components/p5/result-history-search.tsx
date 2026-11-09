@@ -12,7 +12,7 @@ import {STATE_TEXT,STATE_TONE,KIND_TEXT} from "./labels";
 // an action, waits for HIS or was sent; historical (migrated) results, rejected/superseded/voided files and the CSV still live behind this query.
 type Row={hisDelivery?:HisDeliveryStatus;id:string;origin?:string;kind:string;template_kind:string;state:string;state_changed_at:string;original_name:string;relative_path:string|null;member_name:string|null;hn:string|null;lab:string|null;collection:string|null;round_number:number|null;ln:string|null;proposal:boolean;abnormal:boolean;name_conflict:boolean;historical?:boolean};
 type Data={page:{number:number;size:number;hasNext:boolean;total:number;totalPages:number;scope:"BOUNDED_PAGE"};rows:Row[]};
-const BUCKETS=[["historical","ออกรายงานแล้วจากระบบเดิม",[]],["unlinked","รอเชื่อมโยง",["Unlinked"]],["conflict","ข้อมูลไม่ตรง",["LinkConflict"]],["blocked","ยังไม่ผ่านเงื่อนไขส่งผล",["ValidationBlocked"]],["pending","รอรับรอง",["PendingCertification"]],["closed","ปิดแล้ว/ใช้ไม่ได้",["RejectedImport","Superseded","Voided","CertifiedReleased"]]] as const;
+const BUCKETS=[["historical","มีผลใน HIS แล้ว",[]],["unlinked","รอเชื่อมโยง",["Unlinked"]],["conflict","ข้อมูลไม่ตรง",["LinkConflict"]],["blocked","ยังไม่ผ่านเงื่อนไขส่งผล",["ValidationBlocked"]],["pending","รอรับรอง",["PendingCertification"]],["closed","ปิดแล้ว/ใช้ไม่ได้",["RejectedImport","Superseded","Voided","CertifiedReleased"]]] as const;
 const DEFAULT_FILTERS={dateField:"REPORTED",from:"",to:"",q:"",gender:"ALL",qc:"ALL",risk:"ALL"};
 const Status=({tone,children}:{tone?:string;children:React.ReactNode})=><span className={`status ${tone??""}`}>{children}</span>;
 
