@@ -2,6 +2,7 @@ import {currentPetPatientJoin} from './current-patient';
 import {z} from 'zod';
 import type {Queryable} from '../db/connection';
 import {assertSession,LabError,type Staff} from '../lab/core';
+import {analysisSteps} from '../lab/analysis-progress';
 import {authorize} from '../security/policy';
 import {fiscalYear,flagLabels,stages,type Dashboard,type QueueItem} from './model';
 
@@ -132,6 +133,9 @@ export async function dashboard(db:Queryable,user:Staff,input:unknown={}):Promis
  // A page past the end (rows left the queue since the last response) answers with the last real page instead of an empty one.
  if(!cursor&&page>totalPages){page=totalPages;out=await run((page-1)*f.pageSize);}
  const items:QueueItem[]=out.rows.map(row=>{const c:Partial<SqlRow>={...row};delete c.ord_u;delete c.ord_d;return c as Omit<SqlRow,'ord_u'|'ord_d'>;}).map(c=>({...c,s1ReceivedAt:c.s1ReceivedAt?new Date(c.s1ReceivedAt).toISOString():null,currentReceivedAt:c.currentReceivedAt?new Date(c.currentReceivedAt).toISOString():null,stageLabel:stages.find(s=>s[0]===c.stage)![1]}));
+ // Progress inside the analysis step is read only for the rows on this page (not for every case of the year).
+ const steps=await analysisSteps(db,items.filter(i=>i.stage==='analysis'||i.stage==='review').map(i=>i.currentRoundId??''));
+ for(const i of items)i.labSteps=i.stage==='analysis'||i.stage==='review'?steps.get(i.currentRoundId??'')??null:null;
  const last=out.rows.at(-1);
  // Following a cursor the position in the list is not known from `page`, so "is there more" is: this page is full and the cursor query found it so.
  const more=cursor?items.length===f.pageSize:(page-1)*f.pageSize+items.length<out.total;

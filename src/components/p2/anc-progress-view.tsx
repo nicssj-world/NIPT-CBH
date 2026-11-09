@@ -1,5 +1,5 @@
 import Link from "next/link";
-import {STEPS,stepStates,type Progress} from "./anc-progress";
+import {LAB_STEP_NAMES,STEPS,stepStates,type Progress} from "./anc-progress";
 
 /** Hand-drawn 24px stroke icons, one weight (no glyphs or emoji standing in for an icon system). */
 const PATHS:Record<string,string>={
@@ -20,12 +20,15 @@ export function Icon({name,className="ui-icon"}:{name:keyof typeof PATHS|string;
 
 /** People-language progress: one badge, an optional "เจาะเลือดครั้งที่ N" chip, the reason, and the three-step track. */
 export function ProgressView({progress,round,extra}:{progress:Progress;round?:number|null;extra?:React.ReactNode}){
- const steps=stepStates(progress);
+ const steps=stepStates(progress),lab=progress.labSteps;
  return <div className="progress-cell">
   <span className="progress-row"><span className={"progress-badge tone-"+progress.tone}><Icon name={progress.tone}/>{progress.label}</span>
    {round&&round>=2?<span className="round-chip"><Icon name="redo"/>เจาะเลือดครั้งที่ {round}</span>:null}{extra}</span>
   {progress.reason&&<span className="progress-reason">{progress.reason}</span>}
-  <span className="progress-track" aria-hidden="true">{STEPS.map((s,i)=><span key={s} className={steps[i]||undefined}>{s}</span>)}</span>
+  <span className="progress-track" aria-hidden="true">{STEPS.map((s,i)=>i===1&&typeof lab==="number"&&progress.tone==="testing"
+   ?<span key={s} className="lab-steps now"><span className="lab-bars">{LAB_STEP_NAMES.map((n,k)=><i key={n} className={k<lab?"done":k===lab?"now":undefined}/>)}</span>{s}</span>
+   :<span key={s} className={steps[i]||undefined}>{s}</span>)}</span>
+  {typeof lab==="number"&&progress.tone==="testing"&&<span className="progress-note">{lab>=LAB_STEP_NAMES.length?"ห้อง Lab ตรวจครบทุกขั้นตอนแล้ว รอทวนผลและรับรอง":`ขั้นตอนในห้อง Lab ${lab+1}/${LAB_STEP_NAMES.length}: ${LAB_STEP_NAMES[lab]}`}</span>}
  </div>;
 }
 

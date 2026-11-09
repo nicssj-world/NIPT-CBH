@@ -11,7 +11,7 @@ export type CaseFacts = {
  s1ReceivedAt:string|null; currentReceivedAt:string|null; analysisStarted:boolean; documentsReady:boolean;
  reportState:string|null; activeReleaseCount:number; certifiedReleaseCount:number; redraw:boolean; repeat:boolean; hold:boolean; urgent:boolean; consentRevoked:boolean; identityIssue:boolean; /** a migrated historical case with an official PDF linked to its imported attempt */historicalResult?:boolean;
 };
-export type QueueItem = CaseFacts & {stage:Stage;stageLabel:string;flags:Flag[];released:boolean;pending:boolean;daysWaiting:number|null;/** certified release or, for a migrated historical case, an official PDF linked to the imported attempt (Owner 2026-11-02): the result exists */hasResult:boolean};
+export type QueueItem = CaseFacts & {/** completed Lab Run steps (0-4) while the sample is being analysed; null when unknown */labSteps?:number|null;stage:Stage;stageLabel:string;flags:Flag[];released:boolean;pending:boolean;daysWaiting:number|null;/** certified release or, for a migrated historical case, an official PDF linked to the imported attempt (Owner 2026-11-02): the result exists */hasResult:boolean};
 export type Filters = {fy:number;unitId?:string;kpi?:'sent'|'pending'|'released'|'attention';stage?:Stage;flag?:Flag;tab?:'all'|'pending'|'released'|'attention'|'redraw'|'hold'|'awaiting'|'testing'|'followup';q?:string;page:number;pageSize:number};
 export function fiscalYear(iso:string):number {const d=new Date(new Date(iso).getTime()+7*3600000);return d.getUTCFullYear()+(d.getUTCMonth()>=9?1:0)+543;}
 export function project(c:CaseFacts,now:Date):QueueItem {

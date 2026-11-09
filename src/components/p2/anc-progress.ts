@@ -6,7 +6,11 @@
 import type {QueueItem,Stage} from "../../../packages/anc/model";
 
 export type ProgressStep=0|1|2|3;
+/** The four Lab Run steps inside "กำลังตรวจวิเคราะห์" (Owner 2026-11-09), in order. */
+export const LAB_STEP_NAMES=["ลง Task List","ตรวจ QC","Pooling","Sequencing"] as const;
 export type Progress={
+ /** Lab Run steps completed (0-4) while being analysed; absent when unknown */
+ labSteps?:number|null;
  /** 0 = not at the Lab yet, 1 = received, 2 = being analysed, 3 = result available */
  step:ProgressStep;
  tone:"waiting"|"received"|"testing"|"done"|"warn"|"stop"|"check";
@@ -20,7 +24,7 @@ export type Progress={
 const CHECK:Progress={step:0,tone:"check",label:"ตรวจสอบสถานะเคส",todo:"ดูรายละเอียดเคส"};
 
 /** Fields of a registry row the mapping reads (subset of the /api/p2/cases row). */
-export type RegistryFacts={state:string;analysis_started:boolean;round_number:number;received_at:string|null;consent_decision?:string|null;identityVerified:boolean;released?:boolean;hasResult?:boolean;progress:{missing:string[]}|null};
+export type RegistryFacts={labSteps?:number|null;state:string;analysis_started:boolean;round_number:number;received_at:string|null;consent_decision?:string|null;identityVerified:boolean;released?:boolean;hasResult?:boolean;progress:{missing:string[]}|null};
 
 /** Round states the registry can return; a state outside this list is reported as CHECK by design (test enforces coverage). */
 export const KNOWN_ROUND_STATES=["Expected","ReceivedInHIS","ReceivedInNIPT","RedrawRequested","RepeatRequested","PendingCertification","ValidationBlocked","Linked","Completed","CertifiedReleased","RevokedHold"] as const;
@@ -38,7 +42,7 @@ export function registryProgress(c:RegistryFacts):Progress{
   return {step:0,tone:"waiting",label:"รอห้อง Lab รับตัวอย่าง",todo:missingTodo(c.progress?.missing)||"ส่งหลอดเลือดไปห้อง Lab"};
  }
  const testing=c.analysis_started||["RepeatRequested","PendingCertification","ValidationBlocked","Linked","Completed","CertifiedReleased"].includes(c.state);
- if(testing)return {step:2,tone:"testing",label:"กำลังตรวจวิเคราะห์",todo:missingTodo(c.progress?.missing)};
+ if(testing)return {step:2,tone:"testing",label:"กำลังตรวจวิเคราะห์",todo:missingTodo(c.progress?.missing),labSteps:c.labSteps??null};
  if((c.state==="ReceivedInHIS"||c.state==="ReceivedInNIPT")&&c.received_at)return {step:1,tone:"received",label:"ห้อง Lab รับตัวอย่างแล้ว",todo:missingTodo(c.progress?.missing)};
  return CHECK;
 }
@@ -57,12 +61,12 @@ export const STAGE_STEP:Record<Stage,Pick<Progress,"step"|"tone"|"label">>={
 /** Flags that are the nurse's work, in priority order. Lab-only flags (repeat, validation_blocked) are not ANC to-dos. */
 const FLAG_TODO:[string,string][]=[["consent_revoked","ดูรายละเอียดเคส"],["identity_issue","ตรวจสอบข้อมูลตัวตน"],["hold","ติดต่อห้อง Lab"],["redraw","นัดคุณแม่มาเจาะเลือดใหม่"],["documents","กรอกเอกสารให้ครบ"],["missing_s1","ดูรายละเอียดเคส"],["conflicting_release","ดูรายละเอียดเคส"],["unmapped_state","ดูรายละเอียดเคส"]];
 
-export function queueProgress(c:Pick<QueueItem,"stage"|"flags"|"hasResult"|"roundState">&{hold?:boolean}):Progress{
+export function queueProgress(c:Pick<QueueItem,"stage"|"flags"|"hasResult"|"roundState"|"labSteps">&{hold?:boolean}):Progress{
  const base=STAGE_STEP[c.stage]??CHECK;
  if(c.roundState==="RevokedHold"||c.flags.includes("consent_revoked"))return {step:base.step,tone:"stop",label:"ถอนความยินยอม — พักเคส",todo:"ดูรายละเอียดเคส"};
  if(c.flags.includes("hold"))return {step:base.step,tone:"stop",label:"พักการตรวจไว้ก่อน",reason:"ห้อง Lab ขอข้อมูลเพิ่ม",todo:"ติดต่อห้อง Lab"};
  const todo=c.stage==="released"?"":FLAG_TODO.find(([f])=>(c.flags as string[]).includes(f))?.[1]??(c.stage==="exception"?"ดูรายละเอียดเคส":c.stage==="expected"?"ส่งหลอดเลือดไปห้อง Lab":"");
- return {...base,reason:c.stage==="followup"?"ตัวอย่างเดิมตรวจไม่ได้":undefined,todo};
+ return {...base,reason:c.stage==="followup"?"ตัวอย่างเดิมตรวจไม่ได้":undefined,todo,...(base.tone==="testing"?{labSteps:c.labSteps??null}:{})};
 }
 
 /** The three visible steps and which of them is done / current / stopped. */

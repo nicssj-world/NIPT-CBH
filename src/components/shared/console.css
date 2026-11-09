@@ -41,6 +41,13 @@
 .progress-track>.now::before{background:linear-gradient(90deg,var(--sign-edge) 55%,var(--color-line) 55%)}
 .progress-track>.stop::before{background:var(--color-warning)}
 .progress-track>:is(.done,.now,.stop){color:var(--color-ink)}
+.progress-track>.lab-steps::before{display:none}
+.lab-steps{color:var(--color-ink)}
+.lab-bars{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:2px}
+.lab-bars>i{display:block;height:5px;border-radius:999px;background:var(--color-line)}
+.lab-bars>i.done{background:var(--sign-edge)}
+.lab-bars>i.now{background:linear-gradient(90deg,var(--sign-edge) 50%,var(--color-line) 50%)}
+.progress-note{font-size:.75rem;line-height:1.5;color:var(--color-muted)}
 .round-chip{display:inline-flex;align-items:center;gap:5px;padding:1px 10px 1px 6px;border:1.5px solid var(--sign-edge);border-radius:999px;background:var(--color-surface);color:var(--color-ink);font-size:.75rem;font-weight:600;line-height:1.6;white-space:nowrap}
 .round-chip .ui-icon{width:14px;height:14px;color:var(--sign-edge)}
 

@@ -1,4 +1,5 @@
 import {currentPatient,currentPetPatientJoin} from '../anc/current-patient';
+import {analysisSteps} from '../lab/analysis-progress';
 import {readCasePetEvidence} from '../inbound/case-pet-evidence';
 import {registryGa} from '../lab/registry-ga';
 import {DCC_CONSENT,isCurrentConsent} from '../forms/consent-content';
@@ -431,7 +432,9 @@ export async function listP2Cases(db:Queryable,user:Staff,input:unknown={}){
  const seen=new Set<string>();const cases=rows.filter(c=>{if(seen.has(c.id)||!authorize(user,'case.read',{unitId:c.unit_id,origin:c.registration_origin},'read'))return false;seen.add(c.id);return true;}).map(({draft,...c})=>({...c,hasResult:c.released||c.reported_before,patient_name:c.patient_name?.trim()||null,ga:registryGa(draft?.pregnancy.edd,c.collection_date??draft?.pregnancy.collectionDate),identityVerified:c.hn!==null,progress:draft&&c.request_mode!=='Paper'?{missing:requestProgressIssues(draft),savedVersion:c.version}:null}));
  const units=allUnits.filter(u=>authorize(user,'case.register.anc',{unitId:u.id,origin:'ANC'})||authorize(user,'case.register.lab',{unitId:u.id,origin:'LAB_DIRECT'}));
  if(cases.length)await recordPhiAccess(db,user.id,cases.map(c=>c.id),'REGISTRY_VIEW');
- return {cases,units,page:meta};
+ // How far the Lab Run has got, for the rows on this page only (ANC progress bar).
+ const steps=await analysisSteps(db,cases.filter(c=>c.analysis_started).map(c=>c.current_round_id));
+ return {cases:cases.map(c=>({...c,labSteps:c.analysis_started?steps.get(c.current_round_id)??null:null})),units,page:meta};
 }
 
 /** Human clinical assessment bound to the exact current round and all document/receipt evidence. */
