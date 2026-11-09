@@ -121,7 +121,7 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  let pregnancy:('Singleton'|'Twins'|null)=recorded,pregnancySource:Prepared['pregnancySource']='ANC_REQUEST',overrideReason:string|null=null;
  if(input.pregnancyOverride&&input.pregnancyOverride!==recorded){
   if(!authorize(user,'result.certify'))throw new LabError('FORBIDDEN',403);
-  const reason=(input.overrideReason??'').trim();if(reason.length<8||/\d{13}/.test(reason))throw new LabError('PREGNANCY_OVERRIDE_REASON_REQUIRED',422);
+  const reason=(input.overrideReason??'').trim()||'ไม่ได้ระบุเหตุผล';if(/\d{13}/.test(reason))throw new LabError('PREGNANCY_OVERRIDE_REASON_REQUIRED',422);
   pregnancy=input.pregnancyOverride;pregnancySource='AUTHORIZED_OVERRIDE';overrideReason=reason;
  }
  if(!pregnancy)h('PREGNANCY_TYPE_NOT_RECORDED');

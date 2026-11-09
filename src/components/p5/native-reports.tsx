@@ -144,7 +144,7 @@ function ReportDialog({rows,pendingImport,onClose,onDone,onReported}:{rows:Row[]
  const anyAbnormal=abnormal||allCandidates.some(c=>Object.values(c.values??{}).some(v=>v==='High Risk'||v==='Detected'));
  const releaseReady=confirm.content&&(!anyAbnormal||confirm.abnormal);
  const holds=single?candidateHolds(cand):[];
- const canSubmit=!!reportedBy&&!!approvedBy&&releaseReady&&(single?candidateReady(cand):batchCandidates.length===rows.length&&batchCandidates.some(c=>candidateReady(c)&&!excluded.has(c.rowId)))&&(!override||overrideReason.trim().length>=8);
+ const canSubmit=!!reportedBy&&!!approvedBy&&releaseReady&&(single?candidateReady(cand):batchCandidates.length===rows.length&&batchCandidates.some(c=>candidateReady(c)&&!excluded.has(c.rowId)))&&(!override);
  const dirty=!!(reportedBy||approvedBy||override)&&!queuedBatchId;
  return <Dialog title={single?`ออกรายงาน ${single.ln??single.sampleId}`:`ออกรายงาน ${rows.length} ราย (หนึ่ง PDF ต่อผู้ป่วย)`} onClose={onClose} dirty={dirty}>
   <div className="stack t3-dialog">

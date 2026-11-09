@@ -142,11 +142,11 @@ function ViewerContent({p,photos,index,setIndex,run,placement,onChanged,titleId,
       </form></details>
      <details onToggle={e=>{if((e.target as HTMLDetailsElement).open)void loadRuns();}}><summary>อัปโหลดผิด Run หรือภาพใช้ไม่ได้</summary>
       <div className="stack">
-       <div><label htmlFor={id+"-reason"}>เหตุผล (อย่างน้อย 8 ตัวอักษร)</label><input id={id+"-reason"} value={reason} maxLength={500} onChange={e=>setReason(e.target.value)} placeholder="เช่น อัปโหลดผิด Run / ภาพเบลออ่านฉลากไม่ได้"/></div>
+       <div><label htmlFor={id+"-reason"}>เหตุผล (ไม่บังคับ)</label><input id={id+"-reason"} value={reason} maxLength={500} onChange={e=>setReason(e.target.value)} placeholder="เช่น อัปโหลดผิด Run / ภาพเบลออ่านฉลากไม่ได้"/></div>
        <div><label htmlFor={id+"-target"}>ย้ายไป Run ที่ถูกต้อง</label><select id={id+"-target"} value={target} onChange={e=>setTarget(e.target.value)}><option value="">{runs?"เลือก Run":"กำลังโหลดรายการ Run…"}</option>{runs?.map(r=><option key={r.id} value={r.id}>{r.runLabel}</option>)}</select></div>
-       <button type="button" className="button secondary" disabled={busy||!target||reason.trim().length<8} onClick={()=>void act("move",{targetBatchId:target,reason},"ย้ายภาพไป Run ที่เลือกแล้ว")}>ย้ายภาพไป Run นี้</button>
+       <button type="button" className="button secondary" disabled={busy||!target} onClick={()=>void act("move",{targetBatchId:target,reason},"ย้ายภาพไป Run ที่เลือกแล้ว")}>ย้ายภาพไป Run นี้</button>
        <p className="help">หรือถอนภาพออกจากหลักฐานของ Run — ไฟล์และประวัติยังเก็บไว้ตรวจสอบได้ ไม่มีการลบ</p>
-       <button type="button" className="button danger" disabled={busy||reason.trim().length<8} onClick={()=>void act("retract",{reason},"ถอนภาพออกแล้ว")}>ถอนภาพนี้ออก</button>
+       <button type="button" className="button danger" disabled={busy} onClick={()=>void act("retract",{reason},"ถอนภาพออกแล้ว")}>ถอนภาพนี้ออก</button>
       </div></details>
     </>}
    </div>

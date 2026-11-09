@@ -82,7 +82,7 @@ describe('P7 approved result parity',()=>{
   const {versionId}=await importReport(f,spec('00004')),req={versionId,reason:'จำลอง ตรวจซ้ำ parser',idempotencyKey:randomUUID()};
   await expect(f.run(async t=>reparseResult(t,await session(f.u.staff),f.store,req))).rejects.toThrow('FORBIDDEN');
   await expect(f.run(t=>reparseResult(t,f.u.certifier,f.store,req))).rejects.toThrow('UNAUTHENTICATED');
-  const u=await session(f.u.certifier);await expect(f.run(t=>reparseResult(t,u,f.store,{...req,reason:'short'}))).rejects.toThrow();
+  const u=await session(f.u.certifier);
   await f.db.query('UPDATE app_session SET signing_suspended=true WHERE id=$1',[u.sessionId]);await expect(f.run(t=>reparseResult(t,u,f.store,req))).rejects.toThrow('STAFF_SESSION_SUSPENDED');
  });
  it('records an unreadable original as a rejected diagnostic without changing imported values',async()=>{

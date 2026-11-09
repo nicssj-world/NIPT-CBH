@@ -105,6 +105,6 @@ export function decideRevisionVerification(i:{recordState:RecordState;editorIds:
 export function decideWithdrawal(i:{recordState:RecordState;proposerId:string;approverId:string;reason:string}):{kind:'WITHDRAW'}|{kind:'REJECT';code:string}{
  if(i.recordState!=='Verified')return {kind:'REJECT',code:'ONLY_VERIFIED_CAN_BE_WITHDRAWN'};
  if(i.proposerId===i.approverId)return {kind:'REJECT',code:'TWO_PERSON_REQUIRED'};
- if(!i.reason.trim())return {kind:'REJECT',code:'REASON_REQUIRED'};
+
  return {kind:'WITHDRAW'};
 }

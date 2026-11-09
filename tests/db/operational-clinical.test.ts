@@ -77,7 +77,6 @@ it('Paper Consent REFUSED blocks every consent gate; the marker, a later Pending
 it('refusal needs the consent.prepare permission and a reason, and is refused on a revoked case',async()=>{
  mode();const c=await registerP2(db,lab,{ln:'2610149996',hn:'TEST-HN-04',unitId:unit,origin:'LAB_DIRECT',identifierSource:'TUBE_LABEL',idempotencyKey:'CLINICAL-REVIEW-REFUSED-PERM'},Buffer.alloc(32,8));const id=c.caseId!;
  await expect(refusePaperConsent(db,{...lab,roles:['AUDITOR']},id,{expectedVersion:0,reason:'ทดสอบสิทธิ์'})).rejects.toThrow();
- await expect(refusePaperConsent(db,lab,id,{expectedVersion:0,reason:''})).rejects.toThrow();
  await withdraw(db,lab,id,{reason:'ถอนความยินยอม'});await expect(refusePaperConsent(db,lab,id,{expectedVersion:0,reason:'ทดสอบ'})).rejects.toThrow('CONSENT_REVOKED_HOLD');
 });
 it('Digital Consent still needs a completed signing: Electronic mode without a signed Granted consent is not ready and cannot be approved',async()=>{

@@ -5,7 +5,7 @@ import {redactPet} from './wire';
 import {appendAudit} from '../db/audit';
 /** Offline Development-only procedure; application/worker DB roles have no INSERT grant on correction lineage. */
 export async function correctLegacyPetClocks(db:Queryable,deps:{store:Pick<FileStore,'get'>;lookupKey:Buffer},actorId:string,reason:string,apply=false){
- if(reason.trim().length<8||deps.lookupKey.length!==32)throw Error('PET_CORRECTION_REASON_AND_KEY_REQUIRED');
+ if(deps.lookupKey.length!==32)throw Error('PET_CORRECTION_REASON_AND_KEY_REQUIRED');
  const files=(await db.query<{id:string;sha256:string;filename:string;ln:string;parsed:unknown;round_id:string|null;case_id:string|null}>(`SELECT f.id,f.sha256,f.filename,f.ln,f.parsed,o.round_id,f.case_id FROM his_inbound_file f LEFT JOIN his_order o ON o.inbound_file_id=f.id WHERE f.parser_version='pet-strict-cp874-v1' AND f.parsed IS NOT NULL AND NOT EXISTS(SELECT 1 FROM lab_pet_clock_correction c WHERE c.inbound_file_id=f.id) ORDER BY f.id FOR UPDATE OF f`)).rows;
  const result=[];
  for(const file of files){

@@ -80,7 +80,7 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
      <h2 id="reparse-h">อ่านต้นฉบับซ้ำเพื่อวินิจฉัย Parser</h2>
      <p className="help">สร้างหลักฐานจากไฟล์เดิมเท่านั้น ไม่แทนค่ารายงาน ไม่เปลี่ยนการเชื่อมโยง การตรวจทาน หรือการปล่อยผล หากต้องแก้ผลให้ใช้กระบวนการฉบับแก้ไขเดิม</p>
      {maintenanceError&&<p className="notice" role="alert">{maintenanceError} <button type="button" className="button small secondary" disabled={!!busy} onClick={()=>void loadDiagnostics()}>โหลดหลักฐานอีกครั้ง</button></p>}
-     <form className="stack" onSubmit={e=>{e.preventDefault();void doReparse();}}><div className="field"><label htmlFor="reparse-reason">เหตุผลการอ่านซ้ำ (อย่างน้อย 8 ตัวอักษร)</label><input id="reparse-reason" value={reparseReason} minLength={8} maxLength={500} required onChange={e=>{setReparseReason(e.target.value);setReparseKey(crypto.randomUUID());}}/></div>
+     <form className="stack" onSubmit={e=>{e.preventDefault();void doReparse();}}><div className="field"><label htmlFor="reparse-reason">เหตุผลการอ่านซ้ำ (ไม่บังคับ)</label><input id="reparse-reason" value={reparseReason} maxLength={500} onChange={e=>{setReparseReason(e.target.value);setReparseKey(crypto.randomUUID());}}/></div>
       <div className="action-bar"><button className="button secondary" disabled={!!busy}>{busy==="reparse"?"กำลังสร้างหลักฐาน…":"สร้างหลักฐานอ่านซ้ำ"}</button></div></form>
      <details><summary>หลักฐานอ่านซ้ำล่าสุด (สูงสุด 50 รายการ)</summary>{diagnostics.length?<ul>{diagnostics.map(e=><li key={e.id}>{bkk(e.createdAt)} · <span className="mono">{e.parserVersion}</span> · {e.outcome==="PARSED_DIAGNOSTIC"?"อ่านได้ (หลักฐานวินิจฉัยเท่านั้น)":`อ่านไม่ได้ (${e.rejectCode})`}<br/>{e.reason}<br/><span className="mono p5-hash">{e.id}</span></li>)}</ul>:<p className="help">ยังไม่มีหลักฐานอ่านซ้ำ</p>}</details>
     </section>}
@@ -105,13 +105,13 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
        <div><dt>LN Halos · Printed ID</dt><dd className="mono">{d.target.ln_halos??"—"} · {d.target.printed_sample_id??"—"}</dd></div></dl>
       {d.links.filter(l=>l.event==="APPROVED").slice(-1).map(l=><CrossTable key="x" cross={l.cross_check} caption="ผลเทียบตอนยืนยันการเชื่อมโยง"/>)}
       {d.can.unlink&&<form className="stack p5-inline-form" onSubmit={e=>{e.preventDefault();void act("unlink",{reason},"ถอดการเชื่อมโยงแล้ว — รายการกลับไปรอเชื่อมโยง").then(()=>setReason(""));}}>
-       <div className="field"><label htmlFor="unlink-reason">เหตุผลที่ถอดการเชื่อมโยง</label><input id="unlink-reason" value={reason} onChange={e=>setReason(e.target.value)} minLength={8} maxLength={500} required/></div>
+       <div className="field"><label htmlFor="unlink-reason">เหตุผลที่ถอดการเชื่อมโยง (ไม่บังคับ)</label><input id="unlink-reason" value={reason} onChange={e=>setReason(e.target.value)} maxLength={500}/></div>
        <div className="action-bar"><button className="button secondary" disabled={!!busy}>{busy==="unlink"?"กำลังบันทึก…":"ถอดการเชื่อมโยง"}</button></div></form>}</>}
      {d.proposal&&<div className="stack">
       <p><Status tone="warning">มีข้อเสนอรอผู้รับรองคนที่สองยืนยัน</Status> · เสนอเมื่อ {bkk(d.proposal.created_at)} · {d.proposal.reason}{d.proposal.name_review&&<span className="badge warning">{d.proposal.name_review==="REVISION"?"จัดเป็นฉบับแก้ไข":"จัดเป็นรายงานใหม่"}</span>}</p>
       <CrossTable cross={d.proposal.cross_check} caption="ผลเทียบของข้อเสนอ"/>
       {d.can.decide?<form className="stack p5-inline-form" onSubmit={e=>{e.preventDefault();const which=(e.nativeEvent as SubmitEvent).submitter?.getAttribute("value")??"APPROVE";void act("decide",{decision:which,reason:decision},which==="APPROVE"?"ยืนยันการเชื่อมโยงแล้ว":"ปฏิเสธข้อเสนอแล้ว").then(()=>setDecision(""));}}>
-       <div className="field"><label htmlFor="decide-reason">เหตุผลการตัดสิน (ผู้ยืนยันคนที่สอง)</label><input id="decide-reason" value={decision} onChange={e=>setDecision(e.target.value)} minLength={8} maxLength={500} required/></div>
+       <div className="field"><label htmlFor="decide-reason">เหตุผลการตัดสิน (ไม่บังคับ)</label><input id="decide-reason" value={decision} onChange={e=>setDecision(e.target.value)} maxLength={500}/></div>
        <div className="action-bar"><button className="button secondary" value="REJECT" disabled={!!busy}>ปฏิเสธข้อเสนอ</button><button className="button" value="APPROVE" disabled={!!busy}>{busy==="decide"?"กำลังบันทึก…":"ยืนยันการเชื่อมโยง"}</button></div></form>
        :<p className="help">ผู้เสนอยืนยันรายการของตนเองไม่ได้ — ต้องให้ผู้รับรองคนอื่นยืนยัน</p>}
      </div>}
@@ -126,7 +126,7 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
          <td>{c.matchedOn.join(", ")}</td>{CROSS_KEYS.slice(0,5).map(k=><td key={k}><Status tone={CMP_TONE[c.cross[k]]}>{CMP_TEXT[c.cross[k]]}</Status></td>)}</tr>)}</tbody></table></div>
         :<p className="empty-state">ไม่พบรอบ/Attempt ที่มี HN หรือเลข Lab ตรงกับ PDF — ตรวจว่าลงทะเบียนและรับสิ่งส่งตรวจแล้ว</p>}
       </fieldset>
-      <div className="field"><label htmlFor="link-reason">เหตุผลที่เลือก (อย่างน้อย 8 ตัวอักษร)</label><input id="link-reason" value={reason} onChange={e=>setReason(e.target.value)} minLength={8} maxLength={500} required/></div>
+      <div className="field"><label htmlFor="link-reason">เหตุผลที่เลือก (ไม่บังคับ)</label><input id="link-reason" value={reason} onChange={e=>setReason(e.target.value)} maxLength={500}/></div>
       {d.nameConflicts.length>0?<fieldset className="p5-candidates"><legend>ไฟล์ชื่อซ้ำ — จัดประเภท (บังคับ)</legend>
        <label className="check-label"><input type="radio" name="name-review" checked={nameReview==="NEW_REPORT"} onChange={()=>{setNameReview("NEW_REPORT");setRevise(false);}} required/> รายงานใหม่ (ไม่ใช่การแก้ไขฉบับเดิม)</label>
        <label className="check-label"><input type="radio" name="name-review" checked={nameReview==="REVISION"} onChange={()=>{setNameReview("REVISION");setRevise(true);}}/> ฉบับแก้ไขของรายงานที่รอบนี้มีอยู่แล้ว</label></fieldset>
@@ -134,7 +134,7 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
       {revise&&<fieldset className="form-grid"><legend>ข้อมูลคำขอแก้ไข</legend>
        <div className="field"><label htmlFor="rev-date">วันที่รับเรื่อง</label><ThaiDateInput id="rev-date" value={rev.receivedDate} onChange={v=>setRev({...rev,receivedDate:v})} required/></div>
        <div className="field"><label htmlFor="rev-by">ผู้ขอ / หน่วยงาน</label><input id="rev-by" value={rev.requestedBy} onChange={e=>setRev({...rev,requestedBy:e.target.value})} required/></div>
-       <div className="field"><label htmlFor="rev-reason">เหตุผลการแก้ไข</label><input id="rev-reason" value={rev.reason} onChange={e=>setRev({...rev,reason:e.target.value})} minLength={8} required/></div></fieldset>}
+       <div className="field"><label htmlFor="rev-reason">เหตุผลการแก้ไข (ไม่บังคับ)</label><input id="rev-reason" value={rev.reason} onChange={e=>setRev({...rev,reason:e.target.value})}/></div></fieldset>}
       <div className="action-bar"><button className="button" disabled={!picked||!!busy||(d.nameConflicts.length>0&&!nameReview)}>{busy==="propose"?"กำลังส่ง…":"เสนอการเชื่อมโยง"}</button></div>
      </form>:<p className="help">รอผู้มีสิทธิ์เสนอการเชื่อมโยง (เจ้าหน้าที่ Lab)</p>)}
     </section>
@@ -165,7 +165,7 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
     {d.can.void&&<section className="panel" aria-labelledby="void-h">
      <h2 id="void-h">ยกเลิกรายการนำเข้า</h2>
      <form className="stack" onSubmit={e=>{e.preventDefault();if(window.confirm("ยืนยันยกเลิกรายการนำเข้านี้? ไฟล์ต้นฉบับและประวัติยังถูกเก็บไว้"))void act("void",{reason:voidReason},"ยกเลิกรายการนำเข้าแล้ว");}}>
-      <div className="field"><label htmlFor="void-reason">เหตุผล</label><input id="void-reason" value={voidReason} onChange={e=>setVoidReason(e.target.value)} minLength={8} maxLength={500} required/></div>
+      <div className="field"><label htmlFor="void-reason">เหตุผล (ไม่บังคับ)</label><input id="void-reason" value={voidReason} onChange={e=>setVoidReason(e.target.value)} maxLength={500}/></div>
       <div className="action-bar"><button className="button danger" disabled={!!busy}>ยกเลิกรายการนำเข้า</button></div></form>
     </section>}
 

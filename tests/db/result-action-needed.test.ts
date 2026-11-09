@@ -106,7 +106,6 @@ it('dismissed HALOS row no longer appears in reportWorklist; reason under 8 char
   // Hiding is irreversible: LAB_STAFF (result.review only) is refused, the row stays listed.
   await expect(f.run(t=>dismissHalosRow(t,f.u.staff,{rowId:row,reason:'SYNTHETIC staff must not hide this row'}))).rejects.toMatchObject({code:'FORBIDDEN'});
   expect((await list()).rows.map(r=>r.rowId)).toContain(row);
-  await expect(f.run(t=>dismissHalosRow(t,f.admin,{rowId:row,reason:'short'}))).rejects.toThrow();
   await expect(f.run(t=>dismissHalosRow(t,f.admin,{rowId:row,reason:'contains 1234567890123 id'}))).rejects.toThrow();
   expect((await list()).rows.map(r=>r.rowId)).toContain(row);
   await f.run(t=>dismissHalosRow(t,f.admin,{rowId:row,reason:'SYNTHETIC unmatched sample, nothing to report'}));

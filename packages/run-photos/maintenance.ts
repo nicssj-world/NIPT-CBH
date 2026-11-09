@@ -82,7 +82,7 @@ export async function restorePhotos(source:string,rootId:string,targetPath:strin
  */
 export async function relocateRoot(db:Queryable,rootId:string,newPath:string,reason:string){
  const target=validateRootPath(newPath);
- if(reason.trim().length<8)throw new PhotoStorageError('REASON_REQUIRED');
+ reason=reason.trim()||'ไม่ได้ระบุเหตุผล';
  const files=(await referencedFiles(db)).filter(f=>f.rootId===rootId);
  if(!(await db.query('SELECT 1 FROM run_photo_storage_root WHERE id=$1',[rootId])).rows.length)throw new PhotoStorageError('ROOT_NOT_FOUND');
  for(const f of files)await getPhoto(target,f.sha256);

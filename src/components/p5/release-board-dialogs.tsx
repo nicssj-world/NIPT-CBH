@@ -2,7 +2,7 @@
 import {useEffect,useState} from "react";
 import {labApi,failureText} from "../p4/lab-api";
 import {Dialog} from "../p2/shared";
-import {MIN_REASON,reasonOk,attestErrorText} from "./release-board-logic";
+import {attestErrorText} from "./release-board-logic";
 import type {BoardRow} from "./release-board";
 
 // Action-needed dialogs of the results board. The server decides everything (state, permission, row version); these only collect a choice and a reason.
@@ -55,8 +55,8 @@ export function DiscardDialog({row,onClose,onDone}:{row:BoardRow;onClose:()=>voi
   <div className="stack board-dialog">
    {error&&<p className="notice" role="alert">{error}</p>}
    <p>{row.versionId?"รายการนี้จะถูกยกเลิก (Void) และไม่ถูกส่ง HIS":"แถวผล HALOS นี้จะถูกซ่อน และไม่ถูกออกรายงาน"} — บันทึกเหตุผลไว้ในประวัติ</p>
-   <div className="field"><label htmlFor="discard-reason">เหตุผล (อย่างน้อย {MIN_REASON} ตัวอักษร)</label><input id="discard-reason" value={reason} maxLength={500} onChange={e=>setReason(e.target.value)}/></div>
-   <div className="action-bar"><button type="button" className="button secondary" onClick={onClose} disabled={busy}>ยกเลิก</button><button type="button" className="button danger" disabled={busy||!reasonOk(reason)} onClick={submit}>{busy?"กำลังทิ้ง…":"ทิ้งรายการนี้"}</button></div>
+   <div className="field"><label htmlFor="discard-reason">เหตุผล (ไม่บังคับ)</label><input id="discard-reason" value={reason} maxLength={500} onChange={e=>setReason(e.target.value)}/></div>
+   <div className="action-bar"><button type="button" className="button secondary" onClick={onClose} disabled={busy}>ยกเลิก</button><button type="button" className="button danger" disabled={busy} onClick={submit}>{busy?"กำลังทิ้ง…":"ทิ้งรายการนี้"}</button></div>
   </div>
  </Dialog>;
 }

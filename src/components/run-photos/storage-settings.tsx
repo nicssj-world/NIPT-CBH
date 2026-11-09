@@ -45,9 +45,9 @@ export function StorageSettings({initial}:{initial:StorageOverview}){
     <div className="row"><button type="button" className="button secondary" disabled={!path.trim()||busy!==null} onClick={()=>void test()}>{busy==="test"?"กำลังทดสอบ…":"ทดสอบการเข้าถึง"}</button></div>
     {tested&&<Receipt r={tested.receipt} path={tested.path}/>}
     {testedOk&&<>
-     <div><label htmlFor={id+"-reason"}>เหตุผลที่เปลี่ยน (อย่างน้อย 8 ตัวอักษร)</label><input id={id+"-reason"} value={reason} onChange={e=>setReason(e.target.value)} maxLength={250} placeholder="เช่น ย้ายไป NAS ของห้องปฏิบัติการ"/></div>
+     <div><label htmlFor={id+"-reason"}>เหตุผลที่เปลี่ยน (ไม่บังคับ)</label><input id={id+"-reason"} value={reason} onChange={e=>setReason(e.target.value)} maxLength={250} placeholder="เช่น ย้ายไป NAS ของห้องปฏิบัติการ"/></div>
      <p className="notice warning-notice small" role="note">ภาพใหม่จะเก็บที่ Path นี้ ภาพเดิมไม่ถูกย้ายหรือลบ และยังเปิดจากที่เก็บเดิม — ต้องคงที่เก็บเดิมไว้ให้เข้าถึงได้ และรวมไว้ในการสำรองข้อมูล ระบบทดสอบ Path อีกครั้งก่อนบันทึก</p>
-     <div className="row"><button className="button" disabled={busy!==null||reason.trim().length<8}>{busy==="save"?"กำลังบันทึก…":"บันทึกและใช้ Path นี้"}</button></div>
+     <div className="row"><button className="button" disabled={busy!==null}>{busy==="save"?"กำลังบันทึก…":"บันทึกและใช้ Path นี้"}</button></div>
     </>}
     {error&&<p className="notice" role="alert">{error}</p>}
     {saved&&<p className="notice success" role="status">{saved}</p>}

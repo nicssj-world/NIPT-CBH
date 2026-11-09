@@ -28,7 +28,7 @@ export function SampleActionCenter({subject:s,can,onClose,onDone}:{subject:Actio
  const [kind,setKind]=useState<Kind|null>(()=>afterFour&&can.noCall?"NO_CALL":null),[stage,setStage]=useState<string>("QC1"),[reason,setReason]=useState(""),[note,setNote]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState("");
  const live=LIVE.includes(s.attemptState),override=(kind==="RE_LIBRARY"||kind==="RE_EXTRACTION")&&afterFour;
  const reasons=kind==="RE_SAMPLING"?REDRAW_REASONS:REPEAT_REASONS;
- const valid=!!kind&&(kind==="NO_CALL"||!!reason)&&(!override||note.trim().length>=8);
+ const valid=!!kind&&(kind==="NO_CALL"||!!reason)&&true;
  async function submit(){if(!kind)return;setBusy(true);setError("");try{
   const r=await labApi<Record<string,unknown>>("/api/p4/worklist",{action:"actionCenter",attemptId:s.attemptId,kind,...(live&&kind!=="RE_SAMPLING"?{stage}:{}),...(kind!=="NO_CALL"?{reasonCode:reason}:{}),...(note.trim()?{note:note.trim()}:{})});
   await onDone(kind==="RE_SAMPLING"?`สั่ง Re-Sampling แล้ว — รอบที่ ${String(r.newRoundNumber)}`:kind==="NO_CALL"?"บันทึก No Call แล้ว — รอรับ PDF No Call":`สั่ง ${kind==="RE_LIBRARY"?"Re-Library":"Re-Extraction"} แล้ว${r.printedSampleId?` — ${String(r.printedSampleId)}`:""}`);onClose();
@@ -49,7 +49,7 @@ export function SampleActionCenter({subject:s,can,onClose,onDone}:{subject:Actio
   {kind&&<div className="form-grid">
    {live&&kind!=="RE_SAMPLING"&&<div className="field"><label htmlFor="ac-stage">ขั้นตอนที่ไม่สำเร็จ</label><select id="ac-stage" value={stage} onChange={e=>setStage(e.target.value)}>{STAGES.map(v=><option key={v} value={v}>{v==="SEQUENCING"?"Sequencing":v}</option>)}</select></div>}
    {kind!=="NO_CALL"&&<div className="field"><label htmlFor="ac-reason">เหตุผล</label><select id="ac-reason" value={reason} onChange={e=>setReason(e.target.value)}><option value="">เลือกเหตุผล</option>{reasons.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div>}
-   {(override||kind!=="NO_CALL")&&<div className="field action-center-note"><label htmlFor="ac-note">{override?"เหตุผลการตรวจเกิน 4 ครั้ง (อย่างน้อย 8 ตัวอักษร)":"หมายเหตุ (ถ้ามี)"}</label><textarea id="ac-note" rows={2} maxLength={500} value={note} onChange={e=>setNote(e.target.value)}/></div>}
+   {(override||kind!=="NO_CALL")&&<div className="field action-center-note"><label htmlFor="ac-note">{override?"เหตุผลการตรวจเกิน 4 ครั้ง (ไม่บังคับ)":"หมายเหตุ (ถ้ามี)"}</label><textarea id="ac-note" rows={2} maxLength={500} value={note} onChange={e=>setNote(e.target.value)}/></div>}
   </div>}
   {live&&kind&&kind!=="RE_SAMPLING"&&<p className="help">บันทึกว่าขั้นตอนนี้ไม่สำเร็จจากการปฏิบัติงานจริง แล้วดำเนินการตามที่เลือกในครั้งเดียว</p>}</>}
   {error&&<p className="notice" role="alert">{error}</p>}

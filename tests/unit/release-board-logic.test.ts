@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {batchSignature,canSend,outcomeText,reasonOk,sendTicks,selectedRows,type SendableRow,canShowOnPatient,attestErrorText} from '../../src/components/p5/release-board-logic';
+import {batchSignature,canSend,outcomeText,sendTicks,selectedRows,type SendableRow,canShowOnPatient,attestErrorText} from '../../src/components/p5/release-board-logic';
 
 const row=(o:Partial<SendableRow>={}):SendableRow=>({key:'version:a',versionId:'a',rowVersion:3,abnormal:false,reviewed:true,...o});
 describe('release board send rules',()=>{
@@ -16,7 +16,6 @@ describe('outcome text',()=>{
  it('certified',()=>expect(outcomeText({versionId:'a',outcome:'CertifiedReleased'},label)).toContain('ส่ง HIS สำเร็จ'));
  it('blocked lists reasons',()=>expect(outcomeText({versionId:'a',outcome:'BLOCKED',failed:['X'],pending:['Y']},label)).toContain('<X> · <Y>'));
  it('error maps known codes and falls back to the code',()=>{expect(outcomeText({versionId:'a',outcome:'ERROR',code:'VERSION_CONFLICT'},label)).toContain('โหลดใหม่');expect(outcomeText({versionId:'a',outcome:'ERROR',code:'ZZZ'},label)).toContain('ZZZ');});
- it('reason needs 8 characters',()=>{expect(reasonOk('1234567')).toBe(false);expect(reasonOk(' 12345678 ')).toBe(true);});
 });
 
 describe('"มีผลใน HIS แล้ว" on the board (Owner 2026-11-09)',()=>{

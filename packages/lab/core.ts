@@ -13,8 +13,12 @@ import {assignmentPredicates,decide,type PendingPolicy,type CommonFacts} from '.
 export type Staff=Principal&{sessionId?:string};
 export class LabError extends Error{constructor(public code:string,public status=400,public details?:unknown){super(code);}}
 export const uuid=z.uuid();
-// Free text never carries identifiers: 8–500 characters, no 13-digit runs (possible national ID), no control characters.
-export const reasonText=z.string().trim().min(8).max(500).refine(v=>!/\d{13}/.test(v)&&!/[\u0000-\u001f]/.test(v),'REASON_TEXT_INVALID');
+// Owner 2026-11-09: nobody has to type a reason for a routine action. A reason that is not given (or is shorter than the 8 characters some tables require) is stored as the
+// standard text, with what the person typed after it; who and when stay in the audit. Free text still never carries identifiers: at most 500 characters, no 13-digit runs
+// (possible national ID), no control characters.
+export const DEFAULT_REASON='ไม่ได้ระบุเหตุผล';
+export const reasonText=z.string().trim().max(500).refine(v=>!/\d{13}/.test(v)&&!/[\u0000-\u001f]/.test(v),'REASON_TEXT_INVALID').optional()
+ .transform(v=>!v?DEFAULT_REASON:v.length>=8?v:`${DEFAULT_REASON}: ${v}`);
 // Synthetic reason vocabularies — final wording/codes remain OD-11 / OD-34 decisions.
 export const REDRAW_REASONS=['QC1_FAILED','QC_SAMPLE_FAILED','FETAL_FRACTION_LOW','SPECIMEN_PROBLEM','OTHER'] as const;
 export const REPEAT_REASONS=['QC1_LOW','LIBRARY_FAILURE','BATCH_CANCELLED','STOPPED_BY_LAB','OTHER'] as const;

@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {reasonText} from '../lab/core';
 import type {Queryable} from '../db/connection';
 import {lockLn} from '../db/registration';
 import {appendAudit} from '../db/audit';
@@ -15,7 +16,7 @@ export const ACTIONS_BY_KIND:Record<IssueKind,readonly ResolutionAction[]>={
  UNLINKED:['link_case','dismiss'],IDENTITY_MISMATCH:['link_case','dismiss'],IDENTITY_UNVERIFIED:['link_case','dismiss'],
  LN_REUSED_OR_CHANGED:['keep_existing'],LN_REUSED_DIFFERENT_PATIENT:['keep_existing'],S1_INTEGRITY_EVENT:['acknowledge'],HISTORICAL_LN_INTAKE:['acknowledge']
 };
-export const resolutionInput=z.strictObject({action:z.enum(RESOLUTION_ACTIONS),caseId:z.uuid().nullable().optional(),reason:z.string().trim().min(8).max(500)});
+export const resolutionInput=z.strictObject({action:z.enum(RESOLUTION_ACTIONS),caseId:z.uuid().nullable().optional(),reason:reasonText});
 export class ResolutionError extends Error{constructor(code:string,public status=409){super(code);}}
 type Issue={id:string;inbound_file_id:string;ln:string;kind:IssueKind;case_id:string|null;state:string};
 
@@ -45,7 +46,7 @@ export async function proposeResolution(db:Queryable,user:Principal,issueId:stri
 
 /** Step 2 (Certifier, "A", different person): approve executes the proposal; reject reopens the issue. */
 export async function decideResolution(db:Queryable,user:Principal,issueId:string,input:unknown,deps:InboundDeps){
- const d=z.strictObject({decision:z.enum(['APPROVED','REJECTED']),reason:z.string().trim().min(8).max(500)}).parse(input);
+ const d=z.strictObject({decision:z.enum(['APPROVED','REJECTED']),reason:reasonText}).parse(input);
  const issue=await lockIssue(db,issueId);if(issue.state!=='Proposed')throw new ResolutionError('ISSUE_NOT_PROPOSED');
  const proposal=(await db.query<{action:ResolutionAction;case_id:string|null;actor_id:string}>("SELECT action,case_id,actor_id FROM his_intake_issue_event WHERE issue_id=$1 AND event='PROPOSED' ORDER BY sequence DESC LIMIT 1",[issue.id])).rows[0];
  if(!proposal)throw new ResolutionError('RESOLUTION_PROPOSAL_REQUIRED');

@@ -304,7 +304,7 @@ export async function fixRow(db:Queryable,user:Staff,store:FileStore,draftId:str
  need(user,'history.draft','write');
  const patch=patchSchema.parse(rawPatch);
  for(const k of Object.keys(patch))if(!FIXABLE.has(k))throw err('COLUMN_NOT_EDITABLE',400);
- if(reason.trim().length<8||reason.length>250)throw err('REASON_REQUIRED',400);
+ reason=reason.trim()||'ไม่ได้ระบุเหตุผล';if(reason.length>250)throw err('REASON_REQUIRED',400);
  const d=await loadDraft(db,z.uuid().parse(draftId),true);
  if(!d)throw err('NOT_FOUND',404);
  if(!ABANDON_STATES.includes(d.state))throw err('ROW_NOT_EDITABLE');
@@ -344,7 +344,7 @@ async function refreshSiblings(db:Queryable,ctx:HistoricalContext,user:{id:strin
 }
 export async function abandonRow(db:Queryable,user:Staff,draftId:string,reason:string){
  need(user,'history.draft','write');
- if(reason.trim().length<8||reason.length>250)throw err('REASON_REQUIRED',400);
+ reason=reason.trim()||'ไม่ได้ระบุเหตุผล';if(reason.length>250)throw err('REASON_REQUIRED',400);
  const d=await loadDraft(db,z.uuid().parse(draftId),true);
  if(!d)throw err('NOT_FOUND',404);
  if(!ABANDON_STATES.includes(d.state))throw err('ROW_NOT_EDITABLE');

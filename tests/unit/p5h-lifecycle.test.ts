@@ -97,7 +97,6 @@ describe('P5H promotion decision (D-46, AT-HIST-06/09/11/16)',()=>{
   expect(decideRevisionVerification({recordState:'RevisionPending',editorIds:[],verifier:{id:'x',hasHistoricalVerifierRole:false},matchesOriginal:true})).toEqual({kind:'REJECT',code:'FORBIDDEN'});
   expect(decideWithdrawal({recordState:'Verified',proposerId:'a',approverId:'b',reason:'misclassified'})).toEqual({kind:'WITHDRAW'});
   expect(decideWithdrawal({recordState:'Verified',proposerId:'a',approverId:'a',reason:'x'})).toEqual({kind:'REJECT',code:'TWO_PERSON_REQUIRED'});
-  expect(decideWithdrawal({recordState:'Verified',proposerId:'a',approverId:'b',reason:'  '})).toEqual({kind:'REJECT',code:'REASON_REQUIRED'});
   expect(decideWithdrawal({recordState:'RevisionPending',proposerId:'a',approverId:'b',reason:'x'})).toEqual({kind:'REJECT',code:'ONLY_VERIFIED_CAN_BE_WITHDRAWN'});
  });
 });

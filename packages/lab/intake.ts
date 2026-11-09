@@ -286,7 +286,7 @@ export async function actionCenter(db:Queryable,user:Staff,input:unknown){
  const reasonLabel=d.reasonCode?ACTION_REASON_TEXT[d.reasonCode]:undefined;
  if(d.reasonCode&&!reasonLabel)throw new LabError('REASON_CODE_INVALID',422);
  const override=['RE_LIBRARY','RE_EXTRACTION'].includes(d.kind)&&a.overall_ordinal>=4;
- if(override&&(d.note??'').length<8)throw new LabError('OVERRIDE_REASON_REQUIRED',422);
+
  const note=d.note&&d.note.length>=8?d.note:`${reasonLabel??'เลือกจาก Action Center'} (เลือกจากรายการ)`;
  const live=['Assigned','InProgress'].includes(a.attempt_state);
  if(live&&d.kind!=='RE_SAMPLING'){

@@ -46,5 +46,3 @@ export const ATTEST_ERROR_TEXT:Record<string,string>={
  HIS_ATTESTATION_EXISTS:"ระบุไว้แล้วก่อนหน้านี้",HIS_ATTESTATION_TRANSFER_EXISTS:"เริ่มส่ง HIS แล้ว — ตรวจสถานะการส่ง",
  FORBIDDEN:"ไม่มีสิทธิ์ทำรายการนี้",VERSION_CONFLICT:"มีผู้อื่นเปลี่ยนรายการนี้ — โหลดใหม่แล้วลองอีกครั้ง"};
 export const attestErrorText=(code:string)=>ATTEST_ERROR_TEXT[code]??(code.startsWith("AUTO_")?ATTEST_ERROR_TEXT.NOT_A_CLEAN_MATCH:"ทำรายการไม่สำเร็จ");
-export const MIN_REASON=8;
-export const reasonOk=(s:string)=>s.trim().length>=MIN_REASON;

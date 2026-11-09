@@ -42,8 +42,8 @@ export function SignerProfile({targetUserId,self,onChanged}:{targetUserId:string
      <div className="action-bar"><button type="button" className="button secondary" onClick={()=>void sample(latest,"SINGLETON")}>ดูตัวอย่างแบบเดี่ยว</button><button type="button" className="button secondary" onClick={()=>void sample(latest,"TWIN")}>ดูตัวอย่างแบบแฝด</button></div>
      {latest.state===null&&<label className="check-label"><input type="checkbox" disabled={!(rv(latest).SINGLETON&&rv(latest).TWIN)} checked={rv(latest).ok} onChange={e=>setReview({...rv(latest),ok:e.target.checked})}/> ลายเซ็นแสดงถูกต้องตามแบบฟอร์ม</label>}
      {latest.state===null&&rv(latest).unavailable&&<label className="check-label"><input type="checkbox" checked={rv(latest).skip} onChange={e=>setReview({...rv(latest),skip:e.target.checked})}/> ดูตัวอย่างไม่ได้ในเครื่องนี้ — ขอยืนยันโดยไม่ดูตัวอย่าง (ระบบบันทึกว่า “ไม่ได้ดูตัวอย่าง”)</label>}</fieldset>
-    <div className="action-bar">{latest.state===null&&<button type="button" className="button" disabled={busy||note.trim().length<8||!(rv(latest).ok&&rv(latest).SINGLETON&&rv(latest).TWIN)&&!(rv(latest).unavailable&&rv(latest).skip)} onClick={()=>void decide(latest,"VERIFY")}>ยืนยันใบอนุญาตและลายเซ็น</button>}
-     <button type="button" className="button secondary" disabled={busy||note.trim().length<8} onClick={()=>void decide(latest,"REVOKE")}>เพิกถอน</button></div></div>}
+    <div className="action-bar">{latest.state===null&&<button type="button" className="button" disabled={busy||!(rv(latest).ok&&rv(latest).SINGLETON&&rv(latest).TWIN)&&!(rv(latest).unavailable&&rv(latest).skip)} onClick={()=>void decide(latest,"VERIFY")}>ยืนยันใบอนุญาตและลายเซ็น</button>}
+     <button type="button" className="button secondary" disabled={busy} onClick={()=>void decide(latest,"REVOKE")}>เพิกถอน</button></div></div>}
   </div>:<p className="help">{self?"ยังไม่มีใบอนุญาตและลายเซ็นสำหรับรายงาน":"ผู้ใช้นี้ยังไม่ได้บันทึกใบอนุญาตและลายเซ็นในโปรไฟล์ของตนเอง"}</p>}
   {self&&<div className="stack"><h3>{latest?"บันทึกฉบับใหม่":"บันทึกใบอนุญาตและลายเซ็น"}</h3>
    <div className="form-grid">
