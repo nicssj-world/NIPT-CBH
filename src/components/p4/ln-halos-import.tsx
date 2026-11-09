@@ -31,11 +31,11 @@ export function LnHalosImport(){
   {error&&<p role="alert">{error}</p>}
   {preview&&<div className="stack"><p>ทั้งหมด {preview.rows.length} รายการ · ใหม่ {preview.rows.filter(r=>r.status==='NEW').length} · มีแล้ว {preview.rows.filter(r=>r.status==='EXISTING'||r.status==='EXISTING_CASE').length} · ขัดแย้ง {held.length} · ข้อมูลไม่ถูกต้อง {bad} · พบ PET รอ {preview.rows.filter(r=>r.pendingPet).length}</p>
    {held.length>0&&<div role="alert"><p>รายการขัดแย้งต่อไปนี้จะไม่ถูกนำเข้า</p><ul>{held.map(r=><li key={r.row}>แถว {r.row} · {r.ln} · {r.lnHalos}: {r.issues.map(i=>issueText[i]??i).join(', ')}</li>)}</ul></div>}
-   {bad>0&&<div role="alert"><p>กรุณาแก้ข้อมูลที่ไม่ถูกต้องก่อนนำเข้า</p><ul>{preview.rows.filter(r=>r.status==='INVALID').map(r=><li key={r.row}>แถว {r.row} · {r.ln} · {r.lnHalos}: {r.issues.map(i=>issueText[i]??i).join(', ')}</li>)}</ul></div>}
+   {bad>0&&<div role="alert"><p>รายการข้อมูลไม่ถูกต้องต่อไปนี้จะไม่ถูกนำเข้า (แก้ในไฟล์แล้วนำเข้าอีกครั้งได้)</p><ul>{preview.rows.filter(r=>r.status==='INVALID').map(r=><li key={r.row}>แถว {r.row} · {r.ln} · {r.lnHalos}: {r.issues.map(i=>issueText[i]??i).join(', ')}</li>)}</ul></div>}
    <div className="table-wrap"><table className="data-table"><thead><tr><th>แถว</th><th>LN</th><th>LN Halos</th><th>ผลตรวจ</th></tr></thead><tbody>{preview.rows.slice(0,100).map(r=><tr key={r.row}><td>{r.row}</td><td>{r.ln}</td><td>{r.lnHalos}</td><td>{labels[r.status]??r.status}{r.pendingPet?' · มี PET รอ':''}{r.issues.length?` · ${r.issues.join(', ')}`:''}</td></tr>)}</tbody></table></div>
    {preview.rows.length>100&&<p>แสดง 100 รายการแรก จาก {preview.rows.length} รายการ</p>}
    <label><input type="checkbox" checked={frozen} onChange={e=>setFrozen(e.target.checked)} /> ยืนยันว่าหยุดออกเลขจากระบบเดิมแล้ว และไฟล์นี้มีเลขที่ออกล่าสุด</label>
-   <button className="button" type="button" disabled={busy||!frozen||bad>0||preview.rows.length===0||!!result} onClick={()=>void send(true)}>{busyAction==='confirm'?'กำลังนำเข้า…':'ยืนยันนำเข้า'}</button>
+   <button className="button" type="button" disabled={busy||!frozen||preview.rows.length===0||!!result} onClick={()=>void send(true)}>{busyAction==='confirm'?'กำลังนำเข้า…':'ยืนยันนำเข้า'}</button>
   </div>}
   {result&&<p role="status">{result.replayed?'ไฟล์นี้นำเข้าแล้ว':`นำเข้าใหม่ ${result.imported} รายการ`} · ขัดแย้งและไม่นำเข้า {result.held} · จับคู่ PET สำเร็จ {result.matching.matched} · รอ PET หรือรอตรวจสอบ {result.matching.pending}{result.matching.issues.length?` · มีรายการต้องตรวจ ${result.matching.issues.length}`:''}</p>}
   {result&&result.matching.issues.length>0&&<ul>{result.matching.issues.map(i=><li key={i.ln}>{i.ln}: {i.code}</li>)}</ul>}

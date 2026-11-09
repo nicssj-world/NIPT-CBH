@@ -23,7 +23,7 @@ export async function commitLnHalosImport(db:Queryable,user:Staff,source:SourceI
   for(const ln of [...new Set(original.mappings.filter(m=>/^[0-9]+$/.test(m.hisLn)).map(m=>m.hisLn))].sort())await lockLn(d,ln);
   await d.query('SELECT pg_advisory_xact_lock(75432872)');
   const preview=await previewLnHalosImport(d,source);
-  if(preview.rows.length===0||preview.rows.some(r=>r.status==='INVALID'))throw new LabError('MAPPING_REVIEW_REQUIRED',409);
+  if(preview.rows.length===0)throw new LabError('MAPPING_REVIEW_REQUIRED',409);
   const accepted=new Set(preview.rows.filter(r=>r.status==='NEW'||r.status==='EXISTING').map(r=>r.row));
   const mappings=original.mappings.filter(m=>accepted.has(m.rowNumber)).map(m=>({...m,valid:true,exceptions:[]}));
   const digest=hash(canonical({kind:'LN_HALOS_IMPORT_V1',source:sha,rows:mappings.map(m=>m.sourceKey)}));

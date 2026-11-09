@@ -53,3 +53,14 @@ it('reuses a pair from the previous historical migration without changing its cl
   expect((await db.query<{id:string}>('SELECT record_id id FROM migration_execution_record WHERE execution_id=$1',[result.executionId])).rows[0].id).toBe(before.id);
  }finally{await db.close();await rm(root,{recursive:true,force:true});}
 },120000);
+
+// Owner 2026-11-09: one malformed row must not stop the good rows from being imported; it is left out and listed in the preview.
+it('imports the good rows even when another row of the file is invalid',async()=>{
+ const db=await testDatabase(),root=await mkdtemp(path.join(os.tmpdir(),'ln-commit-'));
+ try{
+  const admin=await addUser(db),store=new FileStore(root);
+  const source={name:'mixed.xlsx',bytes:simpleXlsx('Mapping',[['LN','LN Halos'],['990001','26B261105054'],['990002','NOT-A-HALOS-ID']])};
+  const deps={store,verifyBackup:async()=>({manifestSha256:'a'.repeat(64),verification:'CREATION_VERIFIED',at:new Date().toISOString()})};
+  expect((await commitLnHalosImport(db,admin,source,{sourceFrozen:true},deps)).imported).toBe(1);
+ }finally{await db.close();await rm(root,{recursive:true,force:true});}
+},120000);
