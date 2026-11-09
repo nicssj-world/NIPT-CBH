@@ -171,7 +171,9 @@ export async function dismissHalosRow(db:Queryable,user:Staff,input:unknown):Pro
  // Hiding is irreversible (no un-hide yet) and a hidden row's report is never produced: the same authority as voiding a version.
  need(user,'result.revise');
  const d=z.strictObject({rowId:uuid,reason:reasonText}).parse(input);
- const row=(await db.query<{id:string}>('SELECT id FROM halos_import_row WHERE id=$1 FOR UPDATE',[d.rowId])).rows[0];
+ // The application role may only SELECT and INSERT halos_import_row, so "FOR UPDATE" is refused in Production (permission denied). An advisory lock serialises two people dismissing the same row instead.
+ await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`halos-dismiss:${d.rowId}`]);
+ const row=(await db.query<{id:string}>('SELECT id FROM halos_import_row WHERE id=$1',[d.rowId])).rows[0];
  if(!row)throw new LabError('NOT_FOUND',404);
  if((await db.query('SELECT 1 FROM halos_row_dismissal WHERE row_id=$1',[row.id])).rows[0])throw new LabError('HALOS_ROW_ALREADY_DISMISSED',409);
  if((await db.query("SELECT 1 FROM internal_report WHERE halos_row_id=$1 AND state='Final'",[row.id])).rows[0])throw new LabError('HALOS_ROW_HAS_FINAL_REPORT',409);
