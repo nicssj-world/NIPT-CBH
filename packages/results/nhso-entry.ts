@@ -11,7 +11,7 @@ import {recordPhiAccess} from '../db/phi-access';
 
 // ลงผลสปสช. (Owner 2026-11-09). Lists every certified, Active result of a patient whose request records the NHSO (สปสช.) entitlement;
 // staff copy the patient data into the NHSO system and confirm here. The state is the latest nhso_result_entry_event of that release
-// (migration 207). A reissued result is a new release, so it comes back as pending with `reissued` set.
+// (migration 208). A reissued result is a new release, so it comes back as pending with `reissued` set.
 export type NhsoTab='PENDING'|'DONE';
 export type NhsoRow={releaseId:string;caseId:string;ln:string;hn:string|null;name:string|null;certifiedAt:string;reissued:boolean;entry:{at:string;by:string|null}|null};
 
