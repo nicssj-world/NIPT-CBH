@@ -81,13 +81,13 @@ describe('Settings → consumer',()=>{
   const zod=(()=>{try{SETTINGS.his_inbound.schema.parse({...SETTINGS.his_inbound.default,intervalSeconds:1,lookbackDays:200});}catch(e){return e;}})();
   expect(settingsErrorMessage(zod,'his_inbound')).toMatch(/รอบการสแกน.*สแกนย้อนหลัง/);
  });
- it('5 HIS PET with an empty citizen ID (legacy test_empty_citizen_id_ok) parses in operational mode; a present ID is still validated',()=>{
+ it('5 HIS PET with an empty citizen ID (legacy test_empty_citizen_id_ok) parses in operational mode; a present ID is kept, and an unclean one is read as not sent',()=>{
   vi.stubEnv('NIPT_MODE','operational');vi.stubEnv('APP_ORIGIN','https://nipt.test');
   try{
    const empty=buildSyntheticPet({ln:'2622370099',hn:'69039999',name:'ไม่มีเลขบัตร^^น.ส. ทดสอบ',receivedAt:'20260811091500',ward:'301',identity:''});
    const pet=parsePet(empty.bytes,empty.filename);expect(pet.identity).toBe('');expect(redactPet(pet,Buffer.alloc(32,7)).identityKey).toBeNull();
    const bad=buildSyntheticPet({ln:'2622370098',hn:'69039998',name:'ทดสอบ^^น.ส. ทดสอบ',receivedAt:'20260811091500',ward:'301',identity:'has space'});
-   expect(()=>parsePet(bad.bytes,bad.filename)).toThrow('INVALID_PATIENT_IDENTITY');
+   expect(parsePet(bad.bytes,bad.filename).identity).toBe('');   // Owner 2026-11-09: only LN and HN gate a PET; a citizen ID with a space inside is read as not sent, never guessed
   }finally{vi.unstubAllEnvs();}
  });
 });
