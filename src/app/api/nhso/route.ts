@@ -4,9 +4,9 @@ import {nhsoBoard,nhsoDetail,exportNhsoXlsx,confirmNhsoEntry,markNotNhso,cancelN
 import {protect,readJson} from "../../../server/http";
 import {p5Error,p5Mutation,noStore,resultStore} from "../../../server/p5";
 
-/** ลงผลสปสช.: `?releaseId=` returns one popup's patient data (read from the stored PET), otherwise the board. */
-export async function GET(request:NextRequest){try{const user=await protect(request,"nhso.entry");const p=request.nextUrl.searchParams,releaseId=p.get("releaseId");
- const r=await withTransaction<unknown>(db=>releaseId?nhsoDetail(db,resultStore(),user,releaseId):nhsoBoard(db,user,{tab:p.get("tab")??"PENDING",q:p.get("q")??"",from:p.get("from")||undefined,to:p.get("to")||undefined,page:Number(p.get("page")??1),pageSize:Number(p.get("pageSize")??50)}));
+/** ลงผลสปสช.: `?resultId=` returns one popup's patient data (read from the stored PET), otherwise the board. */
+export async function GET(request:NextRequest){try{const user=await protect(request,"nhso.entry");const p=request.nextUrl.searchParams,resultId=p.get("resultId");
+ const r=await withTransaction<unknown>(db=>resultId?nhsoDetail(db,resultStore(),user,resultId):nhsoBoard(db,user,{tab:p.get("tab")??"PENDING",q:p.get("q")??"",from:p.get("from")||undefined,to:p.get("to")||undefined,page:Number(p.get("page")??1),pageSize:Number(p.get("pageSize")??50)}));
  return NextResponse.json(r,{headers:noStore});}catch(e){return p5Error(e);}}
 
 /** The export is a POST (not a link) so a searched LN/HN never appears in a URL. */

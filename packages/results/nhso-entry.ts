@@ -15,18 +15,24 @@ import {recordPhiAccess} from '../db/phi-access';
 // (migration 208). A reissued result is a new release, so it comes back as pending with `reissued` set.
 export type NhsoTab='PENDING'|'DONE'|'NOT_NHSO';
 /** `entitlement` UNSPECIFIED = the request chose neither สปสช. nor self-pay (treated as สปสช.). `entry` is the current CONFIRMED / NOT_NHSO decision, if any. */
-export type NhsoRow={releaseId:string;caseId:string;ln:string;hn:string|null;name:string|null;certifiedAt:string;reissued:boolean;entitlement:'NHSO'|'UNSPECIFIED';entry:{kind:'CONFIRMED'|'NOT_NHSO';at:string;by:string|null}|null};
+export type NhsoRow={resultId:string;caseId:string;ln:string;hn:string|null;name:string|null;certifiedAt:string;reissued:boolean;entitlement:'NHSO'|'UNSPECIFIED';entry:{kind:'CONFIRMED'|'NOT_NHSO';at:string;by:string|null}|null};
 
-type R={release_id:string;case_id:string;round_id:string;certified_at:Date;ln:string;hn:string|null;name:string|null;registration_origin:string;unit_id:string|null;
+type R={subject_id:string;source:'RELEASE'|'HISTORICAL';version_id:string;case_id:string;round_id:string;certified_at:Date;ln:string;hn:string|null;name:string|null;registration_origin:string;unit_id:string|null;
  draft:RequestDraft|null;entitlement:string|null;entry_kind:string|null;entry_at:Date|null;entry_by:string|null;reissued:boolean};
 
-const ROWS_SQL=`SELECT r.id release_id,r.case_id,r.round_id,r.certified_at,l.ln,i.hn,c.registration_origin,
+/** Same meaning as ANC's "มีผลตรวจแล้ว": a certified NIPT-CBH release, or a result HIS already holds / the previous system reported (historical_reported_result, no release).
+ *  `subject_id` is the release id for the first and the result version id for the second. */
+const ROWS_SQL=`WITH subj AS (
+  SELECT rr.id subject_id,'RELEASE' source,rr.version_id,rr.case_id,rr.round_id,rr.certified_at FROM result_release rr WHERE rr.state='Active' AND rr.kind='RESULT'
+  UNION ALL
+  SELECT h.version_id,'HISTORICAL',h.version_id,h.case_id,h.round_id,h.imported_at FROM historical_reported_result h)
+ SELECT r.subject_id,r.source,r.version_id,r.case_id,r.round_id,r.certified_at,l.ln,i.hn,c.registration_origin,
   (SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=r.case_id ORDER BY s.unit_id LIMIT 1) unit_id,
   w.draft,ent.entitlement,COALESCE(NULLIF(btrim(pet.parsed->>'name'),''),NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),'')) AS name,
   e.kind entry_kind,e.at entry_at,COALESCE(NULLIF(btrim(u.display_name),''),u.username) entry_by,
-  EXISTS(SELECT 1 FROM result_release p WHERE p.round_id=r.round_id AND p.kind='RESULT' AND p.id<>r.id
-   AND (SELECT x.kind FROM nhso_result_entry_event x WHERE x.release_id=p.id ORDER BY x.sequence DESC LIMIT 1)='CONFIRMED') reissued
- FROM result_release r JOIN nipt_case c ON c.id=r.case_id JOIN specimen_round s ON s.id=r.round_id JOIN case_ln l ON l.id=s.case_ln_id
+  (r.source='RELEASE' AND EXISTS(SELECT 1 FROM result_release p WHERE p.round_id=r.round_id AND p.kind='RESULT' AND p.id<>r.subject_id
+   AND (SELECT x.kind FROM nhso_result_entry_event x WHERE x.release_id=p.id ORDER BY x.sequence DESC LIMIT 1)='CONFIRMED')) reissued
+ FROM subj r JOIN nipt_case c ON c.id=r.case_id JOIN specimen_round s ON s.id=r.round_id JOIN case_ln l ON l.id=s.case_ln_id
  LEFT JOIN p2_case_identity i ON i.case_id=c.id
  LEFT JOIN LATERAL (SELECT w.draft FROM p2_workspace w JOIN specimen_round x ON x.id=w.round_id
    WHERE w.case_id=r.case_id ORDER BY (w.round_id=r.round_id) DESC,x.round_number DESC LIMIT 1) w ON true
@@ -35,16 +41,16 @@ const ROWS_SQL=`SELECT r.id release_id,r.case_id,r.round_id,r.certified_at,l.ln,
    ORDER BY (w2.round_id=r.round_id) DESC,x2.round_number DESC LIMIT 1) ent ON true
  LEFT JOIN LATERAL (SELECT f.parsed FROM his_order_current o JOIN his_inbound_file_current f ON f.id=o.inbound_file_id
    WHERE o.round_id=r.round_id ORDER BY o.his_received_at DESC LIMIT 1) pet ON true
- LEFT JOIN LATERAL (SELECT x.kind,x.at,x.actor_id FROM nhso_result_entry_event x WHERE x.release_id=r.id ORDER BY x.sequence DESC LIMIT 1) e ON true
+ LEFT JOIN LATERAL (SELECT x.kind,x.at,x.actor_id FROM nhso_result_entry_event x WHERE (r.source='RELEASE' AND x.release_id=r.subject_id) OR (r.source='HISTORICAL' AND x.version_id=r.subject_id) ORDER BY x.sequence DESC LIMIT 1) e ON true
  LEFT JOIN app_user u ON u.id=e.actor_id
- WHERE r.state='Active' AND r.kind='RESULT' AND c.registration_origin<>'HISTORICAL'
+ WHERE c.registration_origin<>'HISTORICAL'
   AND NOT EXISTS(SELECT 1 FROM eqa_case q WHERE q.case_id=r.case_id)`;
 
 /** Owner 2026-11-09: only an explicit "self-pay / เรียกเก็บ" entitlement stays out. A case that chose neither (blank, paper request from the Lab, unrecognised text)
  *  is treated as สปสช.; staff can mark it "not สปสช." on this page. Only cases the user may see. */
 const kindOf=(r:R)=>entitlementKind(r.entitlement);
 const eligible=(user:Staff,r:R)=>kindOf(r)!=='SELF_PAY'&&caseVisible(user,{unit_id:r.unit_id,registration_origin:r.registration_origin});
-const toRow=(r:R):NhsoRow=>({releaseId:r.release_id,caseId:r.case_id,ln:r.ln,hn:r.hn,name:r.name,certifiedAt:new Date(r.certified_at).toISOString(),reissued:r.reissued,
+const toRow=(r:R):NhsoRow=>({resultId:r.subject_id,caseId:r.case_id,ln:r.ln,hn:r.hn,name:r.name,certifiedAt:new Date(r.certified_at).toISOString(),reissued:r.reissued,
  entitlement:kindOf(r)==='NHSO'?'NHSO':'UNSPECIFIED',
  entry:(r.entry_kind==='CONFIRMED'||r.entry_kind==='NOT_NHSO')&&r.entry_at?{kind:r.entry_kind,at:new Date(r.entry_at).toISOString(),by:r.entry_by}:null});
 
@@ -61,7 +67,7 @@ async function selectRows(db:Queryable,user:Staff,d:{tab:NhsoTab;q:string;from?:
  const q=d.q.replace(/[%_\-]/g,'');
  const fetched=(await db.query<R>(`${ROWS_SQL}
    AND ($1='' OR l.ln LIKE $1||'%' OR ltrim(COALESCE(i.hn,''),'0') LIKE ltrim($1,'0')||'%')
-  ORDER BY r.certified_at,r.id LIMIT $2`,[q,cap+1])).rows;
+  ORDER BY r.certified_at,r.subject_id LIMIT $2`,[q,cap+1])).rows;
  const truncated=fetched.length>cap,all=fetched.slice(0,cap).filter(r=>eligible(user,r));
  const done=all.filter(r=>r.entry_kind==='CONFIRMED'),notNhso=all.filter(r=>r.entry_kind==='NOT_NHSO'),pending=all.filter(r=>r.entry_kind!=='CONFIRMED'&&r.entry_kind!=='NOT_NHSO');
  // Pending: oldest release first (work the queue in order). Entered / marked not สปสช.: most recent first.
@@ -97,8 +103,8 @@ export async function exportNhsoXlsx(db:Queryable,user:Staff,input:unknown,cap=N
  return {bytes:simpleXlsx('ลงผลสปสช.',table),count:list.length,table};
 }
 
-async function eligibleRelease(db:Queryable,user:Staff,releaseId:string){
- const r=(await db.query<R>(`${ROWS_SQL} AND r.id=$1`,[uuid.parse(releaseId)])).rows[0];
+async function eligibleRelease(db:Queryable,user:Staff,resultId:string){
+ const r=(await db.query<R>(`${ROWS_SQL} AND r.subject_id=$1`,[uuid.parse(resultId)])).rows[0];
  if(!r||!eligible(user,r))throw new LabError('NOT_FOUND',404);
  return r;
 }
@@ -106,9 +112,9 @@ async function eligibleRelease(db:Queryable,user:Staff,releaseId:string){
 export type NhsoDetail={row:NhsoRow;patient:{nationalId:string|null;ageYears:number|null;gravida:number|null;gaWeeks:number|null;gaDays:number|null;serviceDate:string|null;testDate:string|null}};
 
 /** The popup's patient data. The national ID is read from the stored PET bytes only here, never persisted in clear. */
-export async function nhsoDetail(db:Queryable,store:FileStore,user:Staff,releaseId:string):Promise<NhsoDetail>{
+export async function nhsoDetail(db:Queryable,store:FileStore,user:Staff,resultId:string):Promise<NhsoDetail>{
  await assertSession(db,user);need(user,'nhso.entry','read');
- const r=await eligibleRelease(db,user,releaseId);
+ const r=await eligibleRelease(db,user,resultId);
  const round=(await db.query<{received_at:Date|null}>('SELECT received_at FROM specimen_round_current WHERE id=$1',[r.round_id])).rows[0];
  // The PET of this round; a round without its own PET (e.g. a redraw received in NIPT) uses the case's latest one.
  const file=(await db.query<{sha256:string;filename:string;dob:string|null;drawn:string|null;received:string|null}>(`SELECT f.sha256,f.filename,left(f.parsed->>'dob',10) dob,left(f.parsed->>'specimenAt',10) drawn,f.parsed->>'receivedAt' received
@@ -131,29 +137,29 @@ export async function nhsoDetail(db:Queryable,store:FileStore,user:Staff,release
  // Owner 2026-11-09: GA is counted at the blood-draw date, which the PET carries (specimenAt); the request's own draw date is the fallback, the service date the last resort.
  if(!ga)ga=gaFromEdd(r.draft?.pregnancy?.edd,drawDay??r.draft?.pregnancy?.collectionDate??serviceDate);
  // Owner 2026-11-09: the test date is the day the specimen was placed in the Task List, because placing it there starts the analysis.
- const task=(await db.query<{at:Date|null}>(`SELECT min(a.assigned_at) at FROM result_release rr JOIN result_report_version v ON v.id=rr.version_id
-   JOIN lab_slot_assignment a ON a.attempt_id=v.attempt_id AND a.removed_at IS NULL WHERE rr.id=$1`,[r.release_id])).rows[0];
+ const task=(await db.query<{at:Date|null}>(`SELECT min(a.assigned_at) at FROM result_report_version v
+   JOIN lab_slot_assignment a ON a.attempt_id=v.attempt_id AND a.removed_at IS NULL WHERE v.id=$1`,[r.version_id])).rows[0];
  const draftGravida=r.draft?.pregnancy?.gravida,gravida=typeof draftGravida==='number'?draftGravida:paperGravida;
  await recordPhiAccess(db,user.id,[r.case_id],'CASE_DETAIL_VIEW');
  return {row:toRow(r),patient:{nationalId,ageYears:ageOnDate(dob,serviceDate),gravida,gaWeeks:ga?.weeks??null,gaDays:ga?.days??null,
   serviceDate,testDate:task?.at?bangkokIsoDay(new Date(task.at)):null}};
 }
 
-const actionSchema=z.strictObject({releaseId:uuid});
+const actionSchema=z.strictObject({resultId:uuid});
 type Decision='CONFIRMED'|'NOT_NHSO'|'CANCELLED';
 const AUDIT_ACTION:Record<Decision,string>={CONFIRMED:'NHSO_ENTRY_CONFIRMED',NOT_NHSO:'NHSO_ENTRY_MARKED_NOT_NHSO',CANCELLED:'NHSO_ENTRY_CANCELLED'};
 /** CONFIRMED / NOT_NHSO only from pending; CANCELLED (back to pending) only from one of those two. Each is one insert-only event under a per-release lock. */
 async function record(db:Queryable,user:Staff,input:unknown,kind:Decision){
  await assertSession(db,user);need(user,'nhso.entry','write');
- const {releaseId}=actionSchema.parse(input);
- await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['nhso:'+releaseId]);
- const r=await eligibleRelease(db,user,releaseId);
+ const {resultId}=actionSchema.parse(input);
+ await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['nhso:'+resultId]);
+ const r=await eligibleRelease(db,user,resultId);
  const decided=r.entry_kind==='CONFIRMED'||r.entry_kind==='NOT_NHSO';
  if(kind!=='CANCELLED'&&decided)throw new LabError('NHSO_ALREADY_DECIDED',409);
  if(kind==='CANCELLED'&&!decided)throw new LabError('NHSO_NOT_DECIDED',409);
- await db.query('INSERT INTO nhso_result_entry_event(release_id,kind,actor_id) VALUES($1,$2,$3)',[r.release_id,kind,user.id]);
- await audit(db,user,AUDIT_ACTION[kind],'RESULT_RELEASE',r.release_id,{resultingState:kind});
- return {releaseId:r.release_id,state:kind};
+ await db.query('INSERT INTO nhso_result_entry_event(release_id,version_id,kind,actor_id) VALUES($1,$2,$3,$4)',[r.source==='RELEASE'?r.subject_id:null,r.source==='HISTORICAL'?r.subject_id:null,kind,user.id]);
+ await audit(db,user,AUDIT_ACTION[kind],r.source==='RELEASE'?'RESULT_RELEASE':'RESULT_VERSION',r.subject_id,{resultingState:kind});
+ return {resultId:r.subject_id,state:kind};
 }
 export const confirmNhsoEntry=(db:Queryable,user:Staff,input:unknown)=>record(db,user,input,'CONFIRMED');
 export const markNotNhso=(db:Queryable,user:Staff,input:unknown)=>record(db,user,input,'NOT_NHSO');

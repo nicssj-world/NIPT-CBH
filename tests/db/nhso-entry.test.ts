@@ -7,6 +7,7 @@ import {registerIntake,parseIntake} from '../../packages/results/intake';
 import {reviewBenchForResult} from '../../packages/lab/bench-review';
 import {confirmCompletion} from '../../packages/results/completion';
 import {sendToHis} from '../../packages/results/send-his';
+import {showInHisBatch} from '../../packages/results/his-present';
 import {emptyRequest} from '../../packages/p2/schema';
 import {nhsoBoard,nhsoDetail,exportNhsoXlsx,confirmNhsoEntry,markNotNhso,cancelNhsoEntry} from '../../packages/results/nhso-entry';
 
@@ -22,14 +23,18 @@ async function request(f:F,index:number,entitlement:string,gravida=2){
  await f.db.query(`INSERT INTO p2_workspace(round_id,case_id,draft,request_mode,consent_mode,updated_by) VALUES($1,$2,$3,'Paper','Paper',$4)
   ON CONFLICT(round_id) DO UPDATE SET draft=EXCLUDED.draft,version=p2_workspace.version+1`,[c.roundId,c.caseId,JSON.stringify(draft),f.admin.id]);
 }
-/** One external PDF taken through review and "ส่ง HIS": a certified, Active release. */
-async function release(f:F,index:number){
+/** One external PDF taken through review to "รอส่ง HIS" (PendingCertification). */
+async function waiting(f:F,index:number){
  const c=f.cases[index],bytes=syntheticReportPdf({kind:'SINGLETON',labNumber:c.printed,hn:c.hn,dob:'01-Jan-1990',collection:pdfDate('2026-10-20'),gaWeeks:17,gaDays:6,sex:null});
  const intakeId=await f.run(t=>registerIntake(t,f.store,{source:'UPLOAD',relativePath:null,originalName:`SYNTHETIC-nhso-${index}.pdf`,actorId:f.admin.id,jobId:null},bytes));
  await f.run(t=>parseIntake(t,f.store,intakeId,{maxBytes:10000000,acceptZip:true}));
  await f.run(t=>reviewBenchForResult(t,f.admin,c.attemptId,{revision:1,measurementsReviewed:true,reason:'SYNTHETIC legacy paper-only result evidence review'}));
  const done=await f.run(t=>confirmCompletion(t,f.admin,{idempotencyKey:randomUUID(),abnormalAcknowledged:false,items:[{intakeId,caseId:c.caseId,roundId:c.roundId,attemptId:c.attemptId}]}));
- const versionId=done.items[0].versionId!,rv=(await f.db.query<{row_version:number}>('SELECT row_version FROM result_report_version WHERE id=$1',[versionId])).rows[0].row_version;
+ return done.items[0].versionId!;
+}
+/** … then "ส่ง HIS": a certified, Active release. */
+async function release(f:F,index:number){
+ const versionId=await waiting(f,index),rv=(await f.db.query<{row_version:number}>('SELECT row_version FROM result_report_version WHERE id=$1',[versionId])).rows[0].row_version;
  const sent=await f.run(t=>sendToHis(t,f.admin,{idempotencyKey:randomUUID(),reviewConfirmed:true,abnormalAcknowledged:false,items:[{versionId,expectedRowVersion:rv}]}));
  expect(sent.items[0].outcome).toBe('CertifiedReleased');
  return (await f.db.query<{id:string}>('SELECT id FROM result_release WHERE version_id=$1',[versionId])).rows[0].id;
@@ -44,15 +49,15 @@ it('lists only certified results of สปสช. cases; confirm moves a row to 
   let p=await board(f,'PENDING');
   expect(p.counts).toEqual({PENDING:1,DONE:0,NOT_NHSO:0});
   expect(p.rows).toHaveLength(1);
-  expect(p.rows[0]).toMatchObject({releaseId:a,caseId:f.cases[0].caseId,ln:f.cases[0].ln,hn:f.cases[0].hn,reissued:false,entitlement:'NHSO',entry:null});
+  expect(p.rows[0]).toMatchObject({resultId:a,caseId:f.cases[0].caseId,ln:f.cases[0].ln,hn:f.cases[0].hn,reissued:false,entitlement:'NHSO',entry:null});
 
-  expect(await f.run(t=>confirmNhsoEntry(t,f.admin,{releaseId:a}))).toEqual({releaseId:a,state:'CONFIRMED'});
-  await expect(f.run(t=>confirmNhsoEntry(t,f.admin,{releaseId:a}))).rejects.toMatchObject({code:'NHSO_ALREADY_DECIDED'});
+  expect(await f.run(t=>confirmNhsoEntry(t,f.admin,{resultId:a}))).toEqual({resultId:a,state:'CONFIRMED'});
+  await expect(f.run(t=>confirmNhsoEntry(t,f.admin,{resultId:a}))).rejects.toMatchObject({code:'NHSO_ALREADY_DECIDED'});
   p=await board(f,'PENDING');expect(p.counts).toEqual({PENDING:0,DONE:1,NOT_NHSO:0});expect(p.rows).toEqual([]);
-  const d=await board(f,'DONE');expect(d.rows[0].releaseId).toBe(a);expect(d.rows[0].entry?.at).toBeTruthy();
+  const d=await board(f,'DONE');expect(d.rows[0].resultId).toBe(a);expect(d.rows[0].entry?.at).toBeTruthy();
 
-  expect(await f.run(t=>cancelNhsoEntry(t,f.admin,{releaseId:a}))).toEqual({releaseId:a,state:'CANCELLED'});
-  await expect(f.run(t=>cancelNhsoEntry(t,f.admin,{releaseId:a}))).rejects.toMatchObject({code:'NHSO_NOT_DECIDED'});
+  expect(await f.run(t=>cancelNhsoEntry(t,f.admin,{resultId:a}))).toEqual({resultId:a,state:'CANCELLED'});
+  await expect(f.run(t=>cancelNhsoEntry(t,f.admin,{resultId:a}))).rejects.toMatchObject({code:'NHSO_NOT_DECIDED'});
   expect((await board(f,'PENDING')).counts).toEqual({PENDING:1,DONE:0,NOT_NHSO:0});
   const events=(await f.db.query<{kind:string}>('SELECT kind FROM nhso_result_entry_event WHERE release_id=$1 ORDER BY sequence',[a])).rows.map(r=>r.kind);
   expect(events).toEqual(['CONFIRMED','CANCELLED']);
@@ -60,7 +65,7 @@ it('lists only certified results of สปสช. cases; confirm moves a row to 
   expect(audits).toEqual(['NHSO_ENTRY_CONFIRMED','NHSO_ENTRY_CANCELLED']);
   // a self-pay release cannot be confirmed here
   const selfPay=(await f.db.query<{id:string}>('SELECT id FROM result_release WHERE case_id=$1',[f.cases[1].caseId])).rows[0].id;
-  await expect(f.run(t=>confirmNhsoEntry(t,f.admin,{releaseId:selfPay}))).rejects.toMatchObject({code:'NOT_FOUND'});
+  await expect(f.run(t=>confirmNhsoEntry(t,f.admin,{resultId:selfPay}))).rejects.toMatchObject({code:'NOT_FOUND'});
   // permission: ANC users cannot open the board
   await expect(f.run(t=>nhsoBoard(t,{...f.admin,roles:['ANC_NURSE']},{tab:'PENDING'}))).rejects.toMatchObject({code:'FORBIDDEN'});
  }finally{await f.close();}
@@ -88,27 +93,27 @@ it('a case that chose neither สปสช. nor self-pay is treated as สปส
   const a=await release(f,0),b=await release(f,2);await release(f,1);
   const p=await board(f,'PENDING');
   expect(p.counts).toEqual({PENDING:2,DONE:0,NOT_NHSO:0});
-  expect(p.rows.map(r=>[r.releaseId,r.entitlement]).sort()).toEqual([[a,'UNSPECIFIED'],[b,'UNSPECIFIED']].sort());
+  expect(p.rows.map(r=>[r.resultId,r.entitlement]).sort()).toEqual([[a,'UNSPECIFIED'],[b,'UNSPECIFIED']].sort());
 
-  expect(await f.run(t=>markNotNhso(t,f.admin,{releaseId:a}))).toEqual({releaseId:a,state:'NOT_NHSO'});
-  await expect(f.run(t=>markNotNhso(t,f.admin,{releaseId:a}))).rejects.toMatchObject({code:'NHSO_ALREADY_DECIDED'});
-  await expect(f.run(t=>confirmNhsoEntry(t,f.admin,{releaseId:a}))).rejects.toMatchObject({code:'NHSO_ALREADY_DECIDED'});
+  expect(await f.run(t=>markNotNhso(t,f.admin,{resultId:a}))).toEqual({resultId:a,state:'NOT_NHSO'});
+  await expect(f.run(t=>markNotNhso(t,f.admin,{resultId:a}))).rejects.toMatchObject({code:'NHSO_ALREADY_DECIDED'});
+  await expect(f.run(t=>confirmNhsoEntry(t,f.admin,{resultId:a}))).rejects.toMatchObject({code:'NHSO_ALREADY_DECIDED'});
   expect((await board(f,'PENDING')).counts).toEqual({PENDING:1,DONE:0,NOT_NHSO:1});
   const n=await board(f,'NOT_NHSO');
-  expect(n.rows).toHaveLength(1);expect(n.rows[0]).toMatchObject({releaseId:a,entry:{kind:'NOT_NHSO'}});
+  expect(n.rows).toHaveLength(1);expect(n.rows[0]).toMatchObject({resultId:a,entry:{kind:'NOT_NHSO'}});
   expect((await board(f,'DONE')).rows).toEqual([]);
 
   // the other one is entered normally; the marked one can be sent back to pending
-  await f.run(t=>confirmNhsoEntry(t,f.admin,{releaseId:b}));
-  expect((await board(f,'DONE')).rows[0]).toMatchObject({releaseId:b,entry:{kind:'CONFIRMED'}});
-  expect(await f.run(t=>cancelNhsoEntry(t,f.admin,{releaseId:a}))).toEqual({releaseId:a,state:'CANCELLED'});
+  await f.run(t=>confirmNhsoEntry(t,f.admin,{resultId:b}));
+  expect((await board(f,'DONE')).rows[0]).toMatchObject({resultId:b,entry:{kind:'CONFIRMED'}});
+  expect(await f.run(t=>cancelNhsoEntry(t,f.admin,{resultId:a}))).toEqual({resultId:a,state:'CANCELLED'});
   expect((await board(f,'PENDING')).counts).toEqual({PENDING:1,DONE:1,NOT_NHSO:0});
   const audits=(await f.db.query<{action:string}>("SELECT action FROM audit_chain WHERE action LIKE 'NHSO_ENTRY_%' ORDER BY sequence")).rows.map(r=>r.action);
   expect(audits).toEqual(['NHSO_ENTRY_MARKED_NOT_NHSO','NHSO_ENTRY_CONFIRMED','NHSO_ENTRY_CANCELLED']);
   // the self-pay release is still not reachable, and ANC cannot mark anything
   const selfPay=(await f.db.query<{id:string}>('SELECT id FROM result_release WHERE case_id=$1',[f.cases[1].caseId])).rows[0].id;
-  await expect(f.run(t=>markNotNhso(t,f.admin,{releaseId:selfPay}))).rejects.toMatchObject({code:'NOT_FOUND'});
-  await expect(f.run(t=>markNotNhso(t,{...f.admin,roles:['ANC_NURSE']},{releaseId:a}))).rejects.toMatchObject({code:'FORBIDDEN'});
+  await expect(f.run(t=>markNotNhso(t,f.admin,{resultId:selfPay}))).rejects.toMatchObject({code:'NOT_FOUND'});
+  await expect(f.run(t=>markNotNhso(t,{...f.admin,roles:['ANC_NURSE']},{resultId:a}))).rejects.toMatchObject({code:'FORBIDDEN'});
  }finally{await f.close();}
 },600000);
 
@@ -131,7 +136,7 @@ it('a paper case reads GA and ครรภ์ที่ from the Lab paper reques
   d=await f.run(t=>nhsoDetail(t,f.store,f.admin,a));
   expect(d.patient.gravida).toBe(5);
   expect(d.row.entitlement).toBe('UNSPECIFIED');
-  expect((await board(f,'PENDING')).rows.map(r=>r.releaseId)).toEqual([a]);
+  expect((await board(f,'PENDING')).rows.map(r=>r.resultId)).toEqual([a]);
  }finally{await f.close();}
 },600000);
 
@@ -160,9 +165,9 @@ it('date range and Excel export: the range filters the date each tab shows, the 
   expect((await f.run(t=>nhsoBoard(t,f.admin,{tab:'PENDING',from:today,to:today}))).rows).toHaveLength(1);
   const future=await f.run(t=>nhsoBoard(t,f.admin,{tab:'PENDING',from:tomorrow}));
   expect(future.rows).toEqual([]);expect(future.counts).toEqual({PENDING:1,DONE:0,NOT_NHSO:0});   // the cards keep the totals
-  await f.run(t=>confirmNhsoEntry(t,f.admin,{releaseId:a}));
+  await f.run(t=>confirmNhsoEntry(t,f.admin,{resultId:a}));
   // DONE is filtered by the day it was entered
-  expect((await f.run(t=>nhsoBoard(t,f.admin,{tab:'DONE',from:today,to:today}))).rows.map(r=>r.releaseId)).toEqual([a]);
+  expect((await f.run(t=>nhsoBoard(t,f.admin,{tab:'DONE',from:today,to:today}))).rows.map(r=>r.resultId)).toEqual([a]);
   expect((await f.run(t=>nhsoBoard(t,f.admin,{tab:'DONE',to:yesterday}))).rows).toEqual([]);
   expect((await f.run(t=>nhsoBoard(t,f.admin,{tab:'DONE',from:tomorrow}))).rows).toEqual([]);
   await expect(f.run(t=>nhsoBoard(t,f.admin,{tab:'DONE',from:'20/10/2569'}))).rejects.toThrow();
@@ -181,5 +186,39 @@ it('date range and Excel export: the range filters the date each tab shows, the 
   expect((await f.run(t=>exportNhsoXlsx(t,f.admin,{tab:'DONE',from:tomorrow}))).table).toHaveLength(1);
   await expect(f.run(t=>exportNhsoXlsx(t,f.admin,{tab:'DONE'},0))).rejects.toMatchObject({code:'NHSO_EXPORT_TOO_LARGE'});
   await expect(f.run(t=>exportNhsoXlsx(t,{...f.admin,roles:['ANC_NURSE']},{tab:'DONE'}))).rejects.toMatchObject({code:'FORBIDDEN'});
+ }finally{await f.close();}
+},600000);
+
+it('a result HIS already holds (no NIPT-CBH release) is listed like ANC counts it, and ลงผล / ไม่ใช่สิทธิ / ยกเลิก / ส่งออก work on it',async()=>{
+ const f=await fixture();try{
+  await request(f,0,'NHSO');
+  const v=await waiting(f,0);
+  const shown=await f.run(t=>showInHisBatch(t,f.admin,{confirmed:true,items:[{versionId:v}]}));
+  expect(shown.items[0].outcome).toBe('SHOWN');
+  expect((await f.db.query('SELECT 1 FROM result_release')).rows).toHaveLength(0);        // no release: this is the "reported elsewhere" kind
+
+  let p=await board(f,'PENDING');
+  expect(p.counts).toEqual({PENDING:1,DONE:0,NOT_NHSO:0});
+  expect(p.rows[0]).toMatchObject({resultId:v,caseId:f.cases[0].caseId,ln:f.cases[0].ln,entitlement:'NHSO',reissued:false,entry:null});
+  const d=await f.run(t=>nhsoDetail(t,f.store,f.admin,v));
+  expect(d.patient).toMatchObject({nationalId:ID,gravida:2,serviceDate:'2026-10-20'});expect(d.patient.testDate).toBeTruthy();
+
+  await f.run(t=>confirmNhsoEntry(t,f.admin,{resultId:v}));
+  await expect(f.run(t=>confirmNhsoEntry(t,f.admin,{resultId:v}))).rejects.toMatchObject({code:'NHSO_ALREADY_DECIDED'});
+  expect((await board(f,'DONE')).rows.map(r=>r.resultId)).toEqual([v]);
+  const ev=(await f.db.query<{release_id:string|null;version_id:string|null;kind:string}>('SELECT release_id,version_id,kind FROM nhso_result_entry_event ORDER BY sequence')).rows;
+  expect(ev).toEqual([{release_id:null,version_id:v,kind:'CONFIRMED'}]);
+  const x=await f.run(t=>exportNhsoXlsx(t,f.admin,{tab:'DONE'}));expect(x.count).toBe(1);
+
+  await f.run(t=>cancelNhsoEntry(t,f.admin,{resultId:v}));
+  await f.run(t=>markNotNhso(t,f.admin,{resultId:v}));
+  p=await board(f,'PENDING');expect(p.counts).toEqual({PENDING:0,DONE:0,NOT_NHSO:1});
+  await f.run(t=>cancelNhsoEntry(t,f.admin,{resultId:v}));
+  expect((await board(f,'PENDING')).counts).toEqual({PENDING:1,DONE:0,NOT_NHSO:0});
+  const audits=(await f.db.query<{action:string;resource_type:string}>("SELECT action,resource_type FROM audit_chain WHERE action LIKE 'NHSO_ENTRY_%' AND action<>'NHSO_ENTRY_EXPORTED' ORDER BY sequence")).rows;
+  expect(audits.every(a=>a.resource_type==='RESULT_VERSION')).toBe(true);
+  // a release and a reported result of two different cases are both on the list
+  await request(f,1,'NHSO');const rel=await release(f,1);
+  expect((await board(f,'PENDING')).rows.map(r=>r.resultId).sort()).toEqual([v,rel].sort());
  }finally{await f.close();}
 },600000);

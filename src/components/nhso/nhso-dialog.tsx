@@ -29,12 +29,12 @@ export function nhsoItems(p:NhsoDetail["patient"]):Item[]{
 export function NhsoDialog({row,tab,onClose,onChanged}:{row:NhsoRow;tab:NhsoTab;onClose:()=>void;onChanged:(message:string)=>void}){
  const [detail,setDetail]=useState<NhsoDetail|null>(null),[error,setError]=useState(""),[busy,setBusy]=useState(false),[copiedCount,setCopiedCount]=useState(0),[reload,setReload]=useState(0);
  useEffect(()=>{let live=true;
-  void labApi<NhsoDetail>(`/api/nhso?releaseId=${encodeURIComponent(row.releaseId)}`).then(d=>{if(live){setDetail(d);setError("");}}).catch(e=>{if(live){setDetail(null);setError(failureText(e));}});
-  return()=>{live=false;};},[row.releaseId,reload]);
+  void labApi<NhsoDetail>(`/api/nhso?resultId=${encodeURIComponent(row.resultId)}`).then(d=>{if(live){setDetail(d);setError("");}}).catch(e=>{if(live){setDetail(null);setError(failureText(e));}});
+  return()=>{live=false;};},[row.resultId,reload]);
  const act=async(action:"confirm"|"notNhso"|"cancel")=>{
   setBusy(true);setError("");
   const done={confirm:`ยืนยันการลงผลสปสช. LN ${row.ln} แล้ว — ย้ายไปที่ “ลงผลแล้ว”`,notNhso:`ระบุว่า LN ${row.ln} ไม่ใช่สิทธิ สปสช. แล้ว — ย้ายไปที่ “ไม่ใช่สิทธิ สปสช.”`,cancel:`ยกเลิก LN ${row.ln} แล้ว — กลับไปที่ “ต้องลงผล”`}[action];
-  try{await labApi("/api/nhso",{action,releaseId:row.releaseId});onChanged(done);}
+  try{await labApi("/api/nhso",{action,resultId:row.resultId});onChanged(done);}
   catch(e){setError(failureText(e));setBusy(false);}
  };
  const items=detail?nhsoItems(detail.patient):[],total=items.filter(i=>i.copy!==null).length;
