@@ -73,7 +73,7 @@ export async function listUnifiedRunPage(db:Queryable,user:Staff,input:{q?:strin
     EXISTS(SELECT 1 FROM task_workbook_revision r WHERE r.batch_id=b.id) qc_saved,
     ${seqRecordedSql('b.id')} seq_recorded,
     EXISTS(SELECT 1 FROM lab_bench_export e WHERE e.batch_id=b.id AND e.kind='POOL_CSV') pool_exported
-  FROM lab_batch b WHERE NOT EXISTS (SELECT 1 FROM lab_batch_removal d WHERE d.batch_id=b.id) ${releaseColumn?"AND b.run_released_at IS NULL":""}
+  FROM lab_batch b WHERE b.state<>'Cancelled' AND NOT EXISTS (SELECT 1 FROM lab_batch_removal d WHERE d.batch_id=b.id) ${releaseColumn?"AND b.run_released_at IS NULL":""}
   UNION ALL
   SELECT h.run_label,h.run_year,h.run_number,NULL::uuid,'HISTORICAL'::text,'Historical'::text,
     NULL::timestamptz,

@@ -84,12 +84,12 @@ export async function batchDetail(db:Queryable,user:Staff,batchId:string){
 const flagOf=z.union([z.boolean(),z.enum(['0','1','true','false'])]).default(false).transform(v=>v===true||v==='1'||v==='true');
 const runListInput=z.strictObject({q:z.string().trim().max(40).default(''),open:flagOf,...pageFields(25)});
 export type RunListRow={id:string;run_label:string;state:string;version:number;created_at:Date;samples:number;sheet_states:string[]};
-/** Runs, newest first (ties by id), one page at a time with an exact total, so every Run ever created stays reachable.
+/** Working Runs, newest first (ties by id), with exact pagination totals; cancelled and removed Runs stay in audit history.
  * `q` matches the Run identifier (RunNNN/ปี) as typed in any part ("16", "Run016", "2026"). `open` returns only Runs whose Task Lists can still be
  * edited - what the "add to Batch" dialog needs - so an old, finished Run can never push an open Draft out of that list. */
 export async function listBatchPage(db:Queryable,user:Staff,raw:unknown={}){
  await assertSession(db,user);need(user,'worksheet.read','read');
- const f=runListInput.parse(raw),values:unknown[]=[],where:string[]=['NOT EXISTS(SELECT 1 FROM lab_batch_removal WHERE batch_id=b.id)'];
+ const f=runListInput.parse(raw),values:unknown[]=[],where:string[]=["b.state<>'Cancelled'",'NOT EXISTS(SELECT 1 FROM lab_batch_removal WHERE batch_id=b.id)'];
  if((await db.query<{present:boolean}>("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='lab_batch' AND column_name='run_released_at') present")).rows[0].present)where.push('b.run_released_at IS NULL');
  if(f.q){values.push(f.q.toLowerCase());where.push(`strpos(lower(b.run_label),$${values.length})>0`);}
  if(f.open)where.push(`b.state<>'Cancelled' AND EXISTS(SELECT 1 FROM lab_task_sheet t WHERE t.batch_id=b.id AND t.state=ANY(ARRAY['${EDITABLE.join("','")}']))`);
@@ -335,7 +335,9 @@ export async function latestSnapshot(db:Queryable,sheetId:string){
 async function hasRecordedBenchWork(db:Queryable,batchId:string){
  const schema=(await db.query<{present:boolean}>("SELECT to_regclass('public.task_workbook_revision') IS NOT NULL present")).rows[0].present;
  if(!schema)return false;
- return (await db.query<{recorded:boolean}>(`SELECT EXISTS(SELECT 1 FROM task_workbook_revision r CROSS JOIN LATERAL jsonb_each(r.values) e WHERE r.batch_id=$1 AND jsonb_typeof(e.value)='number' AND e.key ~ '^(slot\\.[0-9]+\\.libraryQc|qc\\.[123]\\.(standard1|standard2|standard2Concentration)|pool\\.(concentration|standard1|standard2|standard2Concentration|dilutionC1)|seq\\.(standard1|standard2|standard2Concentration|dnbConcentration|dilutedConcentration|driveMemoryTb|negativePressureKpa|loadedDnb|q30|bic|fit))$') recorded`,[batchId])).rows[0].recorded;
+ return (await db.query<{recorded:boolean}>(`SELECT EXISTS(SELECT 1 FROM task_workbook_revision r CROSS JOIN LATERAL jsonb_each(r.values) e WHERE r.batch_id=$1 AND (
+  (jsonb_typeof(e.value)='number' AND e.key ~ '^(slot\\.[0-9]+\\.(libraryQc|extractionQc)|qc\\.[123]\\.(standard1|standard2|standard2Concentration)|pool\\.(concentration|standard1|standard2|standard2Concentration|dilutionC1)|seq\\.(standard1|standard2|standard2Concentration|dnbConcentration|dilutedConcentration|driveMemoryTb|negativePressureKpa|loadedDnb|q30|bic|fit))$')
+  OR (e.key ~ '^slot\\.[0-9]+\\.transferChecked$' AND e.value='"✓"'::jsonb))) recorded`,[batchId])).rows[0].recorded;
 }
 /** Exact-slot replacement only inspects evidence attributable to the occupied target slot. Measurements in another Task of this Batch
  * cannot make an otherwise editable target Task look executed; finalized/started Task state and the target slot's own recorded values remain protected. */
@@ -361,7 +363,7 @@ export async function amendSheet(db:Queryable,user:Staff,input:unknown){
  return {version,stoppedDocuments:stopped};
 }
 
-/** Cancel before physical execution. Never-finalized placements return to Ready; finalized attempts become BatchCancelled (Repeat next). */
+/** Cancellation is permitted only before physical execution. Printing a plan does not consume an analytical attempt. */
 export async function cancelBatch(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);
  const d=z.strictObject({batchId:uuid,expectedVersion:z.number().int().min(0),reason:reasonText}).parse(input);
@@ -372,10 +374,9 @@ export async function cancelBatch(db:Queryable,user:Staff,input:unknown){
  if(sheets.some(s=>['InExecution','ExecutionRecorded','ExecutionVerified','CompletedIssued'].includes(s.state)))throw new LabError('CANCEL_ONLY_BEFORE_EXECUTION',409);
  const live=(await db.query<{id:string;attempt_id:string;case_id:string;state:string;repeat_order_id:string|null;sheet_number:number}>(`SELECT x.id,x.attempt_id,a.case_id,a.state,a.repeat_order_id,bs.sheet_number FROM lab_slot_assignment x JOIN analytical_attempt a ON a.id=x.attempt_id JOIN lab_batch_slot bs ON bs.batch_id=x.batch_id AND bs.slot_number=x.slot_number WHERE x.batch_id=$1 AND x.removed_at IS NULL FOR UPDATE OF x,a`,[b.id])).rows;
  for(const a of live){
-  const finalized=sheets[a.sheet_number-1].placement_revision>0;
   await db.query("UPDATE lab_slot_assignment SET removed_at=now(),removed_by=$2,removed_reason='BATCH_CANCELLED' WHERE id=$1",[a.id,user.id]);
-  if(a.state==='Assigned'){await setAttemptState(db,user,{id:a.attempt_id,case_id:a.case_id,state:a.state},finalized?'BatchCancelled':'Ready',{batchId:b.id});
-   if(a.repeat_order_id)await db.query(`UPDATE repeat_work_order SET state=$2${finalized?",closed_by=$3,closed_at=now(),close_reason='BATCH_CANCELLED'":''} WHERE id=$1 AND state='RepeatInProgress'`,finalized?[a.repeat_order_id,'RepeatFailed',user.id]:[a.repeat_order_id,'RepeatPendingBatch']);}
+  if(a.state==='Assigned'){await setAttemptState(db,user,{id:a.attempt_id,case_id:a.case_id,state:a.state},'Ready',{batchId:b.id,reason:'BATCH_CANCELLED_BEFORE_EXECUTION'});
+   if(a.repeat_order_id)await db.query("UPDATE repeat_work_order SET state='RepeatPendingBatch' WHERE id=$1 AND state='RepeatInProgress'",[a.repeat_order_id]);}
   await caseEvent(db,user,a.case_id,'LAB_BATCH_CANCELLED',{runLabel:b.run_label});
  }
  for(const s of sheets)if(s.state!=='Cancelled')await db.query("UPDATE lab_task_sheet SET state='Cancelled' WHERE id=$1",[s.id]);
@@ -391,7 +392,15 @@ export async function startExecution(db:Queryable,user:Staff,input:unknown){
  const d=z.strictObject({batchId:uuid,expectedVersion:z.number().int().min(0),sheetNumber:z.number().int().min(1).max(3)}).parse(input);
  const b=await lockBatch(db,d.batchId,d.expectedVersion);const s=await sheetOf(db,b.id,d.sheetNumber);
  if(s.state!=='PreWorkIssued')throw new LabError('PRE_WORK_REQUIRED_BEFORE_EXECUTION',409);
- const open=(await db.query<{n:number}>("SELECT count(*)::int n FROM lab_document_copy c JOIN lab_document d ON d.id=c.document_id WHERE d.batch_id=$1 AND d.status IN ('StopUse','Superseded','Cancelled') AND c.kind='WORKING_COPY' AND c.recalled_at IS NULL",[b.id])).rows[0].n;
+ // Reusing an unexecuted attempt does not clear the recall obligation on its former Run's working copies.
+ const open=(await db.query<{n:number}>(`SELECT count(*)::int n FROM lab_document_copy c JOIN lab_document d ON d.id=c.document_id
+  WHERE d.status IN ('StopUse','Superseded','Cancelled') AND c.kind='WORKING_COPY' AND c.recalled_at IS NULL AND (d.batch_id=$1 OR EXISTS(
+   SELECT 1 FROM lab_slot_assignment current_slot JOIN lab_batch_slot current_position ON current_position.batch_id=current_slot.batch_id AND current_position.slot_number=current_slot.slot_number
+   JOIN lab_slot_assignment old_slot ON old_slot.attempt_id=current_slot.attempt_id AND old_slot.batch_id=d.batch_id
+   JOIN lab_batch_slot old_position ON old_position.batch_id=old_slot.batch_id AND old_position.slot_number=old_slot.slot_number
+   LEFT JOIN lab_task_sheet old_sheet ON old_sheet.id=d.sheet_id
+   WHERE current_slot.batch_id=$1 AND current_position.sheet_number=$2 AND current_slot.removed_at IS NULL
+    AND (d.sheet_id IS NULL OR old_sheet.sheet_number=old_position.sheet_number)))`,[b.id,d.sheetNumber])).rows[0].n;
  if(open)throw new LabError('RECALL_PENDING',409,{workingCopies:open});
  await db.query("UPDATE lab_task_sheet SET state='InExecution',execution_mode='ONLINE_LIVE',execution_started_at=now(),execution_started_by=$2 WHERE id=$1",[s.id,user.id]);
  const attempts=(await db.query<{id:string;case_id:string;state:string}>("SELECT a.id,a.case_id,a.state FROM lab_slot_assignment x JOIN analytical_attempt a ON a.id=x.attempt_id JOIN lab_batch_slot bs ON bs.batch_id=x.batch_id AND bs.slot_number=x.slot_number WHERE x.batch_id=$1 AND bs.sheet_number=$2 AND x.removed_at IS NULL AND a.state='Assigned' FOR UPDATE OF a",[b.id,d.sheetNumber])).rows;

@@ -38,6 +38,8 @@ describe('Redraw and repeat cannot be duplicated',()=>{
   await run(async t=>batch.updateSheetPlan(t,u.staff,{batchId:b.batchId,expectedVersion:await version(t,b.batchId),sheetNumber:1,plannedWorkDate:'2026-10-12',plannedOperator:null,plannedExtractionLot:null,plannedExtractionExpiry:null,plannedLibraryLot:null,plannedLibraryExpiry:null}));
   await run(async t=>batch.planCheck(t,u.staff,{batchId:b.batchId,expectedVersion:await version(t,b.batchId),sheetNumber:1,confirm:{controlsAtTemplate:true,identifiersMatch:true,noDuplicates:true}}));
   await run(async t=>batch.finalizeSheet(t,u.staff,{batchId:b.batchId,expectedVersion:await version(t,b.batchId),sheetNumber:1}));
+  // A legacy terminal cancellation remains terminal; only currently Assigned attempts are returned to Ready.
+  await db.query("UPDATE analytical_attempt SET state='BatchCancelled' WHERE id=$1",[a.id]);
   await run(async t=>batch.cancelBatch(t,u.certifier,{batchId:b.batchId,expectedVersion:await version(t,b.batchId),reason:'จำลอง ยกเลิกหลังล็อก'}));
   expect(await attemptOf(q(),c.roundId)).toMatchObject({state:'BatchCancelled'});
   await run(t=>intake.orderRepeat(t,u.staff,{attemptId:a.id,level:'RE_LIBRARY',reasonCode:'QC1_LOW',note:'จำลอง ทำซ้ำ'}));
