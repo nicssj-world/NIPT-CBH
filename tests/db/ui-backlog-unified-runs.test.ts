@@ -23,7 +23,7 @@ it("UI-011 unified run list sorts by run_year DESC, run_number DESC regardless o
   expect(page.rows.filter(r=>r.source==="HISTORICAL")).toHaveLength(3);
   for(const r of page.rows.filter(r=>r.source==="HISTORICAL"))expect(r.id).toBeNull();
   expect(page.rows.find(r=>r.source==="CURRENT")?.id).toBe(current.batchId);
-  expect(page.rows.find(r=>r.source==="CURRENT")).toMatchObject({qc_saved:false,pool_exported:false,pooling_recorded:false,seq_files_exported:false});   // per-step evidence columns exist and start empty
+  expect(page.rows.find(r=>r.source==="CURRENT")).toMatchObject({qc_saved:false,pool_exported:false,pooling_recorded:false,seq_files_exported:false,seq_recorded:false});   // per-step evidence columns exist and start empty
   const search=await f.run(db=>listUnifiedRunPage(db,f.u.staff,{q:"run120"}));
   expect(search.rows.map(r=>r.run_label)).toEqual(["Run120/2024"]);
   const small=await f.run(db=>listUnifiedRunPage(db,f.u.staff,{pageSize:10,page:99}));

@@ -2,6 +2,7 @@ import type {Queryable} from "../../packages/db/connection";
 import {operationalDataEnabled} from '../../packages/security/runtime';
 import {authorize} from "../../packages/security/policy";
 import {batchDetail} from "../../packages/lab/batch";
+import {seqRecordedSql} from "../../packages/lab/historical-run";
 import {observationsView,dispositionsView,documentCopies,sheetCompleteness,qcCompleteness} from "../../packages/lab/records";
 import {FIELDS} from "../../packages/lab/fields";
 import {QC1_CRITERIA,OWNER_QC1_CRITERIA} from "../../packages/lab/qc";
@@ -10,10 +11,11 @@ import {pendingPolicy,DISPOSITION_REASONS,type Staff} from "../../packages/lab/c
 /** Everything the F1 batch workspace renders, computed server-side; buttons follow server authorization, not role names. */
 export async function batchWorkspace(db:Queryable,user:Staff,id:string){
  const detail=await batchDetail(db,user,id);
- const progress=(await db.query<{pooling_recorded:boolean;seq_files_exported:boolean;qc_saved:boolean;pool_exported:boolean}>(`SELECT
+ const progress=(await db.query<{pooling_recorded:boolean;seq_files_exported:boolean;qc_saved:boolean;pool_exported:boolean;seq_recorded:boolean}>(`SELECT
   COALESCE((SELECT lab_actual_pooling_current(p.id) FROM lab_actual_pooling p WHERE p.batch_id=$1 AND p.note<>'AUTO_RECORDED_FROM_SAVED_TASK_AT_EXPORT' ORDER BY p.recorded_at DESC,p.id DESC LIMIT 1),false) pooling_recorded,
   EXISTS(SELECT 1 FROM lab_bench_export e WHERE e.batch_id=$1 AND e.kind='HALOS_TASK_XLSX') seq_files_exported,
   EXISTS(SELECT 1 FROM task_workbook_revision r WHERE r.batch_id=$1) qc_saved,
+  ${seqRecordedSql('$1')} seq_recorded,
   EXISTS(SELECT 1 FROM lab_bench_export e WHERE e.batch_id=$1 AND e.kind='POOL_CSV') pool_exported`,[id])).rows[0];
  const [observations,dispositions,copies,{policy}]=await Promise.all([observationsView(db,user,id),dispositionsView(db,user,id),documentCopies(db,user,id),pendingPolicy(db)]);
  const completeness=await Promise.all([1,2,3].map(async n=>{const c=await sheetCompleteness(db,id,n);return {sheet:n,ready:c.ready,missingFields:c.missingFields,slots:c.slots,open:c.open};}));

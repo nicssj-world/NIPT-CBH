@@ -49,6 +49,11 @@ export async function historicalRunDetail(db:Queryable,user:Staff,runLabel:strin
 
 /** Unified Batch / Task List index: historical Runs remain read-only but share search, sort and pagination.
  * Sort on recorded run_year / run_number, NEVER migration insert time. */
+/**
+ * Sequencing result recorded (Owner 2026-11-09): the newest saved task workbook holds all four first-cycle values of Seq Task-G50 as numbers.
+ * A missing value counts as not recorded (bool_and alone would ignore NULLs).
+ */
+export const seqRecordedSql=(batchId:string)=>`COALESCE((SELECT bool_and(COALESCE(jsonb_typeof(r.values->k)='number',false)) FROM (SELECT values FROM task_workbook_revision WHERE batch_id=${batchId} ORDER BY revision DESC LIMIT 1) r CROSS JOIN unnest(ARRAY['seq.loadedDnb','seq.q30','seq.bic','seq.fit']) k),false)`;
 export async function listUnifiedRunPage(db:Queryable,user:Staff,input:{q?:string;page?:string|number;pageSize?:string|number}={}){
  await assertSession(db,user);need(user,'worksheet.read','read');
  const q=String(input.q??'').trim().toLowerCase().slice(0,40);
@@ -66,6 +71,7 @@ export async function listUnifiedRunPage(db:Queryable,user:Staff,input:{q?:strin
     COALESCE((SELECT lab_actual_pooling_current(p.id) FROM lab_actual_pooling p WHERE p.batch_id=b.id AND p.note<>'AUTO_RECORDED_FROM_SAVED_TASK_AT_EXPORT' ORDER BY p.recorded_at DESC,p.id DESC LIMIT 1),false) pooling_recorded,
     EXISTS(SELECT 1 FROM lab_bench_export e WHERE e.batch_id=b.id AND e.kind='HALOS_TASK_XLSX') seq_files_exported,
     EXISTS(SELECT 1 FROM task_workbook_revision r WHERE r.batch_id=b.id) qc_saved,
+    ${seqRecordedSql('b.id')} seq_recorded,
     EXISTS(SELECT 1 FROM lab_bench_export e WHERE e.batch_id=b.id AND e.kind='POOL_CSV') pool_exported
   FROM lab_batch b WHERE NOT EXISTS (SELECT 1 FROM lab_batch_removal d WHERE d.batch_id=b.id) ${releaseColumn?"AND b.run_released_at IS NULL":""}
   UNION ALL
@@ -76,14 +82,14 @@ export async function listUnifiedRunPage(db:Queryable,user:Staff,input:{q?:strin
     (SELECT count(*) FROM migration_analysis a WHERE a.run_label=h.run_label AND a.sheet IN ('result','repeat') AND a.classification='CONTROL')::int,
     (SELECT count(*) FROM migration_analysis a WHERE a.run_label=h.run_label AND a.sheet='repeat')::int,
     (SELECT count(DISTINCT m.id) FROM migration_analysis a JOIN migration_record m ON m.id=a.record_id JOIN historical_reported_result r ON r.record_id=m.id WHERE a.run_label=h.run_label AND a.sheet='result')::int,
-    false,false,false,false
+    false,false,false,false,false
   FROM migration_historical_run h
  ) SELECT * FROM combined WHERE ($1::text='' OR strpos(lower(run_label),$1)>0)`;
  const total=Number((await db.query<{n:string}>(`SELECT count(*)::text n FROM (${base}) filtered`,[q])).rows[0]?.n??0);
  const totalPages=Math.max(1,Math.ceil(total/size));
  const number=Math.min(pageRequested,totalPages);
  const offset=(number-1)*size;
- type Unified={run_label:string;run_year:number;run_number:number;id:string|null;source:'CURRENT'|'HISTORICAL';state:string;created_at:Date|null;samples:number;sheet_states:string[];controls:number;technical_repeats:number;with_pdf:number;pooling_recorded:boolean;seq_files_exported:boolean;qc_saved:boolean;pool_exported:boolean};
+ type Unified={run_label:string;run_year:number;run_number:number;id:string|null;source:'CURRENT'|'HISTORICAL';state:string;created_at:Date|null;samples:number;sheet_states:string[];controls:number;technical_repeats:number;with_pdf:number;pooling_recorded:boolean;seq_files_exported:boolean;qc_saved:boolean;pool_exported:boolean;seq_recorded:boolean};
  const rows=(await db.query<Unified>(`${base} ORDER BY run_year DESC,run_number DESC,CASE source WHEN 'CURRENT' THEN 0 ELSE 1 END,run_label DESC LIMIT $2 OFFSET $3`,[q,size,offset])).rows;
  return {rows,page:{number,size,total,totalPages}};
 }
