@@ -112,6 +112,9 @@ export async function roundRequest(db:Queryable,roundId:string):Promise<RoundReq
 const cmp=(a:string|null|undefined,b:string|null|undefined):Cmp=>!a||!b?'NOT_AVAILABLE':a===b?'MATCH':'MISMATCH';
 const digits=(x:string|null|undefined)=>x?x.replace(/^0+/,''):null;
 /** Independent properties for RG-04 / RN-04. The PDF collection date must equal the date of the round the attempt belongs to. */
+/** Owner 2026-11-10: "26B261020101-2" is another run of the same sample as "26B261020101-1" (a repeat); the "-N" run suffix does not make it a different sample. */
+const runBase=(v:string)=>v.replace(/-\d{1,2}$/,'');
+export const labNumberMatches=(lab:string,own:(string|null)[])=>own.some(x=>!!x&&(x===lab||runBase(x)===runBase(lab)));
 export function crossCheck(p:Parsed,sys:{hn:string|null;printed_sample_id:string|null;ln_halos:string|null;ln:string},req:RoundRequest,gaTolerance:number):CrossCheck{
  const pdfDate=p.identifiers.collectionDate.value;
  const collectionDate:Cmp=!pdfDate||req.dates.length===0?'NOT_AVAILABLE':req.dates.length>1?'MISMATCH':pdfDate===req.dates[0]?'MATCH':'MISMATCH';
@@ -120,7 +123,7 @@ export function crossCheck(p:Parsed,sys:{hn:string|null;printed_sample_id:string
  if(ga!==null&&req.edd&&req.dates.length===1){const expected=280-Math.round((Date.parse(req.edd)-Date.parse(req.dates[0]))/86400000);gestationalAge=Math.abs(expected-ga)<=gaTolerance?'MATCH':'MISMATCH';}
  const lab=p.identifiers.labNumber.value;
  return {hn:cmp(digits(p.identifiers.hn.value),digits(sys.hn)),dob:cmp(p.identifiers.dob.value,req.dob),pregnancy,collectionDate,gestationalAge,
-  labNumber:!lab?'NOT_AVAILABLE':[sys.printed_sample_id,sys.ln_halos,sys.ln].includes(lab)?'MATCH':'MISMATCH'};
+  labNumber:!lab?'NOT_AVAILABLE':labNumberMatches(lab,[sys.printed_sample_id,sys.ln_halos,sys.ln])?'MATCH':'MISMATCH'};
 }
 
 export type Candidate={caseId:string;ln:string;hn:string|null;origin:string;lnHalos:string|null;matchedOn:string[];cross:CrossCheck;
