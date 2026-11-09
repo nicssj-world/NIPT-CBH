@@ -1,4 +1,5 @@
 import {describe,it,expect,beforeEach,afterEach} from 'vitest';
+import {createHash,randomUUID} from 'node:crypto';
 import {utimes,rename,readdir,mkdir,writeFile,readFile} from 'node:fs/promises';
 import path from 'node:path';
 import iconv from 'iconv-lite';
@@ -11,6 +12,8 @@ import {intakePresence,linkIntakeAtRegistration} from '../../packages/inbound/re
 import {proposeResolution,decideResolution,resolveIssueDirect} from '../../packages/inbound/resolution';
 import {inboundQueue} from '../../packages/inbound/queue';
 import {reviewParseError} from '../../packages/inbound/file-review';
+import {lookupRegistrationPet} from '../../packages/p2/pet-registration';
+import {lnDiagnosis,lnVerdict} from '../../packages/inbound/ln-diagnosis';
 import {inboundHealth} from '../../packages/inbound/health';
 import {testInboundConnection} from '../../packages/inbound/connection-test';
 import {FileStore} from '../../packages/storage';
@@ -363,6 +366,26 @@ describe('P3 HIS inbound — synthetic simulator acceptance (AT-HISIN, AT-LIN, A
   try{replacement=await cycle(f,{now:later(3)});}finally{await f.db.query('RESET ROLE');}
   expect(replacement!.counts).toMatchObject({stored:1,newPathVersion:1});
   expect(await rows<{event:string}>(f.db,'SELECT event FROM his_inbound_file_purge_event WHERE sha256=$1',[file.sha256])).toEqual([{event:'SUPERSEDED'}]);
+ });
+
+ it('AT-HISIN-12b a tombstoned file that the reader now accepts is ingested and its tombstone superseded (Owner 2026-11-09)',async()=>{
+  const pet=await writePet(f.root,DAY,{ln:'990001000058',hn:HN,receivedAt:'20261012090000'});     // valid bytes with an .ok
+  const lab=await addUser(f.db,'LAB_STAFF','synthetic.p3.tombstone-valid');
+  const sha=createHash('sha256').update(await readFile(pet.path)).digest('hex');
+  // The state a deleted ParseError leaves behind, for bytes that parse today (for example deleted under an older, stricter reader).
+  await f.db.query("INSERT INTO his_inbound_file_purge(sha256,deleted_file_id,source_path,ln,path_version,actor_id) VALUES($1,$2,$3,$4,1,$5)",[sha,randomUUID(),`inbound/${DAY}/${pet.filename}`,'990001000058',lab.id]);
+  const {lab:registrant}=await registrar(f.db),lookup=()=>lookupRegistrationPet(f.db,registrant,{ln:'990001000058'},{store:f.store,lookupKey:f.lookupKey});
+  expect((await lookup()).candidates).toEqual([]);                                   // before: the registration screen says "no PET found"
+  const before=(await lnDiagnosis(f.db,'990001000058'))!;expect(before.files).toEqual([]);expect(before.deleted).toMatchObject([{released:false,superseded:false}]);expect(lnVerdict(before).tone).toBe('warn');   // the page explains why
+  await f.db.exec(await readFile('packages/db/roles.sql','utf8'));
+  await f.db.query('SET ROLE worker_rw');
+  let r;try{r=await cycle(f,{now:NOW});}finally{await f.db.query('RESET ROLE');}
+  expect(r!.counts).toMatchObject({stored:1,sameContent:0,parseError:0});
+  expect((await lookup()).candidates.map(c=>c.ln)).toEqual(['990001000058']);         // after: the PET is found and can be registered
+  const after=(await lnDiagnosis(f.db,'990001000058'))!;expect(after.deleted).toMatchObject([{released:true,superseded:true}]);expect(lnVerdict(after).tone).toBe('good');expect(after.sightings).toMatchObject([{stored:true}]);
+  expect(await lnDiagnosis(f.db,'12')).toBeNull();expect(lnVerdict((await lnDiagnosis(f.db,'990009999999'))!).tone).toBe('bad');   // short input is ignored; an unknown LN is explained as never seen
+  expect(await fileStates(f.db,'990001000058')).toEqual([{state:expect.stringMatching(/Ready|Applied|Unlinked/),error_code:null}]);
+  expect(await rows<{event:string}>(f.db,'SELECT event FROM his_inbound_file_purge_event WHERE sha256=$1',[sha])).toEqual([{event:'SUPERSEDED'}]);
  });
 
  it('AT-HISIN-13 touching an unchanged oversized ParseError does not restore its deleted row',async()=>{

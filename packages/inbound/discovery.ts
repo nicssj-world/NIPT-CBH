@@ -8,6 +8,7 @@ import {sectionOf,classifyPet,redactPet,NIPT_SECTION,MAX_PET_BYTES} from './wire
 import {errorCode} from './tx';
 import {type InboundSource,inboundReadError,inboundAccessError} from './source';
 import {supersedeParseErrors} from './file-review';
+import {appendAudit} from '../db/audit';
 const sourceFile=(o:DiscoveryOptions,rel:string)=>o.source?o.source.file(rel):confined(o.root,rel);
 
 export interface DiscoveryCounts{dayFolders:number;petSeen:number;notNipt:number;waitingOk:number;waitingNew:number;okArrived:number;unchanged:number;sameContent:number;stored:number;newPathVersion:number;parseError:number;readError:number;}
@@ -80,7 +81,15 @@ async function discoverOne(db:Queryable,store:FileStore,options:DiscoveryOptions
  }
  const bytes=await fs.readFile(path),hash=sha256(bytes);
  const purged=(await db.query('SELECT 1 FROM his_inbound_file_purge WHERE sha256=$1',[hash])).rows.length>0;
- if(purged){await source(hash,null,bytes.length);counts.sameContent++;return null;}
+ // A deleted ParseError keeps a tombstone so the same broken bytes are not reported again. It must not hide a valid PET for ever (Owner 2026-11-09):
+ // when the reader now accepts those exact bytes, they are ingested like any new file and the tombstone is superseded below.
+ if(purged){
+  let readableNow=false;
+  if(classifyPet(bytes)==='NIPT'){try{redactPet(parsePet(bytes,name),options.lookupKey);readableNow=true;}catch{/* still unreadable: stays skipped */}}
+  if(!readableNow){await source(hash,null,bytes.length);counts.sameContent++;return null;}
+  if((await db.query('INSERT INTO his_inbound_file_purge_release(sha256) VALUES($1) ON CONFLICT DO NOTHING RETURNING sha256',[hash])).rows.length)
+   await appendAudit(db,{action:'INBOUND_PURGED_FILE_REACCEPTED',resourceType:'his_inbound_file',details:{outcome:'REACCEPTED',reasonCode:'READABLE_NOW',previousState:'Deleted',resultingState:'Ready',synthetic:process.env.NIPT_MODE!=='operational'}});
+ }
  const existing=(await db.query<{id:string;state:string;ln:string|null;source_path:string|null;path_version:number|null}>('SELECT id,state,ln,source_path,path_version FROM his_inbound_file WHERE sha256=$1',[hash])).rows[0];
  if(existing){
   // A rewritten PET can preserve both size and mtime. Only its bytes prove unchanged content.

@@ -1,6 +1,7 @@
 "use client";
 import {useState,useId} from "react";
 import {useRouter} from "next/navigation";
+import {JobProgress,useJobProgress} from "./job-progress";
 
 async function post(url:string,body:unknown){
  const me=await fetch("/api/me").then(r=>r.json());
@@ -9,17 +10,17 @@ async function post(url:string,body:unknown){
 }
 
 export function TestConnectionButton(){
- const router=useRouter(),[busy,setBusy]=useState(false),[message,setMessage]=useState("");
- return <div className="stack"><button className="button secondary" disabled={busy} onClick={async()=>{setBusy(true);try{await post("/api/p3/inbound/test-connection",{});setMessage("เข้าคิวทดสอบการเชื่อมต่อแล้ว ผลจะแสดงเมื่อ Worker ทำเสร็จ (อ่านอย่างเดียว ไม่เขียนไฟล์)");router.refresh();}catch(e){setMessage((e as Error).message);}finally{setBusy(false);}}}>{busy?"กำลังเข้าคิว…":"ทดสอบการเชื่อมต่อ"}</button><p aria-live="polite" className="help">{message}</p></div>;
+ const router=useRouter(),[busy,setBusy]=useState(false),[message,setMessage]=useState(""),job=useJobProgress(()=>router.refresh());
+ return <div className="stack"><button className="button secondary" disabled={busy||job.active} onClick={async()=>{setBusy(true);setMessage("");try{const queued=await post("/api/p3/inbound/test-connection",{});if(queued?.id)job.start(queued.id);else setMessage("เข้าคิวทดสอบการเชื่อมต่อแล้ว (อ่านอย่างเดียว ไม่เขียนไฟล์)");}catch(e){setMessage((e as Error).message);}finally{setBusy(false);}}}>{busy?"กำลังเข้าคิว…":job.active?"กำลังทดสอบ…":"ทดสอบการเชื่อมต่อ"}</button><JobProgress view={job.view} seconds={job.seconds} stalled={job.stalled} label="ทดสอบการเชื่อมต่อ"/><p aria-live="polite" className="help">{message}</p></div>;
 }
 
 export function DeepScanForm({defaultDays}:{defaultDays:number}){
- const router=useRouter(),id=useId(),[days,setDays]=useState(String(Math.min(90,defaultDays*2))),[busy,setBusy]=useState(false),[message,setMessage]=useState("");
- return <form className="stack" onSubmit={async e=>{e.preventDefault();setBusy(true);try{await post("/api/p3/inbound/deep-scan",{lookbackDays:Number(days)});setMessage(`เข้าคิวสแกนย้อนหลัง ${days} วันแล้ว (บันทึก Audit)`);router.refresh();}catch(err){setMessage((err as Error).message);}finally{setBusy(false);}}}>
+ const router=useRouter(),id=useId(),[days,setDays]=useState(String(Math.min(90,defaultDays*2))),[busy,setBusy]=useState(false),[message,setMessage]=useState(""),job=useJobProgress(()=>router.refresh());
+ return <form className="stack" onSubmit={async e=>{e.preventDefault();setBusy(true);setMessage("");try{const queued=await post("/api/p3/inbound/deep-scan",{lookbackDays:Number(days)});if(queued?.id)job.start(queued.id);else setMessage(`เข้าคิวสแกนย้อนหลัง ${days} วันแล้ว (บันทึก Audit)`);}catch(err){setMessage((err as Error).message);}finally{setBusy(false);}}}>
   <label htmlFor={id}>สแกนย้อนหลัง (Deep scan) จำนวนวัน</label>
   <input id={id} type="number" min={1} max={90} inputMode="numeric" value={days} onChange={e=>setDays(e.target.value)} aria-describedby={id+"-help"}/>
   <p id={id+"-help"} className="help">ใช้เมื่อสงสัยว่ามีไฟล์ตกหล่นนอกช่วงสแกนปกติ ({defaultDays} วัน) ได้สูงสุด 90 วัน</p>
-  <button className="button secondary" disabled={busy}>{busy?"กำลังเข้าคิว…":"สแกนย้อนหลัง"}</button><p aria-live="polite">{message}</p>
+  <button className="button secondary" disabled={busy||job.active}>{busy?"กำลังเข้าคิว…":job.active?"กำลังสแกน…":"สแกนย้อนหลัง"}</button><JobProgress view={job.view} seconds={job.seconds} stalled={job.stalled} label={`สแกนย้อนหลัง ${days} วัน`}/><p aria-live="polite">{message}</p>
  </form>;
 }
 
@@ -35,7 +36,7 @@ export function ParseErrorActions({fileId,action}:{fileId:string;action:'delete'
  };
  if(action==='delete'&&!confirming)return <button type="button" className="button secondary small" onClick={()=>setConfirming(true)}>ลบรายการ</button>;
  return <div className="stack">
-  {action==='delete'&&<p className="help">แถวนี้จะถูกลบจากฐานข้อมูลและกู้คืนไม่ได้ ระบบจะเก็บ path/hash/LN/รุ่น พร้อมผู้ลบและเวลาไว้กันเนื้อหาเดิมกลับมา ส่วนไฟล์ต้นฉบับบน HIS จะไม่ถูกแก้ไข และ LN ยังถูกบล็อกจนกว่าไฟล์รุ่นใหม่จาก path เดิมจะอ่านผ่าน</p>}
+  {action==='delete'&&<p className="help">แถวนี้จะถูกลบจากฐานข้อมูลและกู้คืนไม่ได้ ระบบจะเก็บ path/hash/LN/รุ่น พร้อมผู้ลบและเวลาไว้กันเนื้อหาเดิมกลับมา ส่วนไฟล์ต้นฉบับบน HIS จะไม่ถูกแก้ไข และ LN ยังถูกบล็อกจนกว่าไฟล์รุ่นใหม่จาก path เดิมจะอ่านผ่าน · ถ้าเนื้อหาเดิมนี้อ่านผ่านด้วยตัวอ่านปัจจุบัน ระบบจะนำเข้าให้เองในรอบสแกนถัดไปและปลดบล็อก</p>}
   <div className="pager-buttons">
    <button type="button" className={`button small${action==='delete'?' danger':''}`} disabled={busy} onClick={()=>void submit()}>{busy?(action==='delete'?'กำลังลบรายการ…':'กำลังนำกลับ…'):action==='delete'?'ยืนยันลบรายการ':'นำกลับเข้ารายการ'}</button>
    {action==='delete'&&<button type="button" className="button secondary small" disabled={busy} onClick={()=>setConfirming(false)}>ยกเลิก</button>}

@@ -18,13 +18,16 @@ export async function inboundSettings(){const s=await readActiveSettings(pool())
 export const inboundStore=()=>new FileStore(path.resolve(/* turbopackIgnore: true */ process.env.FILE_STORE_ROOT||"data/files"));
 export async function inboundDeps(){return {store:inboundStore(),lookupKey:await readFile(/* turbopackIgnore: true */ process.env.IDENTITY_LOOKUP_KEY_FILE??"")};}
 
+import {lnDiagnosis} from "../../../packages/inbound/ln-diagnosis";
 export async function inboundPageData(user:Principal,params:Record<string,unknown>={}){
  const settings=await inboundSettings();
  const [health,queue,test]=await Promise.all([
   inboundHealth(pool(),settings),inboundQueuePage(pool(),user,params),
   pool().query<{result:{passed:boolean;checks:{code:string;passed:boolean}[];dayFolders:number;pairedPetFiles:number;sampleParse:string;errorCode:string|null};completed_at:Date}>("SELECT r.result,r.completed_at FROM integration_job_receipt r JOIN job_outbox o ON o.id=r.outbox_id WHERE o.kind='synthetic_inbound_test' ORDER BY r.completed_at DESC LIMIT 1")
  ]);
- return {settings:{enabled:settings.enabled,intervalSeconds:settings.intervalSeconds,lookbackDays:settings.lookbackDays},health,queue,lastTest:test.rows[0]??null};
+ // The explanation is additive: if it cannot be built the page still loads.
+ const diagnosis=queue.search.q&&queue.search.enabled?await lnDiagnosis(pool(),queue.search.q).catch(()=>null):null;
+ return {settings:{enabled:settings.enabled,intervalSeconds:settings.intervalSeconds,lookbackDays:settings.lookbackDays},health,queue,lastTest:test.rows[0]??null,diagnosis};
 }
 
 const messages:Record<string,string>={

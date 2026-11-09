@@ -18,6 +18,7 @@ GRANT SELECT,INSERT ON his_inbound_file,his_order,audit_chain TO worker_rw;
 GRANT SELECT,INSERT ON his_inbound_file_event TO worker_rw;
 GRANT SELECT ON his_inbound_file_purge,his_inbound_file_purge_event TO worker_rw;
 GRANT INSERT ON his_inbound_file_purge_event TO worker_rw;
+GRANT SELECT,INSERT ON his_inbound_file_purge_release TO worker_rw;
 GRANT UPDATE ON case_ln,specimen_round,his_inbound_file,job_outbox TO worker_rw;
 GRANT SELECT,INSERT,UPDATE ON worker_heartbeat TO worker_rw;
 GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO app_rw,worker_rw;
@@ -72,7 +73,7 @@ GRANT SELECT(case_id,round_id,source,collection_date,sequence) ON p2_collection_
 -- Registration-time intake linking (D-49) runs inside the web registration transaction.
 GRANT SELECT,UPDATE ON his_inbound_file TO app_rw;
 GRANT SELECT,INSERT ON his_inbound_file_event TO app_rw;
-GRANT SELECT ON his_inbound_file_purge,his_inbound_file_purge_event TO app_rw;
+GRANT SELECT ON his_inbound_file_purge,his_inbound_file_purge_event,his_inbound_file_purge_release TO app_rw;
 GRANT EXECUTE ON FUNCTION purge_his_inbound_parse_error(uuid,uuid) TO app_rw;
 GRANT SELECT,INSERT ON his_order TO app_rw;
 GRANT SELECT,INSERT,UPDATE ON his_intake_issue TO app_rw;

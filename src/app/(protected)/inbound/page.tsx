@@ -3,6 +3,7 @@ import {authorize} from "../../../../packages/security/policy";
 import {redirect} from "next/navigation";
 import {inboundPageData} from "../../../server/p3/inbound";
 import {ScanButton} from "../../../components/system-actions";
+import {lnVerdict} from "../../../../packages/inbound/ln-diagnosis";
 import {TestConnectionButton,DeepScanForm,IssueActions,ParseErrorActions,actionLabel} from "../../../components/p3/inbound-actions";
 import {Pager} from "../../../components/shared/pager";
 import {LabIcon,type LabIconName} from "../../../components/shared/lab-icons";
@@ -29,7 +30,7 @@ const ageMs=(iso:string|Date)=>Date.now()-new Date(iso).getTime();
 export default async function InboundPage({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}){
  const user=(await currentUser())!;if(!authorize(user,"his.scan",{},"read"))redirect("/");
  const sp=await searchParams,one=(k:string)=>{const v=sp[k];return Array.isArray(v)?v[0]:v;};
- const {settings,health,queue,lastTest}=await inboundPageData(user,{issuesPage:one("issuesPage"),unlinkedPage:one("unlinkedPage"),filesPage:one("filesPage"),closedFilesPage:one("closedFilesPage"),runsPage:one("runsPage"),pageSize:one("pageSize"),q:one("q")});
+ const {settings,health,queue,lastTest,diagnosis}=await inboundPageData(user,{issuesPage:one("issuesPage"),unlinkedPage:one("unlinkedPage"),filesPage:one("filesPage"),closedFilesPage:one("closedFilesPage"),runsPage:one("runsPage"),pageSize:one("pageSize"),q:one("q")});
  const review=queue.review.rows,unlinked=queue.unlinked.rows,closedFiles=queue.closedFiles.rows;
  // The lists page independently; each pager keeps the other pages, the page size and the search.
  const keep=()=>({q:queue.search.q||undefined,issuesPage:String(queue.review.page.number),unlinkedPage:String(queue.unlinked.page.number),filesPage:String(queue.files.page.number),closedFilesPage:String(queue.closedFiles.page.number),runsPage:String(queue.runs.page.number)});
@@ -64,6 +65,15 @@ export default async function InboundPage({searchParams}:{searchParams:Promise<R
    </div>
   </section>}
   {queue.search.enabled&&<section className="panel" aria-label="ค้นหา LN"><form className="search-form" role="search" method="get" action="/inbound"><div className="field"><label htmlFor="inbound-q">ค้นหา LN</label><input id="inbound-q" name="q" type="search" defaultValue={queue.search.q} maxLength={40} autoComplete="off"/></div><input type="hidden" name="pageSize" value={queue.review.page.size}/><button className="button">ค้นหา</button>{queue.search.q&&<a className="button secondary" href={`/inbound?pageSize=${queue.review.page.size}`}>ล้าง</a>}</form></section>}
+  {diagnosis&&(()=>{const v=lnVerdict(diagnosis),dayText=(d:string)=>d.length===8?`${d.slice(6)}/${d.slice(4,6)}/${Number(d.slice(0,4))+543}`:"—";
+   return <section className="panel" aria-label="ผลตรวจ LN"><h2>ผลตรวจ LN <span className="mono">{diagnosis.ln}</span></h2>
+    <p className={`notice${v.tone==="good"?" success":v.tone==="warn"?" warning-notice":""}`} role="status">{v.text}</p>
+    <ul className="stack">
+     {diagnosis.files.map((f,i)=><li key={"f"+i}>ไฟล์ที่เก็บไว้: {STATE[f.state]??f.state}{f.errorCode?` · รหัส ${f.errorCode}`:""}{f.dayFolder?` · โฟลเดอร์ ${dayText(f.dayFolder)}`:""}</li>)}
+     {diagnosis.sightings.map((x,i)=><li key={"s"+i}>เห็นไฟล์ .pet ในโฟลเดอร์ {dayText(x.dayFolder)} · {x.byteSize} ไบต์ · เห็นครั้งแรก {when(x.firstSeenAt)} · {x.stored?"มีไฟล์เก็บไว้ในระบบ":"ไม่มีไฟล์ที่เก็บไว้"}</li>)}
+     {diagnosis.deleted.map((x,i)=><li key={"d"+i}>ลบรายการอ่านไฟล์ไม่ได้ (โฟลเดอร์ {dayText(x.dayFolder)}) เมื่อ {when(x.deletedAt)} · {x.superseded?"มีไฟล์ใหม่แทนแล้ว":x.released?"อนุญาตให้อ่านซ้ำแล้ว":"ยังถูกบล็อก"}</li>)}
+     {diagnosis.waiting.map((x,i)=><li key={"w"+i}>.pet โฟลเดอร์ {dayText(x.dayFolder)} · {x.okSeenAt?`มี .ok เมื่อ ${when(x.okSeenAt)}`:"ยังไม่มี .ok"} · เห็นล่าสุด {when(x.lastSeenAt)}</li>)}
+    </ul></section>;})()}
   <section className="panel" aria-labelledby="inbound-issues"><h2 id="inbound-issues">รายการที่ต้องตรวจ ({queue.review.page.total})</h2>
    <p className="help">ตรวจกับหน้าจอ HIS และเอกสาร/หลอดเลือดโดยตรง ผู้มีสิทธิ์สามารถดำเนินการรายการนี้ให้เสร็จในขั้นตอนเดียว</p>
    {review.length?<ul className="registry">{review.map(i=><li className="registry-row" key={i.id}>
