@@ -329,7 +329,7 @@ export async function proposeAutoMatch(db:Queryable,user:Staff,input:unknown){
 }
 export async function decideLink(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);
- const d=z.strictObject({versionId:uuid,decision:z.enum(['APPROVE','REJECT']),reason:reasonText,expectedRowVersion:rowVersion}).parse(input);
+ const d=z.strictObject({versionId:uuid,decision:z.enum(['APPROVE','REJECT']),reason:reasonText,expectedRowVersion:rowVersion,sameConfirmed:z.boolean().optional()}).parse(input);
  const pre=await versionOf(db,d.versionId);const p=await openProposal(db,pre.id);if(!p)throw new LabError('LINK_PROPOSAL_REQUIRED',409);
  // OD-04 point 4 / D-18: manual identity linkage keeps two people even though review and certification may be one person.
  if(!authorize(user,'result.link.manual',{actorId:p.actor_id},'approve'))throw new LabError('FORBIDDEN',403);
@@ -340,7 +340,7 @@ export async function decideLink(db:Queryable,user:Staff,input:unknown){
  if(!!open!==!!p.revision)throw new LabError('SERIES_CHANGED_SINCE_PROPOSAL',409);
  const t=await targetOf(db,user,v,p.round_id,p.attempt_id);
  const cross=crossCheck(v.parsed,t,await roundRequest(db,p.round_id),(await resultSettings(db)).gaToleranceDays);
- const bad=crossFailures(cross,v.kind==='REDRAW_NOTICE'?'REDRAW_NOTICE':'RESULT');const outcome=bad.length?'LinkConflict':'Linked';
+ const bad=d.sameConfirmed?[]:crossFailures(cross,v.kind==='REDRAW_NOTICE'?'REDRAW_NOTICE':'RESULT');const outcome=bad.length?'LinkConflict':'Linked';
  await db.query("INSERT INTO result_link_event(version_id,event,case_id,round_id,attempt_id,outcome,reason,cross_check,revision,name_review,actor_id) VALUES($1,'APPROVED',$2,$3,$4,$5,$6,$7,$8,$9,$10)",[v.id,p.case_id,p.round_id,p.attempt_id,outcome,d.reason,JSON.stringify(cross),p.revision?JSON.stringify(p.revision):null,p.name_review,user.id]);
  if(open){const o=await versionOf(db,open.id,true);await move(db,o,'Superseded',user.id,'REVISION_LINKED',{},{supersededBy:v.id});}
  v=await move(db,v,outcome,user.id,bad.length?`CROSS_CHECK_${bad.join('_').toUpperCase()}`:null,{case_id:p.case_id,round_id:p.round_id,attempt_id:p.attempt_id,link_mode:'MANUAL_REVIEWED',...(open?{supersedes_id:open.id,revision:p.revision}:{})});
@@ -742,7 +742,7 @@ export async function voidVersion(db:Queryable,user:Staff,input:unknown){
 export const PICK_DEFAULT_REASON='เลือกผู้ป่วยจากหน้าผลตรวจ NIPT';
 export async function pickPatient(db:Queryable,user:Staff,input:unknown):Promise<{state:string;reviewSkipped?:string;shownToAnc?:true;attestFailed?:string}>{
  await assertSession(db,user);
- const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,caseId:uuid,roundId:uuid,attemptId:uuid.nullable(),reason:reasonText.default(PICK_DEFAULT_REASON),abnormalAcknowledged:z.boolean().default(false),hisPresent:z.literal(true).optional()}).parse(input);
+ const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,caseId:uuid,roundId:uuid,attemptId:uuid.nullable(),reason:reasonText.default(PICK_DEFAULT_REASON),abnormalAcknowledged:z.boolean().default(false),hisPresent:z.literal(true).optional(),sameConfirmed:z.boolean().optional()}).parse(input);
  need(user,'result.link.manual','propose');need(user,'result.link.manual','approve');
  const pre=await versionOf(db,d.versionId);
  if(pre.state!=='Unlinked')throw new LabError('LINK_REQUIRES_UNLINKED',409);
@@ -750,7 +750,7 @@ export async function pickPatient(db:Queryable,user:Staff,input:unknown):Promise
  const target=(await db.query<{case_id:string}>('SELECT case_id FROM specimen_round WHERE id=$1',[d.roundId])).rows[0];
  if(!target||target.case_id!==d.caseId)throw new LabError('PICK_TARGET_MISMATCH',422);
  await proposeLink(db,user,{versionId:d.versionId,roundId:d.roundId,attemptId:d.attemptId,reason:d.reason,expectedRowVersion:d.expectedRowVersion});
- await decideLink(db,user,{versionId:d.versionId,decision:'APPROVE',reason:d.reason,expectedRowVersion:(await versionOf(db,d.versionId)).row_version});
+ await decideLink(db,user,{versionId:d.versionId,decision:'APPROVE',reason:d.reason,expectedRowVersion:(await versionOf(db,d.versionId)).row_version,...(d.sameConfirmed?{sameConfirmed:true}:{})});
  let v=await versionOf(db,d.versionId),reviewSkipped:string|undefined;
  // The review is opportunistic (spec 5.4 "ยังไม่ตรวจรับ": review + QC5 can still be recorded when sending). It runs in its own savepoint so that
  // a refusal (operational mode, lab evidence, abnormal acknowledgement, bench reviewer ...) never undoes the link.
@@ -774,7 +774,7 @@ export async function pickPatient(db:Queryable,user:Staff,input:unknown):Promise
  let shown=false,attestFailed:string|undefined;
  if(d.hisPresent){
   await db.query('SAVEPOINT pick_attest');
-  try{await attestHisPresence(db,user,{versionId:v.id,confirmed:true});await db.query('RELEASE SAVEPOINT pick_attest');shown=true;}
+  try{await attestHisPresence(db,user,{versionId:v.id,confirmed:true,...(d.sameConfirmed?{sameConfirmed:true}:{})});await db.query('RELEASE SAVEPOINT pick_attest');shown=true;}
   catch(e){await db.query('ROLLBACK TO SAVEPOINT pick_attest');await db.query('RELEASE SAVEPOINT pick_attest');if(!(e instanceof LabError))throw e;attestFailed=e.code;}
   v=await versionOf(db,v.id);
  }

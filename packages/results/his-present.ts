@@ -1,7 +1,7 @@
 import {z} from 'zod';
 import type {Queryable} from '../db/connection';
 import {assertSession,need,audit,uuid,LabError,type Staff} from '../lab/core';
-import {attestHisPresence,autoLinkUnique,backlogRelinkPreview,validationGateIssues} from './service';
+import {attestHisPresence,autoLinkUnique,backlogRelinkPreview,validationGateIssues,unlinkVersion,pickPatient} from './service';
 import {isSendResolvable} from './release-queue';
 
 // Owner 2026-11-09: an external (ReadyGen) PDF that HIS already holds is linked to its patient and shown there, and is never sent again. This is the one place that does it for
@@ -17,12 +17,21 @@ export const isShown=(o:ShowOutcome)=>o==='SHOWN'||o==='LINKED_AND_SHOWN';
  *  - `skipWaiting`: a Linked / ValidationBlocked result whose only open items are what "ส่ง HIS" records itself is waiting to be sent, not stuck; the backlog script (which chooses
  *    its own scope) leaves it alone, while a person who selected it on purpose is not second-guessed.
  *  `claimed` holds the rounds an earlier PDF of the same run links, so two PDFs of one round are not both linked. Nothing here reviews, certifies, voids or sends. */
-export async function linkAndShowInHis(db:Queryable,actor:Staff,versionId:string,o:{claimed?:Set<string>;skipWaiting?:boolean;note?:string}={}):Promise<ShowResult>{
- const v=(await db.query<{state:string;origin:string;kind:string;round_id:string|null;current_round_id:string|null}>('SELECT v.state,v.origin,v.kind,v.round_id,c.current_round_id FROM result_report_version v LEFT JOIN nipt_case c ON c.id=v.case_id WHERE v.id=$1',[versionId])).rows[0];
+export async function linkAndShowInHis(db:Queryable,actor:Staff,versionId:string,o:{claimed?:Set<string>;skipWaiting?:boolean;note?:string;sameConfirmed?:boolean}={}):Promise<ShowResult>{
+ const v=(await db.query<{state:string;origin:string;kind:string;round_id:string|null;current_round_id:string|null;case_id:string|null;attempt_id:string|null;row_version:number}>('SELECT v.state,v.origin,v.kind,v.round_id,v.case_id,v.attempt_id,v.row_version,c.current_round_id FROM result_report_version v LEFT JOIN nipt_case c ON c.id=v.case_id WHERE v.id=$1',[versionId])).rows[0];
  if(!v)throw new LabError('NOT_FOUND',404);
  const out=(to:string,outcome:ShowOutcome,reason:string|null=null):ShowResult=>({versionId,from:v.state,to,outcome,reason});
  if(v.kind!=='RESULT'||v.origin!=='EXTERNAL_READYGEN')return out(v.state,'NOT_CHANGED','NOT_AN_EXTERNAL_PDF');
- if(v.state==='LinkConflict')return out(v.state,'NOT_CHANGED','LINK_CONFLICT_NEEDS_HUMAN');
+ // A person who selected this PDF and said "same patient" decides: the cross-check differences are kept as evidence but do not stop the link.
+ if(v.state==='LinkConflict'){
+  if(!o.sameConfirmed||!v.case_id||!v.round_id)return out(v.state,'NOT_CHANGED','LINK_CONFLICT_NEEDS_HUMAN');
+  if(v.round_id!==v.current_round_id)return out(v.state,'NOT_CHANGED','ROUND_NOT_CURRENT');
+  await unlinkVersion(db,actor,{versionId,expectedRowVersion:v.row_version,reason:o.note});
+  const fresh=(await db.query<{row_version:number}>('SELECT row_version FROM result_report_version WHERE id=$1',[versionId])).rows[0];
+  const picked=await pickPatient(db,actor,{versionId,expectedRowVersion:fresh.row_version,caseId:v.case_id,roundId:v.round_id,attemptId:v.attempt_id,reason:o.note,hisPresent:true,sameConfirmed:true});
+  const st=(await db.query<{state:string}>('SELECT state FROM result_report_version WHERE id=$1',[versionId])).rows[0].state;
+  return picked.shownToAnc?out(st,'LINKED_AND_SHOWN'):out(st,'LINKED_NOT_SHOWN',picked.attestFailed??'NOT_SHOWN');
+ }
  if(v.round_id&&v.round_id!==v.current_round_id)return out(v.state,'NOT_CHANGED','ROUND_NOT_CURRENT');
  let linked=false;
  if(v.state==='Unlinked'){
@@ -41,7 +50,7 @@ export async function linkAndShowInHis(db:Queryable,actor:Staff,versionId:string
  const state=async()=>(await db.query<{state:string}>('SELECT state FROM result_report_version WHERE id=$1',[versionId])).rows[0].state;
  await db.query('SAVEPOINT show_in_his');
  try{
-  await attestHisPresence(db,actor,{versionId,confirmed:true,...(o.note?{note:o.note}:{})});
+  await attestHisPresence(db,actor,{versionId,confirmed:true,...(o.sameConfirmed?{sameConfirmed:true}:{}),...(o.note?{note:o.note}:{})});
   await db.query('RELEASE SAVEPOINT show_in_his');
   return out(await state(),linked?'LINKED_AND_SHOWN':'SHOWN');
  }catch(e){
@@ -58,7 +67,7 @@ export async function showInHisBatch(db:Queryable,user:Staff,input:unknown):Prom
  const items:ShowResult[]=[],claimed=new Set<string>();
  for(const it of d.items){
   await db.query('SAVEPOINT show_item');
-  try{items.push(await linkAndShowInHis(db,user,it.versionId,{claimed,...(d.note?{note:d.note}:{})}));await db.query('RELEASE SAVEPOINT show_item');}
+  try{items.push(await linkAndShowInHis(db,user,it.versionId,{claimed,sameConfirmed:true,...(d.note?{note:d.note}:{})}));await db.query('RELEASE SAVEPOINT show_item');}
   catch(e){await db.query('ROLLBACK TO SAVEPOINT show_item');await db.query('RELEASE SAVEPOINT show_item');if(!(e instanceof LabError))throw e;
    const s=(await db.query<{state:string}>('SELECT state FROM result_report_version WHERE id=$1',[it.versionId])).rows[0]?.state??'';
    items.push({versionId:it.versionId,from:s,to:s,outcome:'NOT_CHANGED',reason:e.code});}

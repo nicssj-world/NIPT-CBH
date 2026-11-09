@@ -108,8 +108,7 @@ it('a linked result whose date of birth contradicts the patient is refused, and 
   const review=(dob:string,at:string)=>f.db.query(`INSERT INTO p2_paper_review(case_id,round_id,kind,template_version,document_reference,panel,status,location,reason,verifier_id,created_at)
    VALUES($1,$2,'REQUEST','CBH-FM01-v1','SYNTHETIC-PAPER',$3,'Verified','SYNTHETIC','SYNTHETIC_TEST',$4,${at})`,[c.caseId,c.roundId,JSON.stringify({dob,gaWeeks:17,gaDays:6,pregnancyType:'Singleton'}),f.admin.id]);
   await review('1991-05-05','now()');
-  const refused=await f.run(t=>showInHisBatch(t,f.admin,{confirmed:true,items:[{versionId:a.id}]}));
-  expect(refused.items.map(i=>[i.versionId,i.outcome,i.reason])).toEqual([[a.id,'NOT_CHANGED','HIS_ATTESTATION_IDENTITY_MISMATCH']]);
+  await expect(f.run(t=>attestHisPresence(t,f.admin,{versionId:a.id,confirmed:true}))).rejects.toThrow('HIS_ATTESTATION_IDENTITY_MISMATCH');   // the unattended check still guards
   expect(await shownToAnc(f,c.caseId)).toEqual([]);
   await review('1990-01-01',"now()+interval '1 second'");                               // corrected on the request
   const ok=await f.run(t=>showInHisBatch(t,f.admin,{confirmed:true,items:[{versionId:a.id}]}));
@@ -162,5 +161,17 @@ it('a person who confirms "same patient" on the detail page is not stopped by th
   await expect(f.run(t=>attestHisPresence(t,f.admin,{versionId:a.id,confirmed:true}))).rejects.toThrow('HIS_ATTESTATION_IDENTITY_MISMATCH');
   await f.run(t=>attestHisPresence(t,f.admin,{versionId:a.id,confirmed:true,sameConfirmed:true}));
   expect(await shownToAnc(f,c.caseId)).toHaveLength(1);
+ }finally{await f.close();}
+},600000);
+
+// Owner 2026-11-10: a person who selects a PDF on the board and confirms decides; a link conflict (HN of another patient) does not stop the link and the result is shown.
+it('the board confirmation links a conflicting PDF and shows it',async()=>{
+ const f=await task3Fixture();try{
+  const bad=await unlinked(f,1,f.cases[2].hn);
+  const r=await f.run(async t=>pickPatient(t,f.u.certifier,{versionId:bad.id,expectedRowVersion:await rowVersion(f,bad.id),caseId:bad.c.caseId,roundId:bad.c.roundId,attemptId:bad.c.attemptId}));
+  expect(r.state).toBe('LinkConflict');
+  const out=await f.run(t=>showInHisBatch(t,f.admin,{confirmed:true,items:[{versionId:bad.id}]}));
+  expect(out.items[0].outcome).toBe('LINKED_AND_SHOWN');
+  expect(await shownToAnc(f,bad.c.caseId)).toHaveLength(1);
  }finally{await f.close();}
 },600000);
