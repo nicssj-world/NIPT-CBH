@@ -8,7 +8,7 @@ import type {HisDeliveryStatus} from "../../../packages/results/his-status";
 import {HisDeliveryBadge} from "./his-delivery-badge";
 import {HOLD_TEXT} from "./native-reports";
 import {BOARD_REASON_TEXT,reasonText} from "./labels";
-import {batchSignature,canSend,needsAbnormalTick,needsReviewTick,outcomeText,outcomeTone,selectedRows,sendTicks,type BoardTab,type SendOutcome} from "./release-board-logic";
+import {attestErrorText,batchSignature,canShowOnPatient,canSend,needsAbnormalTick,needsReviewTick,outcomeText,outcomeTone,selectedRows,sendTicks,type BoardTab,type SendOutcome} from "./release-board-logic";
 import {DiscardDialog,PickPatientDialog} from "./release-board-dialogs";
 
 // One results board: Action needed / Waiting for HIS / Sent. The server (releaseQueue `board`) decides which tab a row belongs to and why;
@@ -27,6 +27,7 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
  const [q,setQ]=useState(""),[term,setTerm]=useState(""),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50);
  const [data,setData]=useState<Board|null>(null),[counts,setCounts]=useState<Board["counts"]|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(""),[notice,setNotice]=useState("");
  const [selected,setSelected]=useState<Set<string>>(new Set()),[ticks,setTicks]=useState({reviewConfirmed:false,abnormalAcknowledged:false});
+ const [shownTick,setShownTick]=useState(false),[showing,setShowing]=useState(false),[shownResult,setShownResult]=useState<{ok:number;failed:{row:BoardRow;code:string}[]}|null>(null);
  const [sending,setSending]=useState(false),[outcomes,setOutcomes]=useState<{row:BoardRow;outcome:SendOutcome}[]|null>(null),[sendError,setSendError]=useState("");
  const [dialog,setDialog]=useState<{kind:"pick"|"discard";row:BoardRow}|null>(null);
  const seq=useRef(0),sendKey=useRef<{sig:string;key:string}|null>(null);
@@ -42,9 +43,9 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
  const showReview=needsReviewTick(sel),showAbnormal=needsAbnormalTick(sel);
  // The ticks belong to the selection they were given for: any change of selection clears them.
  const changeSelection=(next:Set<string>)=>{setSelected(next);setTicks({reviewConfirmed:false,abnormalAcknowledged:false});};
- const selectable=useMemo(()=>rows.filter(r=>r.versionId),[rows]);
+ const selectable=useMemo(()=>rows.filter(r=>r.versionId&&(tab!=="ACTION"||canShowOnPatient(r))),[rows,tab]);
  const toggle=(key:string,on:boolean)=>{const n=new Set(selected);if(on)n.add(key);else n.delete(key);changeSelection(n);};
- const changeTab=(t:BoardTab)=>{clearSelection();setOutcomes(null);setSendError("");setNotice("");setPage(1);onTab(t);};
+ const changeTab=(t:BoardTab)=>{clearSelection();setShownResult(null);setShownTick(false);setOutcomes(null);setSendError("");setNotice("");setPage(1);onTab(t);};
 
  const send=async(batch:BoardRow[])=>{
   const given=sendTicks(batch,ticks),sig=batchSignature(batch,ticks);
@@ -56,10 +57,16 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
   catch(e){setSendError(failureText(e));setSending(false);return;}
   setSending(false);await load();};
  const sendRow=(r:BoardRow)=>{if(!canSend([r],ticks)){changeSelection(new Set(selected).add(r.key));setNotice("ติ๊กยืนยันด้านล่างตาราง แล้วกด “ส่งที่เลือก”");return;}void send([r]);};
+ // "มีผลใน HIS แล้ว" for the selected rows: shown on the patient, off this list, never sent again. One confirmation covers the list; each row is reported.
+ const showOnPatient=async()=>{const batch=selectedRows(rows,selected).filter(canShowOnPatient);if(!batch.length||!shownTick)return;setShowing(true);setSendError("");setShownResult(null);
+  try{const r=await labApi<{items:{versionId:string;outcome:"ATTESTED"|"FAILED";code?:string}[]}>("/api/p5/results",{action:"attestBatch",confirmed:true,items:batch.map(b=>({versionId:b.versionId}))});
+   setShownResult({ok:r.items.filter(i=>i.outcome==="ATTESTED").length,failed:r.items.filter(i=>i.outcome==="FAILED").map(i=>({row:batch.find(b=>b.versionId===i.versionId)!,code:i.code??"ERROR"}))});clearSelection();setShownTick(false);}
+  catch(e){setSendError(failureText(e));setShowing(false);return;}
+  setShowing(false);await load();};
  const done=async(message:string)=>{setDialog(null);setNotice(message);await load();};
 
  const empty=q?"ไม่พบรายการที่ตรงกับคำค้น":tab==="ACTION"?"ไม่มีรายการที่ต้องจัดการ":tab==="READY"?"ไม่มีผลที่รอส่ง HIS":"ยังไม่มีผลที่ส่งแล้ว";
- const cols=tab==="READY"?7:6;
+ const cols=tab==="READY"||tab==="ACTION"?7:6;
  return <section className="panel release-board" aria-labelledby="board-h">
   <h2 id="board-h">{scope==="EQA"?"รับรองรายงาน EQA":"ผลตรวจ NIPT"}</h2>
   <form className="search-form" role="search" aria-label="ค้นหารายการผลตรวจ" onSubmit={e=>e.preventDefault()}>
@@ -76,14 +83,15 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
     {sendError&&<p className="notice" role="alert">{sendError}</p>}
     {data?.truncated&&<p className="notice warning-notice" role="status">แสดงเฉพาะรายการล่าสุด — ใช้ช่องค้นหา</p>}
    </div>
-   {outcomes&&<div className="stack board-outcomes" role="status" aria-label="ผลการส่ง HIS"><strong>ส่ง HIS สำเร็จ {outcomes.filter(o=>o.outcome.outcome==="CertifiedReleased").length} จาก {outcomes.length} รายการ</strong>
+   {shownResult&&<div className="stack board-outcomes" role="status"><strong>แสดงผลในหน้าคนไข้แล้ว {shownResult.ok} รายการ{shownResult.failed.length?` · ทำไม่สำเร็จ ${shownResult.failed.length} รายการ`:""}</strong>{shownResult.failed.length>0&&<ul className="timeline">{shownResult.failed.map(f=><li key={f.row.key}><Status tone="warning">ยังไม่ได้ทำ</Status> <span className="mono">{f.row.ln??f.row.hn??f.row.key}</span> · {attestErrorText(f.code)}</li>)}</ul>}</div>}
+   {outcomes&&<div role="status" className="stack board-outcomes" aria-label="ผลการส่ง HIS"><strong>ส่ง HIS สำเร็จ {outcomes.filter(o=>o.outcome.outcome==="CertifiedReleased").length} จาก {outcomes.length} รายการ</strong>
     <ul className="timeline">{outcomes.map(({row,outcome})=><li key={outcome.versionId}><Status tone={outcomeTone(outcome)}>{outcome.outcome==="CertifiedReleased"?"ส่งแล้ว":outcome.outcome==="BLOCKED"?"ส่งไม่ได้":"ไม่สำเร็จ"}</Status> <span className="mono">{row?.ln??row?.hn??outcome.versionId}</span> · {outcomeText(outcome,reasonLabel)}</li>)}</ul></div>}
    {!error&&<div className="table-wrap" role="region" aria-label={`รายการ${TABS.find(t=>t[0]===tab)![1]}`} tabIndex={0}>
     <table className="data-table board-table"><thead><tr>
-     {tab==="READY"&&<th scope="col"><label className="table-check-target"><input type="checkbox" aria-label="เลือกทั้งหมดที่พร้อมในหน้านี้" disabled={!selectable.length} checked={selectable.length>0&&selectable.every(r=>selected.has(r.key))} onChange={e=>changeSelection(e.target.checked?new Set(selectable.map(r=>r.key)):new Set())}/></label></th>}
+     {(tab==="READY"||tab==="ACTION")&&<th scope="col"><label className="table-check-target"><input type="checkbox" aria-label="เลือกทั้งหมดที่พร้อมในหน้านี้" disabled={!selectable.length} checked={selectable.length>0&&selectable.every(r=>selected.has(r.key))} onChange={e=>changeSelection(e.target.checked?new Set(selectable.map(r=>r.key)):new Set())}/></label></th>}
      <th scope="col">LN · HN</th><th scope="col">ที่มา</th><th scope="col">{tab==="ACTION"?"เหตุผลที่ยังส่งไม่ได้":"สถานะ"}</th><th scope="col">ไฟล์</th><th scope="col">{tab==="SENT"?"เปิด":"ดำเนินการ"}</th></tr></thead>
      <tbody>{rows.length?rows.map(r=><tr key={r.key} className={selected.has(r.key)?"selected":""}>
-      {tab==="READY"&&<td><label className="table-check-target"><input type="checkbox" aria-label={`เลือก ${r.ln??r.hn??r.key}`} checked={selected.has(r.key)} onChange={e=>toggle(r.key,e.target.checked)}/></label></td>}
+      {(tab==="READY"||tab==="ACTION")&&<td>{(tab==="READY"||canShowOnPatient(r))&&<label className="table-check-target"><input type="checkbox" aria-label={`เลือก ${r.ln??r.hn??r.key}`} checked={selected.has(r.key)} onChange={e=>toggle(r.key,e.target.checked)}/></label>}</td>}
       <td>{who(r)}</td><td>{source(r)}</td>
       <td>{tab==="ACTION"?<ul className="help board-reasons">{r.reasons.map(x=><li key={x.code}>{reasonLabel(x.code)}{x.fixHref&&<> · <Link href={x.fixHref}>แก้ที่นี่</Link></>}</li>)}</ul>
        :tab==="READY"?<><Status tone="warning">รอส่ง HIS</Status>{r.abnormal&&<span className="badge danger">ผิดปกติ</span>}{!r.reviewed&&<span className="badge warning">ยังไม่ตรวจรับ</span>}</>
@@ -103,6 +111,13 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
      <button type="button" className="button secondary" disabled={sending} onClick={()=>changeSelection(new Set(selectable.map(r=>r.key)))}>เลือกทั้งหมดที่พร้อม</button>
      <button type="button" className="button" disabled={sending||!canSend(sel,ticks)} onClick={()=>void send(sel)}>{sending?"กำลังส่ง HIS…":`ส่งที่เลือก (${sel.length})`}</button></div>
     <p className="help">กด “ส่ง HIS” แล้วระบบจึงรับรองผลและให้ ANC เห็นผล ก่อนหน้านั้นผลยังไม่ถูกส่งให้ ANC</p>
+   </fieldset>}
+   {tab==="ACTION"&&selectable.length>0&&<fieldset className="stack board-send" aria-label="แสดงผลในหน้าคนไข้ สำหรับผลที่มีใน HIS แล้ว">
+    <label className="check-label"><input type="checkbox" checked={shownTick} onChange={e=>setShownTick(e.target.checked)}/> ยืนยันว่าผลที่เลือก<strong> มีใน HIS แล้ว</strong> (ระบบเดิมหรือผู้ใช้ส่งไปแล้ว)</label>
+    <div className="bulk-bar"><span>เลือก {sel.length} รายการ</span>
+     <button type="button" className="button secondary" disabled={showing} onClick={()=>changeSelection(new Set(selectable.map(r=>r.key)))}>เลือกทั้งหมดที่ทำได้</button>
+     <button type="button" className="button" disabled={showing||!shownTick||!sel.length} onClick={()=>void showOnPatient()}>{showing?"กำลังบันทึก…":`แสดงผลในหน้าคนไข้ (${sel.length})`}</button></div>
+    <p className="help">ANC จะเห็นผลจาก PDF ฉบับจริงในหน้าคนไข้ รายการจะออกจากแท็บนี้ และ <strong>ไม่ส่ง HIS ซ้ำ</strong> · ใช้ได้เฉพาะรายการที่เชื่อมโยงกับผู้ป่วยแล้ว — รายการที่ยังไม่เลือกผู้ป่วย ให้กด “เลือกผู้ป่วย” แล้วติ๊ก “มีผลใน HIS แล้ว”</p>
    </fieldset>}
    {data&&data.page.total>0&&<Pager label="รายการผลตรวจ" page={data.page.number} pageSize={data.page.size} total={data.page.total} totalPages={data.page.totalPages} busy={loading} onPage={n=>{clearSelection();setPage(n);}} onSize={n=>{clearSelection();setPageSize(n);setPage(1);}}/>}
    {tab==="SENT"&&sentExtras}

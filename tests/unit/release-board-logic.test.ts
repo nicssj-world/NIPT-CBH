@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {batchSignature,canSend,outcomeText,reasonOk,sendTicks,selectedRows,type SendableRow} from '../../src/components/p5/release-board-logic';
+import {batchSignature,canSend,outcomeText,reasonOk,sendTicks,selectedRows,type SendableRow,canShowOnPatient,attestErrorText} from '../../src/components/p5/release-board-logic';
 
 const row=(o:Partial<SendableRow>={}):SendableRow=>({key:'version:a',versionId:'a',rowVersion:3,abnormal:false,reviewed:true,...o});
 describe('release board send rules',()=>{
@@ -17,4 +17,16 @@ describe('outcome text',()=>{
  it('blocked lists reasons',()=>expect(outcomeText({versionId:'a',outcome:'BLOCKED',failed:['X'],pending:['Y']},label)).toContain('<X> · <Y>'));
  it('error maps known codes and falls back to the code',()=>{expect(outcomeText({versionId:'a',outcome:'ERROR',code:'VERSION_CONFLICT'},label)).toContain('โหลดใหม่');expect(outcomeText({versionId:'a',outcome:'ERROR',code:'ZZZ'},label)).toContain('ZZZ');});
  it('reason needs 8 characters',()=>{expect(reasonOk('1234567')).toBe(false);expect(reasonOk(' 12345678 ')).toBe(true);});
+});
+
+describe('"มีผลใน HIS แล้ว" on the board (Owner 2026-11-09)',()=>{
+ it('only a result already linked to a patient can be marked; an unlinked one is picked first',()=>{
+  expect(canShowOnPatient({versionId:'v',reasons:[{code:'MIGRATION_LINK_REQUIRED'}]})).toBe(true);
+  expect(canShowOnPatient({versionId:'v',reasons:[{code:'UNLINKED'}]})).toBe(false);
+  expect(canShowOnPatient({versionId:null,reasons:[]})).toBe(false);          // a HALOS row with no report yet
+ });
+ it('every reason the batch can return has Thai text, and an unknown one still reads as Thai',()=>{
+  for(const code of ['HIS_ATTESTATION_LINKED_RESULT_REQUIRED','HIS_ATTESTATION_IDENTITY_MISMATCH','HIS_ATTESTATION_EXISTS','HIS_ATTESTATION_TRANSFER_EXISTS','FORBIDDEN','VERSION_CONFLICT'])expect(attestErrorText(code)).toMatch(/[ก-๙]/);
+  expect(attestErrorText('SOMETHING_NEW')).toBe('ทำรายการไม่สำเร็จ');
+ });
 });

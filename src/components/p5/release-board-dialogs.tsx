@@ -2,7 +2,7 @@
 import {useEffect,useState} from "react";
 import {labApi,failureText} from "../p4/lab-api";
 import {Dialog} from "../p2/shared";
-import {MIN_REASON,reasonOk} from "./release-board-logic";
+import {MIN_REASON,reasonOk,attestErrorText} from "./release-board-logic";
 import type {BoardRow} from "./release-board";
 
 // Action-needed dialogs of the results board. The server decides everything (state, permission, row version); these only collect a choice and a reason.
@@ -11,15 +11,17 @@ type Detail={candidates:Candidate[];version:{rowVersion:number};parsed?:{abnorma
 
 /** "เลือกผู้ป่วย": the candidates come from the version detail (the same list the result page uses); `pick` links and reviews in one step. */
 export function PickPatientDialog({row,onClose,onDone}:{row:BoardRow;onClose:()=>void;onDone:(message:string)=>void}){
- const [detail,setDetail]=useState<Detail|null>(null),[choice,setChoice]=useState(""),[error,setError]=useState(""),[busy,setBusy]=useState(false);
+ const [detail,setDetail]=useState<Detail|null>(null),[choice,setChoice]=useState(""),[hisPresent,setHisPresent]=useState(false),[error,setError]=useState(""),[busy,setBusy]=useState(false);
  useEffect(()=>{let active=true;void labApi<Detail>(`/api/p5/results/${row.versionId}`).then(d=>{if(active)setDetail(d);}).catch(e=>{if(active)setError(failureText(e));});return()=>{active=false;};},[row.versionId]);
  const picked=detail?.candidates.find(c=>c.attempt.id===choice);
  const submit=async()=>{if(!detail||!picked)return;setBusy(true);setError("");
-  try{const r=await labApi<{state:string;reviewSkipped?:string}>(`/api/p5/results/${row.versionId}`,{action:"pick",expectedRowVersion:detail.version.rowVersion,caseId:picked.caseId,roundId:picked.round.id,attemptId:picked.attempt.id});
+  try{const r=await labApi<{state:string;reviewSkipped?:string;shownToAnc?:true;attestFailed?:string}>(`/api/p5/results/${row.versionId}`,{action:"pick",expectedRowVersion:detail.version.rowVersion,caseId:picked.caseId,roundId:picked.round.id,attemptId:picked.attempt.id,...(hisPresent?{hisPresent:true}:{})});
+   if(r.shownToAnc){onDone("เลือกผู้ป่วยแล้ว — แสดงผลในหน้าคนไข้แล้ว (ไม่ส่ง HIS)");return;}
+   if(r.attestFailed){onDone(`เลือกผู้ป่วยแล้ว แต่ระบุว่ามีผลใน HIS แล้วไม่ได้: ${attestErrorText(r.attestFailed)}`);return;}
    onDone(r.reviewSkipped?"เลือกผู้ป่วยแล้ว — ยังไม่ตรวจรับ จะตรวจตอนส่ง HIS":"เลือกผู้ป่วยแล้ว");}
   catch(e){setError(failureText(e));}finally{setBusy(false);}};
  const ready=!!picked;
- return <Dialog title={`เลือกผู้ป่วย ${row.ln??row.hn??"PDF"}`} onClose={onClose} dirty={!!choice}>
+ return <Dialog title={`เลือกผู้ป่วย ${row.ln??row.hn??"PDF"}`} onClose={onClose} dirty={!!choice||hisPresent}>
   <div className="stack board-dialog">
    {error&&<p className="notice" role="alert">{error}</p>}
    {!detail&&!error&&<div className="skeleton" aria-busy="true" aria-label="กำลังโหลดตัวเลือกผู้ป่วย"/>}
@@ -32,7 +34,8 @@ export function PickPatientDialog({row,onClose,onDone}:{row:BoardRow;onClose:()=
       <td>{c.matchedOn.join(", ")||"—"}</td></tr>)}</tbody></table></div>
      :<p className="help">ไม่พบผู้ป่วยที่ตรงกับ HN / LN ใน PDF นี้ — ตรวจข้อมูลเคสก่อน หรือทิ้งรายการนี้</p>}
    </fieldset>}
-   <p className="help">หลังเลือก รายการจะไปที่ “รอส่ง HIS” ถ้าผ่านเงื่อนไข ผลยังไม่ถูกส่งให้ ANC จนกว่าจะกด “ส่ง HIS”</p>
+   <label className="check-label"><input type="checkbox" checked={hisPresent} onChange={e=>setHisPresent(e.target.checked)}/> ผลนี้<strong> มีใน HIS แล้ว</strong> — แสดงผลในหน้าคนไข้อย่างเดียว ไม่ส่ง HIS</label>
+   <p className="help">{hisPresent?"หลังเลือก ผลจะแสดงในหน้าคนไข้ให้ ANC เห็นทันที และไม่ถูกส่ง HIS ซ้ำ":"หลังเลือก รายการจะไปที่ “รอส่ง HIS” ถ้าผ่านเงื่อนไข ผลยังไม่ถูกส่งให้ ANC จนกว่าจะกด “ส่ง HIS”"}</p>
    <div className="action-bar"><button type="button" className="button secondary" onClick={onClose} disabled={busy}>ยกเลิก</button><button type="button" className="button" disabled={busy||!ready} onClick={submit}>{busy?"กำลังบันทึก…":"เลือกผู้ป่วยนี้"}</button></div>
   </div>
  </Dialog>;

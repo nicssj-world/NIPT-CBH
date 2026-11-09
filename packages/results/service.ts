@@ -668,6 +668,15 @@ export async function reviewInternalForRelease(db:Queryable,user:Staff,input:unk
 
 // ---------- Task 3: "มีผลใน HIS แล้ว" — authorised user attestation that HIS already holds this exact result ----------
 export const HIS_PRESENCE_STATEMENT='มีผลใน HIS แล้ว';
+/** "มีผลใน HIS แล้ว" shows the PDF to ANC on the linked patient, so the PDF must not contradict that patient: HN, date of birth and lab number may be
+ *  missing on one side but never different. */
+async function identityMismatch(db:Queryable,v:VersionRow):Promise<boolean>{
+ if(!v.round_id)return true;
+ const t=(await db.query<{hn:string|null;printed_sample_id:string|null;ln_halos:string|null;ln:string}>('SELECT i.hn,(SELECT a.printed_sample_id FROM analytical_attempt a WHERE a.id=$2) printed_sample_id,n.ln_halos,l.ln FROM specimen_round_current r JOIN case_ln l ON l.id=r.case_ln_id LEFT JOIN p2_case_identity i ON i.case_id=r.case_id LEFT JOIN specimen_lab_number n ON n.round_id=r.id WHERE r.id=$1',[v.round_id,v.attempt_id])).rows[0];
+ if(!t)return true;
+ const c=crossCheck(v.parsed,t,await roundRequest(db,v.round_id),0);
+ return c.hn==='MISMATCH'||c.dob==='MISMATCH'||c.labNumber==='MISMATCH';
+}
 export async function attestHisPresence(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'his.reconcile');
  const d=z.strictObject({versionId:uuid,confirmed:z.literal(true),note:z.string().trim().max(500).refine(x=>!/\d{13}/.test(x),'REASON_TEXT_INVALID').optional()}).parse(input);
@@ -675,6 +684,7 @@ export async function attestHisPresence(db:Queryable,user:Staff,input:unknown){
  if(pre.kind!=='RESULT'||!pre.round_id||!['Linked','ValidationBlocked','PendingCertification','CertifiedReleased'].includes(pre.state))throw new LabError('HIS_ATTESTATION_LINKED_RESULT_REQUIRED',409);
  await lockChain(db,pre.round_id,pre.attempt_id,[pre.id]);const v=await versionOf(db,pre.id,true);
  if((await db.query('SELECT 1 FROM result_his_attestation WHERE version_id=$1 AND withdrawn_at IS NULL',[v.id])).rows[0])throw new LabError('HIS_ATTESTATION_EXISTS',409);
+ if(await identityMismatch(db,v))throw new LabError('HIS_ATTESTATION_IDENTITY_MISMATCH',409);
  const release=(await db.query<{id:string}>("SELECT id FROM result_release WHERE version_id=$1 AND state='Active'",[v.id])).rows[0];
  // Once a transfer exists the delivery has started; HIS state is then reconciled through P6, never by this checkbox.
  if(release&&(await db.query('SELECT 1 FROM p6_transfer WHERE clinical_release_id=$1',[release.id])).rows[0])throw new LabError('HIS_ATTESTATION_TRANSFER_EXISTS',409);
@@ -683,6 +693,21 @@ export async function attestHisPresence(db:Queryable,user:Staff,input:unknown){
   [v.id,v.round_id,v.case_id,HIS_PRESENCE_STATEMENT,d.note??null,release?'SUPPRESSED_PENDING_DELIVERY':'SUPPRESSED_BEFORE_RELEASE',user.id])).rows[0];
  await audit(db,user,'RESULT_HIS_PRESENCE_ATTESTED','RESULT_VERSION',v.id,{outcome:release?'SUPPRESSED_PENDING_DELIVERY':'SUPPRESSED_BEFORE_RELEASE'});
  return {id:row.id,effect:release?'SUPPRESSED_PENDING_DELIVERY':'SUPPRESSED_BEFORE_RELEASE'};
+}
+/** Owner 2026-11-09: many results at once (e.g. the backlog the previous system already sent to HIS). One person's confirmation covers the list; each item
+ *  runs in its own savepoint, so one that cannot be attested (not linked yet, identity differs ...) never stops the others and is reported with its reason. */
+export type AttestOutcome={versionId:string;outcome:'ATTESTED'|'FAILED';code?:string};
+export async function attestHisPresenceBatch(db:Queryable,user:Staff,input:unknown):Promise<{items:AttestOutcome[]}>{
+ await assertSession(db,user);need(user,'his.reconcile');
+ const d=z.strictObject({confirmed:z.literal(true),items:z.array(z.strictObject({versionId:uuid})).min(1).max(100),note:z.string().trim().max(500).refine(x=>!/d{13}/.test(x),'REASON_TEXT_INVALID').optional()}).parse(input);
+ const items:AttestOutcome[]=[];
+ for(const it of d.items){
+  await db.query('SAVEPOINT attest_item');
+  try{await attestHisPresence(db,user,{versionId:it.versionId,confirmed:true,...(d.note?{note:d.note}:{})});await db.query('RELEASE SAVEPOINT attest_item');items.push({versionId:it.versionId,outcome:'ATTESTED'});}
+  catch(e){await db.query('ROLLBACK TO SAVEPOINT attest_item');await db.query('RELEASE SAVEPOINT attest_item');if(!(e instanceof LabError))throw e;items.push({versionId:it.versionId,outcome:'FAILED',code:e.code});}
+ }
+ await audit(db,user,'RESULT_HIS_PRESENCE_ATTESTED_BATCH','RESULT_VERSION',undefined,{count:items.filter(i=>i.outcome==='ATTESTED').length,outcome:'BATCH'});
+ return {items};
 }
 export async function withdrawHisAttestation(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);need(user,'his.reconcile');
@@ -729,9 +754,9 @@ export async function voidVersion(db:Queryable,user:Staff,input:unknown){
  */
 /** Owner 2026-11-09: choosing a patient on the results board needs no typed reason. The link history keeps who picked and when; this fixed text says how. */
 export const PICK_DEFAULT_REASON='เลือกผู้ป่วยจากหน้าผลตรวจ NIPT';
-export async function pickPatient(db:Queryable,user:Staff,input:unknown):Promise<{state:string;reviewSkipped?:string}>{
+export async function pickPatient(db:Queryable,user:Staff,input:unknown):Promise<{state:string;reviewSkipped?:string;shownToAnc?:true;attestFailed?:string}>{
  await assertSession(db,user);
- const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,caseId:uuid,roundId:uuid,attemptId:uuid.nullable(),reason:reasonText.default(PICK_DEFAULT_REASON),abnormalAcknowledged:z.boolean().default(false)}).parse(input);
+ const d=z.strictObject({versionId:uuid,expectedRowVersion:rowVersion,caseId:uuid,roundId:uuid,attemptId:uuid.nullable(),reason:reasonText.default(PICK_DEFAULT_REASON),abnormalAcknowledged:z.boolean().default(false),hisPresent:z.literal(true).optional()}).parse(input);
  need(user,'result.link.manual','propose');need(user,'result.link.manual','approve');
  const pre=await versionOf(db,d.versionId);
  if(pre.state!=='Unlinked')throw new LabError('LINK_REQUIRES_UNLINKED',409);
@@ -759,7 +784,15 @@ export async function pickPatient(db:Queryable,user:Staff,input:unknown):Promise
   }
   v=await versionOf(db,v.id);
  }
- return reviewSkipped?{state:v.state,reviewSkipped}:{state:v.state};
+ // "มีผลใน HIS แล้ว" in the same step: the link above stays even if the statement is refused (e.g. the PDF contradicts the patient), and the reason is returned.
+ let shown=false,attestFailed:string|undefined;
+ if(d.hisPresent){
+  await db.query('SAVEPOINT pick_attest');
+  try{await attestHisPresence(db,user,{versionId:v.id,confirmed:true});await db.query('RELEASE SAVEPOINT pick_attest');shown=true;}
+  catch(e){await db.query('ROLLBACK TO SAVEPOINT pick_attest');await db.query('RELEASE SAVEPOINT pick_attest');if(!(e instanceof LabError))throw e;attestFailed=e.code;}
+  v=await versionOf(db,v.id);
+ }
+ return {state:v.state,...(reviewSkipped?{reviewSkipped}:{}),...(shown?{shownToAnc:true as const}:{}),...(attestFailed?{attestFailed}:{})};
 }
 
 // ---------- Reads ----------

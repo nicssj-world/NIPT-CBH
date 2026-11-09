@@ -17,6 +17,7 @@ export async function POST(request:NextRequest){return p5Mutation(request,"P5_IN
   if(action==="preview")return {jobId:await svc.queueResultJob(db,user,"synthetic_result_preview",data)};
   if(action==="confirm")return {results:await svc.confirmImport(db,user,data)};
   if(action==="send")return sendToHis(db,user,data);
+  if(action==="attestBatch")return svc.attestHisPresenceBatch(db,user,data);
   if(action==="board")return releaseQueue(db,user,reportDeps(),data);
   throw new Error("INVALID_REQUEST");});
- return NextResponse.json(r,{status:action==="confirm"||action==="query"||action==="send"||action==="board"?200:202,headers:noStore});});}
+ return NextResponse.json(r,{status:action==="confirm"||action==="query"||action==="send"||action==="board"||action==="attestBatch"?200:202,headers:noStore});});}

@@ -36,5 +36,13 @@ export function outcomeText(o:SendOutcome,label:(code:string)=>string):string{
 }
 export const outcomeTone=(o:SendOutcome)=>o.outcome==="CertifiedReleased"?"good":o.outcome==="BLOCKED"?"warning":"bad";
 
+/** Owner 2026-11-09: "มีผลใน HIS แล้ว" applies to a result linked to a patient; one not yet linked is first picked (and can be marked in the same step). */
+export const canShowOnPatient=(r:{versionId:string|null;reasons:{code:string}[]})=>!!r.versionId&&!r.reasons.some(x=>x.code==="UNLINKED");
+export const ATTEST_ERROR_TEXT:Record<string,string>={
+ HIS_ATTESTATION_LINKED_RESULT_REQUIRED:"ยังไม่ได้เชื่อมโยงกับผู้ป่วย — กด “เลือกผู้ป่วย” ก่อน",
+ HIS_ATTESTATION_IDENTITY_MISMATCH:"PDF ไม่ตรงกับผู้ป่วยที่เชื่อมไว้ (HN / วันเกิด / เลข Lab) — ตรวจก่อน",
+ HIS_ATTESTATION_EXISTS:"ระบุไว้แล้วก่อนหน้านี้",HIS_ATTESTATION_TRANSFER_EXISTS:"เริ่มส่ง HIS แล้ว — ตรวจสถานะการส่ง",
+ FORBIDDEN:"ไม่มีสิทธิ์ทำรายการนี้",VERSION_CONFLICT:"มีผู้อื่นเปลี่ยนรายการนี้ — โหลดใหม่แล้วลองอีกครั้ง"};
+export const attestErrorText=(code:string)=>ATTEST_ERROR_TEXT[code]??"ทำรายการไม่สำเร็จ";
 export const MIN_REASON=8;
 export const reasonOk=(s:string)=>s.trim().length>=MIN_REASON;
