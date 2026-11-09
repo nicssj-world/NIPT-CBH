@@ -3,7 +3,7 @@ import "./batch-workspace.css";
 import "../shared/console.css";
 import {useCallback,useEffect,useState,type KeyboardEvent} from "react";
 import Link from "next/link";
-import {useSearchParams} from "next/navigation";
+import {useRouter,useSearchParams} from "next/navigation";
 import {Dialog,csrf} from "../p2/shared";
 import {labApi,labPdf,failureText,bkk,gateText,LabFailure} from "./lab-api";
 import {stripLabels,type SheetNumber} from "../../../packages/lab/rules";
@@ -47,6 +47,7 @@ function sheetStats(slots:Slot[],n:number){
 }
 
 export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string}){
+ const router=useRouter();
  const requested=Number(useSearchParams().get("task"));
  const [w,setW]=useState(initial),[sheetNo,setSheetNoState]=useState(()=>[1,2,3].includes(requested)?requested:initial.sheets.find(s=>s.state!=="Draft"||initial.slots.some(x=>x.sheet===s.sheet_number&&x.assignment))?.sheet_number??1);
  // The selected Task is kept in the URL (?task=N) so reload/share returns to the same Task without a navigation.
@@ -88,7 +89,7 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
   return()=>{document.removeEventListener("visibilitychange",again);window.removeEventListener("focus",again);};
  },[w.operational,loadBench]);
  const reload=async()=>{setW(await labApi<Workspace>(`/api/p4/batches/${w.batch.id}`));void loadBench();};
- async function act(action:string,data:Record<string,unknown>={},ok="บันทึกแล้ว"){setBusy(true);setMsg(null);try{const res=await labApi<{warnings?:unknown}>(`/api/p4/batches/${w.batch.id}`,{action,expectedVersion:w.batch.version,...data});await reload();
+ async function act(action:string,data:Record<string,unknown>={},ok="บันทึกแล้ว"){setBusy(true);setMsg(null);try{const res=await labApi<{warnings?:unknown}>(`/api/p4/batches/${w.batch.id}`,{action,expectedVersion:w.batch.version,...data});if(action==='trash'||action==='cancel'){router.replace('/lab/batches');router.refresh();return true;}await reload();
    const warnings=Array.isArray(res?.warnings)?res.warnings.filter((x):x is string=>typeof x==="string"):[];setMsg({ok:true,text:ok,warnings});return true;}
   catch(e){setMsg({ok:false,text:failureText(e),details:e instanceof LabFailure?e.details:undefined});if(e instanceof LabFailure&&e.code==="VERSION_CONFLICT")await reload();return false;}finally{setBusy(false);}}
  /** Uncontrolled per-Task PDF from the existing workbook path (P0-5): rebinds the draft from the Lab source when needed,
@@ -360,10 +361,10 @@ function WorkspaceDialog({dialog,w,sheetNo,busy,act,close,setMsg,reload}:{dialog
  if(dialog.type==="cancel"){
   // OWNER-LAB-030: never printed and no evidence → one confirmation, no reason, Run number is given back. Otherwise the reasoned cancellation keeps the number.
   const unused=w.sheets.every(t=>t.placement_revision===0)&&!w.documents.length&&!w.observations.length;
-  return <Dialog title={unused?`ลบ ${w.batch.runLabel}`:`ยกเลิก ${w.batch.runLabel}`} onClose={close}><div className="stack">
+  return <Dialog title={`ลบ ${w.batch.runLabel} ออกจากรายการ`} onClose={close}><div className="stack">
    {unused?<p>Batch นี้ยังไม่ได้พิมพ์หรือใช้งาน ตัวอย่าง {w.slots.filter(x=>x.assignment).length} รายการจะกลับคิวพร้อมเข้าตรวจ และเลข {w.batch.runLabel} นำกลับมาใช้กับ Batch ถัดไป ประวัติยังเก็บไว้</p>
-    :<><p>Batch นี้พิมพ์หรือมีหลักฐานการปฏิบัติแล้ว จึงยกเลิกได้โดยเก็บเลข Run และประวัติไว้ทั้งหมด ตัวอย่างที่พิมพ์แล้วต้องสั่งตรวจซ้ำ</p><label htmlFor="cx-reason">เหตุผล (อย่างน้อย 8 ตัวอักษร)</label><textarea id="cx-reason" rows={3} value={reason} onChange={e=>setReason(e.target.value)}/></>}
-   <div className="dialog-actions"><button className="button danger" type="button" disabled={busy||(!unused&&reason.trim().length<8)} onClick={()=>run("trash",unused?{}:{reason:reason.trim()},unused?`ลบ ${w.batch.runLabel} แล้ว — ตัวอย่างกลับคิว`:"ยกเลิก Batch แล้ว")}>{unused?"ยืนยันลบ":"ยืนยันยกเลิก"}</button><button className="button secondary" type="button" onClick={close}>ไม่ลบ</button></div></div></Dialog>;
+    :<><p>Run ที่ยังไม่เริ่มปฏิบัติงานจะถูกนำออกจากรายการ และตัวอย่างจะกลับคิวเพื่อเติมใน Run อื่นได้ แม้เคยพิมพ์ Task List แล้ว ประวัติและเลข Run นี้ยังเก็บไว้สำหรับตรวจสอบย้อนหลัง</p><label htmlFor="cx-reason">เหตุผล (อย่างน้อย 8 ตัวอักษร)</label><textarea id="cx-reason" rows={3} value={reason} onChange={e=>setReason(e.target.value)}/></>}
+   <div className="dialog-actions"><button className="button danger" type="button" disabled={busy||(!unused&&reason.trim().length<8)} onClick={()=>run("trash",unused?{}:{reason:reason.trim()},`ลบ ${w.batch.runLabel} ออกจากรายการแล้ว — ตัวอย่างกลับคิว`)}>ยืนยันลบ</button><button className="button secondary" type="button" onClick={close}>ไม่ลบ</button></div></div></Dialog>;
  }
  return null;
 }

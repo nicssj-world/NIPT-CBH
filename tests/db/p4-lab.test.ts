@@ -279,7 +279,7 @@ describe('Pre-work → execution → reconciliation → Completed → QC1 (§12.
   await run(async t=>batch.startExecution(t,u.staff,{batchId:b.batchId,expectedVersion:await V(),sheetNumber:1}));
   await expect(db.query("UPDATE lab_document SET file_sha256=repeat('0',64) WHERE id=$1",[pre.id])).rejects.toThrow(/ISSUED_ORIGINAL_IMMUTABLE/);
  });
- it('cancelling a never-finalized draft returns attempts to Ready; a finalized cancel needs a certifier and yields BatchCancelled',async()=>{
+ it('cancelling an unstarted Run returns attempts to Ready even after printing; finalized cancellation still needs a certifier',async()=>{
   const {b,cases}=await readyBatch(1);
   await run(async t=>batch.cancelBatch(t,u.staff,{batchId:b.batchId,expectedVersion:await version(t,b.batchId),reason:'จำลอง ยกเลิกร่าง'}));
   expect(await attemptOf(q(db),cases[0].roundId)).toMatchObject({state:'Ready'});
@@ -288,9 +288,9 @@ describe('Pre-work → execution → reconciliation → Completed → QC1 (§12.
   await finalize(b2.batchId);
   await expect(run(async t=>batch.cancelBatch(t,u.staff,{batchId:b2.batchId,expectedVersion:await version(t,b2.batchId),reason:'จำลอง ยกเลิกหลังล็อก'}))).rejects.toMatchObject({code:'FORBIDDEN'});
   await run(async t=>batch.cancelBatch(t,u.certifier,{batchId:b2.batchId,expectedVersion:await version(t,b2.batchId),reason:'จำลอง ยกเลิกหลังล็อก'}));
-  expect(await attemptOf(q(db),cases[0].roundId)).toMatchObject({state:'BatchCancelled'});
-  // The milestone never reverts: a new attempt needs Repeat lineage.
-  const w=await run(t=>intake.labWorklist(t,u.staff));expect(w.attempts[0].category).toBe('NEEDS_DECISION');
+  expect(await attemptOf(q(db),cases[0].roundId)).toMatchObject({state:'Ready'});
+  // The analysis milestone and printed identity remain; the same unexecuted attempt can be placed again.
+  const w=await run(t=>intake.labWorklist(t,u.staff));expect(w.attempts[0].category).toBe('READY');
  });
 });
 

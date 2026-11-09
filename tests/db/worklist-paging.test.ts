@@ -31,13 +31,14 @@ beforeAll(async()=>{
  const at=(i:number)=>new Date(T0+i*60000);
  for(let i=0;i<READY;i++){const c=await run(t=>syntheticCase(t,u,i===5||i===20?{pregnancy:'Twins'}:{}));await run(t=>receiveS1(t,c,at(i)));eligible.push(c);if(i===20)twins=c;}
  for(let i=0;i<GATE;i++){const c=await run(t=>syntheticCase(t,u,{evidence:false}));await run(t=>receiveS1(t,c,at(READY+i)));}
- // a finalized Run that is then cancelled leaves attempts that need a decision
+ // Explicit legacy terminal cancellations still need a decision; new unstarted cancellations return Assigned attempts to Ready.
  const cancelled=await run(t=>batch.createBatch(t,u.staff));
  const bad=eligible.slice(READY-CANCELLED);
  await run(async t=>batch.assignToBatch(t,u.staff,{batchId:cancelled.batchId,expectedVersion:0,attemptIds:await Promise.all(bad.map(async c=>(await attemptOf(t,c.roundId)).id)),queueOverrideReason:'จำลอง ทดสอบ Batch ยกเลิก'}));
  await run(async t=>batch.updateSheetPlan(t,u.staff,{batchId:cancelled.batchId,expectedVersion:await version(cancelled.batchId),sheetNumber:1,plannedWorkDate:'2026-10-12',plannedOperator:'จำลอง ผู้ปฏิบัติ',plannedExtractionLot:null,plannedExtractionExpiry:null,plannedLibraryLot:null,plannedLibraryExpiry:null}));
  await run(async t=>batch.planCheck(t,u.staff,{batchId:cancelled.batchId,expectedVersion:await version(cancelled.batchId),sheetNumber:1,confirm:{controlsAtTemplate:true,identifiersMatch:true,noDuplicates:true}}));
  await run(async t=>batch.finalizeSheet(t,u.staff,{batchId:cancelled.batchId,expectedVersion:await version(cancelled.batchId),sheetNumber:1}));
+ await db.query("UPDATE analytical_attempt SET state='BatchCancelled' WHERE round_id=ANY($1::uuid[])",[bad.map(c=>c.roundId)]);
  await run(async t=>batch.cancelBatch(t,u.certifier,{batchId:cancelled.batchId,expectedVersion:await version(cancelled.batchId),reason:'SYNTHETIC cancel for worklist paging'}));
  const open=await run(t=>batch.createBatch(t,u.staff));
  const inBatch=eligible.slice(0,IN_BATCH);

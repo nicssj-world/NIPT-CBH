@@ -17,6 +17,8 @@ beforeAll(async()=>{
   await tx(q(),async t=>batch.cancelBatch(t,u.staff,{batchId:b.batchId,expectedVersion:(await t.query<{version:number}>('SELECT version FROM lab_batch WHERE id=$1',[b.batchId])).rows[0].version,reason:'SYNTHETIC cancel for Run list paging'}));
  }
  await tx(q(),t=>batch.createBatch(t,u.staff)); // the newest Run stays an open Draft
+ // Cancelled Runs are hidden from working lists. Keep the older paging fixtures as completed Runs, as in photo-search paging.
+ await db.query("UPDATE lab_batch SET state='QC1Complete',cancelled_by=NULL,cancelled_at=NULL,cancel_reason=NULL WHERE state='Cancelled'");
 },300000);
 afterAll(async()=>{await db?.close();});
 
