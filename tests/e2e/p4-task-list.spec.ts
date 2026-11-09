@@ -303,8 +303,9 @@ test("T1-31: authenticated Seq Task-G50 save exports, downloads and reads back b
  const calculate=page.getByRole("button",{name:"คำนวณ / โหลดค่าที่บันทึก",exact:true});await expect(calculate).toBeVisible({timeout:5000});await expect(calculate).toBeEnabled({timeout:5000});await calculate.click({timeout:5000});await expect(page.getByRole("region",{name:"ปริมาตร Pooling"})).toBeVisible();
  await page.getByLabel("Ref.Std dsDNA Standard 1",{exact:true}).fill("20");await page.getByLabel("Ref.Std dsDNA Standard 2",{exact:true}).fill("20");
  await page.getByLabel("Standard 2 Conc.",{exact:true}).fill("20");await page.getByLabel("Pool Library concentration (ng/µL)",{exact:true}).fill("3.33");
- for(const slot of [1,2,18,25,34]){const checkbox=page.locator(`input[aria-label="Pooling จริง ตำแหน่ง ${slot}"]`);await expect(checkbox).toBeVisible({timeout:5000});await checkbox.check({timeout:5000});}
- await page.getByRole("button",{name:"บันทึก Pooling จริง",exact:true}).click();await expect(page.locator("footer").locator("[role=status]:not([popover])")).toContainText("บันทึก Pooling จริงแล้ว");
+ // Owner 2026-11-09: no tick in Pooling; saving QC2 records the actual pooling by the CSV rule.
+ await expect(page.getByRole("checkbox",{name:/Pooling จริง/})).toHaveCount(0);
+ await page.getByRole("button",{name:"บันทึก QC2",exact:true}).click();await expect(page.locator("footer").locator("[role=status]:not([popover])")).toContainText("บันทึกแล้ว");
  await stageButtons.nth(2).click();await expect(page.getByRole("heading",{name:"Seq Task-G50",exact:true})).toBeVisible();
  await page.getByLabel("ผู้ปฏิบัติงาน",{exact:true}).fill("SYNTHETIC T1-31 OPERATOR");await page.getByRole("button",{name:"บันทึกใบงาน",exact:true}).click();await expect(page.locator("footer").locator("[role=status]:not([popover])")).toContainText("บันทึกแล้ว กลับมาเปิดและทำงานต่อได้");
  const current=await page.request.get(bench).then(r=>r.json()) as {revision:number;values:Record<string,unknown>;slots:{slot:number;sampleId:string;hisLn:string|null;kind:string}[]};

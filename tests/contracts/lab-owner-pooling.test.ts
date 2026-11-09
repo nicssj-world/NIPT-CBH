@@ -12,7 +12,7 @@ describe('LAB-12/13 actual Owner Master and CSV contract',()=>{
  });
  it('ignores a measured BLANK in count, volume and total',()=>{
   const input=rows();input[39].concentration='0.4';const r=calculateOwnerPooling(master,input),base=calculateOwnerPooling(master,rows());
-  expect(r.measuredCount).toBe(47);expect(r.rows[39].volume).toBeNull();expect(r.rows[39].csvVolume).toBe('');expect(r.total).toBe(base.total);
+  expect(r.measuredCount).toBe(47);expect(r.rows[39].volume).toBeNull();expect(r.rows[39].csvVolume).toBe('0');expect(r.total).toBe(base.total);   // Blank is always 0 in CSV column F
  });
  it('uses 47 actual measurements including PC/NC, excluding only the unmeasured BLANK',()=>{
   const r=calculateOwnerPooling(master,rows());expect(r.measuredCount).toBe(47);expect(Number(r.rows[0].volume)).toBeCloseTo(160/47*16/20,12);expect(r.rows[24].volume).toBe(r.rows[0].volume);expect(r.rows[39].volume).toBeNull();expect(r.desired).toBe('768');

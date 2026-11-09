@@ -19,6 +19,8 @@ export function ownerPoolFormula(master:Buffer){
  if(!cell('F52').includes('<f>(D54*F54)/D52</f>')||!cell('D55').includes('<f>F54-F52</f>'))throw Error('POOL_DILUTION_FORMULA_MISMATCH');
  return {masterSha256:sha256(master),amount:value('B6').toString(),dilutionTarget:value('D54').toString(),dilutionTotal:value('F54').toString()};
 }
+/** CSV column F carries two decimals (half up). The unrounded value still drives the screen, the totals and the below-2 rule. */
+const csvNumber=(volume:Decimal)=>volume.toDecimalPlaces(2,Decimal.ROUND_HALF_UP).toFixed(2);
 export function calculateOwnerPooling(master:Buffer,rows:PhysicalQc[],amount?:string){
  const formula=ownerPoolFormula(master);
  if(amount!==undefined){const value=number(amount);if(value.lte(0))throw Error('POOL_AMOUNT_INVALID');formula.amount=value.toString();}
@@ -30,27 +32,40 @@ export function calculateOwnerPooling(master:Buffer,rows:PhysicalQc[],amount?:st
  const output=rows.map(r=>{
   if(['PATIENT','PC','NC'].includes(r.kind)&&(!r.sampleId||r.concentration===null))throw Error('QC_MEASUREMENT_REQUIRED:'+r.slot);
   if(r.kind==='EMPTY'&&r.concentration!==null)throw Error('QC_EMPTY_SLOT_MEASUREMENT:'+r.slot);
-  if(r.kind==='BLANK'||r.kind==='REPEAT'||r.concentration===null)return {...r,volume:null,belowTwo:false,csvVolume:''};
+  // CSV column F (Owner 2026-11-09): the Blank control is always written as 0; an excluded Re-xxx slot or an unmeasured slot stays empty.
+  if(r.kind==='BLANK')return {...r,volume:null,belowTwo:false,csvVolume:'0'};
+  if(r.kind==='REPEAT'||r.concentration===null)return {...r,volume:null,belowTwo:false,csvVolume:''};
   const c=number(r.concentration);if(c.lte(0))throw Error('QC_CONCENTRATION_MUST_BE_POSITIVE:'+r.slot);
   // COUNTA counts every numeric QC input of a patient, PC or NC; BLANK is excluded.
   const volume=new D(160).div(measured.length).times(formula.amount).div(c),belowTwo=volume.lt(2);
-  return {...r,volume:volume.toString(),belowTwo,csvVolume:belowTwo?'0':volume.toString()};
+  return {...r,volume:volume.toString(),belowTwo,csvVolume:belowTwo?'0':csvNumber(volume)};
  });
  const total=output.reduce((sum,r)=>sum.plus(r.volume??0),new D(0)),desired=new D(48).times(formula.amount);
  return {formula,measuredCount:measured.length,rows:output,total:total.toString(),desired:desired.toString(),buffer:desired.minus(total).toString()};
 }
 export function poolConcentrationOutOfRange(value:string){const c=number(value);return c.lt(3)||c.gt('3.6');}
 export function ownerDilution(master:Buffer,c1:string){const f=ownerPoolFormula(master),c=number(c1);if(c.lte(0))throw Error('DILUTION_C1_MUST_BE_POSITIVE');const v1=new D(f.dilutionTarget).times(f.dilutionTotal).div(c),eb=new D(f.dilutionTotal).minus(v1);if(eb.lt(0))throw Error('DILUTION_NEGATIVE_EB');return {v1:v1.toString(),eb:eb.toString(),c1,target:f.dilutionTarget,total:f.dilutionTotal};}
-/** Only A/F are replaced. Copy the raw B–E field bytes, header, final newline and 48-row order. */
+/**
+ * Only A/F are replaced. Copy the raw B–E field bytes, header and final newline.
+ * Owner 2026-11-09: a slot that goes to any Re-xxx is left out of the file altogether (its row is dropped and the other rows keep their own source positions).
+ * The file is built on demand, so the same sample appears again as soon as it is a normal pooled attempt, for example in the next Run.
+ */
 export function exportOwnerPoolingCsv(template:Buffer,calculation:ReturnType<typeof calculateOwnerPooling>){
  if(sha256(template)!==POOL_CSV_SHA256)throw Error('POOL_CSV_TEMPLATE_SHA256_MISMATCH');
- const text=template.toString('utf8'),lines=text.split('\r\n');
+ return renderPoolingCsv(template.toString('utf8'),calculation);
+}
+/** The row assembly, separate from the pinned-template check so it can be tested without the Owner's file. */
+export function renderPoolingCsv(text:string,calculation:ReturnType<typeof calculateOwnerPooling>){
+ const lines=text.split('\r\n');
  if(lines.length!==50||lines.at(-1)!=='')throw Error('POOL_CSV_TEMPLATE_STRUCTURE');
  const quote=(s:string)=>/[",\r\n]/.test(s)?'"'+s.replaceAll('"','""')+'"':s;
+ const out=[lines[0]];
  for(let slot=1;slot<=48;slot++){
   const fields=lines[slot].split(',');if(fields.length!==6)throw Error('POOL_CSV_TEMPLATE_STRUCTURE');
   const r=calculation.rows[slot-1];if(/[\u0000-\u001f\u007f]/.test(r.sampleId)||/^[=+@-]/.test(r.sampleId))throw Error('POOL_CSV_SAMPLE_ID_INVALID');
-  lines[slot]=[quote(r.sampleId),...fields.slice(1,5),r.csvVolume].join(',');
+  if(r.kind==='REPEAT')continue;
+  out.push([quote(r.sampleId),...fields.slice(1,5),r.csvVolume].join(','));
  }
- return Buffer.from(lines.join('\r\n'),'utf8');
+ out.push('');
+ return Buffer.from(out.join('\r\n'),'utf8');
 }

@@ -21,7 +21,7 @@ const rows:PhysicalQc[]=Array.from({length:48},(_,i)=>({slot:i+1,sampleId:`SYNTH
 
 it('uses the saved amount for sample volumes, desired volume and buffer',()=>{
  const result=calculateOwnerPooling(master,rows,'12');
- expect(Number(result.rows[0].volume)).toBeCloseTo(2,12);
+ expect(Number(result.rows[0].volume)).toBeCloseTo(160/47*12/20,12);   // Blank (slot 40) is not counted: 47 measured, not 48 (Owner 2026-11-07)
  expect(Number(result.total)).toBeCloseTo(96,12);
  expect(result.desired).toBe('576');
  expect(Number(result.buffer)).toBeCloseTo(480,12);

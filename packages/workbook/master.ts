@@ -4,6 +4,7 @@ import {highlightExceptionalIds} from './exceptional-highlights';
 import {highlightControls} from './control-highlights';
 import {poolingAlerts} from './pooling-alerts';
 import {applyPoolingLayout} from './pooling-layout';
+import {applyPoolingRules} from './pooling-rules';
 
 export const MASTER_SHA256 = '4c5300f9039af57c0d0649160f5da8e4c2ee1ed7ae44dd7aa525823104f9c7f1';
 export const SHEETS = ['Ext. & Prep. Task List 1','Ext. & Prep. Task List 2','Ext. & Prep. Task List 3','QC measurements','Pooling Table','Seq Task-G50'] as const;
@@ -85,7 +86,7 @@ export function validateTaskValues(master: Buffer, values: Record<string,unknown
   }
 }
 /** Always starts from the immutable master. Missing/null values reset to the master, never a previous batch's derivative. */
-export function generateTaskWorkbook(master: Buffer, values: Record<string,unknown>,options:{urgent40?:boolean;exceptionalSlots?:number[]}={}) {
+export function generateTaskWorkbook(master: Buffer, values: Record<string,unknown>,options:{urgent40?:boolean;exceptionalSlots?:number[];poolExcludedSlots?:number[]}={}) {
   validateTaskValues(master,values);
   const parts=readArchive(master),changedParts=applyPoolingLayout(parts),defs=bindings(parts),strings=sharedStrings(parts);
   const fitting=textFitStyles(parts);
@@ -132,6 +133,7 @@ export function generateTaskWorkbook(master: Buffer, values: Record<string,unkno
   for(const name of highlightControls(parts,options.urgent40))if(!changedParts.includes(name))changedParts.push(name);
   const exceptionalTargets=defs.filter(d=>options.exceptionalSlots?.some(slot=>d.key===`slot.${slot}.printedSampleId`)).map(d=>({sheet:SHEETS.indexOf(d.sheet as typeof SHEETS[number])+1,cell:d.cell}));
   for(const name of highlightExceptionalIds(parts,exceptionalTargets))if(!changedParts.includes(name))changedParts.push(name);
+  for(const name of applyPoolingRules(parts,options.poolExcludedSlots??[]))if(!changedParts.includes(name))changedParts.push(name);
   for(const name of poolingAlerts(parts,values))if(!changedParts.includes(name))changedParts.push(name);
   if(Object.keys(values).length) {
     const path='xl/workbook.xml', original=parts.get(path)!.toString();
