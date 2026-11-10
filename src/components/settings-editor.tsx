@@ -19,6 +19,7 @@ const STATE_TEXT:Record<string,string>={Draft:"ร่าง",Validated:"ทด�
 const COVERAGE_TONE:Record<string,string>={Implemented:"good",Partial:"warning",Missing:"bad",Deferred:"",HOLD:"warning"};
 const STATUSES=["Implemented","Partial","Missing","Deferred","HOLD","Installation-owned","Locked"];
 
+const editable0=(k:string)=>['report_interpretation','go_live_cutoff','historical_backfill','report_output'].includes(k);
 /** Labelled form per category (no hand-edited JSON). The server schema still validates; maker-checker and RBAC are unchanged. */
 export function SettingsEditor(){
  const [search,setSearch]=useState('');
@@ -45,6 +46,17 @@ export function SettingsEditor(){
   notifySaved();setMessage(`บันทึกและใช้งานแล้ว (รุ่น ${data.version}) — มีผลทันที ไม่ต้องเริ่มระบบใหม่`);
  }catch{setError("บันทึกไม่สำเร็จ หรือเชื่อมต่อไม่ได้ ค่าที่ใช้งานอยู่ยังไม่เปลี่ยน กรุณาลองอีกครั้ง");}finally{setBusy(false);}}
  const category=catalog.find(c=>c.key===key),form=forms[key],direct=!!category?.directSave;
+ // Owner 2026-11-10: one person, one step. For these clinical settings (validated on the server without a worker test) "save and use" runs the same
+ // propose -> test -> approve -> activate calls in a row; the server still checks each one. "บันทึกร่าง" stays for a save without activating.
+ const chain=canApprove&&!direct&&editable0(key);
+ async function saveAndUse(){setBusy(true);setError("");setMessage("");try{
+  const me=await fetch("/api/me").then(r=>r.json());const headers={"Content-Type":"application/json","x-csrf-token":me.csrf};
+  const call=async(body:Record<string,unknown>)=>{const r=await fetch("/api/settings",{method:"POST",headers,body:JSON.stringify(body)});const d=await r.json();if(!r.ok)throw new Error(d.error??"บันทึกไม่สำเร็จ");return d as {id?:string;queued?:boolean};};
+  const p=await call({operation:"propose",key,value,reason});if(!p.id)throw new Error("บันทึกไม่สำเร็จ");
+  const t=await call({operation:"validate",id:p.id,key,reason});if(t.queued)throw new Error("ค่านี้ต้องทดสอบที่ Worker ก่อน — ใช้ปุ่ม บันทึกร่าง แล้วทำตามขั้นตอนในรายการรุ่น");
+  await call({operation:"approve",id:p.id,key,reason});await call({operation:"activate",id:p.id,key,reason});
+  notifySaved();setDirty(false);const d=await load();setValue(startValue(key,d.catalog,d.active));router.refresh();setMessage("บันทึกและใช้งานแล้ว — มีผลทันที");
+ }catch(e){setError((e as Error).message||"บันทึกไม่สำเร็จ หรือเชื่อมต่อไม่ได้ กรุณาลองอีกครั้ง");}finally{setBusy(false);}}
  const rows=useMemo(()=>coverage.filter(c=>c.category===CATEGORY_NO[category?.category??""]),[coverage,category]);
  // A group with several settings numbers them 7.1, 7.2 … so the group number is never repeated (Result Management has five).
  const navNumber=(cat:string,k:string)=>{const group=catalog.filter(x=>x.category===cat);return group.length>1?`${CATEGORY_NO[cat]}.${group.findIndex(x=>x.key===k)+1}`:String(CATEGORY_NO[cat]);};
@@ -80,7 +92,7 @@ export function SettingsEditor(){
     <p className="help">ห้ามใส่รหัสผ่านหรือข้อมูลผู้ป่วย — Secret เก็บแยกในช่องทาง Secret</p>
     {editable&&direct&&<div className="action-bar"><button className="button" disabled={busy||!category||!!scope}>{busy?"กำลังบันทึก…":"บันทึกและใช้งาน"}</button></div>}
     {editable&&!direct&&<><div className="field"><label htmlFor="setting-reason">เหตุผลที่เปลี่ยน (ไม่บังคับ)</label><input id="setting-reason" value={reason} onChange={e=>{setReason(e.target.value);setDirty(true);}} maxLength={250}/></div>
-     <div className="action-bar"><button className="button" disabled={busy||!category}>{busy?"กำลังบันทึก…":"บันทึกร่าง"}</button></div></>}
+     <div className="action-bar">{chain&&<button type="button" className="button" disabled={busy||!category} onClick={()=>void saveAndUse()}>{busy?"กำลังบันทึก…":"บันทึกและใช้งาน"}</button>}<button className={chain?"button secondary":"button"} disabled={busy||!category}>{busy?"กำลังบันทึก…":"บันทึกร่าง"}</button></div></>}
    </form></section></div>
   {scope&&<section className="panel" role="alertdialog" aria-labelledby="scan-scope-h" aria-describedby="scan-scope-d"><h2 id="scan-scope-h">ยืนยันการเปิด Auto Scan ครั้งแรก</h2>
    <p id="scan-scope-d">ระบบจะอ่านโฟลเดอร์ PET จาก HIS ย้อนหลัง {scope.lookbackDays} วัน ทุก {scope.intervalSeconds} วินาที แล้วนำไฟล์ที่พบเข้าสู่รายการรอลงทะเบียน (อ่านอย่างเดียว ไม่ย้ายหรือลบไฟล์ของ HIS)</p>
