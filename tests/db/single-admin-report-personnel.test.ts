@@ -25,7 +25,7 @@ describe('single APP_ADMIN with separate Reported By / Approved By personnel',()
   admin={id,roles:['APP_ADMIN'],unitIds:[],permissions:[]};
   // the one-time password must be replaced before the account can act
   await expect(run(()=>adminCommand(db,admin,{operation:'saveUser',username:'synthetic.early',displayName:'synthetic.early',password:TEST_PASSWORD,jobPosition:'นักเทคนิคการแพทย์',phone:'',unitId:null,enabled:true,roles:['LAB_STAFF'],unitIds:[],permissions:[]}))).rejects.toThrow('FORBIDDEN');
-  expect(await run(()=>changePassword(db,admin,TEST_PASSWORD,'Synthetic-Rotated-Admin-99!'))).toBe(true);
+  expect(await run(()=>changePassword(db,admin,TEST_PASSWORD,'Rot-Adm-99'))).toBe(true);
   // the administrator alone creates the personnel (normal user management, no second approver required)
   const person=async(username:string,role:'LAB_STAFF'|'LAB_CERTIFIER')=>({id:(await run(()=>adminCommand(db,admin,{operation:'saveUser',username,displayName:username,password:TEST_PASSWORD,jobPosition:'นักเทคนิคการแพทย์',phone:'',unitId:null,enabled:true,roles:[role],unitIds:[],permissions:[]}))).id,roles:[role],unitIds:[],permissions:[]} as Principal);
   reporter=await person('synthetic.reporter','LAB_STAFF');approver=await person('synthetic.approver','LAB_CERTIFIER');

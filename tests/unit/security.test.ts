@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { testDatabase, addUser, TEST_PASSWORD } from "../helpers/database";
 import { authenticate, readSession, revokeSession, IDLE_MS, ABSOLUTE_MS, validateCsrf, digest, token, throttleLogin } from "../../packages/security/session";
-import { hashPassword, validatePassword, verifyPassword } from "../../packages/security/password";
+import { hashPassword, validateChosenPassword, validatePassword, verifyPassword } from "../../packages/security/password";
 import { sealSecret, openSecret, identityLookup, encryptIdentifier } from "../../packages/security/envelope";
 import { assertSynthetic, assertNoClinicalRelease } from "../../packages/security/runtime";
 import type { PGlite } from "@electric-sql/pglite";
@@ -12,11 +12,15 @@ describe("local authentication and security", () => {
   afterAll(async () => { await db.close(); });
   it("enforces offline password policy and Argon2id", async () => {
     expect(() => validatePassword("1234567890")).toThrow();
-    // Owner 2026-11-10: 6 characters are enough; shorter, a single repeated character and the common list are still refused
-    expect(() => validatePassword("abc123")).not.toThrow();
-    expect(() => validatePassword("abc12")).toThrow("PASSWORD_POLICY");
-    expect(() => validatePassword("aaaaaa")).toThrow("PASSWORD_POLICY");
-    expect(() => validatePassword("x".repeat(129))).toThrow("PASSWORD_POLICY");
+    // Owner 2026-11-10: a password a person chooses has 6 to 10 characters; shorter, longer, a single repeated character and the common list are refused
+    expect(() => validateChosenPassword("abc123")).not.toThrow();
+    expect(() => validateChosenPassword("abcd123456")).not.toThrow();
+    for (const bad of ["abc12", "abcd1234567", "aaaaaa", "123456", "password", "password123"]) expect(() => validateChosenPassword(bad), bad).toThrow("PASSWORD_POLICY");
+    // system-made secrets keep the old 10–128 rule (installer accounts, random tokens), and are not capped at 10
+    expect(() => validatePassword("Synthetic-Test-Only-48!")).not.toThrow();
+    expect(() => validatePassword("abc123")).toThrow("PASSWORD_POLICY");
+    await expect(hashPassword("abc123", true)).resolves.toMatch(/^\$argon2id\$/);
+    await expect(hashPassword("abc123")).rejects.toThrow("PASSWORD_POLICY");
     const hash = await hashPassword(TEST_PASSWORD);
     expect(hash.split("$").slice(0,3)).toEqual(["", "argon2id", "v=19"]);
     expect(new Set(hash.split("$")[3].split(","))).toEqual(new Set(["m=65536","t=3","p=1"]));

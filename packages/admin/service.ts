@@ -82,7 +82,7 @@ export async function adminCommand(db:Queryable,principal:Actor,input:unknown):P
    await revokeUserSessions(db,id);
    await db.query('UPDATE app_user SET username=$2,display_name=$3,job_position=$4,phone=$5,unit_id=$6,enabled=$7,version=version+1 WHERE id=$1',[id,c.username,c.displayName,c.jobPosition,c.phone,c.unitId,c.enabled]);
   }else{
-   const hash=await hashPassword(c.password??'');
+   const hash=await hashPassword(c.password??'',true);
    id=(await db.query<{id:string}>('INSERT INTO app_user(username,display_name,password_hash,job_position,phone,unit_id,enabled,must_change_password) VALUES($1,$2,$3,$4,$5,$6,$7,true) RETURNING id',[c.username,c.displayName,hash,c.jobPosition,c.phone,c.unitId,c.enabled])).rows[0].id;
   }
   await db.query('INSERT INTO admin_access_supersession(request_id,actor_id) SELECT id,$2 FROM admin_access_request WHERE user_id=$1 AND kind=\'ACCESS\' AND state IN (\'Pending\',\'AwaitingEnrollment\') ON CONFLICT DO NOTHING',[id,actor.id]);
@@ -104,7 +104,7 @@ export async function adminCommand(db:Queryable,principal:Actor,input:unknown):P
   await audit(db,actor,'UNIT_SAVED',id,'UNIT');return {id};
  }
  if(c.operation==='createUser'){
-  if(c.unitId)await activeUnits(db,[c.unitId]);const hash=await hashPassword(c.password);
+  if(c.unitId)await activeUnits(db,[c.unitId]);const hash=await hashPassword(c.password,true);
   const id=(await db.query<{id:string}>('INSERT INTO app_user(username,display_name,password_hash,unit_id,must_change_password) VALUES($1,$2,$3,$4,true) RETURNING id',[c.username,c.displayName,hash,c.unitId??null])).rows[0].id;
   await audit(db,actor,'USER_CREATED',id);return {id};
  }
@@ -151,7 +151,7 @@ export async function adminCommand(db:Queryable,principal:Actor,input:unknown):P
  }else if(c.operation==='resetPassword'){
   const assigned=(await db.query<{role:Role}>("SELECT role FROM role_assignment WHERE user_id=$1 AND (expires_at IS NULL OR expires_at>clock_timestamp())",[c.id])).rows;
   if(assigned.some(a=>SENSITIVE_ROLES.includes(a.role)))throw Error('INDEPENDENT_RECOVERY_REQUIRED');
-  const hash=await hashPassword(c.password);await db.query('UPDATE app_user SET password_hash=$2,must_change_password=true,failed_count=0,locked_until=NULL,version=version+1 WHERE id=$1',[c.id,hash]);await revokeUserSessions(db,c.id);
+  const hash=await hashPassword(c.password,true);await db.query('UPDATE app_user SET password_hash=$2,must_change_password=true,failed_count=0,locked_until=NULL,version=version+1 WHERE id=$1',[c.id,hash]);await revokeUserSessions(db,c.id);
  }else await db.query('UPDATE app_user SET failed_count=0,locked_until=NULL,version=version+1 WHERE id=$1',[c.id]);
  await audit(db,actor,c.operation==='updateUser'?'USER_UPDATED':c.operation==='resetPassword'?'USER_PASSWORD_RESET':'USER_UNLOCKED',c.id);return {id:c.id};
 }
@@ -166,7 +166,7 @@ export async function changePassword(db:Queryable,user:Actor,current:string,next
   await appendAudit(db,{actorId:user.id,action:'USER_PASSWORD_CHANGE_DENIED',resourceType:'USER',resourceId:user.id,details:{outcome:'DENIED'}});return false; // caller commits counters before returning generic error.
  }
  if(current===next)throw Error('NEW_PASSWORD_REQUIRED');
- const hash=await hashPassword(next);await db.query('UPDATE app_user SET password_hash=$2,must_change_password=false,failed_count=0,locked_until=NULL,version=version+1 WHERE id=$1',[user.id,hash]);await revokeUserSessions(db,user.id);await audit(db,user,'USER_PASSWORD_CHANGED',user.id);return true;
+ const hash=await hashPassword(next,true);await db.query('UPDATE app_user SET password_hash=$2,must_change_password=false,failed_count=0,locked_until=NULL,version=version+1 WHERE id=$1',[user.id,hash]);await revokeUserSessions(db,user.id);await audit(db,user,'USER_PASSWORD_CHANGED',user.id);return true;
 }
 export async function listAccessRequests(db:Queryable,user:Principal){requireAdministrationRead(user);return (await db.query(`SELECT r.*,u.version current_version,u.username,u.display_name,m.username maker_username,m.display_name maker_name FROM admin_access_request r JOIN app_user u ON u.id=r.user_id JOIN app_user m ON m.id=r.created_by WHERE r.state IN ('Pending','AwaitingEnrollment') AND NOT EXISTS(SELECT 1 FROM admin_access_supersession x WHERE x.request_id=r.id) ORDER BY r.created_at DESC LIMIT 100`)).rows;}
 export async function listAudit(db:Queryable,user:Principal,input:unknown={}){

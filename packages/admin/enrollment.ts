@@ -23,7 +23,7 @@ export async function completeTargetEnrollment(db:Queryable,input:unknown){
   await db.query('DELETE FROM user_unit_scope WHERE user_id=$1',[r.user_id]);for(const unit of r.unit_ids)await db.query('INSERT INTO user_unit_scope(user_id,unit_id) VALUES($1,$2)',[r.user_id,unit]);
   await db.query('DELETE FROM user_permission WHERE user_id=$1',[r.user_id]);for(const permission of r.permissions)await db.query('INSERT INTO user_permission(user_id,permission,approved_by) VALUES($1,$2,$3)',[r.user_id,permission,r.decided_by]);
  }
- const hash=await hashPassword(d.password);await db.query('UPDATE app_user SET password_hash=$2,must_change_password=true,failed_count=0,locked_until=NULL,version=version+1 WHERE id=$1',[r.user_id,hash]);await revokeUserSessions(db,r.user_id);
+ const hash=await hashPassword(d.password,true);await db.query('UPDATE app_user SET password_hash=$2,must_change_password=true,failed_count=0,locked_until=NULL,version=version+1 WHERE id=$1',[r.user_id,hash]);await revokeUserSessions(db,r.user_id);
  await db.query("UPDATE admin_access_request SET state='Approved' WHERE id=$1",[d.requestId]);await appendAudit(db,{actorId:r.decided_by,action:'USER_TARGET_ENROLLED_BY_OPERATOR',resourceType:'USER',resourceId:r.user_id,details:{outcome:'SUCCESS',reasonCode:'TARGET_IDENTITY_OPERATOR_CONFIRMED'}});
  return {id:r.user_id};
 }
