@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {fillReport,TOKENS,type SignerSlot,type ReportValues} from '../../packages/readygen/docx';
+import {fillReport,SIGNATURE_FRAME,TOKENS,type SignerSlot,type ReportValues} from '../../packages/readygen/docx';
 import {readArchive,writeArchive,sha256} from '../../packages/workbook/archive';
 import {signaturePng} from '../../tools/task3-uat/signature';
 import {decideSignerProfile} from '../../packages/readygen/signers';
@@ -65,7 +65,7 @@ describe('fillReport signature fitting (synthetic master)',()=>{
   it('replaces the last five blank lines before "Report End" with a two-column block; both pictures have the same height',()=>{
    const b=body(blank.repeat(9)+para('Report End'));
    const out=run(b,slot(1200,500,1),slot(900,300,2)),parts=readArchive(out.bytes),xml=parts.get('word/document.xml')!.toString('utf8');
-   expect(extents(xml).map(e=>e.split('x')[1])).toEqual(['540000','540000']);
+   expect(extents(xml).map(e=>e.split('x')[1])).toEqual([String(SIGNATURE_FRAME.cy),String(SIGNATURE_FRAME.cy)]);
    expect(xml).toContain('Reported by:  (Test Signer)');expect(xml).toContain('Approved by:  (Test Signer)');
    expect(xml).toContain('(Medical Technologist license no.12345)');expect(xml).toContain('Reported Date: 01-Jan-2026');expect(xml).toContain('Approved Date: 01-Jan-2026');
    expect((xml.match(/<w:p><w:pPr\/><\/w:p>/g)??[]).length).toBe(4);// 9 blank lines: 4 kept, 5 replaced

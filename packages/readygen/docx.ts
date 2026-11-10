@@ -88,7 +88,9 @@ const TRANSPARENT_PNG=Buffer.from('89504e470d0a1a0a0000000d494844520000000100000
 // Owner 2026-11-10: a template may leave the signature area blank (no "Reported by:" / "Approved by:" lines, no pictures). The system then
 // builds the two-column signer block itself in the run of empty paragraphs directly before the "Report End" line: picture, name, licence
 // and date per signer, both pictures in one identical frame (same height, aspect ratio kept, never wider than the frame).
-export const SIGNATURE_FRAME={cx:1800000,cy:540000};
+// Frame height follows the Owner's sample (signature picture sitting just above the name, about 1.2 cm tall). The frame is wide enough
+// (3.6:1) that ordinary signature scans are limited by height, so every picture comes out the same height; only a wider scan is made shorter.
+export const SIGNATURE_FRAME={cx:1500000,cy:418000};
 const SIG_FONT='<w:rFonts w:ascii="TH Sarabun New" w:hAnsi="TH Sarabun New" w:cs="TH Sarabun New"/>';
 const SIG_CAPACITY=44;
 function sigLine(text:string,ratio=1){const sz=Math.max(8,Math.floor(22*ratio));
