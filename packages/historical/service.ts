@@ -35,8 +35,8 @@ export async function loadContext(db:Queryable):Promise<HistoricalContext>{
  const s=await readActiveSettings(db);
  const hb=SETTINGS.historical_backfill.schema.parse(s.historical_backfill??SETTINGS.historical_backfill.default);
  const kinds:EvidenceKind[]=hb.anchorPolicy==='A_FINAL_REPORT'?['FINAL_RESULT_REPORT']:hb.anchorPolicy==='B_FINAL_REPORT_OR_CONTROL_RECORD'?['FINAL_RESULT_REPORT','LAB_CONTROL_RECORD']:[];
- const row=(await db.query<{version:number;value:{cutoff:string;impactReportHash:string};effective_from:Date}>("SELECT r.version,r.value,r.effective_from FROM setting_active a JOIN settings_revision r ON r.id=a.revision_id WHERE a.setting_key='go_live_cutoff'")).rows[0];
- const cutoff=row?{version:row.version,cutoff:row.value.cutoff,effectiveFrom:bangkokDay(row.effective_from),impactReportHash:row.value.impactReportHash}:null;
+ const row=(await db.query<{version:number;value:{cutoff:string;impactReportHash?:string};effective_from:Date}>("SELECT r.version,r.value,r.effective_from FROM setting_active a JOIN settings_revision r ON r.id=a.revision_id WHERE a.setting_key='go_live_cutoff'")).rows[0];
+ const cutoff=row?{version:row.version,cutoff:row.value.cutoff,effectiveFrom:bangkokDay(row.effective_from),impactReportHash:row.value.impactReportHash??''}:null;
  return {anchorKinds:kinds,policyConfigured:kinds.length>0,profile:hb.minimumProfile==='PENDING_OD18'?null:hb.minimumProfile,maxRows:hb.maxBatchRows,cutoff,policy:{anchorPolicy:hb.anchorPolicy,minimumProfile:hb.minimumProfile}};
 }
 export const contextReady=(c:HistoricalContext)=>c.policyConfigured&&c.cutoff!==null;

@@ -4,7 +4,7 @@ import {SETTINGS,REPORT_PRODUCT_CHOICES,type SettingKey} from "./catalog";
 // The catalog schema remains the only validator; this file only describes how each value is shown. A unit test asserts that
 // every schema field has exactly one entry here and that locked fields are literals in the schema.
 export type FieldKind="text"|"path"|"number"|"boolean"|"select"|"locked"|"date"|"hash"|"uuid-or-empty"|"res-profile"|"his-certifiers"|"his-operator";
-export type FieldSpec={name:string;label:string;help:string;kind:FieldKind;options?:readonly {value:string;label:string}[];unit?:string;min?:number;max?:number;lockedBy?:string};
+export type FieldSpec={name:string;label:string;help:string;kind:FieldKind;options?:readonly {value:string;label:string}[];unit?:string;min?:number;max?:number;lockedBy?:string;optional?:boolean};
 export type SettingForm={key:SettingKey;title:string;summary:string;phase:string;fields:FieldSpec[]};
 
 export const SETTING_FORMS:Record<SettingKey,SettingForm>={
@@ -89,7 +89,7 @@ export const SETTING_FORMS:Record<SettingKey,SettingForm>={
   {name:"downloadNameTemplate",label:"รูปแบบชื่อไฟล์",help:"ใช้ได้: {run} (เช่น run042569 จาก Run004/2026) {hisLn} {lnHalos} {sampleId} {hn} {patientName} {reportDate} {template} {version} — ต้องมี {hisLn} หรือ {sampleId} ระบบแทนอักขระที่ Windows ไม่รองรับด้วย _ และเติม (2), (3) เมื่อชื่อซ้ำ",kind:"text",max:160}]},
  go_live_cutoff:{key:"go_live_cutoff",title:"วันเริ่มใช้ระบบ",summary:"กำหนดขอบเขตวันที่สำหรับพิจารณาข้อมูลย้อนหลัง พร้อมบันทึกผู้จัดทำและผู้ตรวจสอบ",phase:"ข้อมูลย้อนหลัง",fields:[
   {name:"cutoff",label:"วันที่เริ่มใช้ระบบ",help:"แก้ไขไม่ได้หลังมีข้อมูลย้อนหลังที่ผูกกับวันที่นี้แล้ว",kind:"date"},
-  {name:"impactReportHash",label:"SHA-256 ของรายงานผลกระทบ",help:"ต้องแนบรายงานผลกระทบทุกเวอร์ชัน (D-50)",kind:"hash"}]}
+  {name:"impactReportHash",label:"SHA-256 ของรายงานผลกระทบ (ไม่บังคับ)",help:"ไม่บังคับ — ถ้ามีไฟล์รายงานผลกระทบ ใส่รหัส SHA-256 (64 ตัวอักษร) เพื่อเก็บเป็นหลักฐาน; เว้นว่างได้",kind:"hash",optional:true}]}
 };
 
 /** Schema keys of a catalog entry, used by the coverage test and the form renderer. */

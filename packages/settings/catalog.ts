@@ -44,7 +44,7 @@ export const SETTINGS = {
     noCallRenderingApproved: z.boolean(), approvalReference: z.string().max(300).refine(v => !/[\r\n\0]/.test(v), "REFERENCE_INVALID") }).strict(),
     default: { rulesetId: "CBH-READYGEN-REF", rulesetVersion: "1.0.0", rulesetSha256: REPORT_RULESET_SHA256, interpretationApproved: false, singletonApprovedProduct: "NONE", twinApprovedProduct: "NONE", noCallRenderingApproved: false, approvalReference: "" } },
   report_output: { category: "Result Management", risk: "GENERAL", schema: z.object({ downloadNameTemplate: z.string().min(5).max(160).refine(v=>templateProblems(v).length===0,'DOWNLOAD_NAME_TEMPLATE_INVALID') }).strict(), default: { downloadNameTemplate: DEFAULT_DOWNLOAD_TEMPLATE } },
-  go_live_cutoff: { category: "Result Management", risk: "CLINICAL", schema: z.object({ cutoff: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), impactReportHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict(), default: null }
+  go_live_cutoff: { category: "Result Management", risk: "CLINICAL", schema: z.object({ cutoff: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), impactReportHash: z.string().regex(/^([a-f0-9]{64})?$/).optional() }).strict(), default: null }
 } as const;
 export type SettingKey = keyof typeof SETTINGS;
 export function settingDefinition(key: string) {

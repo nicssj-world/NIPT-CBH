@@ -44,7 +44,7 @@ export const cutoffVersionSchema=z.strictObject({
  version:z.number().int().positive(),
  cutoff:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
  effectiveFrom:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
- impactReportHash:z.string().regex(/^[a-f0-9]{64}$/),
+ impactReportHash:z.string().regex(/^([a-f0-9]{64})?$/),// Owner 2026-11-10: optional evidence; empty when no impact report is attached
 });
 export type CutoffVersion=z.infer<typeof cutoffVersionSchema>;
 
