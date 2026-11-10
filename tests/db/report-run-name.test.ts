@@ -42,7 +42,8 @@ it('uses one configured name for an external matched version without fabricating
   await f.db.query('SET ROLE worker_rw');
   try{
    expect(await reportDownloadName(f.db,v.versionId)).toContain('_009900010002_009900010001.pdf');
-   await expect(f.db.query("UPDATE internal_report SET download_name='changed.pdf'")).rejects.toThrow(/permission/);
+   // Owner 2026-11-10: the Worker creates and updates internal reports when it finalizes a batch item (migration 216); it can never delete one.
+   await expect(f.db.query('DELETE FROM internal_report')).rejects.toThrow(/permission/);
   }finally{await f.db.query('RESET ROLE');}
  }finally{await f.close();}
 });

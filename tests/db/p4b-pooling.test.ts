@@ -109,7 +109,7 @@ it('original reprint preserves bytes, upstream mutation atomically Stop-use; rec
 });
 it('database least privilege denies worker writes and enforces second-person review',async()=>{
  await db.exec(await readFile('packages/db/roles.sql','utf8'));await db.query('SET ROLE worker_rw');
- try{await expect(db.query('SELECT * FROM p4b_pool_attempt')).rejects.toThrow(/permission/);}finally{await db.query('RESET ROLE');}
+ try{/* Owner 2026-11-10: the Worker reads pooling evidence to finalize report batch items (migration 216) but never writes it. */await expect(db.query('INSERT INTO p4b_pool_attempt(id) VALUES(NULL)')).rejects.toThrow(/permission/);}finally{await db.query('RESET ROLE');}
  await check();await issue('PRE_WORK');await call(s.transition,{transition:'START',reason:'จำลอง เริ่มตรวจ DB'});await call(s.recordPoolObservation,{field:'TRANSFER',slot:2,value:{checked:true},source:'DIRECT_ENTRY'});
  const o=(await ws()).current!.observations[0];await db.query("INSERT INTO p4b_pool_review(observation_id,result,reviewer_id,note) VALUES($1,'Confirmed',$2,'synthetic self review')",[o.id,u.staff.id]);   // the recorder may review their own entry (owner 2026-11-03)
  expect((await db.query('SELECT 1 FROM p4b_pool_review WHERE observation_id=$1 AND reviewer_id=$2',[o.id,u.staff.id])).rows).toHaveLength(1);

@@ -250,16 +250,18 @@ describe('P5H least-privilege database roles',()=>{
    const {batchId}=await f.run(t=>createBatch(t,f.maker,f.store,{table:{name:'h.csv',bytes:csvOf(rows)},files:rows.map(r=>({name:r.pdf_file!,bytes:pdfFor(r)})),idempotencyKey:randomUUID()}));
    await f.db.exec('RESET ROLE;SET ROLE worker_rw');
    await f.run(t=>stageBatch(t,f.store,batchId,f.maker.id));
-   await expect(f.db.query("SELECT payload FROM p2_document_revision")).rejects.toThrow(/permission denied/);
+   // Owner 2026-11-10: the Worker reads P2 document revisions to finalize report batch items (migration 216); it still cannot write them.
+   await expect(f.db.query("INSERT INTO p2_document_revision(case_id) VALUES(NULL)")).rejects.toThrow(/permission denied/);
    await expect(f.db.query("INSERT INTO historical_verification(draft_id,draft_version,verifier_id,result,attestation,batch_key) SELECT id,version,$1,'CONFIRMED','{}','kkkkkkkkkkkkkkkkkkkk' FROM historical_draft",[f.verifier.id])).rejects.toThrow(/permission denied/);
    await expect(f.db.query("DELETE FROM historical_draft")).rejects.toThrow(/permission denied/);
    await f.db.exec('RESET ROLE;SET ROLE app_rw');
    const staged=await view(f,batchId);
-   expect(staged.rows.map(r=>r.state)).toEqual(['Submitted','Submitted']);
-   expect(staged.rows[1].issues).toContainEqual(expect.objectContaining({code:'HN_ONLY_MATCH_NOT_LINKED',severity:'WARN'}));   // not comparable for the worker: shown to the reviewer, never linked
+   // Owner 2026-11-10: the Worker now reads the P2 request payload (migration 216, needed to finalize report batch items), so a same-HN
+   // patient with a different name is blocked at staging instead of being a warning until confirmation. Never linked either way.
+   expect(staged.rows.map(r=>r.state)).toEqual(['Submitted','Draft']);
+   expect(staged.rows[1].issues).toContainEqual(expect.objectContaining({code:'IDENTITY_CONFLICT_SAME_HN',severity:'ERROR'}));
    const out=await confirmAll(f,batchId);
-   expect(out.outcomes.map(o=>o.outcome)).toEqual(['PROMOTED','CONFLICT']);
-   expect(out.outcomes[1].reasons?.map(x=>x.code)).toContain('IDENTITY_CONFLICT_SAME_HN');   // the web role can compare name and DOB
+   expect(out.outcomes.map(o=>o.outcome)).toEqual(['PROMOTED']);   // the blocked Draft is not confirmed at all
    await expect(f.db.query("UPDATE historical_eligibility_evaluation SET outcome='Submitted'")).rejects.toThrow(/permission denied|append-only/);
    await f.db.exec('RESET ROLE');
   }finally{await f.close();}

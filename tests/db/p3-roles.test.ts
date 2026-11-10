@@ -71,10 +71,11 @@ describe('P3 least-privilege DB roles (worker_rw / app_rw) and LD-04 guard',()=>
   await f.db.query('SET ROLE worker_rw');
   expect((await f.db.query('SELECT case_id,hn FROM p2_case_identity WHERE case_id=$1',[caseId])).rows).toEqual([{case_id:caseId,hn:HN}]);
   await expect(f.db.query('SELECT synthetic FROM p2_case_identity')).rejects.toThrow(/permission denied/);
-  await expect(f.db.query('SELECT actor_id FROM p2_collection_fact')).rejects.toThrow(/permission denied/);
+  // Owner 2026-11-10: report batch items are finalized by the Worker (migration 216), so it now READS this table; it still cannot write it.
+  await expect(f.db.query('INSERT INTO p2_collection_fact(case_id) VALUES(NULL)')).rejects.toThrow(/permission denied/);
   await expect(f.db.query('INSERT INTO p2_case_identity(case_id,hn) VALUES($1,$2)',[caseId,HN])).rejects.toThrow(/permission denied/);
-  await expect(f.db.query('SELECT draft FROM p2_workspace')).rejects.toThrow(/permission denied/);
-  await expect(f.db.query('SELECT 1 FROM case_unit_scope')).rejects.toThrow(/permission denied/);
+  await expect(f.db.query('UPDATE p2_workspace SET draft=draft')).rejects.toThrow(/permission denied/);
+  await expect(f.db.query('DELETE FROM case_unit_scope')).rejects.toThrow(/permission denied/);
   await f.db.query('RESET ROLE');
  });
 
