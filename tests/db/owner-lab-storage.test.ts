@@ -24,12 +24,16 @@ it('OWNER-LAB-051: an issued LN Halos is storable for Backup and Buffy without a
  }finally{await f.close();}
 });
 
-it('OWNER-LAB-051: box numbers are allocated atomically as Box001, Box002 … across both types, never reused',async()=>{
+it('OWNER-LAB-051 (numbering per type, Owner 2026-11-10): Backup and Buffy Coat boxes are numbered Box001, Box002 … each; a number is never reused, not even after the box is deleted',async()=>{
  const f=await histFixture();try{
   const created=[];for(const type of ['BACKUP','BUFFY_COAT','BACKUP','BUFFY_COAT'] as const)created.push(await f.run(db=>storageCommand(db,f.maker,{action:'createBox',boxType:type})));
-  expect(created.map(b=>b.boxId)).toEqual(['Box001','Box002','Box003','Box004']);
+  expect(created.map(b=>`${b.boxType}:${b.boxId}`)).toEqual(['BACKUP:Box001','BUFFY_COAT:Box001','BACKUP:Box002','BUFFY_COAT:Box002']);
+  // a creation that rolls back leaves no box behind, so its number is simply the next one
   await expect(f.run(async db=>{await storageCommand(db,f.maker,{action:'createBox',boxType:'BACKUP'});throw new Error('ROLLBACK_PROBE');})).rejects.toThrow('ROLLBACK_PROBE');
-  expect((await f.run(db=>storageCommand(db,f.maker,{action:'createBox',boxType:'BACKUP'}))).boxId).toBe('Box006');
+  const third=await f.run(db=>storageCommand(db,f.maker,{action:'createBox',boxType:'BACKUP'}));expect(third.boxId).toBe('Box003');
+  // a deleted (empty) box keeps its row and number: the next box does not take the number over
+  await f.run(db=>storageCommand(db,f.maker,{action:'deleteBox',boxId:third.id,withPartner:false}));
+  expect((await f.run(db=>storageCommand(db,f.maker,{action:'createBox',boxType:'BACKUP'}))).boxId).toBe('Box004');
  }finally{await f.close();}
 });
 

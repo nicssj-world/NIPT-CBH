@@ -146,6 +146,10 @@ REVOKE USAGE,SELECT ON SEQUENCE lab_storage_box_box_number_seq FROM app_rw;
 GRANT SELECT ON lab_storage_box,lab_storage_position,lab_storage_typed_position,lab_storage_movement,lab_storage_box_event TO app_rw;
 GRANT EXECUTE ON FUNCTION lab_storage_create_box(text,uuid),lab_storage_set_position(uuid,text,uuid,integer,uuid,uuid,integer),
  lab_storage_swap(uuid,uuid,text,uuid,integer,uuid,integer,uuid),lab_storage_log_label(uuid,uuid,text,uuid) TO app_rw;
+-- Migration 214: box pairs, box deletion (a mark, never a row delete) and sample check-out/return; same rule, written only by the functions.
+REVOKE INSERT,UPDATE,DELETE ON lab_storage_checkout FROM app_rw;
+GRANT SELECT ON lab_storage_checkout TO app_rw;
+GRANT EXECUTE ON FUNCTION lab_storage_create_pair(uuid),lab_storage_delete_box(uuid,uuid,text),lab_storage_check_out(uuid,text,uuid,integer,text,uuid),lab_storage_return(uuid,text,uuid,integer,text,uuid) TO app_rw;
 -- Task 3 (migration 128): HALOS import evidence, signer profiles/delegations, internal reports, outage provenance and HIS-presence attestation.
 GRANT SELECT,INSERT ON halos_import_row,report_signer_profile,report_signer_profile_event,internal_report_batch,result_external_fallback TO app_rw;
 GRANT SELECT,INSERT,UPDATE ON halos_import,report_signature_delegation,internal_report,result_his_attestation TO app_rw;

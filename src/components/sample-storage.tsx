@@ -23,7 +23,8 @@ const displayLogTime=(value:string)=>new Intl.DateTimeFormat('th-TH-u-ca-buddhis
 /** OWNER-LAB-052: a due date exists only when this round's PET P[23] receipt is verified; otherwise it is stated as unknown. */
 const dueText=(row:{retentionDueAt:string|null})=>row.retentionDueAt?displayStorageDate(row.retentionDueAt):'ไม่ทราบ (ไม่มีเวลารับจาก PET)';
 const EVENT_LABEL:Record<string,string>={BOX_CREATED:'เปิดกล่อง',BOX_LABEL_PRINTED:'พิมพ์ฉลากกล่อง',BOX_LABEL_REPRINTED:'พิมพ์ฉลากกล่องซ้ำ',SAMPLE_LABEL_PRINTED:'พิมพ์ฉลากตัวอย่าง',SAMPLE_LABEL_REPRINTED:'พิมพ์ฉลากตัวอย่างซ้ำ',
- SAMPLE_PLACED:'จัดเก็บเข้ากล่อง',SAMPLE_MOVED_IN:'ย้ายเข้า',SAMPLE_MOVED_OUT:'ย้ายออก',SAMPLE_MOVED_WITHIN:'ย้ายภายในกล่อง',SAMPLE_REPLACED:'สลับตำแหน่ง'};
+ SAMPLE_PLACED:'จัดเก็บเข้ากล่อง',SAMPLE_MOVED_IN:'ย้ายเข้า',SAMPLE_MOVED_OUT:'ย้ายออก',SAMPLE_MOVED_WITHIN:'ย้ายภายในกล่อง',SAMPLE_REPLACED:'สลับตำแหน่ง',
+ BOX_DELETED:'ลบกล่อง',SAMPLE_CHECKED_OUT:'หยิบตัวอย่างออก',SAMPLE_RETURNED:'นำตัวอย่างกลับเข้ากล่อง'};
 const csvCell=(value:string|null|undefined)=>`"${String(value??'').replaceAll('"','""')}"`;
 
 async function postStorage<T>(body:Record<string,unknown>):Promise<T>{
@@ -44,6 +45,8 @@ export function SampleStorage({canWrite,canPrint}:{canWrite:boolean;canPrint:boo
  const [dragTarget,setDragTarget]=useState('');
  const [view,setView]=useState<'STORE'|'DUE'>('STORE'),[logBoxId,setLogBoxId]=useState<string|null>(null);
  const [swap,setSwap]=useState<null|{storageType:StorageType;a:{roundId:string;label:string;boxId:string;slot:number};b:{roundId:string;label:string;boxId:string;slot:number}}>(null);
+ const [deleteDlg,setDeleteDlg]=useState<null|{withPartner:boolean;reason:string}>(null);
+ const [checkoutDlg,setCheckoutDlg]=useState<null|{mode:'out'|'return';roundId:string;storageType:StorageType;boxId:string;slot:number;label:string;position:string;reason:string}>(null);
  const gridScrollerRef=useRef<HTMLDivElement>(null);
 
  useEffect(()=>{
@@ -70,6 +73,7 @@ export function SampleStorage({canWrite,canPrint}:{canWrite:boolean;canPrint:boo
  const activeBox=data?.activeBox??null;
  const activeType:StorageType=activeBox?.boxType==='BUFFY_COAT'?'BUFFY_COAT':boxFilter==='BUFFY_COAT'?'BUFFY_COAT':'BACKUP';
  const waitingCount=boxFilter==='BACKUP'?data?.summary.waitingBackup??0:boxFilter==='BUFFY_COAT'?data?.summary.waitingBuffy??0:(data?.summary.waitingBackup??0)+(data?.summary.waitingBuffy??0);
+ const waitingBoth=(data?.summary.waitingBackup??0)+(data?.summary.waitingBuffy??0);
  const selectedRows=useMemo(()=>data?.rows.filter(row=>row.waiting&&selectedKeys.includes(rowKey(row)))??[],[data?.rows,selectedKeys]);
  const selectedType=selectedRows[0]?.storageType;
  const mixedSelection=selectedRows.some(row=>row.storageType!==selectedType);
@@ -93,9 +97,24 @@ export function SampleStorage({canWrite,canPrint}:{canWrite:boolean;canPrint:boo
   finally{setBusy(false);}
  }
 
+ // Owner 2026-11-10: one click opens Backup Box N and Buffy Coat Box N together.
  async function openBox(){
-  const result=await command<{id:string;boxId:string;boxType:StorageType}>({action:'createBox',boxType:activeType});
-  if(result){setBoxFilter(activeType);setBoxQuery('');setBoxPage(1);setActiveBoxId(result.id);setTargetBoxId(result.id);setPage(1);setNotice(`เปิด ${TYPE_LABEL[result.boxType]} ${result.boxId} แล้ว`);}
+  const result=await command<{boxes:{id:string;boxId:string;boxType:StorageType}[]}>({action:'createBoxPair'});
+  const first=result?.boxes.find(box=>box.boxType==='BACKUP')??result?.boxes[0];
+  if(result&&first){setBoxFilter('ALL');setBoxQuery('');setBoxPage(1);setActiveBoxId(first.id);setTargetBoxId(first.id);setPage(1);setNotice(`เปิด ${TYPE_LABEL.BACKUP} ${first.boxId} และ ${TYPE_LABEL.BUFFY_COAT} ${first.boxId} แล้ว`);}
+ }
+
+ async function confirmDelete(){
+  if(!activeBox||!deleteDlg)return;
+  const result=await command<{deleted:{boxId:string;boxType:StorageBoxType}[]}>({action:'deleteBox',boxId:activeBox.id,withPartner:deleteDlg.withPartner,...(deleteDlg.reason.trim()?{reason:deleteDlg.reason.trim()}:{})});
+  if(result){setNotice(`ลบ ${result.deleted.map(box=>`${TYPE_LABEL[box.boxType as StorageType]??box.boxType} ${box.boxId}`).join(' และ ')} แล้ว (ประวัติยังอยู่)`);setDeleteDlg(null);setActiveBoxId('');setTargetBoxId('');setSelectedPosition(null);}
+ }
+
+ async function confirmCheckout(){
+  if(!checkoutDlg)return;
+  const out=checkoutDlg.mode==='out';
+  const result=await command({action:out?'checkOut':'returnToBox',roundId:checkoutDlg.roundId,storageType:checkoutDlg.storageType,boxId:checkoutDlg.boxId,slot:checkoutDlg.slot,...(checkoutDlg.reason.trim()?{reason:checkoutDlg.reason.trim()}:{})});
+  if(result){setNotice(out?`หยิบ ${checkoutDlg.label} (${checkoutDlg.position}) ออกแล้ว — ช่องนี้ยังถูกจองไว้`:`นำ ${checkoutDlg.label} (${checkoutDlg.position}) กลับเข้ากล่องแล้ว`);setCheckoutDlg(null);}
  }
 
  async function printBox(boxId:string){
@@ -126,7 +145,8 @@ export function SampleStorage({canWrite,canPrint}:{canWrite:boolean;canPrint:boo
 
  async function previewAutoFill(){
   if(mixedSelection){setError('เลือกประเภทเดียวก่อนสร้าง Auto-fill Preview');return;}
-  const storageTypes=selectedType?[selectedType]:boxFilter==='ALL'?['BACKUP','BUFFY_COAT'] as StorageType[]:[boxFilter],roundIds=selectedRows.length?selectedRows.map(row=>row.roundId):undefined;
+  // Owner 2026-11-10: without a selection Auto-fill fills Backup and Buffy Coat boxes side by side, whichever tab is open.
+  const storageTypes=selectedType?[selectedType]:['BACKUP','BUFFY_COAT'] as StorageType[],roundIds=selectedRows.length?selectedRows.map(row=>row.roundId):undefined;
   setBusy(true);setError('');setNotice('');
   try{const result=await postStorage<AutoPlan>({action:'autoFillPreview',storageTypes,...(roundIds?{roundIds}:{})});setAutoPlan(result);setAutoRoundIds(roundIds);}
   catch(reason){setError(failureText(reason));}
@@ -228,7 +248,7 @@ export function SampleStorage({canWrite,canPrint}:{canWrite:boolean;canPrint:boo
     <div className={styles.searchInput}><span aria-hidden="true">⌕</span><input id="sample-storage-search" type="search" value={query} onChange={event=>{setQuery(event.target.value);setPage(1);}} autoComplete="off" placeholder="ค้นหา LN / HN / LN Halos / Box ID" /></div>
     <span className={styles.helper}>ค้นหาในข้อมูลจัดเก็บที่ผู้ใช้มีสิทธิ์เข้าถึง</span>
    </div>
-   <button className={styles.autoButton} type="button" disabled={!canWrite||busy||mixedSelection} onClick={()=>void previewAutoFill()}><span aria-hidden="true">▶</span> Auto-fill {selectedRows.length?`${selectedRows.length} ตัวอย่างที่เลือก`:`${waitingCount} ตัวอย่าง`}</button>
+   <button className={styles.autoButton} type="button" disabled={!canWrite||busy||mixedSelection} onClick={()=>void previewAutoFill()}><span aria-hidden="true">▶</span> Auto-fill {selectedRows.length?`${selectedRows.length} ตัวอย่างที่เลือก`:`${waitingBoth} ตัวอย่าง (Backup + Buffy Coat คู่ขนาน)`}</button>
   </header>
 
   {error&&<p role="alert" className={styles.alert}>{error}</p>}
@@ -252,7 +272,7 @@ export function SampleStorage({canWrite,canPrint}:{canWrite:boolean;canPrint:boo
 
   <div className={styles.dashboard}>
    <aside className={styles.boxPanel}>
-    <div className={styles.panelHeading}><div><h2>กล่องจัดเก็บตัวอย่าง</h2><p>เลือกกล่องเพื่อดูรายละเอียด · {data?.boxTotal??0} กล่อง · หน้า {data?.boxPage??1}/{data?.boxTotalPages??1}</p></div>{canWrite&&<button type="button" className={styles.iconButton} aria-label={`เปิด ${TYPE_LABEL[activeType]} ใหม่`} onClick={()=>void openBox()} disabled={busy}>＋</button>}</div>
+    <div className={styles.panelHeading}><div><h2>กล่องจัดเก็บตัวอย่าง</h2><p>เลือกกล่องเพื่อดูรายละเอียด · {data?.boxTotal??0} กล่อง · หน้า {data?.boxPage??1}/{data?.boxTotalPages??1}</p></div>{canWrite&&<button type="button" className={styles.iconButton} aria-label="เปิดกล่องคู่ใหม่ (Backup Box และ Buffy Coat Box เลขเดียวกัน)" title="เปิดกล่องคู่ใหม่ (Backup Box และ Buffy Coat Box เลขเดียวกัน)" onClick={()=>void openBox()} disabled={busy}>＋</button>}</div>
     <label className={styles.boxSearchLabel} htmlFor="box-list-search">ค้นหากล่อง</label>
    <input className={styles.boxSearch} id="box-list-search" type="search" placeholder="ค้นหา Box ID" onChange={event=>{setBoxQuery(event.target.value);setBoxPage(1);}} value={boxQuery} autoComplete="off" />
     <ul className={styles.boxList} aria-label="รายการกล่อง">
@@ -271,21 +291,26 @@ export function SampleStorage({canWrite,canPrint}:{canWrite:boolean;canPrint:boo
    <main className={styles.activePanel}>
     <div className={styles.activeHeading}>
      <div><h2>{activeBox?.boxId??'เลือกกล่องจัดเก็บ'}</h2><p>{activeBox?`${activeBox.used}/81 ช่อง · ${Math.round(activeBox.used/81*100)}%`: 'เลือกกล่องจากรายการ หรือเปิดกล่องใหม่'}{activeBox&&<span className={styles.badge}>{activeBox.boxType==='LEGACY_UNCLASSIFIED'?'ข้อมูลเดิม':TYPE_LABEL[activeBox.boxType]}</span>}</p></div>
-     <div className={styles.actions}>{canWrite&&<button type="button" className={styles.secondaryButton} onClick={()=>void openBox()} disabled={busy}>＋ เปิดกล่องใหม่</button>}{canPrint&&activeBox&&<button type="button" className={styles.secondaryButton} onClick={()=>void printBox(activeBox.id)} disabled={busy}>▤ พิมพ์ / พิมพ์ซ้ำฉลากกล่อง</button>}{activeBox&&<button type="button" className={styles.secondaryButton} onClick={()=>setLogBoxId(activeBox.id)}>ประวัติกล่อง</button>}</div>
+     <div className={styles.actions}>{canWrite&&<button type="button" className={styles.secondaryButton} onClick={()=>void openBox()} disabled={busy}>＋ เปิดกล่องคู่ใหม่</button>}{canWrite&&activeBox&&<button type="button" className={styles.secondaryButton} onClick={()=>setDeleteDlg({withPartner:!!activeBox.partner&&activeBox.partner.used===0,reason:''})} disabled={busy||!activeBox.deletable} title={activeBox.deletable?'ลบกล่องว่างนี้ (ประวัติยังอยู่)':'ลบได้เฉพาะกล่องที่ไม่มีตัวอย่าง ย้ายตัวอย่างออกก่อน'}>🗑 ลบกล่อง</button>}{canPrint&&activeBox&&<button type="button" className={styles.secondaryButton} onClick={()=>void printBox(activeBox.id)} disabled={busy}>▤ พิมพ์ / พิมพ์ซ้ำฉลากกล่อง</button>}{activeBox&&<button type="button" className={styles.secondaryButton} onClick={()=>setLogBoxId(activeBox.id)}>ประวัติกล่อง</button>}</div>
     </div>
     {activeBox&&<div className={styles.boxProgress}><span style={{width:`${Math.min(100,activeBox.used/81*100)}%`}} /></div>}
     {activeBox?<>
      <div className={styles.boxFacts}><span><small>ประเภท</small><strong>{activeBox.boxType==='LEGACY_UNCLASSIFIED'?'ข้อมูลเดิมที่ยังไม่ระบุ':TYPE_LABEL[activeBox.boxType]}</strong></span><span><small>การใช้งาน</small><strong>{activeBox.used}/81 ช่อง</strong></span><span><small>สถานะ</small><strong>{activeBox.status==='FULL'?'เต็ม':activeBox.status==='IN_USE'?'กำลังใช้งาน':'ว่าง'}</strong></span></div>
-     {(selectedWaiting||selectedCell)&&<section className={styles.retentionDetails} aria-label="รายละเอียดตัวอย่างและกำหนดเก็บรักษา"><strong>{selectedWaiting?.storageLabel??selectedCell?.storageLabel??'ข้อมูลเดิม'}{selectedCell?` · ${selectedCell.position}`:''}</strong><span>LN {selectedWaiting?.ln??selectedCell?.ln??'—'} · HN {selectedWaiting?.hn??selectedCell?.hn??'—'} · LN Halos {selectedWaiting?.lnHalos??selectedCell?.lnHalos??'—'} · รอบ {selectedWaiting?.roundNumber??selectedCell?.roundNumber??'—'}</span><span>รับจาก HIS (PET): {(selectedWaiting?.retentionVerified??selectedCell?.retentionVerified)?displayStorageDate(selectedWaiting?.receivedAt??selectedCell?.receivedAt??null):'ไม่มีวันที่รับจาก PET ที่ยืนยันได้'}</span><span>ครบกำหนดเก็บรักษา 3 ปี: {dueText({retentionDueAt:selectedWaiting?.retentionDueAt??selectedCell?.retentionDueAt??null})}</span></section>}
+     {(selectedWaiting||selectedCell)&&<section className={styles.retentionDetails} aria-label="รายละเอียดตัวอย่างและกำหนดเก็บรักษา"><strong>{selectedWaiting?.storageLabel??selectedCell?.storageLabel??'ข้อมูลเดิม'}{selectedCell?` · ${selectedCell.position}`:''}</strong><span>LN {selectedWaiting?.ln??selectedCell?.ln??'—'} · HN {selectedWaiting?.hn??selectedCell?.hn??'—'} · LN Halos {selectedWaiting?.lnHalos??selectedCell?.lnHalos??'—'} · รอบ {selectedWaiting?.roundNumber??selectedCell?.roundNumber??'—'}</span><span>รับจาก HIS (PET): {(selectedWaiting?.retentionVerified??selectedCell?.retentionVerified)?displayStorageDate(selectedWaiting?.receivedAt??selectedCell?.receivedAt??null):'ไม่มีวันที่รับจาก PET ที่ยืนยันได้'}</span><span>ครบกำหนดเก็บรักษา 3 ปี: {dueText({retentionDueAt:selectedWaiting?.retentionDueAt??selectedCell?.retentionDueAt??null})}</span>
+      {selectedCell?.checkout&&<div className={styles.checkoutInfo} role="status"><strong>หยิบออกแล้ว — ช่องนี้ยังถูกจองไว้</strong><span>เหตุผล: {selectedCell.checkout.reason}</span><span>โดย {selectedCell.checkout.by} · {displayStorageDate(selectedCell.checkout.at)}</span></div>}
+      {canWrite&&selectedCell?.roundId&&selectedCell.storageType!=='LEGACY_UNCLASSIFIED'&&<div className={styles.checkoutActions}>{selectedCell.checkout
+       ?<button type="button" className={styles.secondaryButton} disabled={busy} onClick={()=>setCheckoutDlg({mode:'return',roundId:selectedCell.roundId!,storageType:selectedCell.storageType as StorageType,boxId:activeBox.id,slot:selectedCell.slot,label:selectedCell.storageLabel??'ตัวอย่าง',position:selectedCell.position,reason:''})}>↩ นำกลับเข้ากล่อง</button>
+       :<button type="button" className={styles.secondaryButton} disabled={busy} onClick={()=>setCheckoutDlg({mode:'out',roundId:selectedCell.roundId!,storageType:selectedCell.storageType as StorageType,boxId:activeBox.id,slot:selectedCell.slot,label:selectedCell.storageLabel??'ตัวอย่าง',position:selectedCell.position,reason:''})}>↗ หยิบออก (ต้องใส่หมายเหตุ)</button>}</div>}</section>}
      <div className={styles.gridScroller} ref={gridScrollerRef} role="region" aria-label="ตารางตำแหน่ง 9 คูณ 9" tabIndex={0}>
       <div className={styles.grid} role="grid" aria-label={`ตำแหน่งใน ${activeBox.boxId}`}>
        <div className={styles.columnHeaders} role="row"><span role="presentation" />{'ABCDEFGHI'.split('').map(letter=><span key={letter} role="columnheader">{letter}</span>)}</div>
-       {Array.from({length:9},(_,rowIndex)=><div className={styles.gridRow} role="row" key={rowIndex}><span className={styles.rowHeader} role="rowheader">{rowIndex+1}</span>{activeBox.grid.slice(rowIndex*9,rowIndex*9+9).map(cell=><button key={cell.slot} type="button" role="gridcell" data-storage-slot={cell.slot} aria-selected={selectedPosition?.roundId===cell.roundId&&selectedPosition.storageType===cell.storageType} draggable={canWrite&&cell.occupied&&cell.storageType!=='LEGACY_UNCLASSIFIED'} aria-label={`${cell.position}${cell.occupied?cell.roundId?`, ${cell.storageLabel??'ข้อมูลเดิม'}, LN ${cell.ln??''}, HN ${cell.hn??''}`:', มีตัวอย่าง แต่ไม่มีสิทธิ์แสดงรายละเอียด':', ว่าง'}`} className={`${styles.slot} ${cell.occupied?styles.slotOccupied:styles.slotEmpty} ${selectedPosition?.roundId===cell.roundId&&selectedPosition.storageType===cell.storageType?styles.slotSelected:''} ${dragTarget===`slot:${cell.slot}`?styles.dropTarget:''}`} onClick={()=>{if(cell.occupied&&cell.roundId){setSelectedPosition({roundId:cell.roundId,storageType:cell.storageType,boxId:activeBox.id,slot:cell.slot,storageLabel:cell.storageLabel??'ข้อมูลเดิม'});setSelectedWaiting(null);}else if(selectedWaiting&&!cell.occupied)void command({action:'place',roundId:selectedWaiting.roundId,storageType:selectedWaiting.storageType,boxId:activeBox.id,slot:cell.slot}).then(result=>{if(result){setSelectedWaiting(null);setSelectedKeys(current=>current.filter(key=>key!==rowKey(selectedWaiting)));}});}} onDragStart={event=>startStoredDrag(event,cell)} onDragEnd={finishDrag} onDragOver={event=>{if(!cell.occupied){event.preventDefault();setDragTarget(`slot:${cell.slot}`);}}} onDragLeave={()=>setDragTarget('')} onDrop={event=>void dropIntoCell(event,cell.slot,cell.occupied)} disabled={busy||!canWrite&& !cell.occupied}>
+       {Array.from({length:9},(_,rowIndex)=><div className={styles.gridRow} role="row" key={rowIndex}><span className={styles.rowHeader} role="rowheader">{rowIndex+1}</span>{activeBox.grid.slice(rowIndex*9,rowIndex*9+9).map(cell=><button key={cell.slot} type="button" role="gridcell" data-storage-slot={cell.slot} aria-selected={selectedPosition?.roundId===cell.roundId&&selectedPosition.storageType===cell.storageType} draggable={canWrite&&cell.occupied&&cell.storageType!=='LEGACY_UNCLASSIFIED'&&!cell.checkout} title={cell.checkout?`หยิบออกแล้ว: ${cell.checkout.reason} (โดย ${cell.checkout.by} · ${displayStorageDate(cell.checkout.at)})`:undefined} aria-label={`${cell.position}${cell.occupied?cell.roundId?`, ${cell.storageLabel??'ข้อมูลเดิม'}, LN ${cell.ln??''}, HN ${cell.hn??''}`:', มีตัวอย่าง แต่ไม่มีสิทธิ์แสดงรายละเอียด':', ว่าง'}${cell.checkout?`, หยิบออกแล้ว เหตุผล: ${cell.checkout.reason}`:''}`} className={`${styles.slot} ${cell.occupied?styles.slotOccupied:styles.slotEmpty} ${cell.checkout?styles.slotCheckedOut:''}${selectedPosition?.roundId===cell.roundId&&selectedPosition.storageType===cell.storageType?styles.slotSelected:''} ${dragTarget===`slot:${cell.slot}`?styles.dropTarget:''}`} onClick={()=>{if(cell.occupied&&cell.roundId){setSelectedPosition({roundId:cell.roundId,storageType:cell.storageType,boxId:activeBox.id,slot:cell.slot,storageLabel:cell.storageLabel??'ข้อมูลเดิม'});setSelectedWaiting(null);}else if(selectedWaiting&&!cell.occupied)void command({action:'place',roundId:selectedWaiting.roundId,storageType:selectedWaiting.storageType,boxId:activeBox.id,slot:cell.slot}).then(result=>{if(result){setSelectedWaiting(null);setSelectedKeys(current=>current.filter(key=>key!==rowKey(selectedWaiting)));}});}} onDragStart={event=>startStoredDrag(event,cell)} onDragEnd={finishDrag} onDragOver={event=>{if(!cell.occupied){event.preventDefault();setDragTarget(`slot:${cell.slot}`);}}} onDragLeave={()=>setDragTarget('')} onDrop={event=>void dropIntoCell(event,cell.slot,cell.occupied)} disabled={busy||!canWrite&& !cell.occupied}>
+        {cell.checkout&&<span className={styles.outMark} aria-hidden="true">↗</span>}
         {cell.occupied?<><strong className={styles.cellCode}>{cell.roundId?cell.storageLabel??'ข้อมูลเดิม':'มีตัวอย่าง'}</strong><span>{cell.roundId?`LN ${cell.ln??'—'}`:'รายละเอียดถูกจำกัดสิทธิ์'}</span>{cell.roundId&&<><small>HN {cell.hn??'—'}</small>{cell.lnHalos&&<small className={styles.cellHalos}>{cell.lnHalos}</small>}</>}</>:<><span>ว่าง</span><small>ลากตัวอย่างมาวาง</small></>}
        </button>)}</div>)}
       </div>
      </div>
-     <div className={styles.legend}><span><i className={styles.legendFilled} />ตัวอย่างจัดเก็บแล้ว</span><span><i className={styles.legendEmpty} />ช่องว่าง</span><span>ตำแหน่ง A1–I9 · แถวละ 9 ช่อง</span></div>
+     <div className={styles.legend}><span><i className={styles.legendFilled} />ตัวอย่างจัดเก็บแล้ว</span><span><i className={styles.legendEmpty} />ช่องว่าง</span><span><i className={styles.legendOut} />หยิบออกแล้ว (ชี้เมาส์ที่ช่องเพื่อดูเหตุผล)</span><span>ตำแหน่ง A1–I9 · แถวละ 9 ช่อง</span></div>
     </>:<div className={styles.emptyGrid}>เลือกหรือเปิดกล่องเพื่อแสดงตำแหน่งจัดเก็บ 9×9</div>}
     {canWrite&&(selectedWaiting||selectedPosition&&selectedPosition.storageType!=='LEGACY_UNCLASSIFIED')&&<section className={styles.keyboardMove} aria-label="จัดเก็บหรือย้ายด้วยแป้นพิมพ์">
      <div><strong>{selectedWaiting?`เลือก ${selectedWaiting.storageLabel} เพื่อจัดเก็บ`: `เลือก ${selectedPosition?.storageLabel} เพื่อย้าย`}</strong><p>ใช้ตัวเลือกกล่องและช่องว่าง แล้วกดปุ่มเพื่อบันทึกตำแหน่ง</p></div>
@@ -304,7 +329,7 @@ export function SampleStorage({canWrite,canPrint}:{canWrite:boolean;canPrint:boo
      {waitingRows.map(row=><article key={rowKey(row)} className={`${styles.sampleRow} ${row.waiting?styles.sampleWaiting:''}`} draggable={canWrite&&row.waiting&&row.storageType!=='LEGACY_UNCLASSIFIED'} onDragStart={event=>startWaitingDrag(event,row)} onDragEnd={finishDrag}>
       {canWrite&&row.waiting&&row.storageType!=='LEGACY_UNCLASSIFIED'?<input className={styles.sampleCheck} type="checkbox" aria-label={`เลือก ${row.storageLabel}`} checked={selectedKeys.includes(rowKey(row))} onChange={()=>toggleSelection(row)} />:<span className={styles.sampleMarker} aria-hidden="true">{row.waiting?'○':'▣'}</span>}
       <div className={styles.sampleContent}>
-       <div className={styles.sampleTop}><strong className={styles.mono}>{row.storageLabel??`LN ${row.ln}`}</strong><span className={`${styles.typeBadge} ${row.storageType==='BUFFY_COAT'?styles.buffyBadge:row.storageType==='LEGACY_UNCLASSIFIED'?styles.legacyBadge:''}`}>{row.storageType==='LEGACY_UNCLASSIFIED'?'ข้อมูลเดิม':TYPE_SHORT[row.storageType]}</span></div>
+       <div className={styles.sampleTop}><strong className={styles.mono}>{row.storageLabel??`LN ${row.ln}`}</strong><span className={`${styles.typeBadge} ${row.storageType==='BUFFY_COAT'?styles.buffyBadge:row.storageType==='LEGACY_UNCLASSIFIED'?styles.legacyBadge:''}`}>{row.storageType==='LEGACY_UNCLASSIFIED'?'ข้อมูลเดิม':TYPE_SHORT[row.storageType]}</span>{row.checkedOut&&<span className={styles.outBadge}>หยิบออกแล้ว</span>}</div>
        <span>LN {row.ln} · HN {row.hn??'—'}</span><small>LN Halos {row.lnHalos??'—'} · รอบ {row.roundNumber}</small>
        {row.waiting?<div className={styles.sampleActions}><button type="button" className={styles.textButton} onClick={()=>{setSelectedWaiting(row);setSelectedPosition(null);const target=visibleBoxes.find(box=>box.boxType===row.storageType&&box.nextSlot!==null);if(target){setTargetBoxId(target.id);setTargetSlot(target.nextSlot??1);}}} disabled={!canWrite}>เลือกเพื่อจัดเก็บ</button>{canPrint&&row.storageType!=='LEGACY_UNCLASSIFIED'&&<button type="button" className={styles.textButton} onClick={()=>printRowSample(row)} disabled={busy}>พิมพ์ฉลากตัวอย่าง</button>}<span>รอจัดเก็บ</span></div>:<div className={styles.sampleActions}><button type="button" className={styles.locationButton} onClick={()=>locateRow(row)}>{row.boxId} · {row.position}</button>{canPrint&&row.storageType!=='LEGACY_UNCLASSIFIED'&&<button type="button" className={styles.textButton} onClick={()=>printRowSample(row)} disabled={busy}>พิมพ์ฉลากตัวอย่าง</button>}{canPrint&&row.boxUuid&&<button type="button" className={styles.textButton} onClick={()=>void printBox(row.boxUuid!)} disabled={busy}>ฉลากกล่อง</button>}</div>}
       </div>
@@ -323,6 +348,23 @@ export function SampleStorage({canWrite,canPrint}:{canWrite:boolean;canPrint:boo
     <div className={styles.dialogHeading}><div><h2 id="storage-swap-title">สลับตำแหน่งตัวอย่าง</h2><p>{TYPE_LABEL[swap.storageType]} · บันทึกในประวัติของทั้งสองกล่อง</p></div><button type="button" className={styles.smallIconButton} onClick={()=>setSwap(null)} aria-label="ปิด">×</button></div>
     <dl className={styles.previewFacts}><div><dt>{swap.a.label}</dt><dd className={styles.swapTarget}>ไปยังตำแหน่งของ {swap.b.label}</dd></div><div><dt>{swap.b.label}</dt><dd className={styles.swapTarget}>ไปยังตำแหน่งเดิมของ {swap.a.label}</dd></div></dl>
     <div className={styles.dialogActions}><button type="button" className={styles.secondaryButton} onClick={()=>setSwap(null)}>ยกเลิก</button><button type="button" className={styles.confirmButton} onClick={()=>void confirmSwap()} disabled={busy}>ยืนยันสลับตำแหน่ง</button></div>
+   </section>
+  </div>}
+  {deleteDlg&&activeBox&&<div className={styles.dialogBackdrop} role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)setDeleteDlg(null);}}>
+   <section className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="storage-delete-title">
+    <div className={styles.dialogHeading}><div><h2 id="storage-delete-title">ลบกล่อง</h2><p>{activeBox.boxType==='LEGACY_UNCLASSIFIED'?'กล่องข้อมูลเดิม':TYPE_LABEL[activeBox.boxType]} {activeBox.boxId} · ไม่มีตัวอย่างในกล่อง</p></div><button type="button" className={styles.smallIconButton} onClick={()=>setDeleteDlg(null)} aria-label="ปิด">×</button></div>
+    <p className={styles.previewNote}>กล่องที่ลบจะไม่แสดงในรายการ และเลขกล่องนี้จะไม่ถูกนำกลับมาใช้ ประวัติของกล่องยังเก็บไว้ ลบได้เฉพาะกล่องที่ไม่มีตัวอย่าง</p>
+    {activeBox.partner&&<label className="check-label"><input type="checkbox" checked={deleteDlg.withPartner} disabled={activeBox.partner.used>0} onChange={event=>setDeleteDlg({...deleteDlg,withPartner:event.target.checked})}/> ลบ {TYPE_LABEL[activeBox.partner.boxType as StorageType]??'กล่อง'} {activeBox.partner.boxId} ซึ่งเป็นคู่กันด้วย{activeBox.partner.used>0?` (มีตัวอย่าง ${activeBox.partner.used} ตัวอย่าง จึงลบไม่ได้)`:''}</label>}
+    <label className={styles.reasonField}>เหตุผล (ไม่บังคับ)<input type="text" value={deleteDlg.reason} maxLength={300} onChange={event=>setDeleteDlg({...deleteDlg,reason:event.target.value})} placeholder="เช่น เปิดกล่องผิด"/></label>
+    <div className={styles.dialogActions}><button type="button" className={styles.secondaryButton} onClick={()=>setDeleteDlg(null)}>ยกเลิก</button><button type="button" className={styles.dangerButton} onClick={()=>void confirmDelete()} disabled={busy}>ยืนยันลบกล่อง</button></div>
+   </section>
+  </div>}
+  {checkoutDlg&&<div className={styles.dialogBackdrop} role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget)setCheckoutDlg(null);}}>
+   <section className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="storage-checkout-title">
+    <div className={styles.dialogHeading}><div><h2 id="storage-checkout-title">{checkoutDlg.mode==='out'?'หยิบตัวอย่างออกจากกล่อง':'นำตัวอย่างกลับเข้ากล่อง'}</h2><p>{checkoutDlg.label} · ตำแหน่ง {checkoutDlg.position}</p></div><button type="button" className={styles.smallIconButton} onClick={()=>setCheckoutDlg(null)} aria-label="ปิด">×</button></div>
+    <p className={styles.previewNote}>{checkoutDlg.mode==='out'?'ช่องนี้ยังถูกจองไว้ และแสดงสัญลักษณ์ว่าหยิบออกแล้ว ชี้เมาส์ที่ช่องเพื่อดูเหตุผล บันทึกในประวัติกล่อง แก้ไขหรือลบไม่ได้':'ช่องเดิมกลับมาเป็นตัวอย่างอยู่ในกล่อง การนำกลับบันทึกในประวัติกล่อง'}</p>
+    <label className={styles.reasonField}>หมายเหตุ{checkoutDlg.mode==='out'?' (บังคับ อย่างน้อย 3 ตัวอักษร)':' (ไม่บังคับ)'}<textarea value={checkoutDlg.reason} maxLength={500} autoFocus onChange={event=>setCheckoutDlg({...checkoutDlg,reason:event.target.value})} placeholder={checkoutDlg.mode==='out'?'เช่น ส่งตรวจซ้ำที่ห้องปฏิบัติการ':'เช่น ตรวจซ้ำเสร็จแล้ว'}/></label>
+    <div className={styles.dialogActions}><button type="button" className={styles.secondaryButton} onClick={()=>setCheckoutDlg(null)}>ยกเลิก</button><button type="button" className={styles.confirmButton} onClick={()=>void confirmCheckout()} disabled={busy||(checkoutDlg.mode==='out'&&checkoutDlg.reason.trim().length<3)}>{checkoutDlg.mode==='out'?'ยืนยันหยิบออก':'ยืนยันนำกลับ'}</button></div>
    </section>
   </div>}
   {autoPlan&&<div className={styles.dialogBackdrop} role="presentation" onMouseDown={event=>{if(event.target===event.currentTarget){setAutoPlan(null);setAutoRoundIds(undefined);}}}>
@@ -363,7 +405,7 @@ function BoxLogDialog({boxId,onClose}:{boxId:string;onClose:()=>void}){
  const closeRef=useRef<HTMLButtonElement>(null);
  useEffect(()=>{closeRef.current?.focus();const key=(event:KeyboardEvent)=>{if(event.key==='Escape')onClose();};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[onClose]);
  useEffect(()=>{let current=true;const timer=setTimeout(()=>{postStorage<BoxLog>({action:'boxLog',boxId,eventType,q,page,pageSize}).then(result=>{if(current){setData(result);setError('');}}).catch(reason=>{if(current)setError(failureText(reason));});},200);return()=>{current=false;clearTimeout(timer);};},[boxId,eventType,q,page,pageSize]);
- const describe=(e:BoxLog['events'][number])=>`${EVENT_LABEL[e.eventType]??e.eventType}${e.eventType==='SAMPLE_MOVED_IN'&&e.relatedBox?` จาก ${e.relatedBox} ${e.relatedPosition}`:''}${e.eventType==='SAMPLE_MOVED_OUT'&&e.relatedBox?` ไป ${e.relatedBox} ${e.relatedPosition}`:''}${e.eventType==='SAMPLE_MOVED_WITHIN'?` จาก ${e.relatedPosition}`:''}${e.eventType==='SAMPLE_REPLACED'&&e.relatedBox?` (เดิมอยู่ ${e.relatedBox} ${e.relatedPosition})`:''}`;
+ const describe=(e:BoxLog['events'][number])=>`${EVENT_LABEL[e.eventType]??e.eventType}${e.eventType==='SAMPLE_MOVED_IN'&&e.relatedBox?` จาก ${e.relatedBox} ${e.relatedPosition}`:''}${e.eventType==='SAMPLE_MOVED_OUT'&&e.relatedBox?` ไป ${e.relatedBox} ${e.relatedPosition}`:''}${e.eventType==='SAMPLE_MOVED_WITHIN'?` จาก ${e.relatedPosition}`:''}${e.eventType==='SAMPLE_REPLACED'&&e.relatedBox?` (เดิมอยู่ ${e.relatedBox} ${e.relatedPosition})`:''}${e.reason?` — ${e.reason}`:''}`;
  async function exportCsv(){
   setExporting(true);setError('');
   try{

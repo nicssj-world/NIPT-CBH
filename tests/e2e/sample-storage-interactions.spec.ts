@@ -174,10 +174,10 @@ test('Sample Storage creates a Backup box and manually places a selected waiting
  await page.goto('/sample-storage');
  const create=page.waitForResponse(response=>{
   if(!response.url().endsWith('/api/sample-storage')||response.request().method()!=='POST')return false;
-  const body=response.request().postDataJSON() as {action?:string;boxType?:string};
-  return body.action==='createBox'&&body.boxType==='BACKUP';
+  const body=response.request().postDataJSON() as {action?:string};
+  return body.action==='createBoxPair';   // Owner 2026-11-10: one click opens Backup Box N and Buffy Coat Box N
  },{timeout:10000});
- await page.getByRole('button',{name:'เปิด Backup Box ใหม่'}).click();
+ await page.getByRole('button',{name:'เปิดกล่องคู่ใหม่ (Backup Box และ Buffy Coat Box เลขเดียวกัน)'}).click();
  expect((await create).ok()).toBe(true);
  const activeBox=page.getByRole('heading',{level:2,name:/^Box\d+$/});
  await expect(activeBox).toHaveText(/^Box\d+$/);

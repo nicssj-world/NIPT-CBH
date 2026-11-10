@@ -100,6 +100,19 @@
 .slotOccupied {background:var(--ss-f4faff,#f4faff);border-color:var(--ss-b8d7ec,#b8d7ec);color:var(--ss-173a59,#173a59);cursor:grab;}
 .slotOccupied:hover {border-color:var(--storage-blue);background:var(--ss-eaf5fc,#eaf5fc);}
 .slotSelected {outline:2px solid var(--ss-e9a34b,#e9a34b);outline-offset:1px;}
+/* Checked out (Owner 2026-11-10): the slot is still reserved; hatched, with a mark and the reason as its tooltip. */
+.slotCheckedOut {position:relative;cursor:help;border-style:dashed;border-color:var(--ss-d98a1f,#d98a1f);background:repeating-linear-gradient(135deg,var(--ss-fff4dc,#fff4dc) 0 6px,var(--ss-ffe6b8,#ffe6b8) 6px 12px);color:var(--ss-6b4300,#6b4300);}
+.slotCheckedOut:hover {background:repeating-linear-gradient(135deg,var(--ss-ffeecb,#ffeecb) 0 6px,var(--ss-ffdc9b,#ffdc9b) 6px 12px);border-color:var(--ss-b36d00,#b36d00);}
+.outMark {position:absolute;top:2px;right:3px;display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;background:var(--ss-d98a1f,#d98a1f);color:var(--ss-fff,#fff);font-size:11px;font-weight:700;line-height:1;}
+.slotCheckedOut .cellCode,.slotCheckedOut>span,.slotCheckedOut>small {color:var(--ss-6b4300,#6b4300);}
+.outBadge {display:inline-flex;align-items:center;padding:1px 7px;border-radius:999px;background:var(--ss-ffe6b8,#ffe6b8);color:var(--ss-6b4300,#6b4300);font-size:10px;font-weight:700;white-space:nowrap;}
+.checkoutInfo {display:grid;gap:4px;padding:8px 10px;border-radius:7px;background:var(--ss-fff4dc,#fff4dc);border:1px solid var(--ss-ffd88a,#ffd88a);color:var(--ss-6b4300,#6b4300);}
+.checkoutActions {display:flex;flex-wrap:wrap;gap:8px;margin-top:2px;}
+.reasonField {display:grid;gap:6px;margin:12px 0 4px;font-size:13px;}
+.reasonField textarea,.reasonField input[type="text"] {width:100%;min-height:44px;padding:8px 10px;border:1px solid var(--ss-9aa8b5,#9aa8b5);border-radius:7px;font:inherit;}
+.reasonField textarea {min-height:84px;resize:vertical;}
+.dangerButton {display:inline-flex;justify-content:center;align-items:center;gap:6px;min-height:42px;padding:8px 12px;border:1px solid var(--ss-c0392b,#c0392b);border-radius:7px;background:var(--ss-c0392b,#c0392b);color:var(--ss-fff,#fff);font-weight:650;cursor:pointer;}
+.dangerButton:disabled {opacity:.55;cursor:not-allowed;}
 .slot:focus-visible,.boxCard:focus-visible,.waitingPanel button:focus-visible,.actions button:focus-visible {outline:3px solid var(--ss-3186c4,#3186c4);outline-offset:2px;z-index:1;}
 .cellCode {min-width:0;max-width:100%;font-size:10px;color:var(--ss-075e9d,#075e9d);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .slotOccupied>span,.slotOccupied>small {min-width:0;max-width:100%;font-size:9px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -108,6 +121,7 @@
 .legend>span {display:inline-flex;align-items:center;gap:6px;}
 .legend i {display:inline-block;width:13px;height:13px;border:1px dashed var(--ss-b9c8d3,#b9c8d3);border-radius:3px;background:var(--ss-fbfcfd,#fbfcfd);}
 .legend .legendFilled {border-style:solid;border-color:var(--ss-b8d7ec,#b8d7ec);background:var(--ss-f4faff,#f4faff);}
+.legend .legendOut {border-color:var(--ss-d98a1f,#d98a1f);background:repeating-linear-gradient(135deg,var(--ss-fff4dc,#fff4dc) 0 3px,var(--ss-ffe6b8,#ffe6b8) 3px 6px);}
 .emptyGrid {display:grid;place-items:center;min-height:250px;border:1px dashed var(--ss-cad6df,#cad6df);border-radius:8px;color:var(--storage-muted);text-align:center;padding:20px;}
 .keyboardMove {display:grid;grid-template-columns:minmax(180px,1.5fr) minmax(125px,1fr) minmax(110px,.7fr) auto auto;align-items:end;gap:9px;padding:12px 5px 2px;border-top:1px solid var(--ss-e7edf2,#e7edf2);margin-top:9px;}
 .keyboardMove>div {align-self:center;}

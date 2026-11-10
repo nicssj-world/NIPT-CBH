@@ -132,7 +132,7 @@ async function prepareMigrationAndBackup(client:Client){
   if(!marker){
    const user=await labUsers(client,`task2legacy${runId}`),legacySample=await syntheticCase(client,{staff:user.staff,unit:user.unit});
    await receiveS1(client,legacySample,new Date('2026-10-20T01:00:00.000Z'));
-   for(let i=1;i<=16;i++)await client.query('INSERT INTO lab_storage_box(box_id,created_by) VALUES($1,$2) ON CONFLICT(box_id) DO NOTHING',[`BoxTask2Legacy${String(i).padStart(2,'0')}`,user.staff.id]);
+   for(let i=1;i<=16;i++)await client.query('INSERT INTO lab_storage_box(box_id,created_by) VALUES($1,$2) ON CONFLICT DO NOTHING',[`BoxTask2Legacy${String(i).padStart(2,'0')}`,user.staff.id]);
    marker=(await client.query<{id:string}>('SELECT id FROM lab_storage_box WHERE box_id=$1',['BoxTask2Legacy01'])).rows[0].id;
    let position=(await client.query<{id:string}>('SELECT id FROM lab_storage_position WHERE box_id=$1 AND slot=1',[marker])).rows[0]?.id;
    if(!position)position=(await client.query<{id:string}>('INSERT INTO lab_storage_position(box_id,slot,round_id,stored_by) VALUES($1,1,$2,$3) RETURNING id',[marker,legacySample.roundId,user.staff.id])).rows[0].id;

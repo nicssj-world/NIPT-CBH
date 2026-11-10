@@ -64,7 +64,8 @@ function sampleSource(scope:string){return `WITH received_samples AS (
 function sampleRowsCte(scope:string){return `${sampleSource(scope)}, sample_rows AS (
  SELECT s.round_id,s.ln,s.hn,s.ln_halos,s.round_number,s.received_at,s.received_source,s.retention_due_at,t.storage_type,
   s.display_code||CASE WHEN t.storage_type='BACKUP' THEN '-3' ELSE '' END storage_label,
-  b.id box_uuid,b.box_id,p.slot,(p.id IS NULL) waiting
+  b.id box_uuid,b.box_id,p.slot,(p.id IS NULL) waiting,
+  COALESCE((SELECT c.event='CHECK_OUT' FROM lab_storage_checkout c WHERE c.position_id=p.id ORDER BY c.sequence DESC LIMIT 1),false) checked_out
  FROM sample_labels s CROSS JOIN (VALUES('BUFFY_COAT'::text),('BACKUP'::text)) t(storage_type)
  LEFT JOIN lab_storage_typed_position p ON p.round_id=s.round_id AND p.storage_type=t.storage_type
  LEFT JOIN lab_storage_box b ON b.id=p.box_id
@@ -72,7 +73,7 @@ function sampleRowsCte(scope:string){return `${sampleSource(scope)}, sample_rows
  WHERE p.id IS NOT NULL OR (s.state<>'Cancelled' AND legacy.id IS NULL)
  UNION ALL
  SELECT r.id round_id,l.ln,i.hn,n.ln_halos,r.round_number,r.received_at,NULL::text received_source,NULL::timestamptz retention_due_at,'LEGACY_UNCLASSIFIED'::text storage_type,
-  NULL::text storage_label,b.id box_uuid,b.box_id,p.slot,false waiting
+  NULL::text storage_label,b.id box_uuid,b.box_id,p.slot,false waiting,false checked_out
  FROM lab_storage_position p JOIN lab_storage_box b ON b.id=p.box_id
  JOIN specimen_round_current r ON r.id=p.round_id JOIN nipt_case c ON c.id=r.case_id
  JOIN case_ln l ON l.id=r.case_ln_id LEFT JOIN p2_case_identity i ON i.case_id=c.id
@@ -81,21 +82,24 @@ function sampleRowsCte(scope:string){return `${sampleSource(scope)}, sample_rows
 )`;
 }
 
-type StorageRow={round_id:string;ln:string;hn:string|null;ln_halos:string|null;round_number:number;received_at:Date|null;received_source:string|null;retention_due_at:Date|null;storage_type:StorageBoxType;storage_label:string|null;box_uuid:string|null;box_id:string|null;slot:number|null;waiting:boolean};
-type BoxRow={id:string;box_id:string;box_type:StorageBoxType;used:number;next_slot:number|null};
-type GridCell={slot:number;position:string;occupied:boolean;roundId:string|null;roundNumber:number|null;ln:string|null;hn:string|null;lnHalos:string|null;receivedAt:string|null;retentionDueAt:string|null;retentionVerified:boolean;storageType:StorageBoxType;storageLabel:string|null};
-function exposeRow(row:StorageRow){return {roundId:row.round_id,ln:row.ln,hn:row.hn,lnHalos:row.ln_halos,roundNumber:row.round_number,receivedAt:row.received_at?.toISOString()??null,retentionDueAt:row.retention_due_at?.toISOString()??null,retentionVerified:row.received_source==='HIS_PET_RECEIPT',storageType:row.storage_type,storageLabel:row.storage_label,boxUuid:row.box_uuid,boxId:row.box_id,slot:row.slot,position:row.slot?storagePosition(row.slot):null,waiting:row.waiting};}
+type StorageRow={round_id:string;ln:string;hn:string|null;ln_halos:string|null;round_number:number;received_at:Date|null;received_source:string|null;retention_due_at:Date|null;storage_type:StorageBoxType;storage_label:string|null;box_uuid:string|null;box_id:string|null;slot:number|null;waiting:boolean;checked_out:boolean};
+type BoxRow={id:string;box_id:string;box_type:StorageBoxType;type_number:number|null;used:number;next_slot:number|null};
+/** A stored sample that was taken out of its slot (Owner 2026-11-10): the slot stays reserved and shows the reason. */
+type CheckoutInfo={reason:string;at:string;by:string};
+type GridCell={slot:number;position:string;occupied:boolean;roundId:string|null;roundNumber:number|null;ln:string|null;hn:string|null;lnHalos:string|null;receivedAt:string|null;retentionDueAt:string|null;retentionVerified:boolean;storageType:StorageBoxType;storageLabel:string|null;checkout:CheckoutInfo|null};
+function exposeRow(row:StorageRow){return {roundId:row.round_id,ln:row.ln,hn:row.hn,lnHalos:row.ln_halos,roundNumber:row.round_number,receivedAt:row.received_at?.toISOString()??null,retentionDueAt:row.retention_due_at?.toISOString()??null,retentionVerified:row.received_source==='HIS_PET_RECEIPT',storageType:row.storage_type,storageLabel:row.storage_label,boxUuid:row.box_uuid,boxId:row.box_id,slot:row.slot,position:row.slot?storagePosition(row.slot):null,waiting:row.waiting,checkedOut:row.checked_out===true};}
 
 const BOX_PAGE_SIZE=50;
-type BoxPage={rows:{id:string;boxId:string;boxType:StorageBoxType;used:number;available:number;nextSlot:number|null;status:string}[];total:number;page:number;totalPages:number;inUse:number};
+type BoxPage={rows:{id:string;boxId:string;boxType:StorageBoxType;typeNumber:number|null;used:number;available:number;nextSlot:number|null;status:string}[];total:number;page:number;totalPages:number;inUse:number};
 async function visibleBoxes(db:Queryable,boxType:'ALL'|StorageType,query:string,requestedPage:number):Promise<BoxPage>{
- const filter=`($1='ALL' OR b.box_type=$1) AND ($2='' OR strpos(lower(b.box_id),lower($2))>0)`;
+ // Deleted boxes (Owner 2026-11-10) keep their rows and history but are no longer listed.
+ const filter=`b.deleted_at IS NULL AND ($1='ALL' OR b.box_type=$1) AND ($2='' OR strpos(lower(b.box_id),lower($2))>0)`;
  const total=Number((await db.query<{n:string}>(`SELECT count(*)::text n FROM lab_storage_box b WHERE ${filter}`,[boxType,query])).rows[0]?.n??0);
  const inUse=Number((await db.query<{n:string}>(`SELECT count(*)::text n FROM lab_storage_box b WHERE ${filter} AND (
   EXISTS(SELECT 1 FROM lab_storage_typed_position p WHERE p.box_id=b.id)
   OR EXISTS(SELECT 1 FROM lab_storage_position p WHERE p.box_id=b.id))`,[boxType,query])).rows[0]?.n??0);
  const page=Math.min(requestedPage,Math.max(1,Math.ceil(total/BOX_PAGE_SIZE)));
- const rows=(await db.query<BoxRow>(`SELECT b.id,b.box_id,b.box_type,COALESCE(count(pos.slot),0)::int used,
+ const rows=(await db.query<BoxRow>(`SELECT b.id,b.box_id,b.box_type,b.type_number,COALESCE(count(pos.slot),0)::int used,
   (SELECT candidate.slot FROM generate_series(1,81) candidate(slot)
    WHERE NOT EXISTS(SELECT 1 FROM (
     SELECT p.box_id,p.slot FROM lab_storage_typed_position p
@@ -107,8 +111,8 @@ async function visibleBoxes(db:Queryable,boxType:'ALL'|StorageType,query:string,
   UNION ALL SELECT p.box_id,p.slot FROM lab_storage_position p
  ) pos ON pos.box_id=b.id
  WHERE ${filter}
- GROUP BY b.id,b.box_id,b.box_type,b.box_number ORDER BY b.box_number DESC LIMIT $3 OFFSET $4`,[boxType,query,BOX_PAGE_SIZE,(page-1)*BOX_PAGE_SIZE])).rows;
- return {rows:rows.map(b=>({id:b.id,boxId:b.box_id,boxType:b.box_type,used:b.used,available:Math.max(0,81-b.used),nextSlot:b.next_slot,status:b.used>=81?'FULL':b.used>0?'IN_USE':'EMPTY'})),total,page,totalPages:Math.max(1,Math.ceil(total/BOX_PAGE_SIZE)),inUse};
+ GROUP BY b.id,b.box_id,b.box_type,b.box_number,b.type_number ORDER BY b.type_number DESC NULLS LAST,b.box_type,b.box_number DESC LIMIT $3 OFFSET $4`,[boxType,query,BOX_PAGE_SIZE,(page-1)*BOX_PAGE_SIZE])).rows;
+ return {rows:rows.map(b=>({id:b.id,boxId:b.box_id,boxType:b.box_type,typeNumber:b.type_number,used:b.used,available:Math.max(0,81-b.used),nextSlot:b.next_slot,status:b.used>=81?'FULL':b.used>0?'IN_USE':'EMPTY'})),total,page,totalPages:Math.max(1,Math.ceil(total/BOX_PAGE_SIZE)),inUse};
 }
 
 async function summaryCounts(db:Queryable,user:Staff){
@@ -140,19 +144,28 @@ export async function storageSearch(db:Queryable,user:Staff,raw:unknown){
   ORDER BY result.waiting DESC,result.received_at ASC NULLS LAST,result.storage_type,result.round_id LIMIT $${limitParam} OFFSET $${offsetParam}`,[...values,25,(page-1)*25])).rows;
  const boxPage=await visibleBoxes(db,d.boxType,d.boxQuery,d.boxPage),boxes=boxPage.rows;
  const summary=await summaryCounts(db,user);
- let activeBox:null|{id:string;boxId:string;boxType:StorageBoxType;used:number;available:number;nextSlot:number|null;status:string;grid:GridCell[]}=null;
+ let activeBox:null|{id:string;boxId:string;boxType:StorageBoxType;typeNumber:number|null;used:number;available:number;nextSlot:number|null;status:string;deletable:boolean;partner:null|{id:string;boxId:string;boxType:StorageBoxType;used:number};grid:GridCell[]}=null;
  if(d.activeBoxId){
-  const selected=(await db.query<{id:string;box_id:string;box_type:StorageBoxType}>(`SELECT id,box_id,box_type FROM lab_storage_box WHERE id=$1 AND ($2='ALL' OR box_type=$2)`,[d.activeBoxId,d.boxType])).rows[0];
+  const selected=(await db.query<{id:string;box_id:string;box_type:StorageBoxType;type_number:number|null}>(`SELECT id,box_id,box_type,type_number FROM lab_storage_box WHERE id=$1 AND deleted_at IS NULL AND ($2='ALL' OR box_type=$2)`,[d.activeBoxId,d.boxType])).rows[0];
   if(selected){
-   const grid:GridCell[]=Array.from({length:81},(_,i)=>({slot:i+1,position:storagePosition(i+1),occupied:false,roundId:null,roundNumber:null,ln:null,hn:null,lnHalos:null,receivedAt:null,retentionDueAt:null,retentionVerified:false,storageType:selected.box_type,storageLabel:null}));
+   const grid:GridCell[]=Array.from({length:81},(_,i)=>({slot:i+1,position:storagePosition(i+1),occupied:false,roundId:null,roundNumber:null,ln:null,hn:null,lnHalos:null,receivedAt:null,retentionDueAt:null,retentionVerified:false,storageType:selected.box_type,storageLabel:null,checkout:null}));
    const physical=(await db.query<{slot:number;storage_type:StorageBoxType}>(`SELECT slot,storage_type FROM lab_storage_typed_position WHERE box_id=$1
     UNION ALL SELECT slot,'LEGACY_UNCLASSIFIED'::text storage_type FROM lab_storage_position WHERE box_id=$1`,[selected.id])).rows;
    for(const row of physical){if(!row.slot)continue;grid[row.slot-1]={...grid[row.slot-1],occupied:true,storageType:row.storage_type};}
    const gridValues:unknown[]=[],gridScope=accessScope(user,gridValues),boxParam=gridValues.length+1;gridValues.push(selected.id);
    const visible=(await db.query<StorageRow>(`${sampleRowsCte(gridScope)} SELECT result.* FROM sample_rows result WHERE result.box_uuid=$${boxParam}`,[...gridValues])).rows;
-   for(const row of visible){if(!row.slot)continue;grid[row.slot-1]={slot:row.slot,position:storagePosition(row.slot),occupied:true,roundId:row.round_id,roundNumber:row.round_number,ln:row.ln,hn:row.hn,lnHalos:row.ln_halos,receivedAt:row.received_at?.toISOString()??null,retentionDueAt:row.retention_due_at?.toISOString()??null,retentionVerified:row.received_source==='HIS_PET_RECEIPT',storageType:row.storage_type,storageLabel:row.storage_label};}
+   for(const row of visible){if(!row.slot)continue;grid[row.slot-1]={slot:row.slot,position:storagePosition(row.slot),occupied:true,roundId:row.round_id,roundNumber:row.round_number,ln:row.ln,hn:row.hn,lnHalos:row.ln_halos,receivedAt:row.received_at?.toISOString()??null,retentionDueAt:row.retention_due_at?.toISOString()??null,retentionVerified:row.received_source==='HIS_PET_RECEIPT',storageType:row.storage_type,storageLabel:row.storage_label,checkout:null};}
+   // Samples taken out of their slot: the latest check-out/return row per position decides; the reason shows on the slot.
+   const outs=(await db.query<{slot:number;reason:string;created_at:Date;actor:string}>(`SELECT p.slot,c.reason,c.created_at,u.display_name actor FROM lab_storage_typed_position p
+    JOIN LATERAL (SELECT x.* FROM lab_storage_checkout x WHERE x.position_id=p.id ORDER BY x.sequence DESC LIMIT 1) c ON c.event='CHECK_OUT'
+    JOIN app_user u ON u.id=c.actor_id WHERE p.box_id=$1`,[selected.id])).rows;
+   for(const o of outs)if(o.slot)grid[o.slot-1]={...grid[o.slot-1],checkout:{reason:o.reason,at:o.created_at.toISOString(),by:o.actor}};
    const used=physical.length,nextSlot=Array.from({length:81},(_,i)=>i+1).find(slot=>!grid[slot-1].occupied)??null;
-   activeBox={id:selected.id,boxId:selected.box_id,boxType:selected.box_type,used,available:Math.max(0,81-used),nextSlot,status:used>=81?'FULL':used>0?'IN_USE':'EMPTY',grid};
+   // The box of the other type with the same number (Backup Box 1 <-> Buffy Coat Box 1), when there is one.
+   const partnerRow=selected.type_number===null||selected.box_type==='LEGACY_UNCLASSIFIED'?undefined:(await db.query<{id:string;box_id:string;box_type:StorageBoxType;used:number}>(`SELECT b.id,b.box_id,b.box_type,
+     ((SELECT count(*) FROM lab_storage_typed_position p WHERE p.box_id=b.id)+(SELECT count(*) FROM lab_storage_position p WHERE p.box_id=b.id))::int used
+    FROM lab_storage_box b WHERE b.type_number=$1 AND b.box_type<>$2 AND b.box_type IN ('BACKUP','BUFFY_COAT') AND b.deleted_at IS NULL`,[selected.type_number,selected.box_type])).rows[0];
+   activeBox={id:selected.id,boxId:selected.box_id,boxType:selected.box_type,typeNumber:selected.type_number,used,available:Math.max(0,81-used),nextSlot,status:used>=81?'FULL':used>0?'IN_USE':'EMPTY',deletable:used===0,partner:partnerRow?{id:partnerRow.id,boxId:partnerRow.box_id,boxType:partnerRow.box_type,used:partnerRow.used}:null,grid};
   }
  }
  return {rows:rows.map(exposeRow),boxes,boxTotal:boxPage.total,boxPage:boxPage.page,boxTotalPages:boxPage.totalPages,boxInUse:boxPage.inUse,activeBox,summary,page,total,totalPages:Math.max(1,Math.ceil(total/25))};
@@ -188,7 +201,7 @@ async function autoFillPlan(db:Queryable,user:Staff,storageType:StorageType,sele
   FROM lab_storage_box b LEFT JOIN (
    SELECT box_id,slot FROM lab_storage_typed_position UNION ALL SELECT box_id,slot FROM lab_storage_position
   ) occupied ON occupied.box_id=b.id
-  WHERE b.box_type=$1 ORDER BY b.box_number ASC,occupied.slot ASC`,[storageType])).rows;
+  WHERE b.box_type=$1 AND b.deleted_at IS NULL ORDER BY b.box_number ASC,occupied.slot ASC`,[storageType])).rows;
  const byBox=new Map<string,{id:string;boxId:string;used:Set<number>}>();
  for(const row of boxRows){let box=byBox.get(row.id);if(!box){box={id:row.id,boxId:row.box_id,used:new Set()};byBox.set(row.id,box);}if(row.slot!==null)box.used.add(row.slot);}
  const placements:{roundId:string;ln:string;hn:string|null;lnHalos:string;roundNumber:number;receivedAt:string|null;storageType:StorageType;storageLabel:string;boxUuid:string;boxId:string;slot:number;position:string}[]=[];
@@ -229,11 +242,17 @@ async function setPosition(db:Queryable,user:Staff,input:{roundId:string;storage
 }
 
 type CreateBoxResult={id:string;boxId:string;boxType:StorageType};
+type CreatePairResult={boxes:CreateBoxResult[]};
+type DeleteBoxResult={deleted:{id:string;boxId:string;boxType:StorageBoxType}[]};
+type CheckoutResult={id:string};
 type PositionResult={id:string;changed:boolean};
 type AutoFillPlanResult=Awaited<ReturnType<typeof autoFillPlans>>;
 type AutoFillCommitResult={stored:number;storageTypes:StorageType[];placements:{boxId:string;slot:number;position:string}[]};
 type SwapResult={swapped:true};
-type StorageCommandResult=CreateBoxResult|PositionResult|AutoFillPlanResult|AutoFillCommitResult|SwapResult;
+type StorageCommandResult=CreateBoxResult|CreatePairResult|DeleteBoxResult|CheckoutResult|PositionResult|AutoFillPlanResult|AutoFillCommitResult|SwapResult;
+export function storageCommand(db:Queryable,user:Staff,raw:{action:'createBoxPair'}):Promise<CreatePairResult>;
+export function storageCommand(db:Queryable,user:Staff,raw:{action:'deleteBox';boxId:string;withPartner?:boolean;reason?:string}):Promise<DeleteBoxResult>;
+export function storageCommand(db:Queryable,user:Staff,raw:{action:'checkOut'|'returnToBox';roundId:string;storageType:StorageType;boxId:string;slot:number;reason?:string}):Promise<CheckoutResult>;
 export function storageCommand(db:Queryable,user:Staff,raw:{action:'createBox';boxType:StorageType}):Promise<CreateBoxResult>;
 export function storageCommand(db:Queryable,user:Staff,raw:{action:'place';roundId:string;storageType:StorageType;boxId:string;slot:number}):Promise<PositionResult>;
 export function storageCommand(db:Queryable,user:Staff,raw:{action:'move';roundId:string;storageType:StorageType;fromBoxId:string;fromSlot:number;toBoxId:string;toSlot:number}):Promise<PositionResult>;
@@ -245,6 +264,10 @@ export async function storageCommand(db:Queryable,user:Staff,raw:unknown):Promis
  await assertSession(db,user);need(user,'batch.assign');
  const command=z.discriminatedUnion('action',[
   z.strictObject({action:z.literal('createBox'),boxType:typeSchema}),
+  z.strictObject({action:z.literal('createBoxPair')}),
+  z.strictObject({action:z.literal('deleteBox'),boxId:uuid,withPartner:z.boolean().default(true),reason:z.string().trim().max(300).optional()}),
+  z.strictObject({action:z.literal('checkOut'),roundId:uuid,storageType:typeSchema,boxId:uuid,slot:z.number().int().min(1).max(81),reason:z.string().trim().min(3).max(500)}),
+  z.strictObject({action:z.literal('returnToBox'),roundId:uuid,storageType:typeSchema,boxId:uuid,slot:z.number().int().min(1).max(81),reason:z.string().trim().max(500).optional()}),
   z.strictObject({action:z.literal('place'),roundId:uuid,storageType:typeSchema,boxId:uuid,slot:z.number().int().min(1).max(81)}),
   z.strictObject({action:z.literal('move'),roundId:uuid,storageType:typeSchema,fromBoxId:uuid,fromSlot:z.number().int().min(1).max(81),toBoxId:uuid,toSlot:z.number().int().min(1).max(81)}),
   z.strictObject({action:z.literal('swap'),roundId:uuid,otherRoundId:uuid,storageType:typeSchema,boxId:uuid,slot:z.number().int().min(1).max(81),otherBoxId:uuid,otherSlot:z.number().int().min(1).max(81)}),
@@ -255,6 +278,42 @@ export async function storageCommand(db:Queryable,user:Staff,raw:unknown):Promis
   const box=(await db.query<{id:string;box_id:string;box_type:StorageType}>('SELECT * FROM lab_storage_create_box($1,$2)',[command.boxType,user.id])).rows[0];
   await audit(db,user,'LAB_STORAGE_BOX_CREATED','lab_storage_box',box.id,{outcome:'CREATED',origin:box.box_type});
   return {id:box.id,boxId:box.box_id,boxType:box.box_type};
+ }
+ // Owner 2026-11-10: Backup Box N and Buffy Coat Box N are opened together.
+ if(command.action==='createBoxPair'){
+  const boxes=(await db.query<{id:string;box_id:string;box_type:StorageType}>('SELECT * FROM lab_storage_create_pair($1)',[user.id])).rows;
+  for(const box of boxes)await audit(db,user,'LAB_STORAGE_BOX_CREATED','lab_storage_box',box.id,{outcome:'CREATED',origin:box.box_type});
+  return {boxes:boxes.map(b=>({id:b.id,boxId:b.box_id,boxType:b.box_type}))};
+ }
+ // Only an empty box is deleted (marked deleted; its rows and history stay). With the partner, the box of the other type and the same number goes too when it is also empty.
+ if(command.action==='deleteBox'){
+  const targets=[command.boxId];
+  if(command.withPartner){
+   const partner=(await db.query<{id:string}>(`SELECT p.id FROM lab_storage_box b JOIN lab_storage_box p ON p.type_number=b.type_number AND p.box_type<>b.box_type AND p.box_type IN ('BACKUP','BUFFY_COAT') AND p.deleted_at IS NULL
+    WHERE b.id=$1 AND b.type_number IS NOT NULL AND b.box_type IN ('BACKUP','BUFFY_COAT')`,[command.boxId])).rows[0];
+   if(partner)targets.push(partner.id);
+  }
+  const deleted:{id:string;boxId:string;boxType:StorageBoxType}[]=[];
+  for(const id of targets){
+   const box=(await db.query<{id:string;box_id:string;box_type:StorageBoxType}>('SELECT id,box_id,box_type FROM lab_storage_box WHERE id=$1',[id])).rows[0];
+   if(!box)throw new LabError('STORAGE_BOX_NOT_FOUND',404);
+   try{await db.query('SELECT lab_storage_delete_box($1,$2,$3)',[id,user.id,command.reason??'']);}
+   catch(error){const code=error instanceof Error?error.message:'';if(code.startsWith('STORAGE_'))throw new LabError(code,code==='STORAGE_BOX_NOT_FOUND'?404:409,{boxId:box.box_id,boxType:box.box_type});throw error;}
+   await audit(db,user,'LAB_STORAGE_BOX_DELETED','lab_storage_box',id,{outcome:'DELETED',origin:box.box_type});
+   deleted.push({id,boxId:box.box_id,boxType:box.box_type});
+  }
+  return {deleted};
+ }
+ // A stored sample taken out of its slot (reason required) or put back; the sample must be visible to this user.
+ if(command.action==='checkOut'||command.action==='returnToBox'){
+  const values:unknown[]=[command.roundId],scope=accessScope(user,values);
+  if(!(await db.query<{allowed:boolean}>(`${sampleSource(scope)} SELECT EXISTS(SELECT 1 FROM sample_labels WHERE round_id=$1) allowed`,values)).rows[0]?.allowed)throw new LabError('FORBIDDEN',403);
+  const out=command.action==='checkOut';
+  try{
+   const row=(await db.query<{id:string}>(`SELECT ${out?'lab_storage_check_out':'lab_storage_return'}($1,$2,$3,$4,$5,$6) id`,[command.roundId,command.storageType,command.boxId,command.slot,out?command.reason:(command.reason?.trim()||'นำกลับเข้ากล่อง'),user.id])).rows[0];
+   await audit(db,user,out?'LAB_SAMPLE_CHECKED_OUT':'LAB_SAMPLE_RETURNED','lab_storage_typed_position',row.id,{outcome:'RECORDED',origin:command.storageType});
+   return {id:row.id};
+  }catch(error){const code=error instanceof Error?error.message:'';if(code.startsWith('STORAGE_'))throw new LabError(code,409);throw error;}
  }
  if(command.action==='swap'){
   // OWNER-LAB-003 replace: both samples must be visible to this user; the DB function re-checks current positions.
@@ -282,7 +341,7 @@ export async function storageCommand(db:Queryable,user:Staff,raw:unknown):Promis
 
 export async function storageLabel(db:Queryable,user:Staff,boxId:string){
  await assertSession(db,user);need(user,'label.print');
- const box=(await db.query<{id:string;box_id:string;box_type:StorageBoxType}>('SELECT id,box_id,box_type FROM lab_storage_box WHERE id=$1',[uuid.parse(boxId)])).rows[0];
+ const box=(await db.query<{id:string;box_id:string;box_type:StorageBoxType}>('SELECT id,box_id,box_type FROM lab_storage_box WHERE id=$1 AND deleted_at IS NULL',[uuid.parse(boxId)])).rows[0];
  if(!box)throw new LabError('NOT_FOUND',404);
  const pdf=await PDFDocument.create(),font=await pdf.embedFont(StandardFonts.HelveticaBold),page=pdf.addPage([300,145]);
  page.drawText('NIPT-CBH / Sample Storage',{x:18,y:108,size:13,font});
@@ -310,8 +369,8 @@ export async function storageSampleLabel(db:Queryable,user:Staff,raw:{roundId:st
  return pdf;
 }
 
-export const BOX_EVENT_TYPES=['BOX_CREATED','BOX_LABEL_PRINTED','BOX_LABEL_REPRINTED','SAMPLE_LABEL_PRINTED','SAMPLE_LABEL_REPRINTED','SAMPLE_PLACED','SAMPLE_MOVED_IN','SAMPLE_MOVED_OUT','SAMPLE_MOVED_WITHIN','SAMPLE_REPLACED'] as const;
-type BoxEventRow={sequence:string;event_type:string;round_id:string|null;storage_type:StorageType|null;slot:number|null;related_box:string|null;related_slot:number|null;actor:string;source:string;created_at:Date;ln:string|null;hn:string|null;storage_label:string|null};
+export const BOX_EVENT_TYPES=['BOX_CREATED','BOX_LABEL_PRINTED','BOX_LABEL_REPRINTED','SAMPLE_LABEL_PRINTED','SAMPLE_LABEL_REPRINTED','SAMPLE_PLACED','SAMPLE_MOVED_IN','SAMPLE_MOVED_OUT','SAMPLE_MOVED_WITHIN','SAMPLE_REPLACED','BOX_DELETED','SAMPLE_CHECKED_OUT','SAMPLE_RETURNED'] as const;
+type BoxEventRow={sequence:string;event_type:string;round_id:string|null;storage_type:StorageType|null;slot:number|null;related_box:string|null;related_slot:number|null;actor:string;source:string;created_at:Date;ln:string|null;hn:string|null;storage_label:string|null;reason:string|null};
 /** OWNER-LAB-052: the immutable activity log of one box (kept after the box is full/closed), plus the retention due dates
  *  of the samples it currently holds. Due rows are computed from PET P[23]; they are not stored events and never trigger
  *  any destruction (no destruction workflow is approved). */
@@ -323,7 +382,10 @@ export async function storageBoxLog(db:Queryable,user:Staff,raw:unknown){
  const values:unknown[]=[],scope=accessScope(user,values),boxParam=values.length+1,typeParam=values.length+2,qParam=values.length+3;values.push(d.boxId,d.eventType,d.q);
  // Sample identity is shown only when the user may see that case; the event itself is always listed.
  const from=`${sampleSource(scope)} SELECT e.sequence::text,e.event_type,e.round_id,e.storage_type,e.slot,rb.box_id related_box,e.related_slot,u.display_name actor,e.source,e.created_at,
-   s.ln,s.hn,CASE WHEN s.round_id IS NULL THEN NULL ELSE s.display_code||CASE WHEN e.storage_type='BACKUP' THEN '-3' ELSE '' END END storage_label
+   s.ln,s.hn,CASE WHEN s.round_id IS NULL THEN NULL ELSE s.display_code||CASE WHEN e.storage_type='BACKUP' THEN '-3' ELSE '' END END storage_label,
+   -- the reason typed at check-out / return (the closest row of this box and slot), shown with the event
+   (SELECT x.reason FROM lab_storage_checkout x WHERE x.round_id=e.round_id AND x.box_id=e.box_id AND x.slot=e.slot AND e.event_type IN ('SAMPLE_CHECKED_OUT','SAMPLE_RETURNED')
+     AND x.event=CASE e.event_type WHEN 'SAMPLE_CHECKED_OUT' THEN 'CHECK_OUT' ELSE 'RETURN' END ORDER BY abs(extract(epoch FROM x.created_at-e.created_at)) LIMIT 1) reason
   FROM lab_storage_box_event e JOIN app_user u ON u.id=e.actor_id LEFT JOIN lab_storage_box rb ON rb.id=e.related_box_id LEFT JOIN sample_labels s ON s.round_id=e.round_id
   WHERE e.box_id=$${boxParam} AND ($${typeParam}='ALL' OR e.event_type=$${typeParam})
    AND ($${qParam}='' OR strpos(lower(coalesce(s.ln,'')||' '||coalesce(s.hn,'')||' '||coalesce(s.ln_halos,'')||' '||coalesce(s.display_code,'')||' '||u.display_name),lower($${qParam}))>0)`;
@@ -333,7 +395,7 @@ export async function storageBoxLog(db:Queryable,user:Staff,raw:unknown){
  const dueValues:unknown[]=[],dueScope=accessScope(user,dueValues),dueBox=dueValues.length+1;dueValues.push(d.boxId);
  const due=(await db.query<StorageRow>(`${sampleRowsCte(dueScope)} SELECT result.* FROM sample_rows result WHERE result.box_uuid=$${dueBox} ORDER BY result.retention_due_at ASC NULLS LAST,result.slot`,dueValues)).rows;
  return {box:{id:box.id,boxId:box.box_id,boxType:box.box_type,createdAt:box.created_at.toISOString()},total,page,pageSize:d.pageSize,totalPages:Math.max(1,Math.ceil(total/d.pageSize)),
-  events:rows.map(r=>({sequence:r.sequence,eventType:r.event_type,roundId:r.round_id,storageType:r.storage_type,slot:r.slot,position:r.slot?storagePosition(r.slot):null,relatedBox:r.related_box,relatedPosition:r.related_slot?storagePosition(r.related_slot):null,actor:r.actor,source:r.source,createdAt:r.created_at.toISOString(),ln:r.ln,hn:r.hn,storageLabel:r.storage_label})),
+  events:rows.map(r=>({sequence:r.sequence,eventType:r.event_type,roundId:r.round_id,storageType:r.storage_type,slot:r.slot,position:r.slot?storagePosition(r.slot):null,relatedBox:r.related_box,relatedPosition:r.related_slot?storagePosition(r.related_slot):null,actor:r.actor,source:r.source,createdAt:r.created_at.toISOString(),ln:r.ln,hn:r.hn,storageLabel:r.storage_label,reason:r.reason})),
   retention:due.map(exposeRow)};
 }
 /** OWNER-LAB-052 pending-destruction queue: stored samples whose computed due date has passed, per box (mixed boxes show
