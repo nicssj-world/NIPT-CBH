@@ -56,8 +56,7 @@ export function ReportTemplatesPanel({canManage,canApprove}:{canManage:boolean;c
      <div className="field"><label htmlFor={`why-${kind}`}>เหตุผล</label><input id={`why-${kind}`} value={reason[kind]} maxLength={200} onChange={e=>setReason(x=>({...x,[kind]:e.target.value}))} placeholder="เช่น ปรับ Layout ตามแบบฟอร์มฉบับล่าสุด"/></div>
      <button type="button" className="button" disabled={!!busy} onClick={()=>void upload(kind)}><LabIcon name="upload"/>นำเข้าและตรวจ</button>
      {listing&&listing.files.length>0&&<div className="tpl-folder-files"><span className="help">ไฟล์ในโฟลเดอร์:</span>{listing.files.map(f=><button type="button" key={f.name} className="button secondary" disabled={!!busy} onClick={()=>void post("imp"+kind+f.name,{operation:"import",kind,folder:listing.folder,name:f.name,reason:reason[kind].trim()||"นำเข้าจากโฟลเดอร์แม่แบบ"},`นำเข้า ${f.name} แล้ว`)}>{f.name}</button>)}</div>}</div>}
-    <ul className="tpl-revs">{v.revisions.length===0&&<li className="help">ยังไม่มีรุ่นที่นำเข้า — ระบบใช้แม่แบบมาตรฐานของ Owner</li>}
-     {v.revisions.map(r=>{return <li key={r.id} className={`tpl-rev ${r.state.toLowerCase()}`}>
+    {(()=>{const row=(r:Rev)=>{return <li key={r.id} className={`tpl-rev ${r.state.toLowerCase()}`}>
       <div className="tpl-rev-head"><strong>รุ่น {r.version}</strong><span className={`badge tpl-${r.state.toLowerCase()}`}>{STATE[r.state]??r.state}</span><span className="help">{r.name} · {Math.round(r.size/1024)} KB · {when(r.createdAt)} · {r.source==="FOLDER"?"จากโฟลเดอร์":"อัปโหลด"} · {r.reason}</span></div>
       <Findings i={r.inspection}/>
       <div className="tpl-actions">
@@ -67,7 +66,11 @@ export function ReportTemplatesPanel({canManage,canApprove}:{canManage:boolean;c
         <button type="button" className="button" disabled={!!busy} onClick={()=>void post("a"+r.id,{operation:"approve",id:r.id,acknowledgeProductDifference:!!ack[r.id]},`อนุมัติรุ่น ${r.version} แล้ว`)}><LabIcon name="check"/>อนุมัติ</button></>}
        {canManage&&(r.state==="Approved"||r.state==="Archived")&&<button type="button" className="button" disabled={!!busy} onClick={()=>void post("act"+r.id,{operation:"activate",id:r.id},`เปิดใช้รุ่น ${r.version} แล้ว — รายงานฉบับถัดไปใช้แม่แบบนี้`)}><LabIcon name="save"/>{r.state==="Archived"?"กู้คืนรุ่นนี้":"เปิดใช้"}</button>}
        {(canManage||canApprove)&&["Uploaded","Validated","Approved"].includes(r.state)&&<button type="button" className="button secondary" disabled={!!busy} onClick={()=>void post("r"+r.id,{operation:"reject",id:r.id,reason:"ไม่ผ่านการทบทวน"},`ปฏิเสธรุ่น ${r.version} แล้ว`)}><LabIcon name="x"/>ปฏิเสธ</button>}
-      </div></li>;})}</ul>
+      </div></li>;};
+     // Owner 2026-11-10: rejected versions are history, folded away; the live ones stay in view.
+     const live=v.revisions.filter(r=>r.state!=="Rejected"),rejected=v.revisions.filter(r=>r.state==="Rejected");
+     return <><ul className="tpl-revs">{v.revisions.length===0&&<li className="help">ยังไม่มีรุ่นที่นำเข้า — ระบบใช้แม่แบบมาตรฐานของ Owner</li>}{live.map(row)}</ul>
+      {rejected.length>0&&<details className="tpl-rejected"><summary>รุ่นที่ปฏิเสธ ({rejected.length})</summary><ul className="tpl-revs">{rejected.map(row)}</ul></details>}</>;})()}
    </article>;})}
   <details className="tpl-vocab"><summary>ช่อง ${"{ชื่อ}"} ที่ระบบรองรับ</summary><p className="help">ชื่อเหล่านี้ถูกกำหนดโดยระบบและผูกกับแหล่งข้อมูลที่ผ่านการอนุมัติ — เพิ่มชื่อใหม่ต้องพัฒนาเพิ่ม ส่วนหน้าตา/ตำแหน่ง/ฟอนต์เปลี่ยนได้โดยใช้ชื่อเดิม</p>
    {(["SINGLETON","TWIN"] as Kind[]).map(k=><p key={k}><strong>{k}</strong>: {o.vocabulary[k].map(t=><code key={t}>{"${"+t+"}"}</code>)}</p>)}</details>
