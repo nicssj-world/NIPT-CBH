@@ -47,6 +47,13 @@ export async function submitSignerProfile(db:Queryable,user:Staff,store:FileStor
  const row=(await db.query<{id:string;version:number}>(`INSERT INTO report_signer_profile(user_id,version,legal_name,mt_license_no,signature_sha256,signature_media,submitted_by)
   VALUES($1,(SELECT COALESCE(max(version),0)+1 FROM report_signer_profile WHERE user_id=$1),$2,$3,$4,$5,$1) RETURNING id,version`,[user.id,d.legalName,d.mtLicenseNo,hash,img.media])).rows[0];
  await audit(db,user,'SIGNER_PROFILE_SUBMITTED','REPORT_SIGNER_PROFILE',row.id,{outcome:'PENDING_VERIFICATION',version:row.version});
+ // Owner 2026-11-10: the administrator needs nobody to confirm their own licence and signature: it is usable as soon as it is saved
+ // (recorded as verified by the same person, with that reason). Everyone else's profile still waits for an administrator.
+ if(authorize(user,'user.manage',{},'write')){
+  await db.query('INSERT INTO report_signer_profile_event(profile_id,event,reason,actor_id) VALUES($1,$2,$3,$4)',[row.id,'VERIFIED','ผู้ดูแลระบบบันทึกโปรไฟล์ของตนเอง — ใช้งานได้ทันที [ไม่ได้ดูตัวอย่าง]',user.id]);
+  await audit(db,user,'SIGNER_PROFILE_VERIFIED','REPORT_SIGNER_PROFILE',row.id,{outcome:'VERIFY',reasonCode:'ADMIN_OWN_PROFILE'});
+  return {id:row.id,version:row.version,state:'Verified',opaqueBackground:img.opaque};
+ }
  return {id:row.id,version:row.version,state:'PendingVerification',opaqueBackground:img.opaque};
 }
 /** `previewPossible` tells whether the sample previews can be produced on this machine (masters and Word installed); `previewUnavailable` is honoured only when it says no. */

@@ -72,8 +72,9 @@ describe('single APP_ADMIN with separate Reported By / Approved By personnel',()
  });
 
  it('Owner 2026-11-10: the administrator with their own verified licence and signature profile may be named as Reported by and Approved by (self basis)',async()=>{
+  // the administrator's own profile is usable as soon as it is saved (recorded as verified by themselves); nobody else's is
   const prof=await run(()=>submitSignerProfile(db,admin,store,{legalName:'Synthetic Administrator',mtLicenseNo:'99003',signature:syntheticSignaturePng(3)}));
-  await run(()=>decideSignerProfile(db,admin,{profileId:prof.id,decision:'VERIFY',layoutReviewed:true,reason:'SYNTHETIC identity and licence checked'}));
+  expect(prof.state).toBe('Verified');
   for(const role of ['REPORTED','APPROVED'] as const){
    const a=await run(()=>signerAuthority(db,admin,admin.id,role));
    expect(a).toMatchObject({basis:'SELF',operatorId:admin.id,role,profile:{user_id:admin.id,legal_name:'Synthetic Administrator',mt_license_no:'99003'}});
