@@ -87,12 +87,14 @@ it('R15-04/15: old S1 PET never satisfies pending S2; a newly discovered Ready S
  const found=await lookup({ln});expect(found.candidates).toHaveLength(1);expect(found.candidates[0].roundNumber).toBe(2);await submit({ln,unitId:u.unit,consentMode:'Paper',idempotencyKey:randomUUID()});
  const detail=await tx(f.db,db=>getCase(db,u.lab,first.caseId!));expect(detail.roundReceipt.receivedSource).toBe('HIS_PET_RECEIPT');expect(detail.his?.lnHalos).toBe(original);expect((await f.db.query<{n:number}>('SELECT count(*)::int n FROM specimen_lab_number')).rows[0].n).toBe(2);
 });
-it('R15-10/15: deferred metadata never bypasses an existing clinical assessment',async()=>{
+it('R15-10/15: deferred metadata never bypasses an existing clinical assessment (and, migration 213, that assessment no longer blocks paper readiness itself)',async()=>{
  await pet();const r=await submit({ln,unitId:u.unit,consentMode:'Paper',idempotencyKey:randomUUID()}),d=await tx(f.db,db=>getCase(db,u.lab,r.caseId!));
  // An unchanged draft is a no-op save (ANC no-churn rule), so make a real edit to establish an existing clinical assessment.
  await tx(f.db,db=>saveRequest(db,u.lab,r.caseId!,{expectedVersion:d.workspace.version,draft:{...d.workspace.draft,pregnancy:{...d.workspace.draft.pregnancy,weightKg:61}}}));const current=await tx(f.db,db=>getCase(db,u.lab,r.caseId!));
  await expect(tx(f.db,db=>saveLabClinicalMetadata(db,u.lab,r.caseId!,{expectedVersion:current.workspace.version,edd:'2027-03-24',pregnancy:'Singleton'}))).rejects.toMatchObject({code:'CLINICAL_REVIEW_REQUIRED'});
  expect((await f.db.query<{n:number}>('SELECT count(*)::int n FROM clinical_snapshot')).rows[0].n).toBe(1);
+ // Owner 2026-11-10: a Lab case is still paper-ready (its request form and consent are the paper ones) even though it now has a clinical assessment
+ expect((await f.db.query<{ready:boolean}>('SELECT lab_owner_paper_ready($1) ready',[d.case.current_round_id])).rows[0].ready).toBe(true);
 });
 it.each(['refusal','revocation'] as const)('R15-10/15: deferred metadata preserves %s HOLD',async kind=>{
  await pet();const r=await submit({ln,unitId:u.unit,consentMode:'Paper',idempotencyKey:randomUUID()}),d=await tx(f.db,db=>getCase(db,u.lab,r.caseId!));

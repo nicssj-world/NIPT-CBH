@@ -201,7 +201,8 @@ export async function saveLabClinicalMetadata(db:Queryable,user:Staff,id:string,
  if(w.version!==d.expectedVersion)throw new P2Error('VERSION_CONFLICT',409,{version:w.version,draft:w.draft});
  const deferred=c.registration_origin==='LAB_DIRECT'&&w.request_mode==='Paper'&&w.consent_mode==='Paper'&&(await db.query('SELECT 1 FROM lab_operational_registration WHERE case_id=$1 AND paper_request AND paper_consent AND (edd IS NULL OR pregnancy IS NULL OR ga_weeks IS NULL)',[c.id])).rows.length>0;
  if(!deferred)throw new P2Error('LAB_DEFERRED_METADATA_UNAVAILABLE',409);
- if(!(await db.query<{ready:boolean}>('SELECT lab_owner_paper_ready($1) ready',[c.current_round_id])).rows[0]?.ready||(await db.query("SELECT 1 FROM p2_document_revision WHERE round_id=$1 AND kind='REQUEST'",[c.current_round_id])).rows.length)throw new P2Error('CLINICAL_REVIEW_REQUIRED',409);
+ // Migration 213: paper readiness no longer excludes a case that has a clinical assessment, so this save checks it itself: deferred metadata never bypasses one.
+ if(!(await db.query<{ready:boolean}>('SELECT lab_owner_paper_ready($1) ready',[c.current_round_id])).rows[0]?.ready||(await db.query("SELECT 1 FROM p2_document_revision WHERE round_id=$1 AND kind='REQUEST'",[c.current_round_id])).rows.length||(await db.query('SELECT 1 FROM clinical_snapshot WHERE round_id=$1',[c.current_round_id])).rows.length)throw new P2Error('CLINICAL_REVIEW_REQUIRED',409);
  const draft=structuredClone(w.draft);draft.pregnancy.edd=d.edd;draft.pregnancy.type=d.pregnancy;
  await db.query('UPDATE p2_workspace SET draft=$2,version=version+1,updated_by=$3,updated_at=clock_timestamp() WHERE round_id=$1',[c.current_round_id,draft,user.id]);
  await invalidate(db,c.id);await event(db,user,c.id,'LAB_DEFERRED_CLINICAL_SAVED',{roundId:c.current_round_id,workspaceVersion:w.version+1,fields:['pregnancy.edd','pregnancy.type'],clinicalAcceptance:false});
