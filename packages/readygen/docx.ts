@@ -85,6 +85,52 @@ function apply(xml:string,edits:Edit[]){
 }
 const TRANSPARENT_PNG=Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000'+'1f15c4890000000d49444154789c636000020000050001e9fadcd80000000049454e44ae426082','hex');
 
+// Owner 2026-11-10: a template may leave the signature area blank (no "Reported by:" / "Approved by:" lines, no pictures). The system then
+// builds the two-column signer block itself in the run of empty paragraphs directly before the "Report End" line: picture, name, licence
+// and date per signer, both pictures in one identical frame (same height, aspect ratio kept, never wider than the frame).
+export const SIGNATURE_FRAME={cx:1800000,cy:540000};
+const SIG_FONT='<w:rFonts w:ascii="TH Sarabun New" w:hAnsi="TH Sarabun New" w:cs="TH Sarabun New"/>';
+const SIG_CAPACITY=44;
+function sigLine(text:string,ratio=1){const sz=Math.max(8,Math.floor(22*ratio));
+ return `<w:p><w:pPr><w:spacing w:before="0" w:after="0"/><w:jc w:val="center"/></w:pPr><w:r><w:rPr>${SIG_FONT}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr><w:t xml:space="preserve">${xmlEscape(text)}</w:t></w:r></w:p>`;}
+function sigPicture(rid:string,docId:number,sig:SignerSlot['signature']){
+ const lineTwips=Math.round(SIGNATURE_FRAME.cy/635),head=`<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="${lineTwips}" w:lineRule="exact"/><w:jc w:val="center"/></w:pPr>`;
+ if(!sig)return {xml:`${head}</w:p>`,size:null as {cx:number;cy:number}|null};
+ const scale=Math.min(SIGNATURE_FRAME.cy/sig.height,SIGNATURE_FRAME.cx/sig.width),cx=Math.max(1,Math.round(sig.width*scale)),cy=Math.max(1,Math.round(sig.height*scale));
+ return {size:{cx,cy},xml:`${head}<w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${docId}" name="Signature ${docId}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="0" name="Signature ${docId}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`};
+}
+function insertSignatureBlock(xml:string,signers:{reported:SignerSlot;approved:SignerSlot}){
+ const paraStart=(before:number)=>Math.max(xml.lastIndexOf('<w:p ',before),xml.lastIndexOf('<w:p>',before));
+ // Anchor: the "Report End" line when the template has one, otherwise the document's last (empty) paragraph, which stays after the block.
+ const end=xml.search(/<w:t(?:\s[^>]*)?>\s*Report End\s*<\/w:t>/);
+ let endPara:number;
+ if(end>=0)endPara=paraStart(end);
+ else{// no "Report End": the end of the last table cell when nothing but empty paragraphs follows it, else the end of the body
+  const sect=xml.lastIndexOf('<w:sectPr'),tc=xml.lastIndexOf('</w:tc>'),at=tc>=0&&sect>tc&&!/<w:t[\s>]|<w:drawing|<w:pict/.test(xml.slice(tc,sect))?tc:sect;
+  if(at<0||!xml.slice(0,at).endsWith('</w:p>'))throw new DocxError('DOCX_SIGNATURE_ROLE_UNRESOLVED',{reason:'NO_ANCHOR'});endPara=paraStart(at-1);}
+ const starts:number[]=[];let cur=endPara;
+ while(cur>0&&xml.slice(0,cur).endsWith('</w:p>')){const s=paraStart(cur-1);if(s<0)break;
+  if(/<w:t[\s>]|<w:drawing|<w:pict|<w:tbl|<mc:|<w:sectPr/.test(xml.slice(s,cur)))break;cur=s;starts.push(s);}
+ const blanks=starts.length;
+ // The block takes the place of the last five blank lines (about its own height); earlier blank lines stay as the template has them.
+ // Without a "Report End" line and without a run of blank lines (the Twin master) it is inserted above the last cell's own paragraph.
+ if(blanks>=3)cur=starts[Math.min(5,blanks)-1];
+ else if(end<0)cur=endPara;
+ else throw new DocxError('DOCX_SIGNATURE_ROLE_UNRESOLVED',{reason:'NO_BLANK_AREA_FOR_SIGNATURES',blankParagraphs:blanks});
+ const roles=new Set<'REPORTED'|'APPROVED'>(),bindings:{token:string;value:string;role?:string}[]=[];
+ const cell=(role:'REPORTED'|'APPROVED',slot:SignerSlot,docId:number)=>{
+  const label=role==='REPORTED'?'Reported':'Approved',rid=role==='REPORTED'?'rIdT3SigReported':'rIdT3SigApproved';
+  const pic=sigPicture(rid,docId,slot.signature);if(slot.signature)roles.add(role);
+  bindings.push({token:'signature.fit',value:slot.signature?'FITTED':'SKIPPED:NO_SIGNATURE',role},{token:'signature.block',value:'GENERATED',role},{token:'signer.name',value:slot.name,role},{token:'signer.license',value:slot.license,role});
+  if(pic.size)bindings.push({token:'signature.frame',value:`${SIGNATURE_FRAME.cx}x${SIGNATURE_FRAME.cy}`,role},{token:'signature.fitted',value:`${pic.size.cx}x${pic.size.cy}`,role});
+  const nameLine=`${label} by:  (${slot.name})`,nameRatio=visualLength(nameLine)>SIG_CAPACITY?SIG_CAPACITY/visualLength(nameLine):1;
+  if(nameRatio<MIN_FONT_RATIO)throw new DocxError('SIGNER_NAME_TOO_LONG_FOR_TEMPLATE',{length:visualLength(nameLine),capacity:SIG_CAPACITY});
+  if(nameRatio<1)bindings.push({token:'signer.fontRatio',value:nameRatio.toFixed(3),role});
+  return `<w:tc><w:tcPr><w:tcW w:w="2500" w:type="pct"/></w:tcPr>${pic.xml}${sigLine(nameLine,nameRatio)}${sigLine(`(Medical Technologist license no.${slot.license})`)}${sigLine(`${label} Date: ${slot.date}`)}</w:tc>`;};
+ const table=`<w:p><w:pPr><w:spacing w:before="0" w:after="0"/></w:pPr></w:p><w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:jc w:val="center"/></w:tblPr><w:tblGrid><w:gridCol w:w="4000"/><w:gridCol w:w="4000"/></w:tblGrid><w:tr>${cell('REPORTED',signers.reported,9101)}${cell('APPROVED',signers.approved,9102)}</w:tr></w:tbl>`;
+ return {xml:xml.slice(0,cur)+table+xml.slice(endPara),roles,bindings};
+}
+
 /** Returns the filled .docx and the list of every substitution made (the "bindings" evidence). */
 export type TemplateDescriptor={sha256:string;code:string};
 /** `descriptor` defaults to the Owner's SHA-256-locked master; an Admin-approved registry revision passes its own hash and code. */
@@ -127,7 +173,8 @@ export function fillReport(template:Buffer,kind:TemplateKind,values:ReportValues
  // drop the master's own images with their HD-photo / background-removal layers, so no master signature can be rendered or carried.
  // Owner 2026-11-10: signature pictures are optional. A template without them gets the chosen signers' printed name, licence and date only;
  // a template that has them keeps the picture handling below. The "Reported by:" / "Approved by:" labels are still required.
- if(!labels.length)throw new DocxError('DOCX_SIGNATURE_ROLE_UNRESOLVED');
+ const generated=!labels.length&&!parsed.blips.length;// no signer lines and no pictures at all: the signer block is built (insertSignatureBlock)
+ if(!labels.length&&!generated)throw new DocxError('DOCX_SIGNATURE_ROLE_UNRESOLVED');
  const rels=parts.get('word/_rels/document.xml.rels')!.toString('utf8'),removed=new Set<string>(),roles=new Set<string>();
  for(const b of parsed.blips){
   const r=labels.find(l=>l.at>b.start)?.role;if(!r)throw new DocxError('DOCX_SIGNATURE_ROLE_UNRESOLVED');roles.add(r);
@@ -147,8 +194,14 @@ export function fillReport(template:Buffer,kind:TemplateKind,values:ReportValues
   if(fit)bindings.push({token:'signature.frame',value:size(fit.frame),role:r},{token:'signature.fitted',value:size(fit.fitted),role:r});
  }
  xml=apply(xml,edits);
+ const gen=generated?insertSignatureBlock(xml,signers):null;
+ if(gen){xml=gen.xml;for(const r of gen.roles)roles.add(r);bindings.push(...gen.bindings);}
  let nextRels=rels;const media=(s:SignerSlot)=>s.signature?.media==='image/jpeg'?'jpeg':'png';
- if(parsed.blips.length){
+ if(gen){// the picture types the block uses must be declared in [Content_Types].xml
+  let ct=parts.get('[Content_Types].xml')?.toString('utf8');
+  if(ct)for(const ext of new Set([...gen.roles].map(r=>media(r==='REPORTED'?signers.reported:signers.approved))))if(!new RegExp(`<Default\\b[^>]*Extension="${ext}"`,'i').test(ct))ct=ct.replace(/<Types\b[^>]*>/,m=>`${m}<Default Extension="${ext}" ContentType="image/${ext}"/>`);
+  if(ct)parts.set('[Content_Types].xml',Buffer.from(ct,'utf8'));}
+ if(parsed.blips.length||gen){
  for(const rid of removed){const rel=new RegExp(`<Relationship\\b[^>]*\\bId="${rid}"[^>]*/>`).exec(nextRels);if(!rel)throw new DocxError('DOCX_SIGNATURE_RELATIONSHIP_MISSING');
   const target=/Target="([^"]+)"/.exec(rel[0])![1];if(new RegExp(`r:(?:embed|id|link)="${rid}"`).test(xml))throw new DocxError('DOCX_SIGNATURE_STILL_REFERENCED');
   nextRels=nextRels.replace(rel[0],'');parts.delete('word/'+target.replace(/^\.\//,''));}
@@ -160,7 +213,7 @@ export function fillReport(template:Buffer,kind:TemplateKind,values:ReportValues
  }
  parts.set(name,Buffer.from(xml,'utf8'));
  // Every signature picture the template has must exist and be the chosen signer's image, never the transparent placeholder or the master's own.
- if(parsed.blips.length)for(const [role,rid,slot,file] of [['REPORTED','rIdT3SigReported',signers.reported,'t3-signature-reported'],['APPROVED','rIdT3SigApproved',signers.approved,'t3-signature-approved']] as const){
+ if(parsed.blips.length||gen)for(const [role,rid,slot,file] of [['REPORTED','rIdT3SigReported',signers.reported,'t3-signature-reported'],['APPROVED','rIdT3SigApproved',signers.approved,'t3-signature-approved']] as const){
   if(!roles.has(role))continue;
   const target=`word/media/${file}.${media(slot)}`,bytes=parts.get(target);
   if((xml.match(new RegExp(`r:embed="${rid}"`,'g'))??[]).length<1||!nextRels.includes(`Id="${rid}"`)||!bytes||(slot.signature&&!bytes.equals(slot.signature.bytes)))throw new DocxError('REPORT_SIGNATURE_MISSING',{role:rid});}

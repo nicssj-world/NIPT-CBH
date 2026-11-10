@@ -58,6 +58,40 @@ describe('fillReport signature fitting (synthetic master)',()=>{
   const parts=readArchive(fillReport(one,'SINGLETON',values,{reported:slot(300,100,1),approved:slot(300,100,2)},{sha256:sha256(one),code:'TEST'}).bytes);
   expect(parts.has('word/media/t3-signature-reported.png')).toBe(true);expect(parts.has('word/media/t3-signature-approved.png')).toBe(false);
  });
+ describe('Owner 2026-11-10: a template with a blank signature area gets a generated, equal-height signer block',()=>{
+  const blank='<w:p><w:pPr/></w:p>';
+  const body=(inner:string)=>writeArchive(new Map<string,Buffer>([['word/document.xml',Buffer.from(`<w:document><w:body>${tokens.map(t=>para(ph(t))).join('')}${inner}<w:sectPr/></w:body></w:document>`)],['word/_rels/document.xml.rels',Buffer.from('<Relationships></Relationships>')],['[Content_Types].xml',Buffer.from('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>')]]));
+  const run=(b:Buffer,rep:SignerSlot,app:SignerSlot)=>fillReport(b,'SINGLETON',values,{reported:rep,approved:app},{sha256:sha256(b),code:'TEST'});
+  it('replaces the last five blank lines before "Report End" with a two-column block; both pictures have the same height',()=>{
+   const b=body(blank.repeat(9)+para('Report End'));
+   const out=run(b,slot(1200,500,1),slot(900,300,2)),parts=readArchive(out.bytes),xml=parts.get('word/document.xml')!.toString('utf8');
+   expect(extents(xml).map(e=>e.split('x')[1])).toEqual(['540000','540000']);
+   expect(xml).toContain('Reported by:  (Test Signer)');expect(xml).toContain('Approved by:  (Test Signer)');
+   expect(xml).toContain('(Medical Technologist license no.12345)');expect(xml).toContain('Reported Date: 01-Jan-2026');expect(xml).toContain('Approved Date: 01-Jan-2026');
+   expect((xml.match(/<w:p><w:pPr\/><\/w:p>/g)??[]).length).toBe(4);// 9 blank lines: 4 kept, 5 replaced
+   expect(xml.indexOf('<w:tbl>')).toBeLessThan(xml.indexOf('Report End'));
+   expect(parts.has('word/media/t3-signature-reported.png')).toBe(true);expect(parts.has('word/media/t3-signature-approved.png')).toBe(true);
+   expect(parts.get('[Content_Types].xml')!.toString()).toContain('Extension="png"');
+   expect(parts.get('word/_rels/document.xml.rels')!.toString()).toContain('rIdT3SigReported');
+   expect(out.bindings.filter(x=>x.token==='signature.block').length).toBe(2);
+  });
+  it('a signer without a signature image still gets name, licence and date and no picture',()=>{
+   const none:SignerSlot={name:'No Image',license:'999',date:'02-Feb-2026',signature:null};
+   const out=run(body(blank.repeat(6)+para('Report End')),none,slot(300,100,2)),parts=readArchive(out.bytes);
+   expect(extents(parts.get('word/document.xml')!.toString('utf8'))).toHaveLength(1);
+   expect(parts.get('word/document.xml')!.toString('utf8')).toContain('Reported by:  (No Image)');
+   expect(parts.has('word/media/t3-signature-reported.png')).toBe(false);expect(parts.has('word/media/t3-signature-approved.png')).toBe(true);
+  });
+  it('without "Report End" and without blank lines the block goes above the last paragraph of the last table cell',()=>{
+   const b=body('<w:tbl><w:tr><w:tc><w:p><w:pPr/></w:p></w:tc></w:tr></w:tbl><w:p><w:pPr/></w:p>');
+   const xml=readArchive(run(b,slot(300,100,1),slot(300,100,2)).bytes).get('word/document.xml')!.toString('utf8');
+   expect(xml).toContain('Approved by:  (Test Signer)');expect(xml.indexOf('<w:tbl><w:tblPr>')).toBeGreaterThan(xml.indexOf('<w:tc>'));
+  });
+  it('a signer name too long for the cell is refused instead of overflowing',()=>{
+   const long:SignerSlot={...slot(300,100,1),name:'X'.repeat(120)};
+   expect(()=>run(body(blank.repeat(6)+para('Report End')),long,slot(300,100,2))).toThrow('SIGNER_NAME_TOO_LONG_FOR_TEMPLATE');
+  });
+ });
  it('still refuses a template without the "Reported by:" / "Approved by:" labels',()=>{
   const nolabel=writeArchive(new Map(readArchive(master)).set('word/document.xml',Buffer.from(documentXml.replace('Reported by: (Name)','Reported (Name)').replace('Approved by: (Name)','Approved (Name)'))));
   expect(()=>fillReport(nolabel,'SINGLETON',values,{reported:slot(300,100,1),approved:slot(300,100,2)},{sha256:sha256(nolabel),code:'TEST'})).toThrow(/DOCX_LICENSE_WITHOUT_SIGNER|DOCX_SIGNATURE_ROLE_UNRESOLVED/);
