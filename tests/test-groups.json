@@ -18,6 +18,7 @@
       "tests/contracts/task3-native-no-call.test.ts",
       "tests/contracts/task3-native-pathway.test.ts",
       "tests/contracts/task3-native-pg.test.ts",
+      "tests/contracts/task3-native-batch-worker.test.ts",
       "tests/contracts/task3-negatives.test.ts",
       "tests/contracts/task3-real-sources.test.ts",
       "tests/contracts/task3-reconciliation.test.ts",

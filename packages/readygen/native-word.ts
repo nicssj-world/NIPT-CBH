@@ -58,7 +58,10 @@ export async function renderDocxBatch(items:{id:string;docx:Buffer}[]):Promise<R
   }catch(e){
    // a script stopped by its timeout cannot quit Word itself: never leave that hidden instance for the next export to attach to
    await stopOwnOfficeInstance(pidFile,'WINWORD.EXE');
-   throw e;
+   // The real cause (spawn failure, timeout, script stderr) goes to the worker log; the screen gets a stable code.
+   const err=e as NodeJS.ErrnoException&{killed?:boolean;stderr?:string};
+   process.stderr.write(`REPORT_NATIVE_WORD_FAILED ${err.code??''} ${err.killed?'timeout ':''}${String(err.stderr||err.message).slice(0,500)}\n`);
+   throw new Error(err.killed?'REPORT_NATIVE_WORD_TIMEOUT':'REPORT_NATIVE_WORD_FAILED');
   }
   const result=JSON.parse((await readFile(file+'.result.json','utf8')).replace(/^﻿/,'')) as {id:string;pages:number}[]|{id:string;pages:number};
   const pages=new Map((Array.isArray(result)?result:[result]).map(r=>[r.id,Number(r.pages)]));

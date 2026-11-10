@@ -104,6 +104,7 @@ export async function runReportBatchItem(db:Queryable,outboxId:string,payload:un
  }catch(error){
   await db.query('ROLLBACK TO SAVEPOINT durable_report_item');await db.query('RELEASE SAVEPOINT durable_report_item');
   // Expected patient/authority failures remain visible, while transient process/render/storage failures retry on the same key.
+  if(!(error instanceof LabError))process.stderr.write(`REPORT_BATCH_ITEM_ERROR item=${item.id} try=${retryCount} ${error instanceof Error?error.message.slice(0,300):String(error).slice(0,300)}\n`);
   if(!(error instanceof LabError)&&retryCount<3)throw error;
   const code=error instanceof LabError?error.code:error instanceof Error&&/^[A-Z][A-Z0-9_]{0,99}$/.test(error.message)?error.message:'REPORT_BATCH_ITEM_FAILED';
   outcome={rowId:item.row_id,outcome:'ERROR',code,...(error instanceof LabError&&error.details?{details:error.details}:{})};
