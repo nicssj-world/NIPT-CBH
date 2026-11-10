@@ -68,7 +68,7 @@ describe('fillReport signature fitting (synthetic master)',()=>{
    expect(extents(xml).map(e=>e.split('x')[1])).toEqual([String(SIGNATURE_FRAME.cy),String(SIGNATURE_FRAME.cy)]);
    expect(xml).toContain('Reported by:  (Test Signer)');expect(xml).toContain('Approved by:  (Test Signer)');
    expect(xml).toContain('(Medical Technologist license no.12345)');expect(xml).toContain('Reported Date: 01-Jan-2026');expect(xml).toContain('Approved Date: 01-Jan-2026');
-   expect((xml.match(/<w:p><w:pPr\/><\/w:p>/g)??[]).length).toBe(4);// 9 blank lines: 4 kept, 5 replaced
+   expect((xml.match(/<w:p><w:pPr\/><\/w:p>/g)??[]).length).toBe(0);// the 9 blank lines are the signature area: the block replaces them (one page)
    expect(xml.indexOf('<w:tbl>')).toBeLessThan(xml.indexOf('Report End'));
    expect(parts.has('word/media/t3-signature-reported.png')).toBe(true);expect(parts.has('word/media/t3-signature-approved.png')).toBe(true);
    expect(parts.get('[Content_Types].xml')!.toString()).toContain('Extension="png"');
@@ -86,6 +86,13 @@ describe('fillReport signature fitting (synthetic master)',()=>{
    const b=body('<w:tbl><w:tr><w:tc><w:p><w:pPr/></w:p></w:tc></w:tr></w:tbl><w:p><w:pPr/></w:p>');
    const xml=readArchive(run(b,slot(300,100,1),slot(300,100,2)).bytes).get('word/document.xml')!.toString('utf8');
    expect(xml).toContain('Approved by:  (Test Signer)');expect(xml.indexOf('<w:tbl><w:tblPr>')).toBeGreaterThan(xml.indexOf('<w:tc>'));
+  });
+  it('empty table rows at the end of the last table (Twin master) become one row holding the block; the last row stays',()=>{
+   const row=(inner:string)=>`<w:tr><w:tc><w:tcPr/>${inner}</w:tc></w:tr>`;
+   const b=body(`<w:tbl><w:tblGrid><w:gridCol w:w="2000"/><w:gridCol w:w="2000"/></w:tblGrid>${row(para('Static text'))}${row(blank)}${row(blank+blank)}${row(blank)}</w:tbl><w:p><w:pPr/></w:p>`);
+   const xml=readArchive(run(b,slot(300,100,1),slot(300,100,2)).bytes).get('word/document.xml')!.toString('utf8');
+   expect(xml).toContain('Static text');expect(xml).toContain('<w:gridSpan w:val="2"/>');expect(xml).toContain('Reported by:  (Test Signer)');
+   expect((xml.match(/<w:tr>/g)??[]).length).toBe(4);// static row + the block row + the block's own inner row + the kept last row (the two empty middle rows are gone)
   });
   it('a signer name too long for the cell is refused instead of overflowing',()=>{
    const long:SignerSlot={...slot(300,100,1),name:'X'.repeat(120)};

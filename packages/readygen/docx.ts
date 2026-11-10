@@ -90,11 +90,11 @@ const TRANSPARENT_PNG=Buffer.from('89504e470d0a1a0a0000000d494844520000000100000
 // and date per signer, both pictures in one identical frame (same height, aspect ratio kept, never wider than the frame).
 // Frame height follows the Owner's sample (signature picture sitting just above the name, about 1.2 cm tall). The frame is wide enough
 // (3.6:1) that ordinary signature scans are limited by height, so every picture comes out the same height; only a wider scan is made shorter.
-export const SIGNATURE_FRAME={cx:1500000,cy:418000};
+export const SIGNATURE_FRAME={cx:1368000,cy:380000};
 const SIG_FONT='<w:rFonts w:ascii="TH Sarabun New" w:hAnsi="TH Sarabun New" w:cs="TH Sarabun New"/>';
 const SIG_CAPACITY=44;
 function sigLine(text:string,ratio=1){const sz=Math.max(8,Math.floor(22*ratio));
- return `<w:p><w:pPr><w:spacing w:before="0" w:after="0"/><w:jc w:val="center"/></w:pPr><w:r><w:rPr>${SIG_FONT}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr><w:t xml:space="preserve">${xmlEscape(text)}</w:t></w:r></w:p>`;}
+ return `<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="260" w:lineRule="exact"/><w:jc w:val="center"/></w:pPr><w:r><w:rPr>${SIG_FONT}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr><w:t xml:space="preserve">${xmlEscape(text)}</w:t></w:r></w:p>`;}
 function sigPicture(rid:string,docId:number,sig:SignerSlot['signature']){
  const lineTwips=Math.round(SIGNATURE_FRAME.cy/635),head=`<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="${lineTwips}" w:lineRule="exact"/><w:jc w:val="center"/></w:pPr>`;
  if(!sig)return {xml:`${head}</w:p>`,size:null as {cx:number;cy:number}|null};
@@ -114,11 +114,28 @@ function insertSignatureBlock(xml:string,signers:{reported:SignerSlot;approved:S
  while(cur>0&&xml.slice(0,cur).endsWith('</w:p>')){const s=paraStart(cur-1);if(s<0)break;
   if(/<w:t[\s>]|<w:drawing|<w:pict|<w:tbl|<mc:|<w:sectPr/.test(xml.slice(s,cur)))break;cur=s;starts.push(s);}
  const blanks=starts.length;
- // The block takes the place of the last five blank lines (about its own height); earlier blank lines stay as the template has them.
- // Without a "Report End" line and without a run of blank lines (the Twin master) it is inserted above the last cell's own paragraph.
- if(blanks>=3)cur=starts[Math.min(5,blanks)-1];
- else if(end<0)cur=endPara;
- else throw new DocxError('DOCX_SIGNATURE_ROLE_UNRESOLVED',{reason:'NO_BLANK_AREA_FOR_SIGNATURES',blankParagraphs:blanks});
+ // The signature area the template leaves empty is what the block replaces, so the page keeps its height (one page):
+ //  - "Report End" line present: every blank paragraph directly before it;
+ //  - otherwise (the Twin master) the empty table rows at the end of the last table become one row holding the block;
+ //  - failing both, the block is inserted above the last paragraph.
+ let from=endPara,to=endPara,asRow:{cols:number}|null=null;
+ if(end>=0){if(blanks<3)throw new DocxError('DOCX_SIGNATURE_ROLE_UNRESOLVED',{reason:'NO_BLANK_AREA_FOR_SIGNATURES',blankParagraphs:blanks});from=starts[blanks-1];}
+ else{
+  const tblEnd=xml.lastIndexOf('</w:tbl>'),sect=xml.lastIndexOf('<w:sectPr');
+  if(tblEnd>0&&sect>tblEnd&&!/<w:t[\s>]|<w:drawing|<w:pict/.test(xml.slice(tblEnd,sect))){
+   let depth=0,tblStart=-1;const marks=[...xml.slice(0,tblEnd+8).matchAll(/<(\/?)w:tbl>/g)];
+   for(let i=marks.length-1;i>=0;i--){depth+=marks[i][1]?1:-1;if(depth===0){tblStart=marks[i].index!;break;}}
+   const rowStart=(before:number)=>Math.max(xml.lastIndexOf('<w:tr ',before),xml.lastIndexOf('<w:tr>',before));
+   const emptyRow=(s:number,e:number)=>!/<w:t[\s>]|<w:drawing|<w:pict|<w:tbl|<mc:/.test(xml.slice(s,e));
+   const lastEnd=xml.lastIndexOf('</w:tr>',tblEnd)+'</w:tr>'.length,lastStart=rowStart(lastEnd-1);
+   let c=lastStart,n=0;
+   while(tblStart>=0&&c>tblStart&&xml.slice(0,c).endsWith('</w:tr>')){const s=rowStart(c-1);if(s<tblStart||!emptyRow(s,c))break;c=s;n++;}
+   const grid=tblStart>=0?xml.slice(tblStart,xml.indexOf('</w:tblGrid>',tblStart)):'';
+   const cols=(grid.match(/<w:gridCol\b/g)??[]).length;
+   if(n>=1&&cols>=1&&emptyRow(lastStart,lastEnd)){from=c;to=lastStart;asRow={cols};}
+  }
+  if(!asRow){from=endPara;to=endPara;}
+ }
  const roles=new Set<'REPORTED'|'APPROVED'>(),bindings:{token:string;value:string;role?:string}[]=[];
  const cell=(role:'REPORTED'|'APPROVED',slot:SignerSlot,docId:number)=>{
   const label=role==='REPORTED'?'Reported':'Approved',rid=role==='REPORTED'?'rIdT3SigReported':'rIdT3SigApproved';
@@ -129,8 +146,11 @@ function insertSignatureBlock(xml:string,signers:{reported:SignerSlot;approved:S
   if(nameRatio<MIN_FONT_RATIO)throw new DocxError('SIGNER_NAME_TOO_LONG_FOR_TEMPLATE',{length:visualLength(nameLine),capacity:SIG_CAPACITY});
   if(nameRatio<1)bindings.push({token:'signer.fontRatio',value:nameRatio.toFixed(3),role});
   return `<w:tc><w:tcPr><w:tcW w:w="2500" w:type="pct"/></w:tcPr>${pic.xml}${sigLine(nameLine,nameRatio)}${sigLine(`(Medical Technologist license no.${slot.license})`)}${sigLine(`${label} Date: ${slot.date}`)}</w:tc>`;};
- const table=`<w:p><w:pPr><w:spacing w:before="0" w:after="0"/></w:pPr></w:p><w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:jc w:val="center"/></w:tblPr><w:tblGrid><w:gridCol w:w="4000"/><w:gridCol w:w="4000"/></w:tblGrid><w:tr>${cell('REPORTED',signers.reported,9101)}${cell('APPROVED',signers.approved,9102)}</w:tr></w:tbl>`;
- return {xml:xml.slice(0,cur)+table+xml.slice(endPara),roles,bindings};
+ const table=`<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:jc w:val="center"/></w:tblPr><w:tblGrid><w:gridCol w:w="4000"/><w:gridCol w:w="4000"/></w:tblGrid><w:tr>${cell('REPORTED',signers.reported,9101)}${cell('APPROVED',signers.approved,9102)}</w:tr></w:tbl>`;
+ const tiny='<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="20" w:lineRule="exact"/></w:pPr></w:p>';
+ const none='<w:tcBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/></w:tcBorders>';
+ const insert=asRow?`<w:tr><w:trPr><w:cantSplit/></w:trPr><w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/><w:gridSpan w:val="${asRow.cols}"/>${none}</w:tcPr>${table}${tiny}</w:tc></w:tr>`:table;
+ return {xml:xml.slice(0,from)+insert+xml.slice(to),roles,bindings};
 }
 
 /** Returns the filled .docx and the list of every substitution made (the "bindings" evidence). */
