@@ -97,7 +97,14 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  // Owner Task 1 decision 2: a No Call is reported in the SAME normal master with an explicit "Result = No Call"; it is never interpreted.
  const noCall=s.no_call;
  if(noCall&&s.attempt_state!=='QcFailed')h('NO_CALL_ATTEMPT_NOT_CONFIRMED_FAILED',{raw:s.attempt_state});
- if(s.on_hold)h('ATTEMPT_ON_QC_HOLD');if(s.revoked)h('CONSENT_REVOKED');if(!s.clinical_ready&&!eqa)h('CLINICAL_DATA_NOT_READY');
+ if(s.on_hold)h('ATTEMPT_ON_QC_HOLD');if(s.revoked)h('CONSENT_REVOKED');if(!s.clinical_ready&&!eqa){
+  // For a Lab-registered (paper) case say which condition of the paper path is not met, so the hold can be acted on.
+  let why:string|undefined;
+  if(s.registration_origin==='LAB_DIRECT'){await db.query('SAVEPOINT clinical_hold_reason');try{const w=(await db.query<{paper:boolean;snapshot:boolean;declined:boolean;issue:boolean}>(`SELECT EXISTS(SELECT 1 FROM lab_operational_registration l WHERE l.case_id=$1 AND l.paper_request AND l.paper_consent) paper,
+    EXISTS(SELECT 1 FROM clinical_snapshot x WHERE x.round_id=$2) snapshot,(p2_consent_latest_decision($2)='Declined') declined,
+    EXISTS(SELECT 1 FROM his_intake_issue i WHERE i.case_id=$1 AND i.state IN ('Open','Proposed')) issue`,[s.case_id,s.round_id])).rows[0];
+   why=[!w.paper&&'NO_PAPER_REQUEST_OR_CONSENT_RECORD',w.snapshot&&'CLINICAL_SNAPSHOT_EXISTS',w.declined&&'CONSENT_DECLINED',w.issue&&'OPEN_HIS_INTAKE_ISSUE'].filter(Boolean).join(', ')||undefined;await db.query('RELEASE SAVEPOINT clinical_hold_reason');}catch{await db.query('ROLLBACK TO SAVEPOINT clinical_hold_reason');why=undefined;}}
+  h('CLINICAL_DATA_NOT_READY',why?{raw:why}:undefined);}
  if(s.current_round_id!==s.round_id)h('ROUND_NOT_CURRENT');
  const reissue=s.internal_final?{internalId:s.internal_final,versionState:s.internal_version_state}:null;
  if(reissue&&!input.reissue)h('INTERNAL_REPORT_ALREADY_FINAL');
@@ -135,7 +142,9 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  if(noCall&&!noCallQc)h('NO_CALL_QC_STATUS_UNREADABLE',{raw:`${analysis.sampleQc??''}/${analysis.operationAdvice??''}/${analysis.physicianAdvice??''}`});
  if(!noCall)holds.push(...interpretation.holds);
  // Disclosure follows the recorded wish (RG-11 / OD-09 proposal): the Singleton master always prints Fetal Gender.
- if(!noCall&&template==='SINGLETON'&&req.fetalSex!=='Want'&&!eqa)h('FETAL_SEX_DISCLOSURE_NOT_PERMITTED',{raw:req.fetalSex??'NOT_RECORDED'});
+ // Owner 2026-11-10: a Lab-registered sample comes with the paper request form, which carries the wish; it is not keyed into the system. So for
+ // LAB_DIRECT only a recorded "do not want" holds; for other origins the wish must be recorded as "want".
+ if(!noCall&&template==='SINGLETON'&&!eqa&&(req.fetalSex==='DoNotWant'||(req.fetalSex!=='Want'&&s.registration_origin!=='LAB_DIRECT')))h('FETAL_SEX_DISCLOSURE_NOT_PERMITTED',{raw:req.fetalSex??'NOT_RECORDED'});
  if(!noCall&&template==='TWIN'&&req.fetalSex==='DoNotWant')h('Y_CHROMOSOME_DISCLOSURE_NOT_PERMITTED');
  let ga:number|null=null;
  // EQA scheme Reporting Option 3 reports fetal sex; the card gives GA by scan at collection, which is used as is (no EDD is invented).
