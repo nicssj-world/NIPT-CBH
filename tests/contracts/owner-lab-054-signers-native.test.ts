@@ -69,15 +69,12 @@ it('single APP_ADMIN: one session, two named personnel, operator recorded separa
   const finalize=(row:string)=>f.run(t=>finalizeReports(t,f.admin,deps,{idempotencyKey:randomUUID(),defaults:{reportedBy:f.u.staff.id,approvedBy:f.u.certifier.id},items:[{rowId:row}]}));
   // only the reporter has authorised the administrator so far: the approver's name alone is not evidence -> refused, nothing generated
   await f.run(t=>grantDelegation(t,f.u.staff,{granteeId:f.admin.id,roles:['REPORTED'],authorityReference:'SYNTHETIC-SOP-NIPT-SIGNATURE-01'}));
-  const refused=await finalize(rowOf(a.printed));
-  expect(refused.items[0]).toMatchObject({outcome:'ERROR',code:'SIGNATURE_DELEGATION_REQUIRED'});
-  expect((await f.db.query('SELECT 1 FROM internal_report')).rows).toEqual([]);
-  await f.run(t=>grantDelegation(t,f.u.certifier,{granteeId:f.admin.id,roles:['APPROVED'],authorityReference:'SYNTHETIC-SOP-NIPT-SIGNATURE-01'}));
+  // Owner 2026-11-10: the administrator needs no delegation; a verified profile is enough. A delegation, when there is one, is still the recorded basis.
   const done=await finalize(rowOf(a.printed));expect(done.items[0].outcome).toBe('FINAL');
   const ir=(await f.db.query<{pdf_sha256:string;operator_id:string;reported_by:string;approved_by:string;reported_authority:{basis:string;operatorId:string;authorityReference:string};approved_authority:{basis:string;operatorId:string};reported_at:Date;approved_at:Date}>('SELECT * FROM internal_report WHERE attempt_id=(SELECT attempt_id FROM halos_import_row WHERE id=$1)',[rowOf(a.printed)])).rows[0];
   expect(ir).toMatchObject({operator_id:f.admin.id,reported_by:f.u.staff.id,approved_by:f.u.certifier.id});
   expect(ir.reported_authority).toMatchObject({basis:'STANDING_DELEGATION',operatorId:f.admin.id,authorityReference:'SYNTHETIC-SOP-NIPT-SIGNATURE-01'});
-  expect(ir.approved_authority).toMatchObject({basis:'STANDING_DELEGATION',operatorId:f.admin.id});
+  expect(ir.approved_authority).toMatchObject({basis:'ADMIN_OPERATOR',operatorId:f.admin.id});
   expect(ir.reported_at).toBeTruthy();expect(ir.approved_at).toBeTruthy();
   const pdf=await f.store.get(ir.pdf_sha256),A=await analyzeSignerBlocks(pdf);
   const out=process.env.OWNER054_OUT;if(out){mkdirSync(out,{recursive:true});writeFileSync(`${out}/final-single-admin-operator.pdf`,pdf);writeFileSync(`${out}/single-admin-analysis.json`,JSON.stringify(A,null,1));}

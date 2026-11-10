@@ -109,8 +109,8 @@ function SignerPicker({role,label,value,onChange,id}:{role:"REPORTED"|"APPROVED"
  return <div className="field t3-signer"><label htmlFor={id}>{label}</label>
   <div className="search-form t3-signer-search"><input id={id+"-q"} type="search" aria-label={`ค้นหา ${label}`} placeholder="พิมพ์ชื่อหรือเลขใบอนุญาต" value={q} onChange={e=>setQ(e.target.value)}/>{q&&<button type="button" className="button small secondary" onClick={()=>setQ("")}>ล้าง</button>}</div>
   <select id={id} value={value} onChange={e=>onChange(e.target.value)} aria-describedby={id+"-help"}>
-   <option value="">— เลือก —</option>{options.map(o=><option key={o.userId} value={o.userId} disabled={!o.usable}>{o.legalName} · ใบอนุญาต {o.license}{o.usable?(o.basis==="SELF"?" (ตนเอง)":" (ได้รับมอบสิทธิ์)"):" — ยังไม่ได้รับมอบสิทธิ์"}</option>)}</select>
-  <p id={id+"-help"} className="help">{error||(chosen?(chosen.basis==="SELF"?"ลงนามด้วยลายเซ็นของท่านเอง":"ใช้ลายเซ็นตามการมอบสิทธิ์ของเจ้าของลายเซ็น — ระบบบันทึกว่าท่านเป็นผู้ออกรายงาน"):"แสดงเฉพาะผู้ลงนามที่มีโปรไฟล์ผ่านการตรวจและมีสิทธิ์ในบทบาทนี้")}</p></div>;
+   <option value="">— เลือก —</option>{options.map(o=><option key={o.userId} value={o.userId} disabled={!o.usable}>{o.legalName} · ใบอนุญาต {o.license}{o.usable?(o.basis==="SELF"?" (ตนเอง)":o.basis==="ADMIN_OPERATOR"?"":" (ได้รับมอบสิทธิ์)"):" — ยังไม่ได้รับมอบสิทธิ์"}</option>)}</select>
+  <p id={id+"-help"} className="help">{error||(chosen?(chosen.basis==="SELF"?"ลงนามด้วยลายเซ็นของท่านเอง":chosen.basis==="ADMIN_OPERATOR"?"ผู้ดูแลระบบใช้ลายเซ็นที่ยืนยันแล้ว — ระบบบันทึกว่าท่านเป็นผู้ออกรายงาน":"ใช้ลายเซ็นตามการมอบสิทธิ์ของเจ้าของลายเซ็น — ระบบบันทึกว่าท่านเป็นผู้ออกรายงาน"):"แสดงเฉพาะผู้ลงนามที่มีโปรไฟล์ผ่านการตรวจและมีสิทธิ์ในบทบาทนี้")}</p></div>;
 }
 
 function ReportDialog({rows,pendingImport,onClose,onDone,onReported}:{rows:Row[];pendingImport?:PendingImport|null;onClose:()=>void;onDone:()=>void;onReported?:()=>void}){

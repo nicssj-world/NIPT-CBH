@@ -51,9 +51,9 @@ describe('single APP_ADMIN with separate Reported By / Approved By personnel',()
    const prof=await run(()=>submitSignerProfile(db,p,store,{legalName:name,mtLicenseNo:lic,signature:syntheticSignaturePng(seed)}));
    await run(()=>decideSignerProfile(db,admin,{profileId:prof.id,decision:'VERIFY',layoutReviewed:true,reason:'SYNTHETIC identity and licence checked'}));
   }
-  // verified, but the person has not authorised the administrator to apply their signature: listed as not usable, refused
-  expect((await run(()=>listSigners(db,admin,{role:'APPROVED',q:''}))).map(s=>[s.legalName,s.usable])).toEqual([['Synthetic Approver',false]]);
-  await expect(run(()=>signerAuthority(db,admin,approver.id,'APPROVED'))).rejects.toMatchObject({code:'SIGNATURE_DELEGATION_REQUIRED'});
+  // Owner 2026-11-10: verified is enough for the administrator; no delegation from the person is needed (basis ADMIN_OPERATOR, operator recorded)
+  expect((await run(()=>listSigners(db,admin,{role:'APPROVED',q:''}))).map(s=>[s.legalName,s.usable,s.basis])).toEqual([['Synthetic Approver',true,'ADMIN_OPERATOR']]);
+  expect(await run(()=>signerAuthority(db,admin,approver.id,'APPROVED'))).toMatchObject({basis:'ADMIN_OPERATOR',delegationId:null,operatorId:admin.id,role:'APPROVED'});
   // Owner 2026-11-10: the APP_ADMIN may be named too, but only with their own verified licence + signature profile (none yet here)
   await expect(run(()=>signerAuthority(db,admin,admin.id,'APPROVED'))).rejects.toMatchObject({code:'SIGNER_PROFILE_NOT_VERIFIED'});
  });

@@ -12,7 +12,7 @@ export type Task3Detail={origin?:"EXTERNAL_READYGEN"|"INTERNAL_GENERATED";hisTra
  fallback?:{outageReference:string;outageStartedAt:string|null;outageEndedAt:string|null;note:string|null;recordedAt:string;recordedBy:string}|null;
  attestations?:{id:string;statement:string;effect:string;note:string|null;attestedAt:string;actor:string;withdrawnAt:string|null;withdrawnBy:string|null;withdrawReason:string|null}[];
  can:{attestHis?:boolean;recordFallback?:boolean}};
-const BASIS:Record<string,string>={SELF:"ลงนามด้วยตนเอง",STANDING_DELEGATION:"ใช้ลายเซ็นตามการมอบสิทธิ์ของเจ้าของลายเซ็น"};
+const BASIS:Record<string,string>={SELF:"ลงนามด้วยตนเอง",STANDING_DELEGATION:"ใช้ลายเซ็นตามการมอบสิทธิ์ของเจ้าของลายเซ็น",ADMIN_OPERATOR:"ผู้ดูแลระบบใช้ลายเซ็นที่ยืนยันแล้ว"};
 const EFFECT:Record<string,string>={SUPPRESSED_BEFORE_RELEASE:"บันทึกก่อนยืนยันส่งผล — จะไม่ส่งผลเข้า HIS ซ้ำ",SUPPRESSED_PENDING_DELIVERY:"บันทึกหลังยืนยันส่งผล ก่อนระบบเริ่มส่ง — ยกเลิกการส่งเข้า HIS"};
 
 export function Task3Panel({d,versionId,reload}:{d:Task3Detail;versionId:string;reload:()=>Promise<void>}){

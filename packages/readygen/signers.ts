@@ -101,7 +101,7 @@ type Profile={id:string;user_id:string;version:number;legal_name:string;mt_licen
 export async function currentProfile(db:Queryable,userId:string){
  return (await db.query<Profile>('SELECT p.* FROM report_signer_profile p WHERE p.user_id=$1 AND task3_signer_profile_current(p.id) LIMIT 1',[userId])).rows[0]??null;
 }
-export type SignerAuthority={profile:Profile;basis:'SELF'|'STANDING_DELEGATION';delegationId:string|null;authorityReference:string|null;operatorId:string;role:SignerRole;checkedAt:string};
+export type SignerAuthority={profile:Profile;basis:'SELF'|'STANDING_DELEGATION'|'ADMIN_OPERATOR';delegationId:string|null;authorityReference:string|null;operatorId:string;role:SignerRole;checkedAt:string};
 /** Re-evaluated inside the finalising transaction. Missing licence/signature, ineligible role, revoked profile or delegation all refuse. */
 export async function signerAuthority(db:Queryable,operator:Staff,signerId:string,role:SignerRole):Promise<SignerAuthority>{
  const signer=(await db.query<{ok:boolean;enabled:boolean}>(`SELECT ${eligibleRoleSql(role)} ok,u.enabled FROM app_user u WHERE u.id=$1`,[uuid.parse(signerId)])).rows[0];
@@ -112,8 +112,11 @@ export async function signerAuthority(db:Queryable,operator:Staff,signerId:strin
  if(signerId===operator.id)return {profile,basis:'SELF',delegationId:null,authorityReference:null,operatorId:operator.id,role,checkedAt};
  const dlg=(await db.query<{id:string;authority_reference:string}>(`SELECT id,authority_reference FROM report_signature_delegation WHERE grantor_id=$1 AND grantee_id=$2 AND $3=ANY(roles)
   AND revoked_at IS NULL AND effective_from<=clock_timestamp() AND (expires_at IS NULL OR expires_at>clock_timestamp()) ORDER BY created_at DESC LIMIT 1`,[signerId,operator.id,role])).rows[0];
- if(!dlg)throw new LabError('SIGNATURE_DELEGATION_REQUIRED',403,{role,signerId});
- return {profile,basis:'STANDING_DELEGATION',delegationId:dlg.id,authorityReference:dlg.authority_reference,operatorId:operator.id,role,checkedAt};
+ if(dlg)return {profile,basis:'STANDING_DELEGATION',delegationId:dlg.id,authorityReference:dlg.authority_reference,operatorId:operator.id,role,checkedAt};
+ // Owner 2026-11-10: one person runs the system. The administrator may apply any verified signer's stored signature without that person's delegation;
+ // the operator is recorded as the administrator and the basis says so (ADMIN_OPERATOR), so the report still shows who acted and on what authority.
+ if(authorize(operator,'user.manage',{},'write'))return {profile,basis:'ADMIN_OPERATOR',delegationId:null,authorityReference:'ADMIN_OPERATOR_OWNER_DECISION_2026-11-10',operatorId:operator.id,role,checkedAt};
+ throw new LabError('SIGNATURE_DELEGATION_REQUIRED',403,{role,signerId});
 }
 /** Searchable selector source: verified signers eligible for the role, with whether the current operator may apply each one. */
 export async function listSigners(db:Queryable,user:Staff,input:unknown){
@@ -123,7 +126,8 @@ export async function listSigners(db:Queryable,user:Staff,input:unknown){
   `SELECT p.user_id,p.legal_name,p.mt_license_no,u.display_name,EXISTS(SELECT 1 FROM report_signature_delegation g WHERE g.grantor_id=p.user_id AND g.grantee_id=$1 AND $2=ANY(g.roles) AND g.revoked_at IS NULL AND g.effective_from<=clock_timestamp() AND (g.expires_at IS NULL OR g.expires_at>clock_timestamp())) delegated
    FROM report_signer_profile p JOIN app_user u ON u.id=p.user_id WHERE task3_signer_profile_current(p.id) AND ${eligibleRoleSql(d.role)}
    AND ($3='' OR p.legal_name ILIKE '%'||$3||'%' OR u.display_name ILIKE '%'||$3||'%' OR p.mt_license_no LIKE $3||'%') ORDER BY p.legal_name LIMIT 50`,[user.id,d.role,d.q.replace(/[%_\\]/g,'')])).rows;
- return rows.map(r=>({userId:r.user_id,legalName:r.legal_name,license:r.mt_license_no,displayName:r.display_name,usable:r.user_id===user.id||r.delegated,basis:r.user_id===user.id?'SELF':r.delegated?'STANDING_DELEGATION':null}));
+ const isAdmin=authorize(user,'user.manage',{},'write');
+ return rows.map(r=>({userId:r.user_id,legalName:r.legal_name,license:r.mt_license_no,displayName:r.display_name,usable:r.user_id===user.id||r.delegated||isAdmin,basis:r.user_id===user.id?'SELF':r.delegated?'STANDING_DELEGATION':isAdmin?'ADMIN_OPERATOR':null}));
 }
 /** Own profile page, and the administrator's verification queue (only administrators see others' pending images). */
 export async function signerOverview(db:Queryable,user:Staff){
