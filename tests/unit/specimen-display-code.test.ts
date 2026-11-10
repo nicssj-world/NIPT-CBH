@@ -29,8 +29,8 @@ describe('OD-R1 / OD-R1a specimen display code',()=>{
  });
 });
 describe('OD-R1a labels: same 4 stickers / 8 halves; OD-R1b fit only where a code overflows',()=>{
- it('CODE/CODE · CODE/CODE · CODE/CODE-1 · CODE-2/CODE-3 with CODE = BASE[D][R]',()=>{
-  expect(tubeLabelStickers('26B261017001DR')).toEqual([['26B261017001DR','26B261017001DR'],['26B261017001DR','26B261017001DR'],['26B261017001DR','26B261017001DR-1'],['26B261017001DR-2','26B261017001DR-3']]);
+ it('CODE-1/CODE · CODE-2/CODE · CODE-3/CODE · CODE/CODE with CODE = BASE[D][R] (Owner 2026-11-10: -1, -2, -3 down the left side)',()=>{
+  expect(tubeLabelStickers('26B261017001DR')).toEqual([['26B261017001DR-1','26B261017001DR'],['26B261017001DR-2','26B261017001DR'],['26B261017001DR-3','26B261017001DR'],['26B261017001DR','26B261017001DR']]);
  });
  it('S1 codes (≤ 15 characters) keep 6.5 pt; only the 16-character BASEDR-n halves are reduced, modestly',()=>{
   for(const code of ['26B261017001','26B261017001-3','26B261017001D-3','26B261017001R-3','26B261017001DR'])expect(codeFontSize(code),code).toBe(6.5);
