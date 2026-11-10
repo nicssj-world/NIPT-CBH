@@ -38,11 +38,11 @@ export function SignerProfile({targetUserId,self,onChanged}:{targetUserId:string
    {(self||d.canManage)&&<img className="t3-signature" src={`/api/task3/signers/${latest.id}/image`} alt={`ลายเซ็นของ ${latest.legalName}`}/>}
    {!self&&d.canManage&&latest.state!=="REVOKED"&&<div className="stack"><div className="field"><label htmlFor={`sig-note-${latest.id}`}>บันทึกการตรวจ</label><input id={`sig-note-${latest.id}`} value={note} maxLength={300} onChange={e=>setNote(e.target.value)}/></div>
     <fieldset className="stack"><legend>ตรวจตำแหน่งลายเซ็นในแบบฟอร์ม</legend>
-     <p className="help">เปิดรายงานตัวอย่าง (ลายน้ำ PREVIEW ข้อมูลสังเคราะห์ ไม่บันทึกเป็นรายงาน) ทั้งสองแบบ แล้วตรวจว่าลายเซ็นไม่เพี้ยน ไม่ทับเส้นหรือข้อความ</p>
+     <p className="help">ดูรายงานตัวอย่างได้ (ลายน้ำ PREVIEW ข้อมูลสังเคราะห์ ไม่บันทึกเป็นรายงาน) ถ้าต้องการ แล้วติ๊กยืนยันว่าลายเซ็นถูกต้อง — ไม่จำเป็นต้องเปิดตัวอย่างก่อน</p>
      <div className="action-bar"><button type="button" className="button secondary" onClick={()=>void sample(latest,"SINGLETON")}>ดูตัวอย่างแบบเดี่ยว</button><button type="button" className="button secondary" onClick={()=>void sample(latest,"TWIN")}>ดูตัวอย่างแบบแฝด</button></div>
-     {latest.state===null&&<label className="check-label"><input type="checkbox" disabled={!(rv(latest).SINGLETON&&rv(latest).TWIN)} checked={rv(latest).ok} onChange={e=>setReview({...rv(latest),ok:e.target.checked})}/> ลายเซ็นแสดงถูกต้องตามแบบฟอร์ม</label>}
+     {latest.state===null&&<label className="check-label"><input type="checkbox" checked={rv(latest).ok} onChange={e=>setReview({...rv(latest),ok:e.target.checked})}/> ลายเซ็นแสดงถูกต้องตามแบบฟอร์ม</label>}
      {latest.state===null&&rv(latest).unavailable&&<label className="check-label"><input type="checkbox" checked={rv(latest).skip} onChange={e=>setReview({...rv(latest),skip:e.target.checked})}/> ดูตัวอย่างไม่ได้ในเครื่องนี้ — ขอยืนยันโดยไม่ดูตัวอย่าง (ระบบบันทึกว่า “ไม่ได้ดูตัวอย่าง”)</label>}</fieldset>
-    <div className="action-bar">{latest.state===null&&<button type="button" className="button" disabled={busy||!(rv(latest).ok&&rv(latest).SINGLETON&&rv(latest).TWIN)&&!(rv(latest).unavailable&&rv(latest).skip)} onClick={()=>void decide(latest,"VERIFY")}>ยืนยันใบอนุญาตและลายเซ็น</button>}
+    <div className="action-bar">{latest.state===null&&<button type="button" className="button" disabled={busy||!rv(latest).ok&&!(rv(latest).unavailable&&rv(latest).skip)} onClick={()=>void decide(latest,"VERIFY")}>ยืนยันใบอนุญาตและลายเซ็น</button>}
      <button type="button" className="button secondary" disabled={busy} onClick={()=>void decide(latest,"REVOKE")}>เพิกถอน</button></div></div>}
   </div>:<p className="help">{self?"ยังไม่มีใบอนุญาตและลายเซ็นสำหรับรายงาน":"ผู้ใช้นี้ยังไม่ได้บันทึกใบอนุญาตและลายเซ็นในโปรไฟล์ของตนเอง"}</p>}
   {self&&<div className="stack"><h3>{latest?"บันทึกฉบับใหม่":"บันทึกใบอนุญาตและลายเซ็น"}</h3>
