@@ -23,6 +23,23 @@ it('opens a pair with the same number and Auto-fill puts a sample into both boxe
  }finally{await f.close();}
 },60000);
 
+it('a deleted pair gives its number back: the next pair is Box001 again, and a gap is filled by the lowest number free in both types',async()=>{
+ const f=await histFixture();try{
+  const one=await f.run(db=>storageCommand(db,f.maker,{action:'createBoxPair'})),two=await f.run(db=>storageCommand(db,f.maker,{action:'createBoxPair'}));
+  expect([one.boxes[0].boxId,two.boxes[0].boxId]).toEqual(['Box001','Box002']);
+  const gone=await f.run(db=>storageCommand(db,f.maker,{action:'deleteBox',boxId:one.boxes[0].id,withPartner:true}));
+  expect(gone.deleted.map(d=>d.boxType).sort()).toEqual(['BACKUP','BUFFY_COAT']);
+  const again=await f.run(db=>storageCommand(db,f.maker,{action:'createBoxPair'}));
+  expect(again.boxes.map(b=>`${b.boxType}:${b.boxId}`)).toEqual(['BACKUP:Box001','BUFFY_COAT:Box001']);
+  expect(again.boxes.map(b=>b.id)).not.toEqual(expect.arrayContaining([one.boxes[0].id]));
+  const list=await f.run(db=>storageSearch(db,f.maker,{boxType:'ALL'}));expect(list.boxes.map(b=>`${b.boxType}:${b.boxId}`).sort()).toEqual(['BACKUP:Box001','BACKUP:Box002','BUFFY_COAT:Box001','BUFFY_COAT:Box002']);
+  // Auto-fill fills the reused Box001 before Box002 (by the shown number)
+  const c=await stored(f,'9905300091');const plan=await f.run(db=>storageCommand(db,f.maker,{action:'autoFillPreview',storageTypes:['BACKUP']}));
+  expect(plan.placements.map(p=>p.boxId)).toEqual(['Box001']);
+  void c;
+ }finally{await f.close();}
+},60000);
+
 it('deletes only an empty box (with its partner when asked): the rows and history stay and the box leaves the lists, Auto-fill and the label',async()=>{
  const f=await histFixture();try{
   const pair=await f.run(db=>storageCommand(db,f.maker,{action:'createBoxPair'}));

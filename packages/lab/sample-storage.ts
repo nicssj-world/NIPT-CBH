@@ -201,7 +201,7 @@ async function autoFillPlan(db:Queryable,user:Staff,storageType:StorageType,sele
   FROM lab_storage_box b LEFT JOIN (
    SELECT box_id,slot FROM lab_storage_typed_position UNION ALL SELECT box_id,slot FROM lab_storage_position
   ) occupied ON occupied.box_id=b.id
-  WHERE b.box_type=$1 AND b.deleted_at IS NULL ORDER BY b.box_number ASC,occupied.slot ASC`,[storageType])).rows;
+  WHERE b.box_type=$1 AND b.deleted_at IS NULL ORDER BY b.type_number ASC NULLS LAST,b.box_number ASC,occupied.slot ASC`,[storageType])).rows;   // by the shown number: a reused Box001 is filled before Box002
  const byBox=new Map<string,{id:string;boxId:string;used:Set<number>}>();
  for(const row of boxRows){let box=byBox.get(row.id);if(!box){box={id:row.id,boxId:row.box_id,used:new Set()};byBox.set(row.id,box);}if(row.slot!==null)box.used.add(row.slot);}
  const placements:{roundId:string;ln:string;hn:string|null;lnHalos:string;roundNumber:number;receivedAt:string|null;storageType:StorageType;storageLabel:string;boxUuid:string;boxId:string;slot:number;position:string}[]=[];

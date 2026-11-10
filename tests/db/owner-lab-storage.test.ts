@@ -24,16 +24,22 @@ it('OWNER-LAB-051: an issued LN Halos is storable for Backup and Buffy without a
  }finally{await f.close();}
 });
 
-it('OWNER-LAB-051 (numbering per type, Owner 2026-11-10): Backup and Buffy Coat boxes are numbered Box001, Box002 … each; a number is never reused, not even after the box is deleted',async()=>{
+it('OWNER-LAB-051 (numbering per type, Owner 2026-11-10): Backup and Buffy Coat boxes are numbered Box001, Box002 … each; a deleted box gives its number back (the lowest free number is taken)',async()=>{
  const f=await histFixture();try{
-  const created=[];for(const type of ['BACKUP','BUFFY_COAT','BACKUP','BUFFY_COAT'] as const)created.push(await f.run(db=>storageCommand(db,f.maker,{action:'createBox',boxType:type})));
+  const created:{id:string;boxId:string;boxType:string}[]=[];for(const type of ['BACKUP','BUFFY_COAT','BACKUP','BUFFY_COAT'] as const)created.push(await f.run(db=>storageCommand(db,f.maker,{action:'createBox',boxType:type})));
   expect(created.map(b=>`${b.boxType}:${b.boxId}`)).toEqual(['BACKUP:Box001','BUFFY_COAT:Box001','BACKUP:Box002','BUFFY_COAT:Box002']);
   // a creation that rolls back leaves no box behind, so its number is simply the next one
   await expect(f.run(async db=>{await storageCommand(db,f.maker,{action:'createBox',boxType:'BACKUP'});throw new Error('ROLLBACK_PROBE');})).rejects.toThrow('ROLLBACK_PROBE');
   const third=await f.run(db=>storageCommand(db,f.maker,{action:'createBox',boxType:'BACKUP'}));expect(third.boxId).toBe('Box003');
-  // a deleted (empty) box keeps its row and number: the next box does not take the number over
+  // a deleted (empty) box keeps its row and history but gives its number back: the next box takes the lowest free number
   await f.run(db=>storageCommand(db,f.maker,{action:'deleteBox',boxId:third.id,withPartner:false}));
-  expect((await f.run(db=>storageCommand(db,f.maker,{action:'createBox',boxType:'BACKUP'}))).boxId).toBe('Box004');
+  const again=await f.run(db=>storageCommand(db,f.maker,{action:'createBox',boxType:'BACKUP'}));expect(again.boxId).toBe('Box003');expect(again.id).not.toBe(third.id);
+  // a gap in the middle is filled first, and only for its own type
+  await f.run(db=>storageCommand(db,f.maker,{action:'deleteBox',boxId:created[0].id,withPartner:false}));
+  expect((await f.run(db=>storageCommand(db,f.maker,{action:'createBox',boxType:'BACKUP'}))).boxId).toBe('Box001');
+  expect((await f.run(db=>storageCommand(db,f.maker,{action:'createBox',boxType:'BUFFY_COAT'}))).boxId).toBe('Box003');
+  // the deleted rows are still there, one per deleted box, each with its own history
+  expect((await f.db.query<{n:number}>('SELECT count(*)::int n FROM lab_storage_box WHERE deleted_at IS NOT NULL')).rows[0].n).toBe(2);
  }finally{await f.close();}
 });
 
