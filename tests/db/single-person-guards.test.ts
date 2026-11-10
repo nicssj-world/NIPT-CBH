@@ -14,6 +14,7 @@ const GUARDS:{fn:string;gone:RegExp[];kept:string[]}[]=[
  {fn:'p4c_review_guard',gone:[/SECOND_PERSON_REQUIRED/],kept:['OBSERVATION_NOT_CURRENT']},
  {fn:'p4c_verification_guard',gone:[/SECOND_PERSON_REQUIRED/],kept:['TRANSFER_NOT_CURRENT']},
  {fn:'settings_activation_guard',gone:[/approved_bys*=s*r.created_by/],kept:['SETTING_APPROVAL_REQUIRED']},
+ {fn:'report_template_active_guard',gone:[/approved_by\s*=\s*r\.created_by/],kept:['REPORT_TEMPLATE_APPROVAL_REQUIRED','REPORT_TEMPLATE_KIND_MISMATCH','test_passed']},   // migration 211
  {fn:'lab_bench_review_guard',gone:[/created_by\s*<>\s*NEW\.reviewer_id/],kept:['OWNER_WORKSHEET_MEASUREMENTS_AND_PEER_REVIEW_REQUIRED','lab_bench_revision_sha']},
  {fn:'p4b_qc2_guard',gone:[/recorded_by\s*<>\s*NEW\.actor_id/],kept:["r.result='Confirmed'",'QC2_VERIFIED_EVIDENCE_REQUIRED']},
  {fn:'p4c_qc3_guard',gone:[/recorded_by\s*<>\s*NEW\.actor_id/],kept:["r.result='Confirmed'",'QC3_VERIFIED_EVIDENCE_REQUIRED']}
