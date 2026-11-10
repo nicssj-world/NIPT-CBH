@@ -10,6 +10,11 @@ describe('Lab registration list: only matched numbers are registered and the res
   const items=[e('1','matched',{pet:pet('0690111001')}),e('2','failed',{reason:'x'}),e('3','matching'),e('4','choose'),e('5','registered',{pet:pet('0690111005')}),e('6','matched')];
   expect(toRegister(items).map(i=>i.id)).toEqual(['1']);   // 6 is "matched" without a PET record: never sent
  });
+ it('Owner 2026-11-10: the list shows the newest scan first but entries are registered in scan order (first scan first, so it gets the first LN Halos)',()=>{
+  const newestFirst=[e('3','matched',{pet:pet('0690111003')}),e('2','matched',{pet:pet('0690111002')}),e('1','matched',{pet:pet('0690111001')})];
+  expect(toRegister(newestFirst).map(i=>i.id)).toEqual(['1','2','3']);
+  expect(newestFirst.map(i=>i.id)).toEqual(['3','2','1']);   // the caller's list is not reordered
+ });
  it('the summary counts registered and not-matched entries and lists the numbers to check with the reason',()=>{
   const items=[e('1','registered'),e('2','registered'),e('3','failed',{reason:'ไม่พบ PET'}),e('4','choose'),e('5','failed',{ln:'',hn:'66123',reason:'ซ้ำ'})];
   expect(summarize(items)).toEqual({registered:2,failed:3,failedEntries:[{label:'0690111003',reason:'ไม่พบ PET'},{label:'0690111004',reason:CHOOSE_UNRESOLVED},{label:'HN 66123',reason:'ซ้ำ'}]});

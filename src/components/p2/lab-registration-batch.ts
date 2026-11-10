@@ -16,7 +16,8 @@ export function summarize(items:Entry[]){
  const failed=items.filter(i=>i.state==='failed'||i.state==='choose');
  return {registered:items.filter(i=>i.state==='registered').length,failed:failed.length,failedEntries:failed.map(i=>({label:entryLabel(i),reason:i.state==='choose'?CHOOSE_UNRESOLVED:i.reason??''}))};
 }
-/** Only matched entries are registered; failed ones never are. */
-export const toRegister=(items:Entry[])=>items.filter(i=>i.state==='matched'&&i.pet);
+/** Only matched entries are registered; failed ones never are. The list shows the newest scan first, but registration (and so the LN Halos
+ *  numbers issued in order) follows the order of scanning: the first scan is registered first (Owner 2026-11-10). */
+export const toRegister=(items:Entry[])=>items.filter(i=>i.state==='matched'&&i.pet).reverse();
 /** The same patient (LN) may appear once per sitting. */
 export const isDuplicate=(items:Entry[],id:string,pet:RegistrationPet)=>items.some(o=>o.id!==id&&o.state!=='failed'&&o.pet?.ln===pet.ln);
