@@ -12,8 +12,8 @@ describe("P4 tube labels — Owner Lock 2026-10-12 / Genomic-CBH label-print.ts"
  it("AT-LABEL-01: one sample = 4 stickers / 8 halves in exact order (BASE,BASE)(BASE,BASE)(BASE,BASE-1)(BASE-2,BASE-3)",()=>{
   const html=buildTubeLabelsHtml([sample]);
   expect(html.match(/class="sticker"/g)).toHaveLength(4);
-  expect(halves(html).map(h=>h.side+":"+h.code)).toEqual(["left:26B261012001","right:26B261012001","left:26B261012001","right:26B261012001","left:26B261012001","right:26B261012001-1","left:26B261012001-2","right:26B261012001-3"]);
-  expect(tubeLabelStickers("X")).toEqual([["X","X"],["X","X"],["X","X-1"],["X-2","X-3"]]);
+  expect(halves(html).map(h=>h.side+":"+h.code)).toEqual(["left:26B261012001-1","right:26B261012001","left:26B261012001-2","right:26B261012001","left:26B261012001-3","right:26B261012001","left:26B261012001","right:26B261012001"]);   // Owner 2026-11-10: left side -1, -2, -3 downward
+  expect(tubeLabelStickers("X")).toEqual([["X-1","X"],["X-2","X"],["X-3","X"],["X","X"]]);
   const codes=halves(html).map(h=>h.code);expect(codes.filter(c=>c==="26B261012001")).toHaveLength(5);for(const s of ["-1","-2","-3"])expect(codes.filter(c=>c==="26B261012001"+s)).toHaveLength(1);
  });
  it("AT-LABEL-02: print CSS is a 50×20 mm page with no margin, 25×20 mm halves and a dashed divider",()=>{

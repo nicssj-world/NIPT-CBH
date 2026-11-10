@@ -79,10 +79,11 @@ export function buildTubeLabelsHtml(samples: Pick<SampleRow, 'ln' | 'lnHalos' | 
     const ln = sample.ln
     const name = sample.patientName
     return [
+      // Owner 2026-11-10: the order of the eight halves changed (left -1, -2, -3 downward); this copy follows the current builder.
+      sticker(`${code}-1`, code, ln, name, sequence),
+      sticker(`${code}-2`, code, ln, name, sequence),
+      sticker(`${code}-3`, code, ln, name, sequence),
       sticker(code, code, ln, name, sequence),
-      sticker(code, code, ln, name, sequence),
-      sticker(code, `${code}-1`, ln, name, sequence),
-      sticker(`${code}-2`, `${code}-3`, ln, name, sequence),
     ]
   }).join('')
 

@@ -15,9 +15,12 @@ function escapeHtml(value: string): string {
   }[char] ?? char));
 }
 
-/** The eight halves of one sample in print order: (BASE,BASE) (BASE,BASE) (BASE,BASE-1) (BASE-2,BASE-3). */
+/**
+ * The eight halves of one sample in print order. Owner 2026-11-10: the left side reads -1, -2, -3 downward, the right side is the base code:
+ * (BASE-1,BASE) (BASE-2,BASE) (BASE-3,BASE) (BASE,BASE). Same eight halves as before (five BASE, one each of -1/-2/-3), only their places changed.
+ */
 export function tubeLabelStickers(code: string): [string, string][] {
-  return [[code, code], [code, code], [code, `${code}-1`], [`${code}-2`, `${code}-3`]];
+  return [[`${code}-1`, code], [`${code}-2`, code], [`${code}-3`, code], [code, code]];
 }
 
 function cornerSequence(lnHalos: string): string {
