@@ -79,8 +79,8 @@ describe('lifecycle (PGlite)',()=>{
   expect((await db.query<{state:string}>('SELECT state FROM report_template_revision WHERE id=$1',[up.id])).rows[0].state).toBe('Uploaded');
   const ok=await run(async t=>testTemplate(t,admin,store,up.id,await deps(true)));expect(ok.passed).toBe(true);
   await expect(run(t=>approveTemplate(t,admin,{id:up.id}))).rejects.toMatchObject({code:'FORBIDDEN'});                                       // maker cannot approve
-  await expect(run(t=>approveTemplate(t,approver,{id:up.id}))).rejects.toMatchObject({code:'TEMPLATE_PRODUCT_ACKNOWLEDGEMENT_REQUIRED'});     // HNZ0051 on the file, no approved product yet
-  const approved=await run(t=>approveTemplate(t,approver,{id:up.id,acknowledgeProductDifference:true}));expect(approved.productDifference).toMatchObject({template:'HNZ0051'});
+  // Owner 2026-11-10: the product setting is "NONE" (no restriction), so HNZ0051 on the file needs no acknowledgement.
+  const approved=await run(t=>approveTemplate(t,approver,{id:up.id}));expect(approved.productDifference).toBeNull();
   await expect(run(t=>activateTemplate(t,lab,{id:up.id}))).rejects.toMatchObject({code:'FORBIDDEN'});
   await run(t=>activateTemplate(t,admin,{id:up.id}));
   const act=await run(t=>activeTemplate(t,'SINGLETON'));expect(act).toMatchObject({version:1,sha256:sha256(master('SINGLETON')),code:TEMPLATES.SINGLETON.code});

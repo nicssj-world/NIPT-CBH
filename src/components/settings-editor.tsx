@@ -54,6 +54,7 @@ export function SettingsEditor(){
   if(f.kind==='res-profile')return <HisProfileFields key={f.name} value={v} editable={editable} onChange={v=>set(f.name,v)} resultStyle={value.resultStyle as string|undefined} operatorHisId={(value.operatorHisId as string|null|undefined)??null} onOperatorChange={o=>set('operatorHisId',o)} onResultStyleChange={st=>set('resultStyle',st)}/>;
   if(key==='his_outbound'&&f.name==='resultStyle')return null;// edited inside the RES form (R[3])
   if(f.kind==='his-operator')return null;// edited inside the RES profile form (R[10])
+  if(key==='report_interpretation'&&['singletonApprovedProduct','twinApprovedProduct'].includes(f.name))return null;// Owner 2026-11-10: "NONE" = every recognised product; not asked
   if(key==='report_interpretation'&&f.name==='approvalReference')return null;// Owner 2026-11-10: a free-text note nothing reads or checks; kept in the data, not shown
   if(f.kind==='his-certifiers')return <HisCertifierFields key={f.name} value={v} users={certifierUsers} editable={editable} onChange={v=>set(f.name,v)}/>;
   const unused=(key==='doctor_registry'&&f.name==='version')||(key==='laboratory'&&['templateVersion','formulaVersion'].includes(f.name));

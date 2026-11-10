@@ -154,7 +154,8 @@ export async function previewPdf(db:Queryable,user:Staff,store:FileStore,id:stri
 /** Product text printed on the template can differ from the product approved for reports (HNZ0011 vs HNZ0051): disclosed, never silently accepted. */
 async function approvedProduct(db:Queryable,kind:TemplateKind){
  const v=SETTINGS.report_interpretation.schema.parse((await readActiveSettings(db)).report_interpretation??SETTINGS.report_interpretation.default);
- return (kind==='SINGLETON'?v.singletonApprovedProduct:v.twinApprovedProduct)||null;
+ const p=kind==='SINGLETON'?v.singletonApprovedProduct:v.twinApprovedProduct;
+ return p&&p!=='NONE'?p:null;// "NONE" = no product restriction (Owner 2026-11-10): nothing to disclose or acknowledge
 }
 export async function approveTemplate(db:Queryable,user:Staff,raw:unknown){
  await assertSession(db,user);
@@ -164,7 +165,7 @@ export async function approveTemplate(db:Queryable,user:Staff,raw:unknown){
  need(user,'settings.approve','approve',{actorId:r.created_by});
  if(r.state!=='Validated'||!r.test_passed)throw new LabError('TEMPLATE_TEST_REQUIRED',409);
 
- const approved=await approvedProduct(db,r.kind),differs=!!r.product_in_template&&r.product_in_template!==approved;
+ const approved=await approvedProduct(db,r.kind),differs=!!r.product_in_template&&approved!==null&&r.product_in_template!==approved;
  if(differs&&!d.acknowledgeProductDifference)throw new LabError('TEMPLATE_PRODUCT_ACKNOWLEDGEMENT_REQUIRED',409,{template:r.product_in_template,approved});
  await db.query("UPDATE report_template_revision SET state='Approved',approved_by=$2,approved_at=now(),product_acknowledged_by=$3 WHERE id=$1",[r.id,user.id,differs?user.id:null]);
  await audit(db,user,'REPORT_TEMPLATE_APPROVED','REPORT_TEMPLATE',r.id,{version:r.version,outcome:'APPROVED',...(differs?{reasonCode:'PRODUCT_DIFFERENCE_ACKNOWLEDGED'}:{})});

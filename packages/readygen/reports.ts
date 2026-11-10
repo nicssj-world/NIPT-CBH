@@ -148,7 +148,8 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  if(!approval.approvedRevision||!approval.value.interpretationApproved)h('INTERPRETATION_RULESET_NOT_APPROVED');
  else if(!approval.rulesetMatches)h('RULESET_VERSION_MISMATCH');
  if(noCall&&(!approval.approvedRevision||!approval.value.noCallRenderingApproved))h('NO_CALL_RENDERING_NOT_APPROVED');
- if(productCode&&(!approval.approvedRevision||approvedProduct!==productCode))h('PRODUCT_TEMPLATE_COMBINATION_NOT_APPROVED',{raw:`${productCode}/${TEMPLATES[template].code}`});
+ // Owner 2026-11-10: "NONE" (the default) means no restriction: any product the system recognises is reported. A product named in the setting still must match.
+ if(productCode&&approvedProduct!=='NONE'&&approvedProduct!==productCode)h('PRODUCT_TEMPLATE_COMBINATION_NOT_APPROVED',{raw:`${productCode}/${TEMPLATES[template].code}`});
  if(!await masterBytes(db,deps,template))h('REPORT_MASTER_NOT_INSTALLED');
  const v=interpretation.values,identityBound=(pet||eqa)&&specimenAt&&receivedAt&&ga!==null;
  const canBind=identityBound&&(noCall?!!noCallQc:v.qc&&v.t21&&v.t18&&v.t13&&v.probability.t21&&v.probability.t18&&v.probability.t13);
@@ -277,7 +278,7 @@ export async function finalizeReports(db:Queryable,user:Staff,deps:ReportDeps,in
    const name=await configuredReportName(db,w.p.attemptId,{hisLn:w.p.hisLn,lnHalos:w.p.lnHalos??'',sampleId:w.p.sampleId,hn:w.p.hn??'',patientName:w.p.values!.patientName,reportDate:bangkokDay(w.signers.approved.authority!.checkedAt),template:TEMPLATES[w.p.template].code,version:String(seq)});
    const snap=(a:SignerAuthority)=>({basis:a.basis,delegationId:a.delegationId,authorityReference:a.authorityReference,operatorId:a.operatorId,profileId:a.profile.id,profileVersion:a.profile.version,legalName:a.profile.legal_name,license:a.profile.mt_license_no,signatureSha256:a.profile.signature_sha256,checkedAt:a.checkedAt});
    const ruleset={id:RULESET.id,version:RULESET.version,sha256:RULESET_SHA256,settingRevisionId:w.p.approval.revisionId,settingRevisionVersion:w.p.approval.revisionVersion,approved:w.p.approval.approvedRevision&&w.p.approval.value.interpretationApproved,
-    combinationApproved:(w.p.template==='SINGLETON'?w.p.approval.value.singletonApprovedProduct:w.p.approval.value.twinApprovedProduct)===w.p.productCode,productCode:w.p.productCode,approvalReference:w.p.approval.value.approvalReference,
+    combinationApproved:(a=>a==='NONE'||a===w.p.productCode)(w.p.template==='SINGLETON'?w.p.approval.value.singletonApprovedProduct:w.p.approval.value.twinApprovedProduct),productCode:w.p.productCode,approvalReference:w.p.approval.value.approvalReference,
     noCallRenderingApproved:w.p.approval.approvedRevision&&w.p.approval.value.noCallRenderingApproved};
    // A No Call is a recorded disposition of the attempt, not an interpretation of findings; the HALOS trace is kept for the record only.
    const interpretation=w.p.noCall?{status:'NO_CALL',template:w.p.template,source:'ATTEMPT_NO_CALL_SELECTED',qc:w.p.values!.qc,ruleset:w.p.interpretation.ruleset,halosTrace:w.p.interpretation.trace}:w.p.interpretation;
