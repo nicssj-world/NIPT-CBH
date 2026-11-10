@@ -55,7 +55,8 @@ export function inspectTemplate(kind:TemplateKind,bytes:Buffer,fileName=''):Temp
  out.missing=TOKENS[kind].filter(t=>!found.has(t));out.ambiguous=[...amb];
  if(out.unknown.length)err('TEMPLATE_UNKNOWN_PLACEHOLDER',out.unknown);
  if(out.ambiguous.length)err('TEMPLATE_AMBIGUOUS_PLACEHOLDER_SYNTAX',out.ambiguous);
- if(out.missing.length)err('TEMPLATE_PLACEHOLDER_MISSING',out.missing);
+ // Owner 2026-11-10: the template is the Owner's layout; leaving a supported ${name} out is their choice, so it is a notice, not a rejection.
+ if(out.missing.length)out.warnings.push({code:'TEMPLATE_PLACEHOLDER_MISSING',detail:out.missing});
  const joined=text.join('\n');
  // The Owner's masters print the form code as "Fm-WI-T-BM17-07" (case and hyphen vary) and state the product only in the file name
  // ("… HNZ0051-Singleton"); both spellings normalise to one controlled-document code / product.

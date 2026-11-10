@@ -27,11 +27,11 @@ function Findings({i}:{i:Insp}){
   {i.errors.length===0?<p className="tpl-ok"><LabIcon name="check" size={16}/>ตรวจโครงสร้างผ่าน — พบ {i.found.length} ช่อง ${"{…}"}{i.product?` · ผลิตภัณฑ์ที่ระบุ ${i.product}`:""}{i.code?` · รหัสเอกสาร ${i.code}`:""}</p>
    :<ul className="tpl-errors">{i.errors.map(e=><li key={e.code}><LabIcon name="x" size={16}/><span>{MESSAGE[e.code]??e.code}</span></li>)}</ul>}
   {i.unknown.length>0&&<p className="tpl-detail">ไม่รู้จัก: {i.unknown.map(u=><code key={u.token}>{"${"+u.token+"}"}{u.suggestion?` → ควรเป็น ${"${"+u.suggestion+"}"}`:""}</code>)}</p>}
-  {i.missing.length>0&&<p className="tpl-detail">ขาด: {i.missing.map(m=><code key={m}>{"${"+m+"}"}</code>)}</p>}
+  {i.missing.length>0&&<p className="tpl-detail">ช่องที่ไม่ได้ใช้ในแม่แบบนี้ (ไม่บังคับ): {i.missing.map(m=><code key={m}>{"${"+m+"}"}</code>)}</p>}
   {i.ambiguous.length>0&&<p className="tpl-detail">รูปแบบน่าสงสัย: {i.ambiguous.map(a=><code key={a}>{a}</code>)}</p>}
  </div>;
 }
-export function ReportTemplatesPanel({canManage,canApprove,userId}:{canManage:boolean;canApprove:boolean;userId:string}){
+export function ReportTemplatesPanel({canManage,canApprove}:{canManage:boolean;canApprove:boolean;userId:string}){
  const [o,setO]=useState<Overview|null>(null),[error,setError]=useState(""),[notice,setNotice]=useState(""),[busy,setBusy]=useState(""),[reason,setReason]=useState<Record<Kind,string>>({SINGLETON:"",TWIN:""});
  const [folder,setFolder]=useState(""),[listing,setListing]=useState<{folder:string;files:{name:string;size:number}[]}|null>(null),[ack,setAck]=useState<Record<string,boolean>>({});
  const fileRef=useRef<Record<Kind,HTMLInputElement|null>>({SINGLETON:null,TWIN:null});
@@ -44,7 +44,7 @@ export function ReportTemplatesPanel({canManage,canApprove,userId}:{canManage:bo
  async function list(){setBusy("list");setError("");try{const r=await fetch("/api/settings/report-templates?folder="+encodeURIComponent(folder),{cache:"no-store"});const d=await r.json();if(!r.ok)throw Error(d.error??"อ่านโฟลเดอร์ไม่ได้");setListing(d);}catch(e){setError((e as Error).message);}finally{setBusy("");}}
  if(!o)return error?<p className="notice" role="alert">{error}</p>:<p role="status">กำลังโหลด…</p>;
  return <section className="tpl" aria-labelledby="tpl-title">
-  <header><h2 id="tpl-title">แม่แบบรายงานผล (ReadyGen)</h2><p className="help">นำไฟล์ Word เข้าระบบ → ระบบตรวจช่อง ${"{ชื่อ}"} → ทดสอบสร้างตัวอย่างด้วย Word และอ่านกลับเหมือนรายงานจริง → ผู้อนุมัติอีกคนอนุมัติ → เปิดใช้ได้ทันที ไม่ต้องติดตั้งใหม่ รายงานที่ออกไปแล้วยังผูกกับแม่แบบเดิม ส่วนชุดกฎการแปลผลทางคลินิกไม่เปลี่ยนจากหน้านี้</p></header>
+  <header><h2 id="tpl-title">แม่แบบรายงานผล (ReadyGen)</h2><p className="help">นำไฟล์ Word เข้าระบบ → ระบบตรวจช่อง ${"{ชื่อ}"} → ทดสอบสร้างตัวอย่างด้วย Word และอ่านกลับเหมือนรายงานจริง → อนุมัติ → เปิดใช้ได้ทันที ไม่ต้องติดตั้งใหม่ รายงานที่ออกไปแล้วยังผูกกับแม่แบบเดิม ส่วนชุดกฎการแปลผลทางคลินิกไม่เปลี่ยนจากหน้านี้</p></header>
   <div aria-live="polite">{error&&<p className="notice" role="alert">{error}</p>}{notice&&<p className="notice success" role="status">{notice}</p>}</div>
   {canManage&&<div className="tpl-folder"><div className="field"><label htmlFor="tpl-folder">โฟลเดอร์แม่แบบบนเซิร์ฟเวอร์ (เช่น D:\Templates หรือ \\server\share) — อ่านอย่างเดียว</label><input id="tpl-folder" value={folder} onChange={e=>setFolder(e.target.value)} spellCheck={false} placeholder="เส้นทางเต็มของโฟลเดอร์ที่มีไฟล์ .docx"/></div>
    <button type="button" className="button secondary" disabled={!folder.trim()||busy==="list"} onClick={()=>void list()}><LabIcon name="refresh"/>แสดงไฟล์ในโฟลเดอร์</button></div>}
@@ -57,15 +57,14 @@ export function ReportTemplatesPanel({canManage,canApprove,userId}:{canManage:bo
      <button type="button" className="button" disabled={!!busy} onClick={()=>void upload(kind)}><LabIcon name="upload"/>นำเข้าและตรวจ</button>
      {listing&&listing.files.length>0&&<div className="tpl-folder-files"><span className="help">ไฟล์ในโฟลเดอร์:</span>{listing.files.map(f=><button type="button" key={f.name} className="button secondary" disabled={!!busy} onClick={()=>void post("imp"+kind+f.name,{operation:"import",kind,folder:listing.folder,name:f.name,reason:reason[kind].trim()||"นำเข้าจากโฟลเดอร์แม่แบบ"},`นำเข้า ${f.name} แล้ว`)}>{f.name}</button>)}</div>}</div>}
     <ul className="tpl-revs">{v.revisions.length===0&&<li className="help">ยังไม่มีรุ่นที่นำเข้า — ระบบใช้แม่แบบมาตรฐานของ Owner</li>}
-     {v.revisions.map(r=>{const mine=r.createdBy===userId;return <li key={r.id} className={`tpl-rev ${r.state.toLowerCase()}`}>
+     {v.revisions.map(r=>{return <li key={r.id} className={`tpl-rev ${r.state.toLowerCase()}`}>
       <div className="tpl-rev-head"><strong>รุ่น {r.version}</strong><span className={`badge tpl-${r.state.toLowerCase()}`}>{STATE[r.state]??r.state}</span><span className="help">{r.name} · {Math.round(r.size/1024)} KB · {when(r.createdAt)} · {r.source==="FOLDER"?"จากโฟลเดอร์":"อัปโหลด"} · {r.reason}</span></div>
       <Findings i={r.inspection}/>
       <div className="tpl-actions">
        {r.hasPreview&&<a className="button secondary" href={`/api/settings/report-templates?preview=${r.id}`} target="_blank" rel="noreferrer"><LabIcon name="eye"/>ดูตัวอย่าง PDF (ลายน้ำ)</a>}
        {canManage&&r.state==="Uploaded"&&r.inspection.errors.length===0&&<button type="button" className="button" disabled={!!busy} onClick={()=>void post("t"+r.id,{operation:"test",id:r.id},`ทดสอบรุ่น ${r.version} ผ่าน`)}><LabIcon name="refresh"/>ทดสอบสร้างตัวอย่าง</button>}
-       {canApprove&&r.state==="Validated"&&!mine&&<>{r.product&&r.product!==v.approvedProduct&&<label className="check-label"><input type="checkbox" checked={!!ack[r.id]} onChange={e=>setAck(x=>({...x,[r.id]:e.target.checked}))}/> รับทราบ: ไฟล์ระบุผลิตภัณฑ์ {r.product} แต่ผลิตภัณฑ์ที่อนุมัติใช้กับรายงานคือ {v.approvedProduct??"ยังไม่กำหนด"}</label>}
-        <button type="button" className="button" disabled={!!busy} onClick={()=>void post("a"+r.id,{operation:"approve",id:r.id,acknowledgeProductDifference:!!ack[r.id]},`อนุมัติรุ่น ${r.version} แล้ว`)}><LabIcon name="check"/>อนุมัติ (ผู้ตรวจอีกคน)</button></>}
-       {r.state==="Validated"&&mine&&<span className="help">รออนุมัติจากผู้อนุมัติอีกคน (ผู้นำเข้าอนุมัติเองไม่ได้)</span>}
+       {canApprove&&r.state==="Validated"&&<>{r.product&&r.product!==v.approvedProduct&&<label className="check-label"><input type="checkbox" checked={!!ack[r.id]} onChange={e=>setAck(x=>({...x,[r.id]:e.target.checked}))}/> รับทราบ: ไฟล์ระบุผลิตภัณฑ์ {r.product} แต่ผลิตภัณฑ์ที่อนุมัติใช้กับรายงานคือ {v.approvedProduct??"ยังไม่กำหนด"}</label>}
+        <button type="button" className="button" disabled={!!busy} onClick={()=>void post("a"+r.id,{operation:"approve",id:r.id,acknowledgeProductDifference:!!ack[r.id]},`อนุมัติรุ่น ${r.version} แล้ว`)}><LabIcon name="check"/>อนุมัติ</button></>}
        {canManage&&(r.state==="Approved"||r.state==="Archived")&&<button type="button" className="button" disabled={!!busy} onClick={()=>void post("act"+r.id,{operation:"activate",id:r.id},`เปิดใช้รุ่น ${r.version} แล้ว — รายงานฉบับถัดไปใช้แม่แบบนี้`)}><LabIcon name="save"/>{r.state==="Archived"?"กู้คืนรุ่นนี้":"เปิดใช้"}</button>}
        {(canManage||canApprove)&&["Uploaded","Validated","Approved"].includes(r.state)&&<button type="button" className="button secondary" disabled={!!busy} onClick={()=>void post("r"+r.id,{operation:"reject",id:r.id,reason:"ไม่ผ่านการทบทวน"},`ปฏิเสธรุ่น ${r.version} แล้ว`)}><LabIcon name="x"/>ปฏิเสธ</button>}
       </div></li>;})}</ul>

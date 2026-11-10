@@ -44,7 +44,7 @@ describe('inspection (pure)',()=>{
   const dashed=inspectTemplate('SINGLETON',variant('SINGLETON',addParagraph('${sample-id}')));expect(dashed.errors.map(e=>e.code)).toContain('TEMPLATE_AMBIGUOUS_PLACEHOLDER_SYNTAX');
  });
  it('a Twin file is not accepted as a Singleton (and vice versa): the controlled form code and placeholder set differ',()=>{
-  const asSingleton=inspectTemplate('SINGLETON',master('TWIN'));expect(asSingleton.errors.map(e=>e.code)).toEqual(expect.arrayContaining(['TEMPLATE_DOCUMENT_CODE_MISMATCH','TEMPLATE_PLACEHOLDER_MISSING']));
+  const asSingleton=inspectTemplate('SINGLETON',master('TWIN'));expect(asSingleton.errors.map(e=>e.code)).toEqual(expect.arrayContaining(['TEMPLATE_DOCUMENT_CODE_MISMATCH']));expect(asSingleton.errors.map(e=>e.code)).not.toContain('TEMPLATE_PLACEHOLDER_MISSING');
   const asTwin=inspectTemplate('TWIN',master('SINGLETON'));expect(asTwin.errors.map(e=>e.code)).toContain('TEMPLATE_DOCUMENT_CODE_MISMATCH');expect(asTwin.unknown.length).toBeGreaterThan(0);
  });
  it('macros / embedded code, non-DOCX bytes, oversize and a removed signature slot are refused',()=>{

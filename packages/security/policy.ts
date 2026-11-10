@@ -117,7 +117,7 @@ export type Operation = "read" | "write" | "propose" | "approve";
 // account). It holds every workspace, laboratory, clinical-review, reporting and configuration action and always acts under its
 // own identity and audit actor. It does not inherit: actions denied to everyone (signing as the patient, sending historical
 // results, the hard HIS production switch, redraw after release), the Historical Verifier's promotion (historical migration is a
-// separate, later decision), and self-approval - the maker-checker separation in authorize() applies to APP_ADMIN like anyone.
+// separate, later decision). Self-approval is allowed (Owner 2026-11-03: nobody needs a second name).
 export const APP_ADMIN_RESTRICTED_ACTIONS:ReadonlySet<Action>=new Set<Action>([
   "consent.sign.patient","his.production.enable","history.send","redraw.after.release","history.promote"
 ]);

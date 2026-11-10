@@ -80,7 +80,7 @@ export const SETTING_FORMS:Record<SettingKey,SettingForm>={
   {name:"rulesetId",label:"ชุดกฎการแปลผล",help:"ถอดจาก ReadyGen Config/enrichment เป็นข้อมูลอ้างอิงเท่านั้น",kind:"locked",lockedBy:"รุ่นที่ติดตั้ง"},
   {name:"rulesetVersion",label:"รุ่นชุดกฎ",help:"เปลี่ยนรุ่นได้ด้วยการติดตั้งรุ่นใหม่และอนุมัติใหม่เท่านั้น",kind:"locked",lockedBy:"รุ่นที่ติดตั้ง"},
   {name:"rulesetSha256",label:"SHA-256 ของชุดกฎ",help:"ระบบตรวจว่าตรงกับชุดกฎที่ใช้จริงก่อนออกรายงานทุกฉบับ",kind:"locked",lockedBy:"รุ่นที่ติดตั้ง"},
-  {name:"interpretationApproved",label:"อนุมัติชุดกฎนี้ใช้ออกรายงาน",help:"ต้องผ่านการอนุมัติทางคลินิกจากผู้อนุมัติคนละคนกับผู้เสนอ ถ้าไม่อนุมัติ รายงานทุกฉบับจะ HOLD",kind:"boolean"},
+  {name:"interpretationApproved",label:"อนุมัติชุดกฎนี้ใช้ออกรายงาน",help:"ผู้ดูแลระบบบันทึกร่างแล้วกดอนุมัติเองได้ ถ้าไม่อนุมัติ รายงานทุกฉบับจะ HOLD",kind:"boolean"},
   {name:"singletonApprovedProduct",label:"ผลิตภัณฑ์ที่อนุมัติให้ใช้กับแบบฟอร์มครรภ์เดี่ยว (FM-WI-T-BM-17-07)",help:"แบบฟอร์มระบุ HNZ0051 แต่ไฟล์ NIFTY อาจเป็นรหัสอื่น เช่น HNZ0011 — ต้องอนุมัติความเข้ากันได้ก่อน มิฉะนั้น HOLD",kind:"select",options:REPORT_PRODUCT_CHOICES.map(v=>({value:v,label:v==="NONE"?"ยังไม่อนุมัติ (HOLD)":v}))},
   {name:"twinApprovedProduct",label:"ผลิตภัณฑ์ที่อนุมัติให้ใช้กับแบบฟอร์มครรภ์แฝด (FM-WI-T-BM-17-08)",help:"ต้องอนุมัติแยกจากครรภ์เดี่ยว",kind:"select",options:REPORT_PRODUCT_CHOICES.map(v=>({value:v,label:v==="NONE"?"ยังไม่อนุมัติ (HOLD)":v}))},
   {name:"noCallRenderingApproved",label:"อนุมัติรูปแบบรายงาน No Call",help:"ใช้แบบฟอร์มเดิม: ทุกช่องผลพิมพ์ No Call, Probability พิมพ์ \"-\", Remark พิมพ์ \"Result = No Call\" และ QC พิมพ์ PASS หรือ FAIL ตามค่า QC จาก HALOS โดยไม่ตัดส่วนใดออก",kind:"boolean"},
