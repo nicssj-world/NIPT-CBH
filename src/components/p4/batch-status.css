@@ -1,0 +1,30 @@
+/* Run status badges (Owner 2026-11-10): one colour per status; the words stay on the badge, so colour is never the only cue. */
+.batch-status {border:1px solid transparent;font-weight:650;white-space:nowrap;}
+.batch-status.st-draft {background:hsl(215 18% 92%);color:hsl(215 22% 30%);border-color:hsl(215 18% 80%);}
+.batch-status.st-prep {background:hsl(200 75% 91%);color:hsl(205 80% 25%);border-color:hsl(200 55% 78%);}
+.batch-status.st-extraction {background:hsl(172 55% 89%);color:hsl(175 70% 20%);border-color:hsl(172 40% 74%);}
+.batch-status.st-qc1 {background:hsl(88 55% 87%);color:hsl(95 60% 22%);border-color:hsl(88 40% 72%);}
+.batch-status.st-qc {background:hsl(44 95% 87%);color:hsl(34 85% 22%);border-color:hsl(44 70% 68%);}
+.batch-status.st-pool-file {background:hsl(22 95% 90%);color:hsl(16 80% 28%);border-color:hsl(22 70% 74%);}
+.batch-status.st-pool {background:hsl(275 70% 92%);color:hsl(275 55% 30%);border-color:hsl(275 45% 78%);}
+.batch-status.st-seq-file {background:hsl(235 85% 92%);color:hsl(235 55% 33%);border-color:hsl(235 55% 80%);}
+.batch-status.st-done {background:hsl(142 55% 86%);color:hsl(145 75% 17%);border-color:hsl(142 45% 66%);}
+.batch-status.st-cancelled {background:hsl(352 85% 92%);color:hsl(352 70% 32%);border-color:hsl(352 60% 78%);}
+.batch-status.st-historical,.batch-status.st-other {background:hsl(210 12% 90%);color:hsl(210 14% 30%);border-color:hsl(210 12% 76%);border-style:dashed;}
+html[data-theme="dark"] .batch-status.st-draft {background:hsl(215 18% 20%);color:hsl(215 25% 82%);border-color:hsl(215 18% 32%);}
+html[data-theme="dark"] .batch-status.st-prep {background:hsl(205 55% 20%);color:hsl(200 80% 82%);border-color:hsl(205 45% 33%);}
+html[data-theme="dark"] .batch-status.st-extraction {background:hsl(175 45% 17%);color:hsl(172 60% 78%);border-color:hsl(175 35% 30%);}
+html[data-theme="dark"] .batch-status.st-qc1 {background:hsl(95 35% 17%);color:hsl(88 55% 78%);border-color:hsl(95 28% 30%);}
+html[data-theme="dark"] .batch-status.st-qc {background:hsl(38 60% 19%);color:hsl(44 90% 78%);border-color:hsl(38 45% 33%);}
+html[data-theme="dark"] .batch-status.st-pool-file {background:hsl(18 55% 20%);color:hsl(22 90% 80%);border-color:hsl(18 42% 34%);}
+html[data-theme="dark"] .batch-status.st-pool {background:hsl(275 35% 22%);color:hsl(275 70% 85%);border-color:hsl(275 30% 36%);}
+html[data-theme="dark"] .batch-status.st-seq-file {background:hsl(235 40% 24%);color:hsl(235 85% 86%);border-color:hsl(235 32% 40%);}
+html[data-theme="dark"] .batch-status.st-done {background:hsl(145 45% 16%);color:hsl(142 60% 78%);border-color:hsl(145 35% 30%);}
+html[data-theme="dark"] .batch-status.st-cancelled {background:hsl(352 45% 21%);color:hsl(352 85% 85%);border-color:hsl(352 35% 36%);}
+html[data-theme="dark"] .batch-status.st-historical,html[data-theme="dark"] .batch-status.st-other {background:hsl(210 12% 20%);color:hsl(210 15% 80%);border-color:hsl(210 12% 34%);}
+.batch-status-legend {margin-top:var(--space-5,24px);padding-top:var(--space-4,16px);border-top:1px solid var(--color-line);}
+.batch-status-legend h2 {font-size:1rem;margin:0 0 var(--space-3,12px);}
+.batch-status-legend ul {list-style:none;margin:0;padding:0;display:grid;gap:var(--space-2,8px);}
+.batch-status-legend li {display:grid;grid-template-columns:minmax(190px,max-content) 1fr;gap:var(--space-3,12px);align-items:center;}
+.batch-status-legend .badge {margin:0;justify-self:start;}
+@media (max-width:600px){.batch-status-legend li {grid-template-columns:1fr;gap:var(--space-1,4px);}}

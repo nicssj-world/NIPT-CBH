@@ -5,7 +5,7 @@ import {withTransaction} from "../../../../../packages/db/connection";
 import {listUnifiedRunPage} from "../../../../../packages/lab/historical-run";
 import {CreateBatchButton} from "../../../../components/p4/create-batch";
 import {Pager} from "../../../../components/shared/pager";
-import {BatchStatus} from "../../../../components/p4/batch-status";
+import {BatchStatus,BatchStatusLegend} from "../../../../components/p4/batch-status";
 
 const SHEET:Record<string,string>={Draft:"ร่าง",PlanChecked:"ยืนยันแผน",PlacementFinalized:"ล็อกตำแหน่ง",PreWorkIssued:"ออกใบงาน",Amended:"แก้แผน",InExecution:"กำลังปฏิบัติ",ExecutionRecorded:"บันทึกจบ",ExecutionVerified:"ทวนสอบแล้ว",CompletedIssued:"เสร็จ",Cancelled:"ยกเลิก"};
 export default async function BatchesPage({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}){
@@ -25,13 +25,14 @@ export default async function BatchesPage({searchParams}:{searchParams:Promise<R
     <thead><tr><th scope="col">Run</th><th scope="col">สถานะ</th><th scope="col">ตัวอย่าง</th><th scope="col">รายละเอียด / Task List 1–3</th><th scope="col">สร้างเมื่อ</th></tr></thead>
     <tbody>{rows.map(r=><tr key={r.source+":"+r.run_label}>
      <td><Link className="mono strong" href={r.source==="HISTORICAL"?`/lab/historical-runs/${r.run_label.replace("/","-")}`:`/lab/batches/${r.id}`}>{r.run_label}</Link></td>
-     <td>{r.source==="HISTORICAL"?<span className="badge">ย้อนหลัง · อ่านอย่างเดียว</span>:<BatchStatus {...r}/>}</td>
+     <td>{r.source==="HISTORICAL"?<span className="badge batch-status st-historical">ย้อนหลัง · อ่านอย่างเดียว</span>:<BatchStatus {...r}/>}</td>
      <td>{r.samples}</td>
      <td>{r.source==="HISTORICAL"?`Control ${r.controls} · ตรวจซ้ำ ${r.technical_repeats} · มี PDF ${r.with_pdf}`:r.sheet_states.map(s=>SHEET[s]??s).join(" / ")}</td>
      <td>{r.created_at?new Date(r.created_at).toLocaleString("th-TH",{timeZone:"Asia/Bangkok",dateStyle:"short",timeStyle:"short"}):"—"}</td>
     </tr>)}</tbody>
    </table></div>}
    {page.total>0&&<Pager label="รายการ Run" basePath="/lab/batches" params={{q:q||undefined}} page={page.number} pageSize={page.size} total={page.total} totalPages={page.totalPages}/>}
+   <BatchStatusLegend/>
   </section>
  </>;
 }
