@@ -29,6 +29,33 @@ function Write-BridgeLog([string]$Message) {
   $line=[DateTime]::UtcNow.ToString('o')+' '+$Message+[Environment]::NewLine
   [IO.File]::AppendAllText([IO.Path]::Combine($rootPath,'bridge.log'),$line,[Text.UTF8Encoding]::new($false))
 }
+# Word jobs (report templates, report previews, signer samples): the web process cannot start Word from its service session, so it hands the
+# filled .docx files over the same way as the Task List workbooks. <jobId>-<n>.docx in the inbox -> <jobId>\<n>.pdf + manifest.json.result.json
+# (page counts) in the outbox. Word is driven by the unchanged packages\readygen\word-export.ps1 that sits next to the Excel export script's folder.
+function Process-WordRequest([object]$Request,[string]$JobId,[string]$Output) {
+  $count=[int]$Request.count
+  if($count -lt 1 -or $count -gt 200){throw 'LOCAL_WORD_COUNT_INVALID'}
+  $wordScript=[IO.Path]::GetFullPath([IO.Path]::Combine((Split-Path -Parent $exportPath),'..','readygen','word-export.ps1'))
+  if(-not (Test-Path -LiteralPath $wordScript -PathType Leaf)){throw 'LOCAL_WORD_SCRIPT_MISSING'}
+  if([IO.Directory]::Exists($Output)){throw 'LOCAL_WORD_OUTPUT_ALREADY_EXISTS'}
+  [IO.Directory]::CreateDirectory($Output)|Out-Null
+  $items=@()
+  for($i=0;$i -lt $count;$i++){
+    $source=[IO.Path]::GetFullPath([IO.Path]::Combine($inbox,"$JobId-$i.docx"))
+    if(-not $source.StartsWith($rootPath+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -or -not [IO.File]::Exists($source)){throw 'LOCAL_WORD_INPUT_MISSING'}
+    $info=Get-Item -LiteralPath $source
+    if($info.Length -lt 4 -or $info.Length -gt 20MB){throw 'LOCAL_WORD_INPUT_SIZE_INVALID'}
+    $stream=[IO.File]::OpenRead($source);try{$first=$stream.ReadByte();$second=$stream.ReadByte()}finally{$stream.Dispose()}
+    if($first -ne 0x50 -or $second -ne 0x4b){throw 'LOCAL_WORD_INPUT_INVALID'}
+    $items+=@{id=[string]$i;input=$source;output=[IO.Path]::Combine($Output,"$i.pdf")}
+  }
+  $manifest=[IO.Path]::Combine($Output,'manifest.json')
+  [IO.File]::WriteAllText($manifest,(ConvertTo-Json -InputObject @($items) -Compress -Depth 4),[Text.UTF8Encoding]::new($false))
+  & $wordScript -Manifest $manifest|Out-Null
+  for($i=0;$i -lt $count;$i++){$file=[IO.Path]::Combine($Output,"$i.pdf");if(-not [IO.File]::Exists($file) -or (Get-Item -LiteralPath $file).Length -lt 5){throw 'LOCAL_WORD_PDF_MISSING'}}
+  if(-not [IO.File]::Exists($manifest+'.result.json')){throw 'LOCAL_WORD_RESULT_MISSING'}
+  Write-JobStatus $Output $true 'OK'
+}
 function Process-Request([string]$RequestPath) {
   $jobId=[IO.Path]::GetFileNameWithoutExtension($RequestPath)
   if($jobId -notmatch '^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$'){return}
@@ -37,10 +64,12 @@ function Process-Request([string]$RequestPath) {
     try{[IO.File]::Move($RequestPath,$processingPath)}catch{return}
   }else{$processingPath=$RequestPath}
   $output=[IO.Path]::Combine($outbox,$jobId)
+  $isWord=$false
   try {
     Set-BridgeStatus 'processing'
     $request=Get-Content -LiteralPath $processingPath -Raw|ConvertFrom-Json
     if($request.version -ne 1 -or $request.id -ne $jobId){throw 'LOCAL_EXCEL_REQUEST_INVALID'}
+    if($request.kind -eq 'word'){$isWord=$true;Process-WordRequest $request $jobId $output;Write-BridgeLog ($jobId+' WORD COMPLETE');return}
     $sheets=@($request.sheets|ForEach-Object{[int]$_})
     if($sheets.Count -lt 1 -or $sheets.Count -gt 6 -or @($sheets|Where-Object{$_ -lt 1 -or $_ -gt 6}).Count -gt 0 -or @($sheets|Select-Object -Unique).Count -ne $sheets.Count){throw 'LOCAL_EXCEL_SHEETS_INVALID'}
     $input=[IO.Path]::GetFullPath([IO.Path]::Combine($inbox,$jobId+'.xlsx'))
@@ -57,8 +86,8 @@ function Process-Request([string]$RequestPath) {
     Write-JobStatus $output $true 'OK'
     Write-BridgeLog ($jobId+' COMPLETE')
   } catch {
-    if([IO.Directory]::Exists($output)){try{Write-JobStatus $output $false 'TASK_NATIVE_EXCEL_FAILED'}catch{}}
-    Write-BridgeLog ($jobId+' FAILED')
+    if([IO.Directory]::Exists($output)){try{Write-JobStatus $output $false $(if($isWord){'REPORT_NATIVE_WORD_FAILED'}else{'TASK_NATIVE_EXCEL_FAILED'})}catch{}}
+    Write-BridgeLog ($jobId+' FAILED '+($_.Exception.Message -replace '\s+',' '))
   } finally {
     if([IO.File]::Exists($processingPath)){[IO.File]::Delete($processingPath)}
     Set-BridgeStatus 'idle'

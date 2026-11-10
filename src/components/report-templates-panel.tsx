@@ -41,6 +41,12 @@ export function ReportTemplatesPanel({canManage,canApprove}:{canManage:boolean;c
  const upload=(kind:Kind)=>act("up"+kind,async()=>{const f=fileRef.current[kind]?.files?.[0];if(!f)throw Error("เลือกไฟล์ .docx ก่อน");const form=new FormData();form.set("kind",kind);form.set("reason",reason[kind].trim()||"นำเข้าแม่แบบรายงาน");form.set("file",f);
   const r=await call<{version:number;inspection:Insp}>({form});if(fileRef.current[kind])fileRef.current[kind]!.value="";return r.inspection.errors.length?`นำเข้ารุ่น ${r.version} แล้ว แต่ตรวจพบข้อผิดพลาด — แก้ไฟล์แล้วนำเข้าใหม่`:`นำเข้ารุ่น ${r.version} แล้ว ตรวจโครงสร้างผ่าน — ทดสอบสร้างตัวอย่างต่อได้`;});
  const post=(key:string,json:Record<string,unknown>,done:string)=>act(key,async()=>{const r=await call<{passed?:boolean;problems?:string[];signatureFit?:string[]}>({json});if(r.passed===false)throw Error(`ตัวอย่างอ่านกลับไม่ตรง: ${(r.problems??[]).join(", ")}`);const skipped=(r.signatureFit??[]).filter(n=>!n.endsWith(":FITTED"));return skipped.length?`${done} — หมายเหตุ: ปรับขนาดลายเซ็นให้พอดีกรอบไม่ได้ในแบบฟอร์มนี้ (ใช้ขนาดกรอบเดิม): ${skipped.join(", ")}`:done;});
+ const advance=(r:Rev)=>act("go"+r.id,async()=>{
+  const step=(operation:string)=>call<{passed?:boolean;problems?:string[]}>({json:{operation,id:r.id,...(operation==="approve"?{acknowledgeProductDifference:!!ack[r.id]}:{})}});
+  if(r.state==="Uploaded"){const t=await step("test");if(t.passed===false)throw Error(`ตัวอย่างอ่านกลับไม่ตรง: ${(t.problems??[]).join(", ")}`);}
+  if(r.state==="Uploaded"||r.state==="Validated")await step("approve");
+  await step("activate");
+  return `เปิดใช้รุ่น ${r.version} แล้ว — รายงานฉบับถัดไปใช้แม่แบบนี้`;});
  async function list(){setBusy("list");setError("");try{const r=await fetch("/api/settings/report-templates?folder="+encodeURIComponent(folder),{cache:"no-store"});const d=await r.json();if(!r.ok)throw Error(d.error??"อ่านโฟลเดอร์ไม่ได้");setListing(d);}catch(e){setError((e as Error).message);}finally{setBusy("");}}
  if(!o)return error?<p className="notice" role="alert">{error}</p>:<p role="status">กำลังโหลด…</p>;
  return <section className="tpl" aria-labelledby="tpl-title">
@@ -61,10 +67,12 @@ export function ReportTemplatesPanel({canManage,canApprove}:{canManage:boolean;c
       <Findings i={r.inspection}/>
       <div className="tpl-actions">
        {r.hasPreview&&<a className="button secondary" href={`/api/settings/report-templates?preview=${r.id}`} target="_blank" rel="noreferrer"><LabIcon name="eye"/>ดูตัวอย่าง PDF (ลายน้ำ)</a>}
-       {canManage&&r.state==="Uploaded"&&r.inspection.errors.length===0&&<button type="button" className="button" disabled={!!busy} onClick={()=>void post("t"+r.id,{operation:"test",id:r.id},`ทดสอบรุ่น ${r.version} ผ่าน`)}><LabIcon name="refresh"/>ทดสอบสร้างตัวอย่าง</button>}
-       {canApprove&&r.state==="Validated"&&<>{r.product&&v.approvedProduct&&r.product!==v.approvedProduct&&<label className="check-label"><input type="checkbox" checked={!!ack[r.id]} onChange={e=>setAck(x=>({...x,[r.id]:e.target.checked}))}/> รับทราบ: ไฟล์ระบุผลิตภัณฑ์ {r.product} แต่ผลิตภัณฑ์ที่อนุมัติใช้กับรายงานคือ {v.approvedProduct??"ยังไม่กำหนด"}</label>}
+       {/* Owner 2026-11-10: one person, one button — test, approve and activate in a row (the same checks, no extra clicking). */}
+       {canManage&&canApprove&&["Uploaded","Validated","Approved"].includes(r.state)&&(r.state!=="Uploaded"||r.inspection.errors.length===0)&&<button type="button" className="button" disabled={!!busy} onClick={()=>void advance(r)}><LabIcon name="check"/>ใช้งานแม่แบบนี้</button>}
+       {!(canManage&&canApprove)&&canManage&&r.state==="Uploaded"&&r.inspection.errors.length===0&&<button type="button" className="button" disabled={!!busy} onClick={()=>void post("t"+r.id,{operation:"test",id:r.id},`ทดสอบรุ่น ${r.version} ผ่าน`)}><LabIcon name="refresh"/>ทดสอบสร้างตัวอย่าง</button>}
+       {!(canManage&&canApprove)&&canApprove&&r.state==="Validated"&&<>{r.product&&v.approvedProduct&&r.product!==v.approvedProduct&&<label className="check-label"><input type="checkbox" checked={!!ack[r.id]} onChange={e=>setAck(x=>({...x,[r.id]:e.target.checked}))}/> รับทราบ: ไฟล์ระบุผลิตภัณฑ์ {r.product} แต่ผลิตภัณฑ์ที่อนุมัติใช้กับรายงานคือ {v.approvedProduct??"ยังไม่กำหนด"}</label>}
         <button type="button" className="button" disabled={!!busy} onClick={()=>void post("a"+r.id,{operation:"approve",id:r.id,acknowledgeProductDifference:!!ack[r.id]},`อนุมัติรุ่น ${r.version} แล้ว`)}><LabIcon name="check"/>อนุมัติ</button></>}
-       {canManage&&(r.state==="Approved"||r.state==="Archived")&&<button type="button" className="button" disabled={!!busy} onClick={()=>void post("act"+r.id,{operation:"activate",id:r.id},`เปิดใช้รุ่น ${r.version} แล้ว — รายงานฉบับถัดไปใช้แม่แบบนี้`)}><LabIcon name="save"/>{r.state==="Archived"?"กู้คืนรุ่นนี้":"เปิดใช้"}</button>}
+       {canManage&&(r.state==="Archived"||(r.state==="Approved"&&!canApprove))&&<button type="button" className="button" disabled={!!busy} onClick={()=>void post("act"+r.id,{operation:"activate",id:r.id},`เปิดใช้รุ่น ${r.version} แล้ว — รายงานฉบับถัดไปใช้แม่แบบนี้`)}><LabIcon name="save"/>{r.state==="Archived"?"กู้คืนรุ่นนี้":"เปิดใช้"}</button>}
        {(canManage||canApprove)&&["Uploaded","Validated","Approved"].includes(r.state)&&<button type="button" className="button secondary" disabled={!!busy} onClick={()=>void post("r"+r.id,{operation:"reject",id:r.id,reason:"ไม่ผ่านการทบทวน"},`ปฏิเสธรุ่น ${r.version} แล้ว`)}><LabIcon name="x"/>ปฏิเสธ</button>}
       </div></li>;};
      // Owner 2026-11-10: rejected versions are history, folded away; the live ones stay in view.
