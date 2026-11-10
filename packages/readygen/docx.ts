@@ -122,10 +122,12 @@ export function fillReport(template:Buffer,kind:TemplateKind,values:ReportValues
     edits.push(...shrinkEdits(p,xml,ratio));bindings.push({token:label?'signer.fontRatio':'patientName.fontRatio',value:ratio.toFixed(3),...(label?{role:role!}:{})});}
   }
  }
- const missing=TOKENS[kind].filter(t=>!used.has(t));if(missing.length)throw new DocxError('DOCX_PLACEHOLDER_NOT_FOUND',{missing});
+ // Owner 2026-11-10: a supported ${name} the template does not use is the Owner's layout choice; it is simply not printed (no error).
  // Signature pictures: each picture belongs to the signer label that follows it. Point it at the selected signer's image and
  // drop the master's own images with their HD-photo / background-removal layers, so no master signature can be rendered or carried.
- if(!parsed.blips.length||!labels.length)throw new DocxError('DOCX_SIGNATURE_ROLE_UNRESOLVED');
+ // Owner 2026-11-10: signature pictures are optional. A template without them gets the chosen signers' printed name, licence and date only;
+ // a template that has them keeps the picture handling below. The "Reported by:" / "Approved by:" labels are still required.
+ if(!labels.length)throw new DocxError('DOCX_SIGNATURE_ROLE_UNRESOLVED');
  const rels=parts.get('word/_rels/document.xml.rels')!.toString('utf8'),removed=new Set<string>(),roles=new Set<string>();
  for(const b of parsed.blips){
   const r=labels.find(l=>l.at>b.start)?.role;if(!r)throw new DocxError('DOCX_SIGNATURE_ROLE_UNRESOLVED');roles.add(r);
@@ -144,19 +146,22 @@ export function fillReport(template:Buffer,kind:TemplateKind,values:ReportValues
   bindings.push({token:'signature.fit',value:!slot.signature?'SKIPPED:NO_SIGNATURE':!b.drawing?'SKIPPED:NOT_ONE_PICTURE':fit!.status,role:r});
   if(fit)bindings.push({token:'signature.frame',value:size(fit.frame),role:r},{token:'signature.fitted',value:size(fit.fitted),role:r});
  }
- if(roles.size!==2)throw new DocxError('DOCX_SIGNATURE_ROLE_UNRESOLVED');
  xml=apply(xml,edits);
  let nextRels=rels;const media=(s:SignerSlot)=>s.signature?.media==='image/jpeg'?'jpeg':'png';
+ if(parsed.blips.length){
  for(const rid of removed){const rel=new RegExp(`<Relationship\\b[^>]*\\bId="${rid}"[^>]*/>`).exec(nextRels);if(!rel)throw new DocxError('DOCX_SIGNATURE_RELATIONSHIP_MISSING');
   const target=/Target="([^"]+)"/.exec(rel[0])![1];if(new RegExp(`r:(?:embed|id|link)="${rid}"`).test(xml))throw new DocxError('DOCX_SIGNATURE_STILL_REFERENCED');
   nextRels=nextRels.replace(rel[0],'');parts.delete('word/'+target.replace(/^\.\//,''));}
- nextRels=nextRels.replace('</Relationships>',`<Relationship Id="rIdT3SigReported" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/t3-signature-reported.${media(signers.reported)}"/><Relationship Id="rIdT3SigApproved" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/t3-signature-approved.${media(signers.approved)}"/></Relationships>`);
+ const sigs=[['REPORTED','rIdT3SigReported',signers.reported,'t3-signature-reported'],['APPROVED','rIdT3SigApproved',signers.approved,'t3-signature-approved']] as const;
+ for(const [role,rid,slot,file] of sigs)if(roles.has(role)){
+  nextRels=nextRels.replace('</Relationships>',`<Relationship Id="${rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${file}.${media(slot)}"/></Relationships>`);
+  parts.set(`word/media/${file}.${media(slot)}`,slot.signature?.bytes??TRANSPARENT_PNG);}
  parts.set('word/_rels/document.xml.rels',Buffer.from(nextRels));
- parts.set(`word/media/t3-signature-reported.${media(signers.reported)}`,signers.reported.signature?.bytes??TRANSPARENT_PNG);
- parts.set(`word/media/t3-signature-approved.${media(signers.approved)}`,signers.approved.signature?.bytes??TRANSPARENT_PNG);
+ }
  parts.set(name,Buffer.from(xml,'utf8'));
- // Both signature pictures must exist and be the chosen signers' images, never the transparent placeholder or the master's own.
- for(const [rid,slot,file] of [['rIdT3SigReported',signers.reported,'t3-signature-reported'],['rIdT3SigApproved',signers.approved,'t3-signature-approved']] as const){
+ // Every signature picture the template has must exist and be the chosen signer's image, never the transparent placeholder or the master's own.
+ if(parsed.blips.length)for(const [role,rid,slot,file] of [['REPORTED','rIdT3SigReported',signers.reported,'t3-signature-reported'],['APPROVED','rIdT3SigApproved',signers.approved,'t3-signature-approved']] as const){
+  if(!roles.has(role))continue;
   const target=`word/media/${file}.${media(slot)}`,bytes=parts.get(target);
   if((xml.match(new RegExp(`r:embed="${rid}"`,'g'))??[]).length<1||!nextRels.includes(`Id="${rid}"`)||!bytes||(slot.signature&&!bytes.equals(slot.signature.bytes)))throw new DocxError('REPORT_SIGNATURE_MISSING',{role:rid});}
  for(const [part,bytes] of parts)if(/^word\/.*\.xml$/.test(part)&&bytes.toString('utf8').includes('${'))throw new DocxError('DOCX_PLACEHOLDER_REMAINS',{part});

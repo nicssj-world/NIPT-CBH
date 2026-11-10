@@ -25,7 +25,7 @@ async function call<T>(init?:{json?:unknown;form?:FormData}):Promise<T>{
 function Findings({i}:{i:Insp}){
  return <div className="tpl-findings" aria-live="polite">
   {i.errors.length===0?<p className="tpl-ok"><LabIcon name="check" size={16}/>ตรวจโครงสร้างผ่าน — พบ {i.found.length} ช่อง ${"{…}"}{i.product?` · ผลิตภัณฑ์ที่ระบุ ${i.product}`:""}{i.code?` · รหัสเอกสาร ${i.code}`:""}</p>
-   :<ul className="tpl-errors">{i.errors.map(e=><li key={e.code}><LabIcon name="x" size={16}/><span>{MESSAGE[e.code]??e.code}</span></li>)}</ul>}
+   :<ul className="tpl-errors">{i.errors.map(e=><li key={e.code}><LabIcon name="x" size={16}/><span>{MESSAGE[e.code]??e.code}{e.code==="TEMPLATE_STRUCTURE_INCOMPATIBLE"&&(e.detail as {code?:string}|undefined)?.code?` (${(e.detail as {code:string}).code})`:""}</span></li>)}</ul>}
   {i.unknown.length>0&&<p className="tpl-detail">ไม่รู้จัก: {i.unknown.map(u=><code key={u.token}>{"${"+u.token+"}"}{u.suggestion?` → ควรเป็น ${"${"+u.suggestion+"}"}`:""}</code>)}</p>}
   {i.missing.length>0&&<p className="tpl-detail">ช่องที่ไม่ได้ใช้ในแม่แบบนี้ (ไม่บังคับ): {i.missing.map(m=><code key={m}>{"${"+m+"}"}</code>)}</p>}
   {i.ambiguous.length>0&&<p className="tpl-detail">รูปแบบน่าสงสัย: {i.ambiguous.map(a=><code key={a}>{a}</code>)}</p>}

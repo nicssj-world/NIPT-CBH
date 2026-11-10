@@ -46,9 +46,21 @@ describe('fillReport signature fitting (synthetic master)',()=>{
   const out=fillReport(master,'SINGLETON',values,{reported:none,approved:none},descriptor),parts=readArchive(out.bytes);
   expect(extents(parts.get('word/document.xml')!.toString('utf8'))).toEqual(['1800000x600000','1800000x600000']);expect(parts.get('word/media/t3-signature-reported.png')!.length).toBeGreaterThan(0);
  });
- it('refuses a master without both signature pictures with DOCX_SIGNATURE_ROLE_UNRESOLVED',()=>{
-  const bad=writeArchive(new Map(readArchive(master)).set('word/document.xml',Buffer.from(documentXml.replace(drawing('rId6',2),''))));
-  expect(()=>fillReport(bad,'SINGLETON',values,{reported:slot(300,100,1),approved:slot(300,100,2)},{sha256:sha256(bad),code:'TEST'})).toThrow('DOCX_SIGNATURE_ROLE_UNRESOLVED');
+ it('Owner 2026-11-10: a template without signature pictures is filled with the chosen signers\' name, licence and date only',()=>{
+  const plain=writeArchive(new Map<string,Buffer>([['word/document.xml',Buffer.from(documentXml.replace(drawing('rId5',1),'').replace(drawing('rId6',2),''))],['word/_rels/document.xml.rels',Buffer.from('<Relationships></Relationships>')]]));
+  const out=fillReport(plain,'SINGLETON',values,{reported:slot(300,100,1),approved:slot(300,100,2)},{sha256:sha256(plain),code:'TEST'}),parts=readArchive(out.bytes),xml=parts.get('word/document.xml')!.toString('utf8');
+  expect(xml).toContain('Test Signer');expect(xml).toContain('12345');expect(xml).toContain('01-Jan-2026');
+  expect([...parts.keys()].some(k=>/t3-signature/.test(k))).toBe(false);
+  expect(out.bindings.some(b=>b.token==='signature.fit')).toBe(false);
+ });
+ it('a template with a picture for one signer only keeps that picture and adds none for the other',()=>{
+  const one=writeArchive(new Map(readArchive(master)).set('word/document.xml',Buffer.from(documentXml.replace(drawing('rId6',2),''))));
+  const parts=readArchive(fillReport(one,'SINGLETON',values,{reported:slot(300,100,1),approved:slot(300,100,2)},{sha256:sha256(one),code:'TEST'}).bytes);
+  expect(parts.has('word/media/t3-signature-reported.png')).toBe(true);expect(parts.has('word/media/t3-signature-approved.png')).toBe(false);
+ });
+ it('still refuses a template without the "Reported by:" / "Approved by:" labels',()=>{
+  const nolabel=writeArchive(new Map(readArchive(master)).set('word/document.xml',Buffer.from(documentXml.replace('Reported by: (Name)','Reported (Name)').replace('Approved by: (Name)','Approved (Name)'))));
+  expect(()=>fillReport(nolabel,'SINGLETON',values,{reported:slot(300,100,1),approved:slot(300,100,2)},{sha256:sha256(nolabel),code:'TEST'})).toThrow(/DOCX_LICENSE_WITHOUT_SIGNER|DOCX_SIGNATURE_ROLE_UNRESOLVED/);
  });
  it('REPORT_SIGNATURE_MISSING when the stored signature media is not the signer image',()=>{
   const good=slot(300,100,1);let reads=0;const counting={...good,get signature(){reads++;return good.signature;}} as SignerSlot;
