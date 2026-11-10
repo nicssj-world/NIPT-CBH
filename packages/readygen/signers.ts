@@ -27,9 +27,11 @@ export function signatureImage(bytes:Buffer):SignatureImage{
  if(out.width<40||out.height<16||out.width>4000||out.height>2000)throw new LabError('SIGNATURE_IMAGE_DIMENSIONS_INVALID',422);
  return out;
 }
+// Owner 2026-11-10: the administrator (one account) may sign as Reported by and Approved by when they have their own verified licence and signature
+// profile; a LAB_CERTIFIER grant needs a second approver, which one account cannot give. The profile is still required (checked after this).
 const eligibleRoleSql=(role:SignerRole)=>role==='APPROVED'
- ?"EXISTS(SELECT 1 FROM role_assignment a WHERE a.user_id=u.id AND a.role='LAB_CERTIFIER' AND a.approved_by IS NOT NULL AND a.effective_from<=now() AND (a.expires_at IS NULL OR a.expires_at>now()))"
- :"EXISTS(SELECT 1 FROM role_assignment a WHERE a.user_id=u.id AND a.role IN ('LAB_STAFF','LAB_CERTIFIER') AND (a.role<>'LAB_CERTIFIER' OR a.approved_by IS NOT NULL) AND a.effective_from<=now() AND (a.expires_at IS NULL OR a.expires_at>now()))";
+ ?"EXISTS(SELECT 1 FROM role_assignment a WHERE a.user_id=u.id AND (a.role='APP_ADMIN' OR (a.role='LAB_CERTIFIER' AND a.approved_by IS NOT NULL)) AND a.effective_from<=now() AND (a.expires_at IS NULL OR a.expires_at>now()))"
+ :"EXISTS(SELECT 1 FROM role_assignment a WHERE a.user_id=u.id AND a.role IN ('APP_ADMIN','LAB_STAFF','LAB_CERTIFIER') AND (a.role<>'LAB_CERTIFIER' OR a.approved_by IS NOT NULL) AND a.effective_from<=now() AND (a.expires_at IS NULL OR a.expires_at>now()))";
 
 // Who may RECEIVE a delegation, i.e. operate the report and apply a delegating signer's stored signature: lab staff, or (owner decision
 // 2026-11-01, single APP_ADMIN) a current administrator. This is operator authority only: being a delegate never makes anyone a signer.

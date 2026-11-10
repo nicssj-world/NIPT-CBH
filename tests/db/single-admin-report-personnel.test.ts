@@ -54,8 +54,8 @@ describe('single APP_ADMIN with separate Reported By / Approved By personnel',()
   // verified, but the person has not authorised the administrator to apply their signature: listed as not usable, refused
   expect((await run(()=>listSigners(db,admin,{role:'APPROVED',q:''}))).map(s=>[s.legalName,s.usable])).toEqual([['Synthetic Approver',false]]);
   await expect(run(()=>signerAuthority(db,admin,approver.id,'APPROVED'))).rejects.toMatchObject({code:'SIGNATURE_DELEGATION_REQUIRED'});
-  // the APP_ADMIN is not a signer itself and cannot be named
-  await expect(run(()=>signerAuthority(db,admin,admin.id,'APPROVED'))).rejects.toMatchObject({code:'SIGNER_NOT_ELIGIBLE'});
+  // Owner 2026-11-10: the APP_ADMIN may be named too, but only with their own verified licence + signature profile (none yet here)
+  await expect(run(()=>signerAuthority(db,admin,admin.id,'APPROVED'))).rejects.toMatchObject({code:'SIGNER_PROFILE_NOT_VERIFIED'});
  });
 
  it('after each person delegates, the administrator selects both in ONE session; personnel and operator are recorded separately',async()=>{
@@ -69,6 +69,16 @@ describe('single APP_ADMIN with separate Reported By / Approved By personnel',()
   expect((await run(()=>listSigners(db,session,{role:'REPORTED',q:''}))).find(s=>s.userId===reporter.id)).toMatchObject({usable:true,basis:'STANDING_DELEGATION'});
   // a reporter-only delegation does not let the administrator name that person as Approved By
   await expect(run(()=>signerAuthority(db,session,reporter.id,'APPROVED'))).rejects.toMatchObject({code:'SIGNER_NOT_ELIGIBLE'});
+ });
+
+ it('Owner 2026-11-10: the administrator with their own verified licence and signature profile may be named as Reported by and Approved by (self basis)',async()=>{
+  const prof=await run(()=>submitSignerProfile(db,admin,store,{legalName:'Synthetic Administrator',mtLicenseNo:'99003',signature:syntheticSignaturePng(3)}));
+  await run(()=>decideSignerProfile(db,admin,{profileId:prof.id,decision:'VERIFY',layoutReviewed:true,reason:'SYNTHETIC identity and licence checked'}));
+  for(const role of ['REPORTED','APPROVED'] as const){
+   const a=await run(()=>signerAuthority(db,admin,admin.id,role));
+   expect(a).toMatchObject({basis:'SELF',operatorId:admin.id,role,profile:{user_id:admin.id,legal_name:'Synthetic Administrator',mt_license_no:'99003'}});
+   expect((await run(()=>listSigners(db,admin,{role,q:''}))).find(s=>s.userId===admin.id)).toMatchObject({usable:true});
+  }
  });
 
  it('the administrator may approve its own work: nobody needs a second name (owner 2026-11-03)',()=>{
