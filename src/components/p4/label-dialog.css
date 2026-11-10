@@ -5,7 +5,8 @@
 .label-identity span {display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);font-size:1.0625rem;}
 /* Multi-sample selection: the dialog takes ~88% of the viewport, the list scrolls, the footer total stays visible. */
 .p2-dialog:has(.label-dialog.multi) {height:88vh;max-height:calc(100dvh - var(--space-4));}
-.label-dialog.multi {grid-template-rows:auto minmax(0,1fr) auto auto auto;height:calc(100% - 72px);}
+/* Rows follow the children of the multi view: picker (takes what is left, never below 160px), preview (always at least 220px), then the name tick, the optional reprint note and the footer. */
+.label-dialog.multi {grid-template-rows:minmax(160px,1fr) minmax(220px,auto) auto auto auto;height:calc(100% - 72px);}
 .label-dialog.multi .label-picker {display:grid;grid-template-rows:auto minmax(0,1fr);gap:var(--space-3);min-height:0;}
 .label-picker-tools {display:flex;flex-wrap:wrap;gap:var(--space-3);align-items:center;}
 .label-picker-tools input {flex:1 1 240px;min-height:44px;}
@@ -16,6 +17,7 @@
 .label-picker-list label.selected {background:var(--info-bg);}
 .label-picker-list input {width:22px;height:22px;}
 .label-dialog .label-preview iframe {height:260px;}
+.label-dialog.multi .label-preview {min-height:220px;}
 .label-footer {justify-content:space-between;align-items:center;}
 .label-footer .button {display:inline-flex;align-items:center;gap:var(--space-2);}
 .label-total {font-weight:600;}
