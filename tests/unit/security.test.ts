@@ -12,6 +12,11 @@ describe("local authentication and security", () => {
   afterAll(async () => { await db.close(); });
   it("enforces offline password policy and Argon2id", async () => {
     expect(() => validatePassword("1234567890")).toThrow();
+    // Owner 2026-11-10: 6 characters are enough; shorter, a single repeated character and the common list are still refused
+    expect(() => validatePassword("abc123")).not.toThrow();
+    expect(() => validatePassword("abc12")).toThrow("PASSWORD_POLICY");
+    expect(() => validatePassword("aaaaaa")).toThrow("PASSWORD_POLICY");
+    expect(() => validatePassword("x".repeat(129))).toThrow("PASSWORD_POLICY");
     const hash = await hashPassword(TEST_PASSWORD);
     expect(hash.split("$").slice(0,3)).toEqual(["", "argon2id", "v=19"]);
     expect(new Set(hash.split("$")[3].split(","))).toEqual(new Set(["m=65536","t=3","p=1"]));
