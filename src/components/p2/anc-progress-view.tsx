@@ -32,11 +32,11 @@ export function ProgressView({progress,round,extra}:{progress:Progress;round?:nu
  </div>;
 }
 
-/** Owner Change 21: GA > 18+0 → red, warning icon and "เกิน 18 สัปดาห์"; 18+0 itself is not over. Unknown GA is stated, never guessed. */
+/** Owner Change 21: GA > 18+0 → red, warning icon only (the words "เกิน 18 สัปดาห์" removed, Owner 2026-11-10); 18+0 itself is not over. Unknown GA is stated, never guessed. */
 export function GaText({ga}:{ga?:{weeks:number;days:number;over18:boolean}|null}){
  if(!ga)return <span className="muted">ยังไม่มีข้อมูล</span>;
  const t=`${ga.weeks} สัปดาห์ ${ga.days} วัน`;
- return ga.over18?<span className="ga-over"><Icon name="alert"/><span className="num">{t}</span> · เกิน 18 สัปดาห์</span>:<span className="num">{t}</span>;
+ return ga.over18?<span className="ga-over"><Icon name="alert"/><span className="num">{t}</span></span>:<span className="num">{t}</span>;
 }
 
 /** The nurse's own next step, drawn as a wayfinding sign. Empty when nothing is pending (Owner: no "nothing to do" text). */

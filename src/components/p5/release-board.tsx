@@ -9,7 +9,7 @@ import {HisDeliveryBadge} from "./his-delivery-badge";
 import {HOLD_TEXT} from "./native-reports";
 import {BOARD_REASON_TEXT,reasonText} from "./labels";
 import {attestErrorText,batchSignature,canShowOnPatient,canSend,needsAbnormalTick,needsReviewTick,outcomeText,outcomeTone,selectedRows,sendTicks,type BoardTab,type SendOutcome} from "./release-board-logic";
-import {DiscardDialog,PickPatientDialog} from "./release-board-dialogs";
+import {BulkDiscardDialog,DiscardDialog,PickPatientDialog} from "./release-board-dialogs";
 
 // One results board: Action needed / Waiting for HIS / Sent. The server (releaseQueue `board`) decides which tab a row belongs to and why;
 // this component only lists, selects and calls the existing actions. A result is never shown as visible to ANC before "ส่ง HIS" succeeded.
@@ -29,7 +29,7 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
  const [selected,setSelected]=useState<Set<string>>(new Set()),[ticks,setTicks]=useState({reviewConfirmed:false,abnormalAcknowledged:false});
  const [shownTick,setShownTick]=useState(false),[showing,setShowing]=useState(false),[shownResult,setShownResult]=useState<{ok:number;failed:{row:BoardRow;code:string;linked:boolean}[]}|null>(null);
  const [sending,setSending]=useState(false),[outcomes,setOutcomes]=useState<{row:BoardRow;outcome:SendOutcome}[]|null>(null),[sendError,setSendError]=useState("");
- const [dialog,setDialog]=useState<{kind:"pick"|"discard";row:BoardRow}|null>(null);
+ const [dialog,setDialog]=useState<{kind:"pick"|"discard";row:BoardRow}|{kind:"bulk";rows:BoardRow[]}|null>(null);
  const seq=useRef(0),sendKey=useRef<{sig:string;key:string}|null>(null);
  const load=useCallback(async()=>{const n=++seq.current;setLoading(true);
   try{const d=await labApi<Board>("/api/p5/results",{action:"board",tab,page,pageSize,scope,...(term?{q:term}:{})});if(n===seq.current){setData(d);setCounts(d.counts);setError("");}}
@@ -44,6 +44,11 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
  // The ticks belong to the selection they were given for: any change of selection clears them.
  const changeSelection=(next:Set<string>)=>{setSelected(next);setTicks({reviewConfirmed:false,abnormalAcknowledged:false});};
  const selectable=useMemo(()=>rows.filter(r=>r.versionId&&(tab!=="ACTION"||canShowOnPatient(r))),[rows,tab]);
+ // ACTION: a row can be ticked if it can be shown on the patient (has a PDF version) or, for people who may revise, if it can be discarded (a HALOS-only row too).
+ const canDiscard=!!data?.canRevise;
+ const discardable=(r:BoardRow)=>canDiscard&&((!!r.versionId&&r.rowVersion!==null)||!!r.halosRowId);
+ const checkable=useMemo(()=>tab==="ACTION"?rows.filter(r=>canShowOnPatient(r)||discardable(r)):selectable,[tab,rows,selectable,canDiscard]);// eslint-disable-line react-hooks/exhaustive-deps
+ const discardSel=useMemo(()=>rows.filter(r=>selected.has(r.key)&&discardable(r)),[rows,selected,canDiscard]);// eslint-disable-line react-hooks/exhaustive-deps
  const toggle=(key:string,on:boolean)=>{const n=new Set(selected);if(on)n.add(key);else n.delete(key);changeSelection(n);};
  const changeTab=(t:BoardTab)=>{clearSelection();setShownResult(null);setShownTick(false);setOutcomes(null);setSendError("");setNotice("");setPage(1);onTab(t);};
 
@@ -88,10 +93,10 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
     <ul className="timeline">{outcomes.map(({row,outcome})=><li key={outcome.versionId}><Status tone={outcomeTone(outcome)}>{outcome.outcome==="CertifiedReleased"?"ส่งแล้ว":outcome.outcome==="BLOCKED"?"ส่งไม่ได้":"ไม่สำเร็จ"}</Status> <span className="mono">{row?.ln??row?.hn??outcome.versionId}</span> · {outcomeText(outcome,reasonLabel)}</li>)}</ul></div>}
    {!error&&<div className="table-wrap" role="region" aria-label={`รายการ${TABS.find(t=>t[0]===tab)![1]}`} tabIndex={0}>
     <table className="data-table board-table"><thead><tr>
-     {(tab==="READY"||tab==="ACTION")&&<th scope="col"><label className="table-check-target"><input type="checkbox" aria-label="เลือกทั้งหมดที่พร้อมในหน้านี้" disabled={!selectable.length} checked={selectable.length>0&&selectable.every(r=>selected.has(r.key))} onChange={e=>changeSelection(e.target.checked?new Set(selectable.map(r=>r.key)):new Set())}/></label></th>}
+     {(tab==="READY"||tab==="ACTION")&&<th scope="col"><label className="table-check-target"><input type="checkbox" aria-label="เลือกทั้งหมดที่พร้อมในหน้านี้" disabled={!checkable.length} checked={checkable.length>0&&checkable.every(r=>selected.has(r.key))} onChange={e=>changeSelection(e.target.checked?new Set(checkable.map(r=>r.key)):new Set())}/></label></th>}
      <th scope="col">LN · HN</th><th scope="col">ที่มา</th><th scope="col">{tab==="ACTION"?"เหตุผลที่ยังส่งไม่ได้":"สถานะ"}</th><th scope="col">ไฟล์</th><th scope="col">{tab==="SENT"?"เปิด":"ดำเนินการ"}</th></tr></thead>
      <tbody>{rows.length?rows.map(r=><tr key={r.key} className={selected.has(r.key)?"selected":""}>
-      {(tab==="READY"||tab==="ACTION")&&<td>{(tab==="READY"||canShowOnPatient(r))&&<label className="table-check-target"><input type="checkbox" aria-label={`เลือก ${r.ln??r.hn??r.key}`} checked={selected.has(r.key)} onChange={e=>toggle(r.key,e.target.checked)}/></label>}</td>}
+      {(tab==="READY"||tab==="ACTION")&&<td>{(tab==="READY"||canShowOnPatient(r)||discardable(r))&&<label className="table-check-target"><input type="checkbox" aria-label={`เลือก ${r.ln??r.hn??r.key}`} checked={selected.has(r.key)} onChange={e=>toggle(r.key,e.target.checked)}/></label>}</td>}
       <td>{who(r)}</td><td>{source(r)}</td>
       <td>{tab==="ACTION"?<ul className="help board-reasons">{r.reasons.map(x=><li key={x.code}>{reasonLabel(x.code)}{x.fixHref&&<> · <Link href={x.fixHref}>แก้ที่นี่</Link></>}</li>)}</ul>
        :tab==="READY"?<><Status tone="warning">รอส่ง HIS</Status>{r.abnormal&&<span className="badge danger">ผิดปกติ</span>}{!r.reviewed&&<span className="badge warning">ยังไม่ตรวจรับ</span>}</>
@@ -121,10 +126,15 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
      <button type="button" className="button" disabled={showing||!shownTick||!sel.length} onClick={()=>void showOnPatient()}>{showing?"กำลังบันทึก…":`ผูกกับคนไข้และแสดงผล (${sel.length})`}</button></div>
     <p className="help">ANC จะเห็นผลจาก PDF ฉบับจริงในหน้าคนไข้ รายการจะออกจากแท็บนี้ และ <strong>ไม่ส่ง HIS ซ้ำ</strong> · PDF ที่ยังไม่เลือกผู้ป่วยจะถูกผูกให้เมื่อ HN และเลข Lab ตรงกับ Attempt เดียวเท่านั้น ที่เหลือจะแจ้งเหตุผล แล้วกด “เลือกผู้ป่วย” และติ๊ก “มีผลใน HIS แล้ว”</p>
    </fieldset>}
+   {tab==="ACTION"&&canDiscard&&checkable.length>0&&<div className="bulk-bar" role="group" aria-label="ทิ้งรายการที่เลือก">
+    <span>เลือกทิ้งได้ {discardSel.length} รายการ</span>
+    <button type="button" className="button secondary" onClick={()=>changeSelection(new Set(checkable.map(r=>r.key)))}>เลือกทั้งหมดในหน้านี้</button>
+    <button type="button" className="button danger" disabled={!discardSel.length} onClick={()=>setDialog({kind:"bulk",rows:discardSel})}>ทิ้งที่เลือก ({discardSel.length})</button></div>}
    {data&&data.page.total>0&&<Pager label="รายการผลตรวจ" page={data.page.number} pageSize={data.page.size} total={data.page.total} totalPages={data.page.totalPages} busy={loading} onPage={n=>{clearSelection();setPage(n);}} onSize={n=>{clearSelection();setPageSize(n);setPage(1);}}/>}
    {tab==="SENT"&&sentExtras}
   </div>
   {dialog?.kind==="pick"&&<PickPatientDialog row={dialog.row} onClose={()=>setDialog(null)} onDone={m=>void done(m)}/>}
   {dialog?.kind==="discard"&&<DiscardDialog row={dialog.row} onClose={()=>setDialog(null)} onDone={m=>void done(m)}/>}
+  {dialog?.kind==="bulk"&&<BulkDiscardDialog rows={dialog.rows} onClose={()=>{setDialog(null);clearSelection();}} onDone={m=>{clearSelection();void done(m);}} onChanged={()=>{clearSelection();void load();}}/>}
  </section>;
 }

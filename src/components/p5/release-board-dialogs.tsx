@@ -60,3 +60,30 @@ export function DiscardDialog({row,onClose,onDone}:{row:BoardRow;onClose:()=>voi
   </div>
  </Dialog>;
 }
+
+/** "ทิ้งที่เลือก": one reason for several rows. Rows go one at a time (each keeps its own row-version check); a row that fails stays listed with its reason, the rest are still discarded. */
+export function BulkDiscardDialog({rows,onClose,onDone,onChanged}:{rows:BoardRow[];onClose:()=>void;onDone:(message:string)=>void;onChanged:()=>void}){
+ const [reason,setReason]=useState(""),[busy,setBusy]=useState(false),[failed,setFailed]=useState<{row:BoardRow;text:string}[]>([]),[progress,setProgress]=useState(0);
+ const submit=async()=>{setBusy(true);setFailed([]);setProgress(0);
+  const bad:{row:BoardRow;text:string}[]=[];let ok=0;
+  for(const row of rows){
+   try{
+    if(row.versionId&&row.rowVersion!==null)await labApi(`/api/p5/results/${row.versionId}`,{action:"void",expectedRowVersion:row.rowVersion,reason:reason.trim()});
+    else if(row.halosRowId)await labApi(`/api/task3/halos/rows/${row.halosRowId}`,{reason:reason.trim()});
+    else throw new Error("NO_TARGET");
+    ok++;}
+   catch(e){bad.push({row,text:failureText(e)});}
+   setProgress(ok+bad.length);}
+  setBusy(false);
+  if(!bad.length){onDone(`ทิ้งรายการแล้ว ${ok} รายการ`);return;}
+  setFailed(bad);
+  if(ok)onChanged();};
+ return <Dialog title={`ทิ้งรายการที่เลือก (${rows.length})`} onClose={onClose} dirty={!!reason&&!busy}>
+  <div className="stack board-dialog">
+   {failed.length>0&&<div className="notice" role="alert"><strong>ทิ้งไม่สำเร็จ {failed.length} รายการ</strong><ul className="timeline">{failed.map(f=><li key={f.row.key}><span className="mono">{f.row.ln??f.row.hn??f.row.sampleId??f.row.key}</span> · {f.text}</li>)}</ul></div>}
+   <p>{rows.length} รายการจะถูกทิ้งพร้อมกัน — ผลที่มี PDF จะถูกยกเลิก (Void) และไม่ถูกส่ง HIS ส่วนแถวผล HALOS จะถูกซ่อนและไม่ถูกออกรายงาน บันทึกเหตุผลไว้ในประวัติทุกรายการ</p>
+   <div className="field"><label htmlFor="bulk-discard-reason">เหตุผล (ไม่บังคับ)</label><input id="bulk-discard-reason" value={reason} maxLength={500} onChange={e=>setReason(e.target.value)} disabled={busy}/></div>
+   <div className="action-bar"><button type="button" className="button secondary" onClick={onClose} disabled={busy}>{failed.length?"ปิด":"ยกเลิก"}</button>{!failed.length&&<button type="button" className="button danger" disabled={busy} onClick={()=>void submit()}>{busy?`กำลังทิ้ง ${progress}/${rows.length}…`:`ทิ้ง ${rows.length} รายการ`}</button>}</div>
+  </div>
+ </Dialog>;
+}
