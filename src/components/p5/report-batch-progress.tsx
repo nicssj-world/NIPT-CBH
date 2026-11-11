@@ -3,7 +3,7 @@ import Link from 'next/link';
 import {useCallback,useEffect,useState,useEffectEvent} from 'react';
 import {labApi,failureText,bkk} from '../p4/lab-api';
 
-type Outcome={rowId:string;outcome:'FINAL'|'HOLD'|'ERROR';code?:string;holds?:{code:string}[];versionId?:string;release?:string;text?:string};
+type Outcome={rowId:string;outcome:'FINAL'|'HOLD'|'ERROR';code?:string;details?:{failed?:string[];pending?:string[]};holds?:{code:string}[];versionId?:string;release?:string;text?:string};
 export type ReportBatch={batchId:string;state:string;createdAt:string;total:number;completed:number;items:{rowId:string;state:string;outcome?:Outcome}[]};
 export function ReportBatchProgress({batchId,onComplete}:{batchId:string;onComplete?:()=>void}){
  const [batch,setBatch]=useState<ReportBatch|null>(null),[error,setError]=useState(''),[retry,setRetry]=useState(0);
@@ -20,7 +20,7 @@ export function ReportBatchProgress({batchId,onComplete}:{batchId:string;onCompl
   {batch?.state!=='COMPLETED'&&<p className="help">ปิดหน้านี้ได้ ระบบทำต่อในคิว เปิดติดตามได้ที่ “งานออกรายงานของฉัน”</p>}
   {batch&&<ul className="timeline">{batch.items.map(item=><li key={item.rowId}>{item.outcome?.versionId?<Link href={`/results/${item.outcome.versionId}`}>เปิดผลตรวจ</Link>:<span>{item.state==='QUEUED'?'รอดำเนินการ':'รายการที่ยังออกรายงานไม่ได้'}</span>}
    {' · '}{item.outcome?.release==='PendingCertification'?'ออกรายงานแล้ว · พร้อมส่ง HIS — ยังไม่ส่งผลให้ ANC':item.state==='FINAL'?'สร้าง PDF แล้ว · ยังไม่ยืนยันผล':item.state==='HOLD'?'ระงับ':item.state==='ERROR'?'ไม่สำเร็จ':'กำลังดำเนินการ'}
-   {item.outcome?.text&&<span className="notice-text" role="alert"> · {item.outcome.text}</span>}{item.outcome?.code&&<span className="help"> · {item.outcome.code}</span>}{item.outcome?.holds?.length? <span className="help"> · {item.outcome.holds.map(h=>h.code).join(', ')}</span>:null}</li>)}</ul>}
+   {item.outcome?.text&&<span className="notice-text" role="alert"> · {item.outcome.text}</span>}{item.outcome?.code&&<span className="help"> · {item.outcome.code}</span>}{item.outcome?.details?.failed?.length||item.outcome?.details?.pending?.length?<span className="help"> · ข้อที่ไม่ผ่าน: {[...(item.outcome.details.failed??[]),...(item.outcome.details.pending??[])].join(', ')}</span>:null}{item.outcome?.holds?.length? <span className="help"> · {item.outcome.holds.map(h=>h.code).join(', ')}</span>:null}</li>)}</ul>}
   {!!batch?.items.some(i=>i.state==='FINAL')&&<a className="button secondary" href={`/api/task3/batches/${batch.batchId}/zip`}>ดาวน์โหลด PDF ทั้งชุด (ZIP)</a>}
  </section>;
 }

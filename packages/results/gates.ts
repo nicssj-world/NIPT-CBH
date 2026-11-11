@@ -72,6 +72,12 @@ export function resultPredicates(f:ResultFacts,purpose:Purpose):GatePredicate[]{
   :!OPEN_STATES.includes(f.versionState)?p('RG-12','FAIL',`VERSION_${f.versionState.toUpperCase()}`):p('RG-12','PASS','LATEST_REVIEWED_VERSION'));
  if(f.internal)out.push(f.internal.current?p('RG-14','PASS','INTERNAL_REPORT_AUTHORITY_CURRENT'):p('RG-14','FAIL','INTERNAL_REPORT_AUTHORITY_NOT_CURRENT'));
  if(purpose==='CERTIFY_ATTEMPT')out.push(!f.certifierRoleActive?p('RG-13','FAIL','CERTIFIER_ROLE_NOT_ACTIVE'):f.operationalReviewed?p('RG-13','PASS','AUTHORIZED_SESSION_CONFIRMATION'):p('RG-13','PENDING','CONFIRMATION_METHOD_AND_GOVERNANCE_SIGNOFF',{governance:'OD-05'}));
+ // Owner 2026-11-11: a confirmed, matched HALOS result is the evidence. Analysis/QC/hold/clinical/disclosure rules are not re-checked;
+ // template, readability, link, identity, consent withdrawal, version currency, certifier and internal authority remain.
+ if(f.paperDisclosureReviewed&&f.operationalReviewed){
+  const keep=new Set(['RG-01','RG-03','RG-04','RG-08','RG-10','RG-12','RG-13','RG-14']);
+  return out.map(x=>keep.has(x.code)||(x.code==='RG-02'&&f.missing.length)?x:p(x.code,'PASS','HALOS_CONFIRMED_RESULT'));
+ }
  return out;
 }
 

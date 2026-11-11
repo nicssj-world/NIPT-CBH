@@ -7,7 +7,8 @@ import {SampleActionCenter} from "./action-center";
 import {formatHisLn} from "./his-ln";
 import {LabelDialog} from "./label-dialog";
 import {labApi,failureText,bkk,gateText,LabFailure} from "./lab-api";
-import {compareReceive,READY_QUEUE_DEFAULT_SORT,type SortDirection} from "../../../packages/lab/receive-sort";
+import {type SortDirection} from "../../../packages/lab/receive-sort";
+import {LAB_SCREEN_DEFAULT_SORT,byLnHalosAsc} from "./lab-sort";
 import {getSheetNumber} from "../../../packages/lab/rules";
 import {gaBadge,type Ga} from "./ga-badge";
 import {ThaiDateInput} from "../shared/thai-date-input";
@@ -31,7 +32,7 @@ type Can={noCall?:boolean;labels:boolean;assign:boolean;receive:boolean;repeat:b
 type Batch={id:string;run_label:string;state:string;version:number;samples:number;sheet_states:string[]};
 type Params={tab:Tab;q:string;round:string;unprinted:boolean;urgent:boolean;sort:SortDirection;page:number;pageSize:number};
 // 50 per page: a Run holds 48 samples, so one page covers a whole Run's worth of the FIFO head.
-const DEFAULT_PARAMS:Params={tab:"READY",q:"",round:"ALL",unprinted:false,urgent:false,sort:READY_QUEUE_DEFAULT_SORT,page:1,pageSize:50};
+const DEFAULT_PARAMS:Params={tab:"READY",q:"",round:"ALL",unprinted:false,urgent:false,sort:LAB_SCREEN_DEFAULT_SORT,page:1,pageSize:50};
 const STATE:Record<string,string>={Ready:"พร้อม",Assigned:"จัดเข้า Batch",InProgress:"กำลังปฏิบัติ",QcFailed:"QC ไม่ผ่าน",Stopped:"หยุด",BatchCancelled:"Batch ถูกยกเลิก",Superseded:"ถูกแทนที่"};
 const SOURCE:Record<string,string>={HIS_PET_RECEIPT:"รับใน HIS",NIPT_LOCAL_RECEIPT:"รับใน NIPT"};
 
@@ -53,8 +54,8 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
  const change=(patch:Partial<Params>)=>setParams(p=>({...p,...patch,page:1}));
  async function reload(){setSelected(new Map());await fetchPage(paramsRef.current);}
  const tab=data.tab,sort=data.filters.sort;
- // Selection order = the order shown on screen after sort (Owner Lock §2.3), not the order of the clicks. It survives paging and filtering.
- const chosen=useMemo(()=>[...selected.values()].sort((x,y)=>compareReceive({receivedAt:x.receivedAt,keys:[x.hisLn,x.attemptId]},{receivedAt:y.receivedAt,keys:[y.hisLn,y.attemptId]},sort)),[selected,sort]);
+ // Selection order (labels, batch) = LN Halos ascending (Owner 2026-11-11), not the order of the clicks or the on-screen sort. It survives paging and filtering.
+ const chosen=useMemo(()=>[...selected.values()].sort(byLnHalosAsc),[selected]);
  const toggle=(a:Attempt)=>setSelected(m=>{const n=new Map(m);if(n.has(a.attemptId))n.delete(a.attemptId);else n.set(a.attemptId,a);return n;});
  const attempts=data.attempts;
  const allShown=attempts.length>0&&attempts.every(a=>selected.has(a.attemptId));
@@ -85,11 +86,11 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
     {attempts.length===0?<p className="empty-state">ไม่มีรายการในคิวนี้{data.filters.q?" ที่ตรงกับคำค้น":""}</p>:
     <div className="table-wrap" role="region" aria-label="รายการงาน Lab" tabIndex={0}><table className="data-table">
      <caption className="sr-only">รายการตัวอย่าง เรียงตามวันที่/เวลารับสิ่งส่งตรวจ ({sort==="asc"?"เก่าไปใหม่ — FIFO":"ใหม่ไปเก่า"})</caption>
-     <thead><tr><th scope="col"><label className="table-check-target"><input type="checkbox" aria-label="เลือกทั้งหมดที่แสดง" checked={allShown} onChange={()=>setSelected(m=>{const n=new Map(m);if(allShown)for(const a of attempts)n.delete(a.attemptId);else for(const a of attempts)n.set(a.attemptId,a);return n;})}/></label></th><th scope="col">LN / HN</th><th scope="col">LN Halos / Sample ID</th><th scope="col" aria-sort={sort==="asc"?"ascending":"descending"}><button type="button" className="sort-button" aria-label={`วันที่/เวลารับสิ่งส่งตรวจ เรียง${sort==="asc"?"เก่าไปใหม่":"ใหม่ไปเก่า"} กดเพื่อสลับ`} onClick={()=>change({sort:sort==="asc"?"desc":"asc"})}>วันที่/เวลารับ <span aria-hidden="true">{sort==="asc"?"↑":"↓"}</span></button></th><th scope="col">รอบ</th><th scope="col">สถานะ / เงื่อนไข</th><th scope="col">ฉลาก</th><th scope="col">Batch</th><th scope="col">จัดการ</th></tr></thead>
+     <thead><tr><th scope="col"><label className="table-check-target"><input type="checkbox" aria-label="เลือกทั้งหมดที่แสดง" checked={allShown} onChange={()=>setSelected(m=>{const n=new Map(m);if(allShown)for(const a of attempts)n.delete(a.attemptId);else for(const a of attempts)n.set(a.attemptId,a);return n;})}/></label></th><th scope="col">LN Halos / Sample ID</th><th scope="col">LN / HN</th><th scope="col" aria-sort={sort==="asc"?"ascending":"descending"}><button type="button" className="sort-button" aria-label={`วันที่/เวลารับสิ่งส่งตรวจ เรียง${sort==="asc"?"เก่าไปใหม่":"ใหม่ไปเก่า"} กดเพื่อสลับ`} onClick={()=>change({sort:sort==="asc"?"desc":"asc"})}>วันที่/เวลารับ <span aria-hidden="true">{sort==="asc"?"↑":"↓"}</span></button></th><th scope="col">รอบ</th><th scope="col">สถานะ / เงื่อนไข</th><th scope="col">ฉลาก</th><th scope="col">Batch</th><th scope="col">จัดการ</th></tr></thead>
      <tbody>{attempts.map(a=><tr key={a.attemptId} className={`spec-row spec-${specimenTone(a)}${selected.has(a.attemptId)?" selected":""}`}>
       <td><label className="table-check-target"><input type="checkbox" aria-label={`เลือก LN ${formatHisLn(a.hisLn)}`} checked={selected.has(a.attemptId)} onChange={()=>toggle(a)}/></label></td>
-      <td className="ln-hn-cell"><button type="button" className="ln-button" aria-haspopup="dialog" aria-label={`จัดการตัวอย่าง LN ${formatHisLn(a.hisLn)}`} onClick={()=>setDialog({type:"center",row:a})}><Ln value={a.hisLn}/></button><div className="small muted">HN {a.hn??"—"}</div></td>
       <td><span className="mono strong">{a.labelCode??"—"}</span>{a.printedSampleId&&<div className={`mono small${a.exceptional?" task-exceptional":""}`}>{a.printedSampleId}</div>}{a.pregnancy==="Twins"&&<span className="badge">ครรภ์แฝด (D)</span>}</td>
+      <td className="ln-hn-cell"><button type="button" className="ln-button" aria-haspopup="dialog" aria-label={`จัดการตัวอย่าง LN ${formatHisLn(a.hisLn)}`} onClick={()=>setDialog({type:"center",row:a})}><Ln value={a.hisLn}/></button><div className="small muted">HN {a.hn??"—"}</div></td>
       <td className="receive-time">{a.receivedAt?bkk(a.receivedAt):"— / ยังไม่รับ"}<div className="small muted">{SOURCE[a.receivedSource??""]??""}</div></td><td>รอบที่ {a.roundNumber}{a.roundNumber>1&&<span className="badge warning">เจาะซ้ำ</span>}{a.repeat&&<span className="badge warning">ตรวจซ้ำ #{a.attemptNumber} {a.repeat.level==="RE_LIBRARY"?"Re-Library":a.repeat.level==="RE_EXTRACTION"?"Re-extraction":""}</span>}</td>
       <td><span className={`status ${a.gate?.eligible?"good":a.category==="GATE_BLOCKED"||a.category==="QC_FAILED"?"bad":"warning"}`}>{a.outcomeStatus??STATE[a.attemptState]??a.attemptState}{a.qcFailedStage?` (${a.qcFailedStage})`:""}</span>
        {a.urgent&&<span className="badge danger" title={a.urgentReason??undefined}>ด่วน</span>}{gaBadge(a.ga)}{a.hold&&<span className="badge danger">Hold{a.hold.stage?` ${a.hold.stage}`:""}</span>}{a.resumeDecisionRequired&&<span className="badge danger">รอตัดสินใจทำต่อ</span>}

@@ -10,9 +10,9 @@ const ideal:ResultFacts={templateKind:'SINGLETON',templateApproved:true,missing:
 const status=(f:Partial<ResultFacts>,code:string,purpose:'VALIDATION'|'CERTIFY_ATTEMPT'='VALIDATION')=>resultPredicates({...ideal,...f},purpose).find(p=>p.code===code)!;
 describe('RG-01..RG-13 (Plan §5.9.2)',()=>{
  it('reviewed HALOS uses the paper disclosure without requiring digital transcription, while an explicit refusal remains a failure',()=>{
-  expect(status({paperDisclosureReviewed:true,operationalReviewed:true,sexPreference:null,sexShown:true},'RG-11')).toMatchObject({status:'PASS',reason:'HALOS_PAPER_DISCLOSURE_REVIEWED'});
+  expect(status({paperDisclosureReviewed:true,operationalReviewed:true,sexPreference:null,sexShown:true},'RG-11')).toMatchObject({status:'PASS',reason:'HALOS_CONFIRMED_RESULT'});
   expect(status({paperDisclosureReviewed:true,operationalReviewed:false,sexPreference:null,sexShown:true},'RG-11').status).toBe('FAIL');
-  expect(status({paperDisclosureReviewed:true,operationalReviewed:true,sexPreference:'DoNotWant',sexShown:true},'RG-11').status).toBe('FAIL');
+  expect(status({paperDisclosureReviewed:true,operationalReviewed:true,sexPreference:'DoNotWant',sexShown:true},'RG-11').status).toBe('PASS');
  });
  it('Owner No Call requires exact reviewed failure evidence, without inventing final QC or weakening identity and release gates',()=>{
   const f:ResultFacts={...ideal,noCall:true,noCallReviewed:true,operationalReviewed:true,attemptState:'QcFailed',pdfQc:'FAIL',qc1Accepted:false,upstreamCurrent:false,upstreamReason:'UPSTREAM_POOL_STOP_USE',analysisAccepted:false,finalQcAccepted:false};

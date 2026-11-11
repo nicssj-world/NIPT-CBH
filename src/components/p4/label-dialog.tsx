@@ -4,6 +4,7 @@ import {Dialog,Ln} from "../p2/shared";
 import {labApi,failureText} from "./lab-api";
 import {LabIcon} from "../shared/lab-icons";
 import {formatHisLn} from "./his-ln";
+import {byLnHalosAsc} from "./lab-sort";
 import "./label-dialog.css";
 
 type Sample={roundId:string;hisLn:string;lnHalos:string|null;labelCode:string|null;roundNumber:number;printed:number};
@@ -13,11 +14,14 @@ type Sample={roundId:string;hisLn:string;lnHalos:string|null;labelCode:string|nu
  * Several samples open as one selection list (live search, select/deselect, selected total) before preview/print.
  */
 export function LabelDialog({samples,onClose,onPrinted}:{samples:Sample[];onClose:()=>void;onPrinted?:()=>void}){
- const [selected,setSelected]=useState<Set<string>>(()=>new Set(samples.filter(s=>s.lnHalos).map(s=>s.roundId))),[query,setQuery]=useState("");
+ // Several samples: only the ones not yet printed start ticked (a printed one can still be ticked by hand to reprint). One sample: always ticked.
+ const [selected,setSelected]=useState<Set<string>>(()=>new Set(samples.filter(s=>s.lnHalos&&(samples.length===1||s.printed===0)).map(s=>s.roundId))),[query,setQuery]=useState("");
  const [includeName,setIncludeName]=useState(false),[note,setNote]=useState(""),[sheet,setSheet]=useState<string|null>(null),[mode,setMode]=useState<"preview"|"print">("preview"),[busy,setBusy]=useState(false),[error,setError]=useState(""),[done,setDone]=useState("");
  const frame=useRef<HTMLIFrameElement>(null),multi=samples.length>1;
- const chosen=useMemo(()=>samples.filter(s=>selected.has(s.roundId)),[samples,selected]);
- const visible=useMemo(()=>{const q=query.trim().toLowerCase().replaceAll("-","");return q?samples.filter(s=>[s.hisLn,s.lnHalos??"",s.labelCode??""].some(v=>v.toLowerCase().replaceAll("-","").includes(q))):samples;},[samples,query]);
+ // Print order = LN Halos ascending, whatever order the samples arrive in.
+ const ordered=useMemo(()=>[...samples].sort(byLnHalosAsc),[samples]);
+ const chosen=useMemo(()=>ordered.filter(s=>selected.has(s.roundId)),[ordered,selected]);
+ const visible=useMemo(()=>{const q=query.trim().toLowerCase().replaceAll("-","");return q?ordered.filter(s=>[s.hisLn,s.lnHalos??"",s.labelCode??""].some(v=>v.toLowerCase().replaceAll("-","").includes(q))):ordered;},[ordered,query]);
  const reprint=chosen.some(s=>s.printed>0);
  const body=(name=includeName)=>({roundIds:chosen.map(s=>s.roundId),includeName:name,...(reprint&&note.trim()?{reason:note.trim()}:{})});
  const key=chosen.map(s=>s.roundId).join(",");

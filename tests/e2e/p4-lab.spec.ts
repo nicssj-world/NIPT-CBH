@@ -155,11 +155,11 @@ test("AT-SORT-01/02: registry receive column defaults newest first; Ready Queue 
  await expect.poll(async()=>{const o=await lnOrder();return o.indexOf(cases[0].ln)<o.indexOf(cases[1].ln);}).toBe(true);
  await axe(page);
  await page.goto("/lab");await page.getByRole("tab",{name:/ติดเงื่อนไข|พร้อมเข้าตรวจ/}).first().click();
- const header=page.getByRole("columnheader",{name:/วันที่\/เวลารับ/});await expect(header).toHaveAttribute("aria-sort","ascending");
- const rows=async()=>(await page.locator("tbody tr td:nth-child(2)").allTextContents()).map(t=>t.replace(/\D/g,""));
- let r=await rows();expect(r.indexOf(cases[0].ln)).toBeLessThan(r.indexOf(cases[1].ln));
- await header.getByRole("button").click();await expect(header).toHaveAttribute("aria-sort","descending");
- r=await rows();expect(r.indexOf(cases[1].ln)).toBeLessThan(r.indexOf(cases[0].ln));
+ const header=page.getByRole("columnheader",{name:/วันที่\/เวลารับ/});await expect(header).toHaveAttribute("aria-sort","descending"); // Owner 2026-11-11: the Lab screen opens newest first; LN / HN is now the 3rd column
+ const rows=async()=>(await page.locator("tbody tr td:nth-child(3)").allTextContents()).map(t=>t.replace(/\D/g,""));
+ let r=await rows();expect(r.indexOf(cases[1].ln)).toBeLessThan(r.indexOf(cases[0].ln));
+ await header.getByRole("button").click();await expect(header).toHaveAttribute("aria-sort","ascending");
+ r=await rows();expect(r.indexOf(cases[0].ln)).toBeLessThan(r.indexOf(cases[1].ln));
  expect(await fixtureQuery("SELECT 1 FROM lab_slot_assignment a JOIN analytical_attempt t ON t.id=a.attempt_id WHERE t.round_id=ANY($1::uuid[])",[cases.map(c=>c.roundId)])).toHaveLength(0); // sorting never batches
 
 });
