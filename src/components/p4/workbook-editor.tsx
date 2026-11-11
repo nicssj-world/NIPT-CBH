@@ -4,6 +4,8 @@ import Link from 'next/link';
 import {PdfPreview} from '../shared/pdf-preview';
 import {csrf} from '../p2/shared';
 import {labApi} from './lab-api';
+import {OperatorPicker} from './operator-picker';
+const OPERATOR_KEYS=new Set(['qc.operator','pool.operator','seq.operator']);
 import type {workbookWorkspace} from '../../../packages/workbook/service';
 import type {Binding} from '../../../packages/workbook/master';
 import {poolDilutionReady,POOL_DILUTION_NOTICE} from '../../../packages/workbook/dilution';
@@ -36,6 +38,8 @@ export function WorkbookEditor({batchId,canWrite}:{batchId:string;canWrite:boole
         const value=values[field.key],automatic=taskMeta||field.key in data.automaticValues||/^slot\.\d+\.printedSampleId$/.test(field.key);
         const cell=data.matrix.cells.find(c=>c.sheet===name&&c.cell===field.cell);
         const origin=taskMeta?(field.key in data.automaticValues?' · จาก Task List (แก้ที่หน้า Task List)':' · รอ Finalize Task List — ไม่กรอกที่นี่'):automatic?' · จากข้อมูล Lab':'';
+        if(OPERATOR_KEYS.has(field.key)&&!automatic){const lid=`wb-${field.key.replace('.','-')}-label`;return <div key={field.key} className="workbook-operator"><span id={lid}>{label(field,cell?.text??'')} <span className="muted">({field.cell})</span></span>
+          <OperatorPicker id={`wb-${field.key.replace('.','-')}`} labelledBy={lid} value={typeof value==='string'?value:''} disabled={!canWrite||busy} onChange={v=>setValues(x=>({...x,[field.key]:v===''?null:v}))}/></div>;}
         return <label key={field.key}>{label(field,cell?.text??'')} <span className="muted">({field.cell}){origin}</span>
           {field.dataType==='checkbox'?<input type="checkbox" checked={value===true} disabled={!canWrite||busy||automatic} onChange={e=>setValues(v=>({...v,[field.key]:e.target.checked}))}/>:<input type={field.dataType==='number'?'number':'text'} step={field.dataType==='number'?'any':undefined} value={value===null||value===undefined?'':String(value)} disabled={!canWrite||busy||automatic} onChange={e=>setValues(v=>({...v,[field.key]:e.target.value===''?null:field.dataType==='number'?Number(e.target.value):e.target.value}))}/>}
         </label>;

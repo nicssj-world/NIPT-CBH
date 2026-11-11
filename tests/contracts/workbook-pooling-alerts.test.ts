@@ -12,6 +12,11 @@ it('native Pooling alerts use actual calculated cells and preserve every origina
   const parts=readArchive(generateTaskWorkbook(master,{...values,'pool.concentration':concentration}).bytes),xml=parts.get('xl/worksheets/sheet5.xml')!.toString(),styles=parts.get('xl/styles.xml')!.toString();
   expect(xml).toContain('sqref="B8:C55"');expect(xml).toContain('AND(ISNUMBER($C8),$C8&lt;2)');
   expect(xml).toContain('AND(ISNUMBER(F14),OR(F14&lt;3,F14&gt;3.6))');expect(styles).toContain('<dxf><font><color rgb="FFFF0000"/></font></dxf>');
+  // Owner 2026-11-11: a Volume below 2 µL is also filled light on Barcode (A), Sample ID (B) and Volume (C) by its own rule and dxf.
+  const dxfs=[...(/<dxfs\b[^>]*>([\s\S]*?)<\/dxfs>/.exec(styles)![1]).matchAll(/<dxf\b[^>]*>[\s\S]*?<\/dxf>/g)].map(m=>m[0]),fillId=dxfs.findIndex(d=>d.includes('FFFFC7CE'));
+  expect(fillId).toBeGreaterThan(0);expect(dxfs[fillId]).not.toContain('<font>');
+  expect(xml).toMatch(new RegExp(`<conditionalFormatting sqref="A8:C55"><cfRule type="expression" dxfId="${fillId}" priority="\\d+"><formula>AND\\(ISNUMBER\\(\\$C8\\),\\$C8&lt;2\\)</formula>`));
+  expect(xml).not.toMatch(new RegExp(`sqref="F14"><cfRule type="expression" dxfId="${fillId}"`)); // the concentration check keeps only its red font
   expect(/<fonts[^>]*>[\s\S]*?<\/fonts>/.exec(styles)![0]).toBe(/<fonts[^>]*>[\s\S]*?<\/fonts>/.exec(original.get('xl/styles.xml')!.toString())![0]);
   expect([...xml.matchAll(/<f\b[^>]*>[\s\S]*?<\/f>/g)].map(m=>m[0])).toEqual([...base.matchAll(/<f\b[^>]*>[\s\S]*?<\/f>/g)].map(m=>m[0]));
  }

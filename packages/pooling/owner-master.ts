@@ -44,6 +44,8 @@ export function calculateOwnerPooling(master:Buffer,rows:PhysicalQc[],amount?:st
  return {formula,measuredCount:measured.length,rows:output,total:total.toString(),desired:desired.toString(),buffer:desired.minus(total).toString()};
 }
 export function poolConcentrationOutOfRange(value:string){const c=number(value);return c.lt(3)||c.gt('3.6');}
+/** C2 (target) and V2 (total) of the dilution, read from the Master, so the screen can preview V1 = C2·V2/C1 while the value is typed. */
+export function ownerDilutionBasis(master:Buffer){const f=ownerPoolFormula(master);return {target:f.dilutionTarget,total:f.dilutionTotal};}
 export function ownerDilution(master:Buffer,c1:string){const f=ownerPoolFormula(master),c=number(c1);if(c.lte(0))throw Error('DILUTION_C1_MUST_BE_POSITIVE');const v1=new D(f.dilutionTarget).times(f.dilutionTotal).div(c),eb=new D(f.dilutionTotal).minus(v1);if(eb.lt(0))throw Error('DILUTION_NEGATIVE_EB');return {v1:v1.toString(),eb:eb.toString(),c1,target:f.dilutionTarget,total:f.dilutionTotal};}
 /**
  * Only A/F are replaced. Copy the raw B–E field bytes, header and final newline.

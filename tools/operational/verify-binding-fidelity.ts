@@ -11,7 +11,7 @@ import {CONTROL_HIGHLIGHTS} from '../../packages/workbook/control-highlights';
 
 const cellMap=(xml:string)=>new Map([...xml.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)].map(m=>[/\br="([A-Z]+\d+)"/.exec(m[1])![1],{attributes:m[1],body:m[2]??'',xml:m[0]}]));
 const withoutCache=(xml:string)=>xml.replace(/(<c\b[^>]*>)([\s\S]*?)(<\/c>)/g,(all,start,body,end)=>/<f\b/.test(body)?start+body.replace(/<v\b[^>]*>[\s\S]*?<\/v>/g,'')+end:all);
-const ownerAlerts=/<conditionalFormatting sqref="(?:B8:C55|F14)"><cfRule type="expression" dxfId="\d+" priority="\d+"><formula>(?:AND\(ISNUMBER\(\$C8\),\$C8&lt;2\)|AND\(ISNUMBER\(F14\),OR\(F14&lt;3,F14&gt;3\.6\)\))<\/formula><\/cfRule><\/conditionalFormatting>/g;
+const ownerAlerts=/<conditionalFormatting sqref="(?:A8:C55|B8:C55|F14)"><cfRule type="expression" dxfId="\d+" priority="\d+"><formula>(?:AND\(ISNUMBER\(\$C8\),\$C8&lt;2\)|AND\(ISNUMBER\(F14\),OR\(F14&lt;3,F14&gt;3\.6\)\))<\/formula><\/cfRule><\/conditionalFormatting>/g;
 const texts=(xml:string)=>[...xml.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map(m=>xmlDecode(m[1])).join('');
 const coord=(ref:string)=>{const [,letters,row]=/^([A-Z]+)(\d+)$/.exec(ref)!;return {col:[...letters].reduce((n,c)=>n*26+c.charCodeAt(0)-64,0),row:Number(row)};};
 const contains=(range:string,ref:string)=>{const [first,last=first]=range.split(':'),a=coord(first),b=coord(last),c=coord(ref);return c.col>=a.col&&c.col<=b.col&&c.row>=a.row&&c.row<=b.row;};
@@ -38,7 +38,8 @@ export function verifyBindingFidelity(master:Buffer) {
   const dxfs=(bytes:Buffer)=>[.../<dxfs\b[^>]*>([\s\S]*?)<\/dxfs>/.exec(bytes.toString())![1].matchAll(/<dxf\b[^>]*>[\s\S]*?<\/dxf>/g)].map(m=>m[0]);
   const originalDxfs=dxfs(before.get('xl/styles.xml')!),generatedDxfs=dxfs(after.get('xl/styles.xml')!);
   assert.deepEqual(generatedDxfs.slice(0,originalDxfs.length),originalDxfs,'original conditional formats changed');
-  assert.deepEqual(generatedDxfs.slice(originalDxfs.length),['<dxf><font><color rgb="FFFF0000"/></font></dxf>'],'only Owner red font conditional format may be appended');
+  // Owner 2026-11-11: the red font and, for a Volume below 2 µL, a light fill on Barcode / Sample ID / Volume (visible in black-and-white print).
+  assert.deepEqual(generatedDxfs.slice(originalDxfs.length),['<dxf><font><color rgb="FFFF0000"/></font></dxf>','<dxf><fill><patternFill patternType="solid"><fgColor rgb="FFFFC7CE"/><bgColor rgb="FFFFC7CE"/></patternFill></fill></dxf>'],'only the Owner red font and light-fill conditional formats may be appended');
   const stripStyles=(bytes:Buffer)=>bytes.toString().replace(/<cellXfs\b[^>]*>[\s\S]*?<\/cellXfs>/,'').replace(/<fills\b[^>]*>[\s\S]*?<\/fills>/,'').replace(/<dxfs\b[^>]*>[\s\S]*?<\/dxfs>/,'');
   assert.equal(stripStyles(before.get('xl/styles.xml')!),stripStyles(after.get('xl/styles.xml')!),'fonts/other style definitions changed');
   const normalizeStyle=(s:string)=>s.replace(/\s+(?:applyAlignment|shrinkToFit)="[^"]*"/g,'').replace(/<alignment\s*\/>/g,'').replace(/^<xf([^>]*?)\/>$/,'<xf$1></xf>');
@@ -65,6 +66,12 @@ export function verifyBindingFidelity(master:Buffer) {
       const originalStyle=Number(/\bs="(\d+)"/.exec(originalAttrs)?.[1]??0),fittedStyle=Number(/\bs="(\d+)"/.exec(cell.attributes)?.[1]??0);
       if(b.dataType==='text'&&!b.rendering){assert.match(fittedStyles[fittedStyle],/shrinkToFit="1"/);assert.equal(baseStyle(fittedStyles[fittedStyle],b.cell),baseStyle(originalStyles[originalStyle],b.cell),`base style ${b.key}`);}
       else if(isControl(b.cell))assert.equal(baseStyle(fittedStyles[fittedStyle],b.cell),baseStyle(originalStyles[originalStyle],b.cell),`control base style ${b.key}`);
+      else if(b.dataType==='number'&&/^qc\.[123]\.standard[12]$/.test(b.key)){
+        // Owner 2026-11-11: only the horizontal alignment may differ (centered, like the cell below); everything else of the style is the master's.
+        assert.match(fittedStyles[fittedStyle],/horizontal="center"/,`centered ${b.key}`);
+        const withoutAlignment=(s:string)=>normalizeStyle(s).replace(/<alignment\b[^>]*\/>/g,'');
+        assert.equal(withoutAlignment(fittedStyles[fittedStyle]),withoutAlignment(originalStyles[originalStyle]),`centered base style ${b.key}`);
+      }
       else assert.equal(fittedStyle,originalStyle,`non-text style ${b.key}`);
       if(b.dataType==='number'&&!b.rendering)assert.equal(Number(/<v>([^<]+)<\/v>/.exec(cell.body)![1]),values[b.key]);
       else if(b.dataType==='checkbox')assert.equal(texts(cell.body),b.rendering==='parentheses'?source.text.replace('(  )','( ✓ )'):source.text.replace('☐','☑'),b.key);

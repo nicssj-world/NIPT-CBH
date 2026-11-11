@@ -32,7 +32,7 @@ it('EQA registry lists only EQA cases, shows no report before one exists, filter
  }finally{await f.close();}
 });
 
-it('IQC lists only recorded PC (slot 1) and NC (slot 25) values of the latest workbook revision; Blank and patients never appear; no thresholds',async()=>{
+it('IQC lists the recorded PC (slot 1), NC (slot 25) and Blank (slot 40) concentrations of the latest saved revision with the Task List 1 operator; patients never appear; no thresholds',async()=>{
  const f=await inboundFixture();
  try{
   const {lab}=await registrar(f.db);
@@ -44,9 +44,20 @@ it('IQC lists only recorded PC (slot 1) and NC (slot 25) values of the latest wo
   const values=(rev:number)=>({'slot.1.printedSampleId':'PC-1','slot.25.printedSampleId':'NC-25','slot.40.printedSampleId':'BLANK-40','slot.1.libraryQc':rev===1?5:20,'slot.25.libraryQc':0.5,'slot.40.libraryQc':0.4,'slot.2.libraryQc':33});
   for(const rev of [1,2])await f.db.query(`INSERT INTO task_workbook_revision(batch_id,revision,master_sha256,source_sha256,source_snapshot,values,created_by) VALUES($1,$2,'4c5300f9039af57c0d0649160f5da8e4c2ee1ed7ae44dd7aa525823104f9c7f1',$3,'{}',$4,$5)`,
    [b.batchId,rev,'a'.repeat(64),JSON.stringify(values(rev)),staff.id]);
+  // Owner 2026-11-11: the operator of the Run is the one planned on Task List 1.
+  await f.db.query("INSERT INTO lab_task_sheet(batch_id,sheet_number,planned_operator) VALUES($1,1,'SJ / SC'),($1,2,'XX'),($1,3,'YY')",[b.batchId]);
   const d=await readIqc(f.db,staff,{});
-  expect(d.rows.map(r=>[r.control,r.slot,r.libraryQc,r.workbookRevision])).toEqual([['PC',1,20,2],['NC',25,0.5,2]]);
-  expect(d.rows.every(r=>r.extractionQc===null&&r.reviewed===false)).toBe(true);
+  expect(d.rows.map(r=>[r.control,r.sampleId,r.concentration])).toEqual([['PC','PC-1',20],['NC','NC-25',0.5],['BLANK','BLANK-40',0.4]]);
+  expect(d.rows.map(r=>r.operator)).toEqual(['SJ / SC','SJ / SC','SJ / SC']); // Task List 1 for every row of the Run, not the sheet holding the slot
+  expect(d.rows.every(r=>!('slot' in r)&&!('extractionQc' in r)&&!('workbookRevision' in r)&&!('reviewed' in r))).toBe(true);
+  expect((await readIqc(f.db,staff,{control:'BLANK'})).rows.map(r=>r.control)).toEqual(['BLANK']);
+  // Owner 2026-11-11: filter by one Task List 1 operator; "SJ / SC" is found by SJ and by SC, never by a part of a name or another sheet's operator.
+  expect(d.operators.map(o=>o.value)).toEqual(['SC','SJ']);
+  expect((await readIqc(f.db,staff,{operator:'SC'})).rows).toHaveLength(3);
+  expect((await readIqc(f.db,staff,{operator:'SJ',control:'NC'})).rows.map(r=>r.control)).toEqual(['NC']);
+  for(const none of ['S','XX','SJ / SC'])expect((await readIqc(f.db,staff,{operator:none})).total).toBe(0);
+  await f.db.query("UPDATE app_user SET display_name='นางสาว สมใจ ใจดี',initial_name='SJ' WHERE id=$1",[staff.id]);
+  expect((await readIqc(f.db,staff,{})).operators).toEqual([{value:'SC',label:'SC'},{value:'SJ',label:'SJ — สมใจ'}]);
   expect(JSON.stringify(d)).not.toMatch(/threshold|mean|sd|pass|fail/i);
   expect((await readIqc(f.db,staff,{control:'NC'})).rows.map(r=>r.control)).toEqual(['NC']);
   const users=await labUsers(f.db);

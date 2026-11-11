@@ -5,6 +5,7 @@ import {assertSession,need,uuid,LabError,type Staff} from '../lab/core';
 import {lockBatch,type PlacementPayload} from '../lab/batch';
 import {digest} from '../pooling/calculation';
 import {POOLING_LAYOUT_VERSION} from './pooling-layout';
+import {deriveDilutionC1} from './dilution';
 import {POOLING_RULES_VERSION} from './pooling-rules';
 import {repeatAttemptIds} from '../lab/repeat-slots';
 import {type FileStore} from '../storage';
@@ -83,7 +84,8 @@ export async function saveWorkbookDraft(db:Queryable,user:Staff,input:unknown,de
   // Enforced here (not only in the UI), so direct API calls are covered: identifiers and all Task metadata are source-owned.
   for(const [key,value]of Object.entries(d.values))if((/^slot\.\d+\.printedSampleId$/.test(key)||isTaskMetaKey(key))&&JSON.stringify(value)!==JSON.stringify(current.values[key]))throw new LabError('TASK_SOURCE_FIELD_READ_ONLY',409,{key});
   for(const [key,value]of Object.entries(current.values))if(key in d.values&&JSON.stringify(d.values[key])!==JSON.stringify(value))throw new LabError('TASK_SOURCE_FIELD_READ_ONLY',409,{key});
-  const values={...withoutTaskMeta(d.values),...current.values};validateTaskValues(deps.master,values);
+  // Owner 2026-11-11: E52 (dilution C1) follows the Pool Library concentration; it is never typed separately.
+  const values=deriveDilutionC1({...withoutTaskMeta(d.values),...current.values});validateTaskValues(deps.master,values);
   const row=(await db.query<Revision>('INSERT INTO task_workbook_revision(batch_id,revision,master_sha256,source_sha256,source_snapshot,values,created_by) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *',[batch.id,d.expectedRevision+1,MASTER_SHA256,current.sha256,JSON.stringify(current.snapshot),JSON.stringify(values),user.id])).rows[0];
   await appendAudit(db,{actorId:user.id,action:'TASK_WORKBOOK_DRAFT_SAVED',resourceType:'task_workbook_revision',resourceId:row.id,details:{version:row.revision,outcome:'DRAFT_SAVED'}});return row;
 }
@@ -92,7 +94,7 @@ export async function exportWorkbook(db:Queryable,user:Staff,input:unknown,deps:
   await access(db,user,d.batchId,true);const draft=await latest(db,d.batchId);if(!draft||draft.revision!==d.revision)throw new LabError('TASK_CURRENT_DRAFT_REQUIRED',409);
   const current=await source(db,d.batchId);if(current.sha256!==draft.source_sha256||draft.master_sha256!==MASTER_SHA256)throw new LabError('TASK_SOURCE_CHANGED_REBIND_REQUIRED',409);
   // The six mutable metadata fields bind at render time; frozen clinical source changes still fail above.
-  const renderValues={...withoutTaskMeta(draft.values),...current.values};
+  const renderValues=deriveDilutionC1({...withoutTaskMeta(draft.values),...current.values}); // drafts saved before the rule also print V1/EB from the entered concentration
   const placementSource=draft.source_snapshot as {placements?:{payload:PlacementPayload}[]};
   const urgent40=placementSource.placements?.some(p=>p.payload.slots.some(s=>s.slot===40&&s.control===null&&s.attemptId!==null))??false;
   const exceptionalSlots=placementSource.placements?.flatMap(p=>p.payload.slots.filter(s=>(s.overallOrdinal??0)>=5).map(s=>s.slot))??[];

@@ -4,3 +4,24 @@
 .qc-actions{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center;}
 /* Hidden frame used only to print the authorised PDF; a class, because the page CSP forbids inline styles. */
 .qc-print-frame{position:fixed;right:0;bottom:0;width:0;height:0;border:0;}
+/* IQC (Owner 2026-11-11): the rows of one Run share a light band that alternates with the next Run (same tokens in light and dark). */
+.iqc-table tr.iqc-run-alt>td{background:var(--info-bg);}
+.iqc-table td.num{font-variant-numeric:tabular-nums;}
+/* EQA registry (Owner 2026-11-11): search group left, the one primary action right, clear space before the table. */
+.qc-toolbar{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:var(--space-3) var(--space-6);margin-bottom:var(--space-5,20px);}
+.qc-search{display:flex;flex-wrap:wrap;align-items:flex-end;gap:var(--space-3);flex:1 1 30rem;min-width:0;}
+.qc-search label{display:grid;gap:var(--space-1);margin:0;}
+.qc-search-year{flex:0 0 8.5rem;}
+.qc-search-q{flex:1 1 14rem;min-width:0;}
+.qc-search .input{width:100%;}
+.qc-toolbar-primary{flex:0 0 auto;}
+/* Report cell: status, one wrapping row of compact actions (44px targets, 8px apart), then the facts. */
+.qc-registry-table th.qc-report-col,.qc-registry-table td.qc-report{min-width:19rem;}
+.qc-report-cell{display:grid;justify-items:start;gap:var(--space-2);}
+.qc-report-cell .qc-actions{gap:var(--space-2);}
+.qc-actions-note{flex-basis:100%;margin:0;}
+.button.secondary.qc-delete{color:var(--color-danger);border-color:color-mix(in srgb,var(--color-danger) 55%,transparent);}
+.button.secondary.qc-delete:hover{background:var(--bad-bg);}
+@media(max-width:600px){.qc-toolbar-primary,.qc-toolbar-primary .button{width:100%;}.qc-search-year{flex:1 1 7rem;}}
+.qc-report-cell .badge{margin:0;}
+.iqc-operator-filter{margin:var(--space-4) 0;max-width:40rem;}

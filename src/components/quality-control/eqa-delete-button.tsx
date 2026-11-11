@@ -20,7 +20,7 @@ export function EqaDeleteButton({caseId,sampleRef,lnHalos}:{caseId:string;sample
   catch(e){setError((e instanceof ApiFailure&&DELETE_MESSAGES[e.code])||message(e));}finally{setBusy(false);}
  }
  return <>
-  <button ref={trigger} type="button" className="button secondary" onClick={()=>{setOpen(true);setDone(null);setError("");}}>ลบ</button>
+  <button ref={trigger} type="button" className="button small secondary qc-delete" aria-label={`ลบการลงทะเบียน EQA ${sampleRef}`} onClick={()=>{setOpen(true);setDone(null);setError("");}}>ลบ</button>
   {open&&<Dialog title="ลบการลงทะเบียน EQA" onClose={close}>
    {done?<div className="stack"><p role="status" className="notice success">ลบแล้ว{done.lnHalos?` LN Halos ${done.lnHalos}`:""} {done.numberReusable?"ใช้เลขนี้ซ้ำได้":"เลขนี้เป็นเลขเก่าที่มีผู้ป่วยรายถัดไปแล้ว จึงไม่กลับมาใช้ซ้ำ (ไม่กระทบเลขอื่น)"}</p>
      <div className="dialog-actions"><button type="button" className="button" onClick={close}>ปิด</button></div></div>

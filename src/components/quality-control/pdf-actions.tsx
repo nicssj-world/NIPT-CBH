@@ -16,9 +16,9 @@ export function PdfActions({versionId,certified}:{versionId:string;certified:boo
   }catch{setNote("เปิดเอกสารเพื่อพิมพ์ไม่สำเร็จ ตรวจสอบสิทธิ์หรือลองอีกครั้ง");}
  }
  return <div className="qc-actions" role="group" aria-label="รายงาน">
-  <a className="button secondary" href={href} target="_blank" rel="noopener">{certified?"ดูรายงาน":"ดูฉบับร่าง"}</a>
-  <a className="button secondary" href={href} download={`report-${versionId.slice(0,8)}.pdf`}>ดาวน์โหลด PDF</a>
-  <button type="button" className="button secondary" onClick={()=>void print()}>พิมพ์ PDF</button>
-  {note&&<span role="status" className="help">{note}</span>}
+  <a className="button small secondary" href={href} target="_blank" rel="noopener">{certified?"ดูรายงาน":"ดูฉบับร่าง"}</a>
+  <a className="button small secondary" href={href} download={`report-${versionId.slice(0,8)}.pdf`}>ดาวน์โหลด PDF</a>
+  <button type="button" className="button small secondary" onClick={()=>void print()}>พิมพ์</button>
+  {note&&<span role="status" className="help qc-actions-note">{note}</span>}
  </div>;
 }

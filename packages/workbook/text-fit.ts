@@ -16,6 +16,17 @@ export function textFitStyles(parts:Map<string,Buffer>){
    if(singleLine)fitted=fitted.replace(/\s+wrapText="[^"]*"/g,'');
    const next=styles.length+added.length;added.push(fitted);indexes.set(key,next);return next;
   },
+  /** Owner 2026-11-11: a measured number whose master cell has no horizontal alignment (it would sit against the right border) gets a cloned
+   *  style that centers it like the cell below it. Same rules as `style`: the original xf is kept, only a clone is appended. */
+  centered(index:number){
+   const key=`${index}:center`;
+   if(indexes.has(key))return indexes.get(key)!;
+   const source=styles[index];if(!source)throw new Error('TASK_CELL_STYLE_INVALID');
+   let clone=source.replace(/\s+applyAlignment="[^"]*"/g,'').replace('<xf','<xf applyAlignment="1"');
+   if(/<alignment\b/.test(clone))clone=clone.replace(/<alignment\b([^>]*?)\/>/,(_,attrs:string)=>`<alignment${attrs.replace(/\s+horizontal="[^"]*"/g,'')} horizontal="center"/>`);
+   else clone=clone.endsWith('/>')?clone.slice(0,-2)+'><alignment horizontal="center"/></xf>':clone.replace('</xf>','<alignment horizontal="center"/></xf>');
+   const next=styles.length+added.length;added.push(clone);indexes.set(key,next);return next;
+  },
   finish(){if(!added.length)return false;const attrs=block[1].replace(/\bcount="\d+"/,`count="${styles.length+added.length}"`);parts.set(path,Buffer.from(original.replace(block[0],`<cellXfs${attrs}>${block[2]}${added.join('')}</cellXfs>`)));return true;},
  };
 }

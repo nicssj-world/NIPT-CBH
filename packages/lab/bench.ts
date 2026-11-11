@@ -7,7 +7,8 @@ import {recordPhiAccess} from '../db/phi-access';
 import {uuid,LabError,need,audit,type Staff} from './core';
 import {batchDetail,type PlacementPayload} from './batch';
 import {workbookWorkspace,type WorkbookDeps} from '../workbook/service';
-import {calculateOwnerPooling,exportOwnerPoolingCsv,ownerDilution,poolConcentrationOutOfRange,type PhysicalQc} from '../pooling/owner-master';
+import {deriveDilutionC1} from '../workbook/dilution';
+import {calculateOwnerPooling,exportOwnerPoolingCsv,ownerDilution,ownerDilutionBasis,poolConcentrationOutOfRange,type PhysicalQc} from '../pooling/owner-master';
 import {exportOwnerNifty,patientVendorValues,petDisplayName,type VendorRow,type VendorExportIssue,type VendorPatient} from '../sequencing/owner-export';
 import {readPet} from '../inbound/process';
 import type {RequestDraft} from '../p2/schema';
@@ -48,7 +49,7 @@ export async function savedSource(db:Queryable,user:Staff,batchId:string,deps:Wo
  return s;
 }
 export async function benchPooling(db:Queryable,user:Staff,batchId:string,deps:WorkbookDeps){
- const s=await savedSource(db,user,batchId,deps),values=s.workbook.values;
+ const s=await savedSource(db,user,batchId,deps),values=deriveDilutionC1(s.workbook.values);
  for(let strip=1;strip<=3;strip++)for(const standard of ['standard1','standard2','standard2Concentration'])if(typeof values[`qc.${strip}.${standard}`]!=='number')throw new LabError('QC_NINE_STANDARDS_REQUIRED',422);
  const failed=await repeatAttemptIds(db,s.slots);
  const rows:PhysicalQc[]=s.slots.map(slot=>({slot:slot.slot,sampleId:slot.printedSampleId??slot.printedControlId??'',kind:slot.control==='positive'?'PC':slot.control==='negative'?'NC':slot.control==='blank'?'BLANK':slot.attemptId?(failed.has(slot.attemptId)?'REPEAT':'PATIENT'):'EMPTY',concentration:typeof values[`slot.${slot.slot}.libraryQc`]==='number'?String(values[`slot.${slot.slot}.libraryQc`]):null}));
@@ -56,7 +57,7 @@ export async function benchPooling(db:Queryable,user:Staff,batchId:string,deps:W
  const concentration=values['pool.concentration'],c1=values['pool.dilutionC1'];
  let dilution:ReturnType<typeof ownerDilution>|null=null,dilutionError:string|null=null;
  if(typeof c1==='number')try{dilution=ownerDilution(deps.master,String(c1));}catch(e){dilutionError=e instanceof Error?e.message:'DILUTION_INVALID';}
- return {revision:s.workbook.draft!.revision,sourceSha256:qcSourceHash(s.slots,values),calculation,poolConcentration:typeof concentration==='number'?String(concentration):null,outOfRange:typeof concentration==='number'?poolConcentrationOutOfRange(String(concentration)):false,dilution,dilutionError};
+ return {revision:s.workbook.draft!.revision,sourceSha256:qcSourceHash(s.slots,values),calculation,poolConcentration:typeof concentration==='number'?String(concentration):null,outOfRange:typeof concentration==='number'?poolConcentrationOutOfRange(String(concentration)):false,dilution,dilutionError,dilutionBasis:ownerDilutionBasis(deps.master)};
 }
 export async function benchExport(db:Queryable,user:Staff,input:unknown,deps:WorkbookDeps){
  const d=z.strictObject({batchId:uuid,revision:z.number().int().positive(),kind:z.enum(['POOL_CSV','NIFTY_XLSX'])}).parse(input),s=await savedSource(db,user,d.batchId,deps);

@@ -15,6 +15,7 @@ import {RepeatBadge} from './repeat-badge';
 import {QC_STANDARDS,benchSteps,qcMissingCount,type StepKey,type StepStatus} from './bench-progress';
 import {SampleActionCenter,type ActionCenterSubject} from './action-center';
 import './lab-bench.css';
+import {OperatorPicker} from './operator-picker';
 type Data=Awaited<ReturnType<typeof benchWorkspace>>;
 type Pool=Awaited<ReturnType<typeof benchPooling>>;
 type Slot=Data['slots'][number];
@@ -107,6 +108,8 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
   const load=()=>{setPreview(p=>p&&{...p,url:null,error:undefined});fetchExport(kind).then(blob=>setPreview(p=>p?{...p,url:URL.createObjectURL(blob)}:p)).catch(e=>setPreview(p=>p?{...p,error:e instanceof LabFailure?e.text:e instanceof Error?e.message:'ออกเอกสารไม่สำเร็จ'}:p));};
   setPreview({title,url:null,retry:load});load();
  }
+ /** Owner 2026-11-11: the QC and Pooling steps also offer the same worksheet PDF as a file download (the preview/print button stays). */
+ const downloadPdf=(kind:'QC'|'POOL',name:string)=>run(async()=>{const url=URL.createObjectURL(await fetchExport(kind));const a=document.createElement('a');a.href=url;a.download=`${data!.runLabel.replace('/','-')}-${name}.pdf`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);});
  const downloadCsv=()=>run(async()=>{const url=URL.createObjectURL(await fetchExport('POOL_CSV'));const a=document.createElement('a');a.href=url;a.download=`${data!.runLabel.replace('/','-')}-POOL_CSV.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);});
  /** Sample-info (NIFTY Test Request) file: needs only the saved task, not finalized QC or recorded actual pooling. Owner 2026-11-09: the button lives only on the Sequencing step, where the vendor file is made. The HALOS file stays in the two-file pair because it lists the positions actually pooled. */
  const downloadNifty=()=>run(async()=>{const url=URL.createObjectURL(await fetchExport('NIFTY_XLSX'));const a=document.createElement('a');a.href=url;a.download=`${data!.runLabel.replace('/','-')}-NIFTY-Test-Request.xlsx`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);setNotice('สร้างไฟล์ข้อมูลตัวอย่าง (NIFTY) แล้ว');});
@@ -125,7 +128,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
  const status=busy?'กำลังบันทึก…':dirty?'มีค่าที่ยังไม่บันทึก':data?.sourceStale?'ข้อมูลต้นทางเปลี่ยน — บันทึกเพื่อผูกข้อมูลล่าสุด':data?.revision?`บันทึกแล้ว · ฉบับ ${data.revision}`:'ยังไม่บันทึก';
  const poolable=(row:{slot:number;sampleId:string})=>{const s=data?.slots.find(x=>x.slot===row.slot),k=s?.kind;return !!row.sampleId&&(k==='PATIENT'||k==='PC'||k==='NC')&&!['QcFailed','Superseded','Stopped','BatchCancelled'].includes(s?.attemptState??'');};
  const pooledCount=pool?pool.calculation.rows.filter(r=>isPooled(r,poolable)).length:0;
- const poolConc=num(values['pool.concentration']),poolOut=poolConc!==null&&(poolConc<3||poolConc>3.6);
+ const poolConc=num(values['pool.concentration']),poolOut=poolConc!==null&&(poolConc<3||poolConc>3.6),poolHigh=poolConc!==null&&poolConc>3.6,basis=pool?.dilutionBasis?{target:Number(pool.dilutionBasis.target),total:Number(pool.dilutionBasis.total)}:null,dilutionPreview=poolHigh&&basis&&poolConc!==null?(()=>{const v1=basis.target*basis.total/poolConc;return {v1,eb:basis.total-v1};})():null;
 
  return <section className="panel lab-bench" data-enter-navigation>
   <nav className="bench-breadcrumb" aria-label="เส้นทางใบงาน"><Link href="/lab/batches">Batch / Task List</Link><span aria-hidden="true">/</span><Link href={`/lab/batches/${batchId}`}>{data?.runLabel??'Run'}</Link></nav>
@@ -137,7 +140,8 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
   {!data&&!error&&<p role="status">กำลังโหลดใบงาน…</p>}
   {data&&tab==='QC'&&<section aria-labelledby="qc-title" className="bench-section">
    <div className="bench-section-head"><h2 id="qc-title"><LabIcon name="flask"/>QC Measurements</h2>
-    <button className="button secondary" type="button" disabled={busy||!saved} onClick={()=>openPdf('QC','QC measurements')}><LabIcon name="printer"/>ดูตัวอย่าง / พิมพ์ QC</button></div>
+    <div className="bench-actions"><button className="button secondary" type="button" disabled={busy||!saved} onClick={()=>openPdf('QC','QC measurements')}><LabIcon name="printer"/>ดูตัวอย่าง / พิมพ์ QC</button>
+     <button className="button secondary" type="button" disabled={busy||!saved} onClick={()=>void downloadPdf('QC','QC')}><LabIcon name="download"/>ดาวน์โหลด PDF</button></div></div>
    <div className="bench-criteria" role="note"><p>ตัวอย่าง, Positive control และ Negative control ควรมีความเข้มข้น ≥ 2.0 ng/µL หากไม่เป็นไปตามเกณฑ์ให้เริ่มสกัดใหม่อีกครั้ง</p><p>Blank control ควรมีความเข้มข้น ≤ 0.6 ng/µL</p></div>
    <div className="lab-bench-standards">{[1,2,3].map(strip=><fieldset key={strip}><legend>Strip {strip}/3</legend>{QC_STANDARDS.map(([key,label])=><label key={key}><span>{label}</span><NumberField label={`Strip ${strip}/3 ${label}`} value={values[`qc.${strip}.${key}`]} disabled={!canWrite||busy} onChange={v=>change(`qc.${strip}.${key}`,v)}/></label>)}</fieldset>)}</div>
    <div className="table-wrap" role="region" aria-label="QC 48 ตำแหน่ง" tabIndex={0}><table className="bench-table qc-table"><colgroup><col className="col-slot"/><col/><col className="col-value"/><col className="col-flag"/></colgroup>
@@ -149,7 +153,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
   </section>}
   {data&&tab==='POOL'&&<section aria-labelledby="pool-title" className="bench-section">
    <div className="bench-section-head"><h2 id="pool-title"><LabIcon name="layers"/>Pooling Table</h2>
-    <div className="bench-actions"><button className="button secondary" type="button" disabled={busy||!saved||!pool} onClick={()=>openPdf('POOL','Pooling Table')}><LabIcon name="printer"/>ดูตัวอย่าง / พิมพ์ Pooling Table</button><button className="button secondary" type="button" disabled={busy||!saved||!pool} onClick={()=>void downloadCsv()}><LabIcon name="download"/>ส่งออก Pooling CSV</button></div></div>
+    <div className="bench-actions"><button className="button secondary" type="button" disabled={busy||!saved||!pool} onClick={()=>openPdf('POOL','Pooling Table')}><LabIcon name="printer"/>ดูตัวอย่าง / พิมพ์ Pooling Table</button><button className="button secondary" type="button" disabled={busy||!saved||!pool} onClick={()=>void downloadPdf('POOL','Pooling')}><LabIcon name="download"/>ดาวน์โหลด PDF</button><button className="button secondary" type="button" disabled={busy||!saved||!pool} onClick={()=>void downloadCsv()}><LabIcon name="download"/>ส่งออก Pooling CSV</button></div></div>
    {!saved&&<p className="notice" role="note">บันทึกค่า QC ก่อน แล้วระบบจะคำนวณ Pooling จากค่าที่บันทึก</p>}
    {data.actualPooling&&!data.actualPooling.current&&<p role="alert" className="notice warning-notice">ค่า QC หรือตำแหน่งเปลี่ยน — คำนวณใหม่แล้ว กรุณากด “บันทึก QC2” อีกครั้ง</p>}
    {pool&&<>
@@ -167,7 +171,11 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
    <div className="lab-bench-qc2">{[['pool.standard1','Ref.Std dsDNA Standard 1'],['pool.standard2','Ref.Std dsDNA Standard 2'],['pool.standard2Concentration','Standard 2 Conc.'],['pool.concentration','Pool Library concentration (ng/µL)']].map(([key,label])=><label key={key} className="lab-bench-qc2-field"><span>{label}</span>
     <NumberField label={label} value={values[key]} invalid={key==='pool.concentration'&&poolOut} describedBy={key==='pool.concentration'?'pool-criterion':undefined} disabled={!canWrite||busy||data.automaticKeys.includes(key)} onChange={v=>change(key,v)}/>
     {key==='pool.concentration'&&<span id="pool-criterion" className="bench-criterion-note">เกณฑ์ของความเข้มข้น Pooling DNA Library คือ 3.00–3.60 ng/µL{poolOut&&<strong className="bench-out"> · ค่านอกเกณฑ์</strong>}</span>}</label>)}</div>
-   {poolOut&&<fieldset className="bench-dilution"><legend>Pooling DNA Library Dilution</legend><p className="muted">C2 = 3.33 ng/µL · V2 = 100 µL ตาม Master</p><label><span>C1 ที่วัดได้ (ng/µL)</span><NumberField label="C1 ที่วัดได้ ng/µL" value={values['pool.dilutionC1']} disabled={!canWrite||busy} onChange={v=>change('pool.dilutionC1',v)}/></label>{pool?.dilution&&<p>V1 {Number(pool.dilution.v1).toFixed(2)} µL · EB {Number(pool.dilution.eb).toFixed(2)} µL</p>}{pool?.dilutionError&&<p role="alert">{pool.dilutionError==='DILUTION_NEGATIVE_EB'?'C1 ต่ำกว่าเป้าหมาย สูตร dilution ให้ EB ติดลบ จึงยังคำนวณใช้จริงไม่ได้':pool.dilutionError}</p>}</fieldset>}
+   {poolHigh&&<fieldset className="bench-dilution"><legend>Pooling DNA Library Dilution</legend>
+    {/* Owner 2026-11-11: C1 is the Pool Library concentration typed above (nothing to type twice); V1 = C2 × V2 ÷ C1. The saved value also fills E52 of the Pooling Table, so the PDF shows the same V1 and EB. */}
+    <p>C1 = <strong>{poolConc} ng/µL</strong> (ค่า Pool Library concentration ที่กรอกด้านบน) · C2 = {basis?basis.target:"3.33"} ng/µL · V2 = {basis?basis.total:"100"} µL ตาม Master</p>
+    {dilutionPreview&&<p role="status" className="bench-dilution-result">C1 × V1 = C2 × V2 → <strong>V1 = {dilutionPreview.v1.toFixed(2)} µL</strong> · EB {dilutionPreview.eb.toFixed(2)} µL (รวม {basis!.total} µL)</p>}
+    <p className="help">กด “บันทึกร่าง QC2” หรือ “บันทึก QC2” แล้วค่านี้จะอยู่ใน Pooling Table (PDF) ด้วย</p></fieldset>}
   </section>}
   {data&&tab==='SEQ'&&<section aria-labelledby="seq-title" className="bench-section">
    <div className="bench-section-head"><h2 id="seq-title"><LabIcon name="dna"/>Seq Task-G50</h2>
@@ -176,7 +184,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
      <button className="button" type="button" disabled={busy||!saved} onClick={()=>void exportPair()}><LabIcon name="download"/>ส่งออก XLSX 2 ไฟล์</button>
      <Link className="button secondary" href="/results"><LabIcon name="upload"/>นำเข้า PDF Result</Link></div></div>
    <div className="seq-groups">{SEQ_GROUPS.map(g=><fieldset key={g.title} className="seq-group"><legend><LabIcon name={g.icon}/>{g.title}</legend><div className="seq-fields">{g.fields.map(f=>{const id=`seq-${f.key}`;
-    return <div key={f.key} className="field"><label htmlFor={id}>{f.label}</label>{f.type==='text'?<input id={id} type="text" disabled={!canWrite||busy||data.automaticKeys.includes(f.key)} value={String(values[f.key]??'')} onChange={e=>change(f.key,e.target.value)} aria-describedby={f.hint?`${id}-hint`:undefined}/>
+    return <div key={f.key} className="field"><label htmlFor={id}>{f.label}</label>{f.key==='seq.operator'?<OperatorPicker id={id} value={String(values[f.key]??'')} disabled={!canWrite||busy||data.automaticKeys.includes(f.key)} onChange={v=>change(f.key,v)}/>:f.type==='text'?<input id={id} type="text" disabled={!canWrite||busy||data.automaticKeys.includes(f.key)} value={String(values[f.key]??'')} onChange={e=>change(f.key,e.target.value)} aria-describedby={f.hint?`${id}-hint`:undefined}/>
      :<NumberField id={id} label={f.label} signed={f.type==='signed'} value={values[f.key]} disabled={!canWrite||busy||data.automaticKeys.includes(f.key)} describedBy={f.hint?`${id}-hint`:undefined} onChange={v=>change(f.key,v)}/>}{f.hint&&<small id={`${id}-hint`} className="muted">{f.hint}</small>}</div>;})}</div></fieldset>)}</div>
    {data.slots.some(r=>r.kind==='PATIENT')&&<details className="bench-failures"><summary>ผลไม่สำเร็จ / ตรวจซ้ำหลัง Sequencing</summary><ul>{data.slots.filter(r=>r.kind==='PATIENT').map(row=><li key={row.slot}><span className="muted">ตำแหน่ง {row.slot}</span> {sampleCell(row)}</li>)}</ul></details>}
    {seqFiles&&<div className="notice success bench-files" role="region" aria-label="ไฟล์ XLSX จากฉบับเดียวกัน"><p>ใบงานฉบับ {seqFiles.revision} · หาก Browser ไม่ดาวน์โหลดอัตโนมัติ ให้เลือกแต่ละไฟล์</p><div className="bench-actions">{seqFiles.files.map((file,i)=><a key={file.id} className="button secondary" href={`/api/lab-bench/seq-exports/${seqFiles.id}/${file.id}`} download><LabIcon name="download"/>{i+1}. {file.kind==='NIFTY_XLSX'?'NIFTY Test Request':'HALOS Task Import'}</a>)}

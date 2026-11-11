@@ -101,6 +101,8 @@ export function generateTaskWorkbook(master: Buffer, values: Record<string,unkno
       const c=cells(xml).find(c=>c.ref===d.cell); if(!c||/<f\b/.test(c.body))throw new Error(`TASK_FIELD_PROTECTED:${d.key}`);
       let attrs=c.attrs.replace(/\s+t="[^"]*"/g,'');
       if(d.dataType==='text'&&!d.rendering&&String(value).length){const fitted=fitting.style(Number(/\bs="(\d+)"/.exec(attrs)?.[1]??0),/^task\.\d+\.(?:extractionLotExp|libraryLotExp)$/.test(d.key));attrs=/\bs="\d+"/.test(attrs)?attrs.replace(/\bs="\d+"/,`s="${fitted}"`):attrs+` s="${fitted}"`;}
+      // QC reference standards (F19:H20): the master gives them no alignment, so the numbers sat against the right border; row 21 is centered.
+      if(d.dataType==='number'&&/^qc\.[123]\.standard[12]$/.test(d.key)){const centered=fitting.centered(Number(/\bs="(\d+)"/.exec(attrs)?.[1]??0));attrs=/\bs="\d+"/.test(attrs)?attrs.replace(/\bs="\d+"/,`s="${centered}"`):attrs+` s="${centered}"`;}
       let body:string;
       if(d.dataType==='checkbox') {
         const index=Number(/<v>(\d+)<\/v>/.exec(c.body)?.[1]);

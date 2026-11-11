@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {firstNameOf} from '../lab/operators';
 import type {Queryable} from '../db/connection';
 import {need,assertSession,type Staff} from '../lab/core';
 
@@ -52,33 +53,42 @@ export async function readEqaRegistry(db:Queryable,user:Staff,raw:unknown={}){
  return {rows:out,total,page,pages,pageSize:f.pageSize,years,year:f.year??null,q:f.q??null};
 }
 
-/** One slot's recorded measurement. Keys and unit come from the approved task master: slot.N.libraryQc is "library concentration ng/uL". */
-export type IqcRow={runLabel:string;runDate:string;control:'PC'|'NC';slot:number;sampleId:string|null;libraryQc:number|null;extractionQc:number|null;
- workbookRevision:number;masterSha256:string;reviewed:boolean;reviewedAt:string|null};
+/** One control's recorded measurement. slot.N.libraryQc is the "Concentration (ng/µL)" entered on the QC Measurements step of the approved task master.
+ *  Owner 2026-11-11: PC (slot 1), NC (slot 25) and Blank (slot 40) of each Run; the operator is the one planned on Task List 1 of that Run. */
+export type IqcControl='PC'|'NC'|'BLANK';
+export type IqcRow={runLabel:string;runDate:string;control:IqcControl;sampleId:string|null;concentration:number|null;operator:string|null};
+const IQC_SLOTS:Record<IqcControl,number>={PC:1,NC:25,BLANK:40};
 const iqcSchema=z.strictObject({page:z.preprocess(blank,z.coerce.number().int().min(1).max(100000).default(1)),pageSize:z.preprocess(blank,z.coerce.number().int().refine(n=>[25,50,100].includes(n)).default(25)),
- control:z.preprocess(blank,z.enum(['PC','NC']).optional())});
+ control:z.preprocess(blank,z.enum(['PC','NC','BLANK']).optional()),
+ // Owner 2026-11-11: filter by one operator (an Initial Name, or an older free-text name) of Task List 1; "SJ / SC" matches SJ and SC.
+ operator:z.preprocess(blank,z.string().trim().min(1).max(60).optional())});
+const TASK1_OPERATORS="SELECT btrim(o) name FROM lab_task_sheet t CROSS JOIN LATERAL unnest(string_to_array(t.planned_operator,'/')) o WHERE t.batch_id=b.id AND t.sheet_number=1 AND btrim(o)<>''";
 
-/**
- * IQC Positive/Negative Control: only recorded values of the control slots (1 = PC, 25 = NC) from each Run's latest approved workbook revision.
- * No thresholds, means, SD or pass/fail are computed here; Blank (slot 40) is never included. A missing value shows as unavailable.
- */
 export async function readIqc(db:Queryable,user:Staff,raw:unknown={}){
  await assertSession(db,user);need(user,'result.review','read');
  const f=iqcSchema.parse(raw);
- const control=f.control==='PC'?[1]:f.control==='NC'?[25]:[1,25];
+ const slots=f.control?[IQC_SLOTS[f.control]]:Object.values(IQC_SLOTS);
+ // Slot 40 holds a Blank unless the Run gave it to an urgent patient (Owner urgent-40 rule): that patient is never listed as a control.
  const base=`FROM lab_batch b JOIN LATERAL (SELECT * FROM task_workbook_revision w WHERE w.batch_id=b.id ORDER BY w.revision DESC LIMIT 1) w ON true
-  JOIN lab_batch_slot s ON s.batch_id=b.id AND s.slot_number=ANY($1::int[]) AND s.control_type IN ('positive','negative')
-  WHERE b.state<>'Cancelled'`;
- const total=Number((await db.query<{n:string}>(`SELECT count(*)::text n ${base}`,[control])).rows[0].n);
+  JOIN lab_batch_slot s ON s.batch_id=b.id AND s.slot_number=ANY($1::int[]) AND s.control_type IN ('positive','negative','blank')
+  WHERE b.state<>'Cancelled' AND NOT (s.slot_number=40 AND EXISTS(SELECT 1
+   FROM jsonb_array_elements(CASE WHEN jsonb_typeof(w.source_snapshot->'placements')='array' THEN w.source_snapshot->'placements' ELSE '[]'::jsonb END) p
+   CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(p->'payload'->'slots')='array' THEN p->'payload'->'slots' ELSE '[]'::jsonb END) x
+   WHERE x->>'slot'='40' AND x->>'control' IS NULL AND x->>'attemptId' IS NOT NULL))
+  AND ($2::text IS NULL OR EXISTS(SELECT 1 FROM (${TASK1_OPERATORS}) op WHERE op.name=$2))`;
+ const params=[slots,f.operator??null];
+ const total=Number((await db.query<{n:string}>(`SELECT count(*)::text n ${base}`,params)).rows[0].n);
  const pages=Math.max(1,Math.ceil(total/f.pageSize)),page=Math.min(f.page,pages);
- const rows=(await db.query<{run_label:string;created_at:Date;slot_number:number;control_type:string;sample_id:string|null;lib:string|null;ext:string|null;revision:number;master:string;reviewed:boolean;reviewed_at:Date|null}>(
-  `SELECT b.run_label,b.created_at,s.slot_number,s.control_type,w.values->>('slot.'||s.slot_number||'.printedSampleId') sample_id,
-    w.values->>('slot.'||s.slot_number||'.libraryQc') lib,w.values->>('slot.'||s.slot_number||'.extractionQc') ext,w.revision,w.master_sha256 master,
-    EXISTS(SELECT 1 FROM lab_bench_review r WHERE r.workbook_revision_id=w.id AND lab_bench_review_current(r.id)) reviewed,
-    (SELECT max(r.created_at) FROM lab_bench_review r WHERE r.workbook_revision_id=w.id AND lab_bench_review_current(r.id)) reviewed_at
-   ${base} ORDER BY b.run_year DESC,b.run_number DESC,s.slot_number LIMIT ${f.pageSize} OFFSET ${(page-1)*f.pageSize}`,[control])).rows;
+ const rows=(await db.query<{run_label:string;created_at:Date;control_type:string;sample_id:string|null;concentration:string|null;operator:string|null}>(
+  `SELECT b.run_label,b.created_at,s.control_type,w.values->>('slot.'||s.slot_number||'.printedSampleId') sample_id,
+    w.values->>('slot.'||s.slot_number||'.libraryQc') concentration,
+    (SELECT NULLIF(btrim(t.planned_operator),'') FROM lab_task_sheet t WHERE t.batch_id=b.id AND t.sheet_number=1) operator
+   ${base} ORDER BY b.run_year DESC,b.run_number DESC,s.slot_number LIMIT ${f.pageSize} OFFSET ${(page-1)*f.pageSize}`,params)).rows;
+ // The filter choices: every operator named on Task List 1 of a Run that is not cancelled, with the person's first name when it is someone's Initial Name.
+ const operators=(await db.query<{name:string;display_name:string|null}>(`SELECT DISTINCT op.name,u.display_name FROM lab_batch b CROSS JOIN LATERAL (${TASK1_OPERATORS}) op
+   LEFT JOIN app_user u ON u.initial_name=op.name WHERE b.state<>'Cancelled' ORDER BY op.name`)).rows.map(r=>({value:r.name,label:r.display_name?`${r.name} — ${firstNameOf(r.display_name)}`:r.name}));
  const num=(v:string|null)=>v===null||v===''||Number.isNaN(Number(v))?null:Number(v);
- const out:IqcRow[]=rows.map(r=>({runLabel:r.run_label,runDate:new Date(r.created_at).toISOString(),control:r.control_type==='positive'?'PC':'NC',slot:r.slot_number,sampleId:r.sample_id,
-  libraryQc:num(r.lib),extractionQc:num(r.ext),workbookRevision:r.revision,masterSha256:r.master,reviewed:r.reviewed,reviewedAt:r.reviewed_at?new Date(r.reviewed_at).toISOString():null}));
- return {rows:out,total,page,pages,pageSize:f.pageSize,control:f.control??null};
+ const out:IqcRow[]=rows.map(r=>({runLabel:r.run_label,runDate:new Date(r.created_at).toISOString(),control:r.control_type==='positive'?'PC':r.control_type==='negative'?'NC':'BLANK',
+  sampleId:r.sample_id,concentration:num(r.concentration),operator:r.operator}));
+ return {rows:out,total,page,pages,pageSize:f.pageSize,control:f.control??null,operator:f.operator??null,operators};
 }
