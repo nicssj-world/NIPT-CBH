@@ -67,6 +67,11 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('report batch: worker_rw finalize
    return {batch,jobs};
   };
   const runAsWorker=(job:{id:string;payload:unknown})=>tx(worker,t=>runReportBatchItem(t,job.id,job.payload,workerDeps,3));
+  // Production case (LN 2630370025): the specimen also has a legacy Genomic-CBH migration_record for the same attempt. The confirmed HALOS row still decides.
+  {const sha=createHash('sha256').update('legacy-migration-record-for-halos-case').digest('hex');
+   const ex=(await owner.query<{id:string}>("INSERT INTO migration_execution(plan_digest,plan,created_by) VALUES($1,'{}',$2) RETURNING id",[sha,f.u.staff.id])).rows[0].id;
+   const n=await owner.query("INSERT INTO migration_record(execution_id,source_key,row_number,ln,ln_halos,classification,case_id,round_id,attempt_id,his_pdf_exists,state) SELECT $1,'legacy',2,l.ln,COALESCE(n.ln_halos,'LEGACY-1'),'QUALIFIED_PDF_PENDING',at.case_id,at.round_id,at.id,false,'IMPORTED' FROM analytical_attempt at JOIN case_ln l ON l.case_id=at.case_id LEFT JOIN specimen_lab_number n ON n.round_id=at.round_id WHERE at.printed_sample_id=$2 LIMIT 1",[ex,a.printed]);
+   expect(n.rowCount).toBe(1);}
   // Low risk singleton, High Risk singleton (acknowledged) and twins, in one batch exactly as the dialog sends it.
   const {batch,jobs}=await queue([{rowId:rowOf(a.printed)},{rowId:rowOf(b.printed)},{rowId:rowOf(tw.printed)}]);
   for(const job of jobs)expect(await runAsWorker(job)).toMatchObject({state:'FINAL'});

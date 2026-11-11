@@ -387,7 +387,9 @@ async function gateFor(db:Queryable,v:VersionRow,purpose:Purpose,certifierId?:st
  if(v.kind==='REDRAW_NOTICE')return decideGate(noticePredicates({templateApproved,linked:!!v.link_mode&&['Linked','ValidationBlocked','PendingCertification','CertifiedReleased'].includes(v.state),openProposal:x.open_proposal,cross,redrawForRound:x.redraw_at!==null,redrawRequestedAt:x.redraw_at,importedAt:v.imported_at,
   openIdentityIssues:issues.n,consentRevoked:issues.revoked,versionState:v.state,latestInSeries:x.latest,reviewedCurrent:reviewed}),'RN');
  const migration=await migrationResultEvidence(db,v.id);
- if(migration.migrated&&!(isNoCallReport(v.parsed)&&qc5?.no_call_valid)){
+ // A report NIPT-CBH generated from a confirmed HALOS row is judged on that evidence even when a legacy migration_record exists for the same attempt.
+ const halosOwned=operational?await halosReportEvidence(db,v.id):null;
+ if(migration.migrated&&!halosOwned&&!(isNoCallReport(v.parsed)&&qc5?.no_call_valid)){
  const held=(await db.query<{hold:boolean}>("SELECT COALESCE((SELECT event_type='HOLD_SET' FROM attempt_event WHERE attempt_id=$1 AND event_type IN ('HOLD_SET','HOLD_RELEASED') ORDER BY sequence DESC LIMIT 1),false) hold",[v.attempt_id])).rows[0]?.hold??true;
  return {...decideGate(migrationPredicates({current:migration.current,reviewed:migration.reviewed,identity:migration.current&&issues.n===0&&!Object.values(cross).includes('MISMATCH'),readable:missingRequired(v.parsed).length===0,linked:!!v.link_mode,latest:x.latest&&!x.active_release,hold:held,revoked:issues.revoked,certifier:x.certifier,openProposal:x.open_proposal,versionOpen:['Linked','ValidationBlocked','PendingCertification'].includes(v.state)},purpose),'RG'),ruleVersion:'MIGRATION-HISTORICAL-OFFICIAL-PDF-20261026'};
  }
