@@ -57,7 +57,8 @@ test('pathway A (LAB certifier): HALOS import preview/confirm, realtime search, 
  await expect(page.getByRole('heading',{name:'รายงานจากผล HALOS'})).toBeVisible();
  // Re-runs against the same UAT database reuse the already confirmed import (same SHA-256 is never imported twice).
  if(!(await sql("SELECT 1 FROM halos_import WHERE state='Confirmed'")).length){
- const imp=page.locator('details.t3-import');if(!await imp.evaluate(e=>(e as HTMLDetailsElement).open))await imp.locator('summary').click();
+ // Owner 2026-11-11: the import is a step that is always open (no fold to open first).
+ await expect(page.getByRole('heading',{name:'นำเข้าไฟล์ผล HALOS'})).toBeVisible();
  await page.locator('#halos-file').setInputFiles(path.join(base,'fixtures','Sample analysis data_S990000001_UAT.xlsx'));
  await page.getByRole('button',{name:'อัปโหลดและตรวจ (Preview)'}).click();
  const preview=page.locator('.t3-preview');await expect(preview).toBeVisible({timeout:60_000});

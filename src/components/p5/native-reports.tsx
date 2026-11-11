@@ -8,7 +8,8 @@ import {PdfPreview} from "../shared/pdf-preview";
 import {Pager} from "../shared/pager";
 import type {HisDeliveryStatus} from '../../../packages/results/his-status';
 import {HisDeliveryBadge} from './his-delivery-badge';
-import {RecentReportBatches,ReportBatchProgress} from './report-batch-progress';
+import {RecentReportBatches,ReportRunCard} from './report-batch-progress';
+import './halos-flow.css';
 
 // Task 3 pathway A on the existing Results page: HALOS result import, then one report per patient from the Owner's DOCX masters.
 // Every HOLD reason comes from the server; nothing here decides eligibility, and no action is shown that the server would refuse.
@@ -57,15 +58,20 @@ const STATUS_TONE:Record<Row["status"],string>={READY:"good",HOLD:"warning",FINA
 const TABS:[string,string][]=[["ALL","ทั้งหมด"],["READY","พร้อมออกรายงาน"],["HOLD","ระงับ"],["FINAL","รอตรวจรับ"],["RELEASED","ส่งผลแล้ว"],["NOT_REPORTABLE","ไม่ใช่ผู้ป่วย"]];
 const Status=({tone,children}:{tone?:string;children:React.ReactNode})=><span className={`status ${tone??""}`}>{children}</span>;
 
-function HalosImport({onConfirmed,onPrepare}:{onConfirmed:()=>void;onPrepare:(rows:Row[],pending:PendingImport)=>void}){
- const [busy,setBusy]=useState(""),[error,setError]=useState(""),[preview,setPreview]=useState<HalosImport|null>(null),[acks,setAcks]=useState<Set<string>>(new Set()),[list,setList]=useState<{id:string;name:string;state:string;uploadedAt:string;uploadedBy:string;counts:Record<string,number>}[]>([]);
+function HalosImport({onConfirmed,onPrepare,refreshKey,confirmedImportId}:{onConfirmed:()=>void;onPrepare:(rows:Row[],pending:PendingImport)=>void;refreshKey:number;confirmedImportId:string}){
+ const [busy,setBusy]=useState(""),[error,setError]=useState(""),[previewRaw,setPreview]=useState<HalosImport|null>(null),[acks,setAcks]=useState<Set<string>>(new Set()),[list,setList]=useState<{id:string;name:string;state:string;uploadedAt:string;uploadedBy:string;counts:Record<string,number>}[]>([]);
  const input=useRef<HTMLInputElement>(null),[chosen,setChosen]=useState<Set<string>>(new Set());
  const loadList=useCallback(async()=>{try{setList((await labApi<{imports:typeof list}>("/api/task3/halos")).imports);}catch{/* list is secondary to the upload */}},[]);
- useEffect(()=>{void Promise.resolve().then(loadList);},[loadList]);
+ useEffect(()=>{void Promise.resolve().then(loadList);},[loadList,refreshKey]);
+ // Owner 2026-11-11: once the report dialog has confirmed the file, its preview must not stay on screen as if it still waited for a decision.
+ const preview=previewRaw&&previewRaw.id!==confirmedImportId?previewRaw:null;
+ const [allFiles,setAllFiles]=useState(false);
  const upload=async()=>{const file=input.current?.files?.[0];if(!file){setError("กรุณาเลือกไฟล์ HALOS (.xlsx)");input.current?.focus();return;}
   setBusy("upload");setError("");try{const form=new FormData();form.append("file",file);const r=await fetch("/api/task3/halos",{method:"POST",headers:{"x-csrf-token":csrf()},body:form});const d=await r.json().catch(()=>({}));
-    if(!r.ok){setError(d.error??"อ่านไฟล์ไม่สำเร็จ");return;}setPreview(d);setAcks(new Set());setChosen(new Set((d.rows as ImportRow[]).filter(r=>r.sheet==='result'&&r.classification==='PATIENT').map(r=>r.id)));if(input.current)input.current.value="";await loadList();}catch(e){setError(failureText(e));}finally{setBusy("");}};
+    if(!r.ok){setError(d.error??"อ่านไฟล์ไม่สำเร็จ");return;}setPreview(d);setAcks(new Set());setChosen(new Set((d.rows as ImportRow[]).filter(r=>r.sheet==='result'&&r.classification==='PATIENT').map(r=>r.id)));if(input.current){input.current.value="";input.current.dispatchEvent(new Event("change",{bubbles:true}));} /* tell the drop zone too, or it keeps showing the file that was just sent */await loadList();}catch(e){setError(failureText(e));}finally{setBusy("");}};
  const decide=async(decision:"CONFIRM"|"CANCEL")=>{if(!preview)return;setBusy(decision);setError("");try{const d=await labApi<HalosImport>(`/api/task3/halos/${preview.id}`,{decision,expectedRowVersion:preview.rowVersion,acknowledgeWarnings:[...acks]});setPreview(d.state==="Previewed"?d:null);await loadList();if(decision==="CONFIRM")onConfirmed();}catch(e){setError(failureText(e));}finally{setBusy("");}};
+ // Owner 2026-11-11: a cancelled upload is not listed.
+ const files=list.filter(i=>i.state!=="Cancelled");
  const warnings=[...new Set((preview?.issues??[]).filter(i=>i.severity==="WARNING").map(i=>i.code))];
  const result=(preview?.rows??[]).filter(r=>r.sheet!=="sampleinfo");
  const c=preview?.counts??{};
@@ -96,9 +102,10 @@ function HalosImport({onConfirmed,onPrepare}:{onConfirmed:()=>void;onPrepare:(ro
     <button type="button" className="button secondary" disabled={!!busy} onClick={()=>decide("CANCEL")}>ยกเลิก</button>
      <button type="button" className="button" disabled={!!busy||preview.state!=="Previewed"||warnings.some(w=>!acks.has(w))||!chosen.size} onClick={()=>onPrepare(preview.rows.filter(r=>chosen.has(r.id)).map(r=>({rowId:r.id,sampleId:r.sampleKey,classification:r.classification,reason:r.reason,status:'READY',holds:[],template:null,ln:r.ln,lnHalos:r.lnHalos,hn:null,importName:preview.name,importedAt:preview.uploadedAt,internalReportId:null,versionId:null,versionState:null,releaseId:null,hisAttested:false})),{id:preview.id,rowVersion:preview.rowVersion,acks:[...acks]})}>ตรวจผลแปลและเลือกผู้ลงนาม ({chosen.size})</button></div>
   </div>}
-  {list.length>0&&<details><summary>ไฟล์ HALOS ที่นำเข้าแล้ว ({list.length})</summary>
-   <ul className="timeline">{list.map(i=><li key={i.id}><div className="row"><strong className="p5-file">{i.name}</strong><span>{i.state==="Confirmed"?"ยืนยันแล้ว":i.state==="Cancelled"?"ยกเลิก":"รอยืนยัน"}</span></div>
-    <div className="help t3-links">{bkk(i.uploadedAt)} · {i.uploadedBy} · ผู้ป่วย {i.counts.PATIENT??0} · <a href={`/api/task3/halos/${i.id}/file`}>ดาวน์โหลดไฟล์ต้นฉบับ</a></div></li>)}</ul></details>}
+  {files.length>0&&<section className="halos-history" aria-labelledby="halos-files-h"><h3 id="halos-files-h">ไฟล์ HALOS ที่นำเข้าแล้ว ({files.length})</h3>
+   <ul className="halos-files">{(allFiles?files:files.slice(0,5)).map(i=><li key={i.id}><div className="halos-file-name"><strong className="p5-file">{i.name}</strong><span className={`status ${i.state==="Confirmed"?"good":"warning"}`}>{i.state==="Confirmed"?"ยืนยันแล้ว":"รอยืนยัน"}</span></div>
+    <div className="help t3-links">{bkk(i.uploadedAt)} · {i.uploadedBy} · ผู้ป่วย {i.counts.PATIENT??0} · <a href={`/api/task3/halos/${i.id}/file`}>ดาวน์โหลดไฟล์ต้นฉบับ</a></div></li>)}</ul>
+   {files.length>5&&<button type="button" className="button small secondary" onClick={()=>setAllFiles(v=>!v)}>{allFiles?"แสดงเฉพาะล่าสุด":`แสดงทั้งหมด (${files.length})`}</button>}</section>}
  </div>;
 }
 
@@ -113,12 +120,12 @@ function SignerPicker({role,label,value,onChange,id}:{role:"REPORTED"|"APPROVED"
   <p id={id+"-help"} className="help">{error||(chosen?(chosen.basis==="SELF"?"ลงนามด้วยลายเซ็นของท่านเอง":chosen.basis==="ADMIN_OPERATOR"?"ผู้ดูแลระบบใช้ลายเซ็นที่ยืนยันแล้ว — ระบบบันทึกว่าท่านเป็นผู้ออกรายงาน":"ใช้ลายเซ็นตามการมอบสิทธิ์ของเจ้าของลายเซ็น — ระบบบันทึกว่าท่านเป็นผู้ออกรายงาน"):"แสดงเฉพาะผู้ลงนามที่มีโปรไฟล์ผ่านการตรวจและมีสิทธิ์ในบทบาทนี้")}</p></div>;
 }
 
-function ReportDialog({rows,pendingImport,onClose,onDone,onReported}:{rows:Row[];pendingImport?:PendingImport|null;onClose:()=>void;onDone:()=>void;onReported?:()=>void}){
+function ReportDialog({rows,pendingImport,onClose,onDone,onQueued}:{rows:Row[];pendingImport?:PendingImport|null;onClose:()=>void;onDone:()=>void;onQueued:(batchId:string,importId:string|null)=>void}){
  const single=rows.length===1?rows[0]:null;
  const [cand,setCand]=useState<Candidate|null>(null),[error,setError]=useState(""),[busy,setBusy]=useState("");
  const [reportedBy,setReportedBy]=useState(""),[approvedBy,setApprovedBy]=useState(""),[override,setOverride]=useState<""|"Singleton"|"Twins">(""),[overrideReason,setOverrideReason]=useState("");
  const [release]=useState(true),[confirm,setConfirm]=useState({content:false,identity:false,disclosure:false,abnormal:false});
- const [batchCandidates,setBatchCandidates]=useState<Candidate[]>([]),[excluded,setExcluded]=useState<Set<string>>(new Set()),[queuedBatchId,setQueuedBatchId]=useState('');
+ const [batchCandidates,setBatchCandidates]=useState<Candidate[]>([]),[excluded,setExcluded]=useState<Set<string>>(new Set());
  const [previewUrl,setPreviewUrl]=useState(""),[key]=useState(()=>crypto.randomUUID());
  const [rowSigners,setRowSigners]=useState<Record<string,{reportedBy:string;approvedBy:string}>>({}),[opts,setOpts]=useState<{REPORTED:Signer[];APPROVED:Signer[]}>({REPORTED:[],APPROVED:[]});
  useEffect(()=>{if(single)return;void Promise.all((["REPORTED","APPROVED"] as const).map(r=>labApi<{signers:Signer[]}>(`/api/task3/signers?role=${r}`).then(x=>x.signers))).then(([REPORTED,APPROVED])=>setOpts({REPORTED,APPROVED})).catch(e=>setError(failureText(e)));},[single]);
@@ -137,7 +144,7 @@ function ReportDialog({rows,pendingImport,onClose,onDone,onReported}:{rows:Row[]
   if(pendingImport)await labApi(`/api/task3/halos/${pendingImport.id}`,{decision:'CONFIRM',expectedRowVersion:pendingImport.rowVersion,acknowledgeWarnings:pendingImport.acks});
   const res=await labApi<{batchId:string}>("/api/task3/batches",{idempotencyKey:key,defaults:{reportedBy:reportedBy||null,approvedBy:approvedBy||null},items:eligibleItems,
     ...(release?{release:true,releaseConfirmations:{reportContentVerified:true,identityAndValuesMatchReport:true,disclosureReviewed:true,abnormalAcknowledged:confirm.abnormal}}:{})});
-   setQueuedBatchId(res.batchId);onDone();}catch(e){setError(failureText(e));if(e instanceof LabFailure&&e.code==="IDEMPOTENCY_KEY_REUSED")onClose();}finally{setBusy("");}};
+   onDone();onQueued(res.batchId,pendingImport?.id??null);}catch(e){setError(failureText(e));if(e instanceof LabFailure&&e.code==="IDEMPOTENCY_KEY_REUSED")onClose();}finally{setBusy("");}};
  const candidateHolds=(c?:Candidate|null)=>(c?.holds??[]).filter(h=>!(pendingImport&&h.code==='HALOS_IMPORT_NOT_CONFIRMED'));
  const candidateReady=(c?:Candidate|null)=>!!c&&candidateHolds(c).length===0;
  const allCandidates=single?(cand?[cand]:[]):batchCandidates;
@@ -145,11 +152,11 @@ function ReportDialog({rows,pendingImport,onClose,onDone,onReported}:{rows:Row[]
  const releaseReady=confirm.content&&(!anyAbnormal||confirm.abnormal);
  const holds=single?candidateHolds(cand):[];
  const canSubmit=!!reportedBy&&!!approvedBy&&releaseReady&&(single?candidateReady(cand):batchCandidates.length===rows.length&&batchCandidates.some(c=>candidateReady(c)&&!excluded.has(c.rowId)))&&(!override);
- const dirty=!!(reportedBy||approvedBy||override)&&!queuedBatchId;
+ const dirty=!!(reportedBy||approvedBy||override);
  return <Dialog title={single?`ออกรายงาน ${single.ln??single.sampleId}`:`ออกรายงาน ${rows.length} ราย (หนึ่ง PDF ต่อผู้ป่วย)`} onClose={onClose} dirty={dirty}>
   <div className="stack t3-dialog">
    {error&&<p className="notice" role="alert">{error}</p>}
-    {queuedBatchId?<><ReportBatchProgress batchId={queuedBatchId} onComplete={onReported}/><button type="button" className="button secondary" onClick={onClose}>ปิดและทำงานอื่นต่อ</button></>:<>
+   <>
    {single&&(!cand?<div className="skeleton" aria-busy="true" aria-label="กำลังโหลดข้อมูลรายงาน"/>:<>
     <dl className="compact-facts plan-dl t3-facts">
      <div><dt>ผู้ป่วย</dt><dd>{cand.values?.patientName??"—"} · HN <span className="mono">{cand.hn??"—"}</span> · LN <span className="mono">{cand.hisLn}</span></dd></div>
@@ -182,7 +189,7 @@ function ReportDialog({rows,pendingImport,onClose,onDone,onReported}:{rows:Row[]
    <div className="action-bar"><button type="button" className="button secondary" onClick={onClose} disabled={!!busy}>ยกเลิก</button>
     <button type="button" className="button" disabled={!!busy||!canSubmit} onClick={finalize}>{busy==="final"?"กำลังเข้าคิวออกรายงาน…":"ยืนยันและออกรายงาน (ไป รอส่ง HIS)"}</button></div>
    {!canSubmit&&!busy&&<p className="help">{!reportedBy||!approvedBy?"เลือก Reported by และ Approved by ก่อน":single&&cand&&!candidateReady(cand)?"รายการนี้ถูกระงับ — แก้ที่ต้นเหตุตามรายการด้านบน":release&&!releaseReady?"ยืนยันการตรวจรายการที่เลือกก่อนออกรายงาน":""}</p>}
-   </>}
+   </>
   </div>
   {previewUrl&&<PdfPreview src={previewUrl} title="ร่างรายงาน (PREVIEW)" onClose={()=>{URL.revokeObjectURL(previewUrl);setPreviewUrl("");}}/>}
  </Dialog>;
@@ -196,6 +203,8 @@ export function NativeReports({canImport,scope="PATIENT",onReported}:{canImport:
  const [q,setQ]=useState(""),[status,setStatus]=useState(readyOnly?"READY":"ALL"),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50);
  const [data,setData]=useState<Worklist|null>(null),[loading,setLoading]=useState(false),[error,setError]=useState("");
  const [selected,setSelected]=useState<Set<string>>(new Set()),[dialog,setDialog]=useState<Row[]|null>(null),[pendingImport,setPendingImport]=useState<PendingImport|null>(null);
+ // Owner 2026-11-11: the run in progress, and a counter that reloads every list of this panel (imported files, my runs, the worklist) when anything changes.
+ const [activeBatchId,setActiveBatchId]=useState(''),[tick,setTick]=useState(0),[confirmedImportId,setConfirmedImportId]=useState('');
  const seq=useRef(0);
  const load=useCallback(async()=>{const n=++seq.current;setLoading(true);try{const d=await labApi<Worklist>(`/api/task3/reports?q=${encodeURIComponent(q)}&status=${status}&page=${page}&pageSize=${pageSize}&scope=${scope}`);if(n===seq.current){setData(d);setError("");}}
   catch(e){if(n===seq.current)setError(failureText(e));}finally{if(n===seq.current)setLoading(false);}},[q,status,page,pageSize,scope]);
@@ -207,8 +216,11 @@ export function NativeReports({canImport,scope="PATIENT",onReported}:{canImport:
   <h2 id="native-h">{scope==="EQA"?"รายงาน EQA จากผล HALOS":"รายงานจากผล HALOS"}</h2>
   <p className="help t3-links">นำเข้าไฟล์ผลจาก HALOS แล้วออกรายงานตามแบบฟอร์มของโรงพยาบาล (FM-WI-T-BM-17-07 ครรภ์เดี่ยว / FM-WI-T-BM-17-08 ครรภ์แฝด) — หนึ่ง PDF ต่อผู้ป่วย ออกรายงานแล้วผลจะไป “รอส่ง HIS” ในรายการผลตรวจด้านล่าง ส่งผ่านขั้นตอนเดียวกับ PDF ภายนอก
    {" "}· <Link href="/results/signers">ผู้ลงนามรายงาน</Link></p>
-  {canImport&&scope==="PATIENT"&&<details className="t3-import" open={!data||(data.page.total===0)}><summary>นำเข้าไฟล์ผล HALOS</summary><HalosImport onConfirmed={()=>{setStatus(readyOnly?"READY":"ALL");setPage(1);setSelected(new Set());void load();}} onPrepare={(rows,pending)=>{setPendingImport(pending);setDialog(rows);}}/></details>}
-  <RecentReportBatches/>
+  {activeBatchId&&<ReportRunCard batchId={activeBatchId} onComplete={()=>{setTick(n=>n+1);void load();onReported?.();}} onClose={()=>setActiveBatchId('')} onViewResults={()=>{onReported?.();document.getElementById('board-h')?.scrollIntoView({block:'start',behavior:'smooth'});}}/>}
+  {canImport&&scope==="PATIENT"&&<section className="halos-step" aria-labelledby="halos-import-h"><h3 id="halos-import-h">นำเข้าไฟล์ผล HALOS</h3>
+   <HalosImport refreshKey={tick} confirmedImportId={confirmedImportId} onConfirmed={()=>{setStatus(readyOnly?"READY":"ALL");setPage(1);setSelected(new Set());setTick(n=>n+1);void load();}} onPrepare={(rows,pending)=>{setPendingImport(pending);setDialog(rows);}}/></section>}
+  <RecentReportBatches refreshKey={tick} activeBatchId={activeBatchId}/>
+  <h3 className="halos-step-title">{scope==="EQA"?"รายการออกรายงาน":"รายการที่พร้อมออกรายงาน"}</h3>
   <form className="search-form t3-search" role="search" aria-label="ค้นหารายการออกรายงาน" onSubmit={e=>e.preventDefault()}>
    <div className="field"><label htmlFor="t3-q">ค้นหา LN / HN / LN Halos / รหัส HALOS</label><input id="t3-q" type="search" autoComplete="off" maxLength={40} value={q} onChange={e=>{setQ(e.target.value);setPage(1);setSelected(new Set());}}/></div>
    {q&&<button type="button" className="button secondary" onClick={()=>{setQ("");setPage(1);setSelected(new Set());}}>ล้างคำค้น</button>}
@@ -231,6 +243,6 @@ export function NativeReports({canImport,scope="PATIENT",onReported}:{canImport:
      :<tr><td colSpan={6} className="empty-row">{q?"ไม่พบรายการที่ตรงกับคำค้น":readyOnly?"ไม่มีผล HALOS ที่พร้อมออกรายงาน — รายการที่ถูกระงับดูได้ที่ “ต้องจัดการ”":"ยังไม่มีผล HALOS ที่ยืนยันนำเข้า"}</td></tr>}</tbody></table></div>}
   {data&&data.page.total>0&&<Pager label="รายการออกรายงาน" page={data.page.number} pageSize={data.page.size} total={data.page.total} totalPages={data.page.totalPages} busy={loading} onPage={n=>{setSelected(new Set());setPage(n);}} onSize={n=>{setSelected(new Set());setPageSize(n);setPage(1);}}/>}
   {selected.size>0&&<div className="bulk-bar"><span>เลือก {selected.size} ราย</span><button type="button" className="button" onClick={()=>setDialog((data?.rows??[]).filter(r=>selected.has(r.rowId)))}>ออกรายงานที่เลือก</button></div>}
-  {dialog&&<ReportDialog rows={dialog} pendingImport={pendingImport} onClose={()=>{setDialog(null);setPendingImport(null);void load();}} onDone={()=>{setSelected(new Set());void load();}} onReported={onReported}/>}
+  {dialog&&<ReportDialog rows={dialog} pendingImport={pendingImport} onClose={()=>{setDialog(null);setPendingImport(null);void load();}} onDone={()=>{setSelected(new Set());void load();}} onQueued={(id,importId)=>{setDialog(null);setPendingImport(null);setActiveBatchId(id);if(importId)setConfirmedImportId(importId);setTick(n=>n+1);}}/>}
  </section>;
 }

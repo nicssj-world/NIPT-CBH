@@ -75,10 +75,10 @@ export default async function QualityControlPage({searchParams}:{searchParams:Pr
    </form>
    {(()=>{let band=0,last="";const bandOf=(run:string)=>{if(run!==last){if(last)band^=1;last=run;}return band;};return <div className="table-wrap" role="region" aria-label="ตารางค่า Positive / Negative / Blank Control" tabIndex={0}><table className="table data-table iqc-table">
     <caption className="sr-only">ค่า Concentration ของ Positive, Negative และ Blank Control แต่ละ Run</caption>
-    <thead><tr><th scope="col">Run</th><th scope="col">วันที่สร้าง Run</th><th scope="col">ชนิด</th><th scope="col">Sample ID</th><th scope="col">Concentration (ng/µL)</th><th scope="col">ผู้ปฏิบัติงาน</th></tr></thead>
+    <thead><tr><th scope="col">Run</th><th scope="col">วันที่สร้าง Run</th><th scope="col">ชนิด</th><th scope="col">Sample ID</th><th scope="col" className="iqc-center">Concentration (ng/µL)</th><th scope="col">ผู้ปฏิบัติงาน</th></tr></thead>
     <tbody>{d.rows.length===0?<tr><td colSpan={6} className="muted">ยังไม่มีค่า Control ที่บันทึกไว้</td></tr>:d.rows.map(r=><tr key={r.runLabel+r.control} className={bandOf(r.runLabel)?"iqc-run-alt":"iqc-run"}>
      <td>{r.runLabel}</td><td>{fmt(r.runDate)}</td><td>{CONTROL_NAME[r.control]??r.control}</td><td>{r.sampleId??"—"}</td>
-     <td className="num">{r.concentration??<span className="muted">ไม่มีข้อมูล</span>}</td><td>{r.operator??<span className="muted">—</span>}</td></tr>)}</tbody>
+     <td className="num iqc-center">{r.concentration??<span className="muted">ไม่มีข้อมูล</span>}</td><td>{r.operator??<span className="muted">—</span>}</td></tr>)}</tbody>
    </table></div>;})()}
    <nav className="pager" aria-label="เลือกหน้า"><span className="pager-summary">หน้า {d.page}/{d.pages} · {d.total} รายการ</span>
     <span className="pager-buttons">{d.page>1&&<Link className="button secondary" href={href({control:d.control??"",operator:d.operator??"",page:String(d.page-1)})}>ก่อนหน้า</Link>}{d.page<d.pages&&<Link className="button secondary" href={href({control:d.control??"",operator:d.operator??"",page:String(d.page+1)})}>ถัดไป</Link>}</span></nav>

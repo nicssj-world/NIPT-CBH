@@ -50,10 +50,10 @@ beforeAll(async()=>{
 afterAll(async()=>{await db?.close();});
 
 describe('every tab is reachable page by page and the totals are exact',()=>{
- it('nothing is lost or repeated: the pages of the four attempt tabs are exactly the legacy full list',async()=>{
+ it('nothing is lost or repeated: the pages of the five attempt tabs are exactly the legacy full list',async()=>{
   const legacy=await labWorklist(q(),u.staff);
   const seen=new Set<string>();let sum=0;
-  for(const tab of ['READY','GATE_BLOCKED','IN_BATCH','DECISION'] as const){
+  for(const tab of ['READY','GATE_BLOCKED','IN_BATCH','DECISION','COMPLETED'] as const){
    const pages=await everyPage(tab);const ids=idsOf(pages);
    expect(new Set(ids).size,tab).toBe(ids.length);                              // no repeats inside a tab
    expect(ids.length,tab).toBe(pages[0].page.total);                            // total == rows reachable by paging
@@ -80,6 +80,25 @@ describe('every tab is reachable page by page and the totals are exact',()=>{
   const exp=await page({tab:'REDRAW_EXPECTED',pageSize:25});expect(exp.page.total).toBe(1);expect(exp.expected.map(e=>e.caseId)).toEqual([redrawCase]);expect(exp.counts.REDRAW_EXPECTED).toBe(1);
   const miss=await page({tab:'LN_HALOS_MISSING',pageSize:25});expect(miss.page.total).toBe(1);expect(miss.missing.map(m=>m.roundId)).toEqual([missingRound]);expect(miss.counts.LN_HALOS_MISSING).toBe(1);
  });
+ it('Owner 2026-11-11: an attempt whose analysis is finished is in its own tab, never in "needs a decision"',async()=>{
+  const finished=eligible.slice(READY-CANCELLED);               // the three BatchCancelled attempts: all in DECISION to begin with
+  const idOf=async(roundId:string)=>(await db.query<{id:string}>('SELECT id FROM analytical_attempt WHERE round_id=$1',[roundId])).rows[0].id;
+  const [a,b,c]=await Promise.all(finished.map(x=>idOf(x.roundId)));
+  // The guard on these states is a trigger (the clinical QC adapter is not built); the fixture sets them directly, outside the guard.
+  const force=async(state:string,ids:string[])=>{await db.query('BEGIN');try{await db.query('SET LOCAL session_replication_role=replica');await db.query('UPDATE analytical_attempt SET state=$1 WHERE id=ANY($2::uuid[])',[state,ids]);await db.query('COMMIT');}catch(e){await db.query('ROLLBACK');throw e;}};
+  const before=await page({tab:'DECISION',pageSize:100});
+  try{
+   await force('FinalQcAccepted',[a]);await force('Final',[b]);
+   const decision=await page({tab:'DECISION',pageSize:100}),completed=await page({tab:'COMPLETED',pageSize:100});
+   expect(decision.attempts.map(x=>x.attemptId)).not.toEqual(expect.arrayContaining([a]));
+   expect(decision.attempts.map(x=>x.attemptId)).not.toEqual(expect.arrayContaining([b]));
+   expect(decision.attempts.map(x=>x.attemptId)).toContain(c);                       // still BatchCancelled: still needs a decision
+   expect(completed.attempts.map(x=>x.attemptId).sort()).toEqual([a,b].sort());
+   expect(completed.attempts.every(x=>x.category==='COMPLETED')).toBe(true);
+   expect(decision.counts.DECISION).toBe(before.counts.DECISION-2);expect(completed.counts.COMPLETED).toBe(2);
+   expect(completed.page.total).toBe(2);
+  }finally{await force('BatchCancelled',[a,b]);}
+ });
  it('counts for every tab are on every response; page past the end gives the last real page; bad input is refused',async()=>{
   const d=await page({tab:'READY',page:1,pageSize:25});expect(Object.keys(d.counts).sort()).toEqual([...WORKLIST_TABS].sort());
   const past=await page({tab:'READY',page:999,pageSize:25});expect(past.page.number).toBe(past.page.totalPages);expect(past.attempts.length).toBeGreaterThan(0);
@@ -94,8 +113,8 @@ describe('the paged result equals the original load-everything algorithm (indepe
   // the original algorithm: read the facts of EVERY live attempt, classify in TypeScript, sort FIFO, filter by visibility
   const full=(await attemptFacts(q(),"c.current_round_id=a.round_id AND c.registration_origin<>'HISTORICAL' AND a.attempt_number=(SELECT max(x.attempt_number) FROM analytical_attempt x WHERE x.round_id=a.round_id)",[]))
    .filter(r=>caseVisible(u.staff,r)).sort((a,b)=>compareReceive({receivedAt:a.received_at,keys:[a.ln,a.attempt_id]},{receivedAt:b.received_at,keys:[b.ln,b.attempt_id]},'asc')).map(r=>worklistRow(r,policy));
-  const tabOf=(c:string):WorklistTab=>c==='READY'?'READY':c==='GATE_BLOCKED'?'GATE_BLOCKED':['IN_BATCH','IN_PROGRESS'].includes(c)?'IN_BATCH':'DECISION';
-  for(const tab of ['READY','GATE_BLOCKED','IN_BATCH','DECISION'] as const){
+  const tabOf=(c:string):WorklistTab=>c==='READY'?'READY':c==='GATE_BLOCKED'?'GATE_BLOCKED':['IN_BATCH','IN_PROGRESS'].includes(c)?'IN_BATCH':c==='COMPLETED'?'COMPLETED':'DECISION';
+  for(const tab of ['READY','GATE_BLOCKED','IN_BATCH','DECISION','COMPLETED'] as const){
    const expected=full.filter(a=>tabOf(a.category)===tab),got=(await everyPage(tab,{},25)).flatMap(d=>d.attempts);
    expect(got.map(a=>a.attemptId),tab).toEqual(expected.map(a=>a.attemptId));
    expect(got.map(a=>[a.category,a.gate?.eligible??null,a.gate?.failed??null,a.labelCode,a.printedSampleId,a.urgent]),tab).toEqual(expected.map(a=>[a.category,a.gate?.eligible??null,a.gate?.failed??null,a.labelCode,a.printedSampleId,a.urgent]));

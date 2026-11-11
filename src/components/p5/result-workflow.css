@@ -3,8 +3,6 @@
 .result-channel-description { margin:0 0 24px; max-width:80ch; }
 .result-batch-progress { display:grid; gap:16px; }
 .result-batch-progress progress { width:100%; height:12px; accent-color:var(--color-brand); }
-.result-recent-jobs { padding-block:16px; border-block:1px solid var(--color-line); }
-.result-recent-jobs summary { cursor:pointer; min-height:44px; align-content:center; font-weight:600; }
 .result-delivery-line { margin-block:12px; }
 .p5-queue .status,.t3-worklist .status { margin:2px 4px 2px 0; }
 .t3-dialog .data-table td { vertical-align:top; }

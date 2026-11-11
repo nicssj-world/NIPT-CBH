@@ -175,6 +175,8 @@ try {
   Write-Host ''
   Write-Host "PRODUCTION now runs $rid (commit $Commit). Previous release kept for rollback: $($report.status.previous.version)" -ForegroundColor Green
   Write-Host ('Time per step: ' + (($timings.GetEnumerator() | ForEach-Object { "$($_.Key) $($_.Value) s" }) -join '; '))
+  # Owner 2026-11-11: keep the newest few release folders and builds so drive C does not fill up. After success only, best effort: it can not fail the deployment.
+  Invoke-NiptPostDeployRetention $tc $cfg
   exit 0
 } catch {
   $detail.error = $_.Exception.Message

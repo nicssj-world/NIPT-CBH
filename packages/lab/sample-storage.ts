@@ -86,7 +86,7 @@ type StorageRow={round_id:string;ln:string;hn:string|null;ln_halos:string|null;r
 type BoxRow={id:string;box_id:string;box_type:StorageBoxType;type_number:number|null;used:number;next_slot:number|null};
 /** A stored sample that was taken out of its slot (Owner 2026-11-10): the slot stays reserved and shows the reason. */
 type CheckoutInfo={reason:string;at:string;by:string};
-type GridCell={slot:number;position:string;occupied:boolean;roundId:string|null;roundNumber:number|null;ln:string|null;hn:string|null;lnHalos:string|null;receivedAt:string|null;retentionDueAt:string|null;retentionVerified:boolean;storageType:StorageBoxType;storageLabel:string|null;checkout:CheckoutInfo|null};
+type GridCell={slot:number;position:string;occupied:boolean;roundId:string|null;roundNumber:number|null;ln:string|null;hn:string|null;lnHalos:string|null;receivedAt:string|null;retentionDueAt:string|null;retentionVerified:boolean;storageType:StorageBoxType;storageLabel:string|null;checkout:CheckoutInfo|null;abnormal:boolean};
 function exposeRow(row:StorageRow){return {roundId:row.round_id,ln:row.ln,hn:row.hn,lnHalos:row.ln_halos,roundNumber:row.round_number,receivedAt:row.received_at?.toISOString()??null,retentionDueAt:row.retention_due_at?.toISOString()??null,retentionVerified:row.received_source==='HIS_PET_RECEIPT',storageType:row.storage_type,storageLabel:row.storage_label,boxUuid:row.box_uuid,boxId:row.box_id,slot:row.slot,position:row.slot?storagePosition(row.slot):null,waiting:row.waiting,checkedOut:row.checked_out===true};}
 
 const BOX_PAGE_SIZE=50;
@@ -148,13 +148,18 @@ export async function storageSearch(db:Queryable,user:Staff,raw:unknown){
  if(d.activeBoxId){
   const selected=(await db.query<{id:string;box_id:string;box_type:StorageBoxType;type_number:number|null}>(`SELECT id,box_id,box_type,type_number FROM lab_storage_box WHERE id=$1 AND deleted_at IS NULL AND ($2='ALL' OR box_type=$2)`,[d.activeBoxId,d.boxType])).rows[0];
   if(selected){
-   const grid:GridCell[]=Array.from({length:81},(_,i)=>({slot:i+1,position:storagePosition(i+1),occupied:false,roundId:null,roundNumber:null,ln:null,hn:null,lnHalos:null,receivedAt:null,retentionDueAt:null,retentionVerified:false,storageType:selected.box_type,storageLabel:null,checkout:null}));
+   const grid:GridCell[]=Array.from({length:81},(_,i)=>({slot:i+1,position:storagePosition(i+1),occupied:false,roundId:null,roundNumber:null,ln:null,hn:null,lnHalos:null,receivedAt:null,retentionDueAt:null,retentionVerified:false,storageType:selected.box_type,storageLabel:null,checkout:null,abnormal:false}));
    const physical=(await db.query<{slot:number;storage_type:StorageBoxType}>(`SELECT slot,storage_type FROM lab_storage_typed_position WHERE box_id=$1
     UNION ALL SELECT slot,'LEGACY_UNCLASSIFIED'::text storage_type FROM lab_storage_position WHERE box_id=$1`,[selected.id])).rows;
    for(const row of physical){if(!row.slot)continue;grid[row.slot-1]={...grid[row.slot-1],occupied:true,storageType:row.storage_type};}
    const gridValues:unknown[]=[],gridScope=accessScope(user,gridValues),boxParam=gridValues.length+1;gridValues.push(selected.id);
    const visible=(await db.query<StorageRow>(`${sampleRowsCte(gridScope)} SELECT result.* FROM sample_rows result WHERE result.box_uuid=$${boxParam}`,[...gridValues])).rows;
-   for(const row of visible){if(!row.slot)continue;grid[row.slot-1]={slot:row.slot,position:storagePosition(row.slot),occupied:true,roundId:row.round_id,roundNumber:row.round_number,ln:row.ln,hn:row.hn,lnHalos:row.ln_halos,receivedAt:row.received_at?.toISOString()??null,retentionDueAt:row.retention_due_at?.toISOString()??null,retentionVerified:row.received_source==='HIS_PET_RECEIPT',storageType:row.storage_type,storageLabel:row.storage_label,checkout:null};}
+   // Owner 2026-11-11: a sample whose current result is abnormal (a High Risk trisomy, or a sex-chromosome result of Detected) gets a red frame.
+   // It is the newest result that is not superseded or voided, the same flag the results board shows, and only people who may read results see it.
+   const abnormalRounds=new Set<string>();
+   if(visible.length&&authorize(user,'result.review',{},'read'))for(const r of (await db.query<{round_id:string;abnormal:boolean}>(`SELECT DISTINCT ON (v.round_id) v.round_id,COALESCE((v.parsed->>'abnormal')::boolean,false) abnormal
+     FROM result_report_version v WHERE v.round_id=ANY($1::uuid[]) AND v.kind='RESULT' AND v.state NOT IN ('Superseded','Voided') ORDER BY v.round_id,v.state_changed_at DESC,v.id DESC`,[visible.map(v=>v.round_id)])).rows)if(r.abnormal)abnormalRounds.add(r.round_id);
+   for(const row of visible){if(!row.slot)continue;grid[row.slot-1]={slot:row.slot,position:storagePosition(row.slot),occupied:true,roundId:row.round_id,roundNumber:row.round_number,ln:row.ln,hn:row.hn,lnHalos:row.ln_halos,receivedAt:row.received_at?.toISOString()??null,retentionDueAt:row.retention_due_at?.toISOString()??null,retentionVerified:row.received_source==='HIS_PET_RECEIPT',storageType:row.storage_type,storageLabel:row.storage_label,checkout:null,abnormal:abnormalRounds.has(row.round_id)};}
    // Samples taken out of their slot: the latest check-out/return row per position decides; the reason shows on the slot.
    const outs=(await db.query<{slot:number;reason:string;created_at:Date;actor:string}>(`SELECT p.slot,c.reason,c.created_at,u.display_name actor FROM lab_storage_typed_position p
     JOIN LATERAL (SELECT x.* FROM lab_storage_checkout x WHERE x.position_id=p.id ORDER BY x.sequence DESC LIMIT 1) c ON c.event='CHECK_OUT'

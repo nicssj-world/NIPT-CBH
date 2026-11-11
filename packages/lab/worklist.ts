@@ -7,12 +7,14 @@ import {assertSession,need,attemptFacts,pendingPolicy,assignmentDecision,candida
 import {compareReceive} from './receive-sort';
 import {specimenDisplayCode} from './rules';
 
-export type QueueCategory='READY'|'GATE_BLOCKED'|'IN_BATCH'|'IN_PROGRESS'|'QC_FAILED'|'NEEDS_DECISION'|'REDRAW_EXPECTED'|'LN_HALOS_MISSING'|'OTHER';
+export type QueueCategory='READY'|'GATE_BLOCKED'|'IN_BATCH'|'IN_PROGRESS'|'QC_FAILED'|'NEEDS_DECISION'|'COMPLETED'|'REDRAW_EXPECTED'|'LN_HALOS_MISSING'|'OTHER';
+/** Owner 2026-11-11: an attempt whose analysis is finished (result in, final QC accepted, or final) is not waiting for anyone to decide; it has its own tab. */
+export const COMPLETED_STATES=['AnalysisComplete','FinalQcAccepted','Final'] as const;
 const iso=(d:Date|null)=>d?d.toISOString():null;
 
 export function worklistRow(r:AttemptRow,policy:'HOLD'|'PROCEED_SYNTHETIC_LABELLED'){
  const gate=r.attempt_state==='Ready'?assignmentDecision(r,policy):null;
- const category:QueueCategory=r.attempt_state==='Ready'?(gate!.eligible?'READY':'GATE_BLOCKED'):r.attempt_state==='Assigned'?'IN_BATCH':r.attempt_state==='InProgress'?'IN_PROGRESS':r.attempt_state==='QcFailed'?'QC_FAILED':['Stopped','BatchCancelled'].includes(r.attempt_state)?'NEEDS_DECISION':'OTHER';
+ const category:QueueCategory=r.attempt_state==='Ready'?(gate!.eligible?'READY':'GATE_BLOCKED'):r.attempt_state==='Assigned'?'IN_BATCH':r.attempt_state==='InProgress'?'IN_PROGRESS':r.attempt_state==='QcFailed'?'QC_FAILED':['Stopped','BatchCancelled'].includes(r.attempt_state)?'NEEDS_DECISION':(COMPLETED_STATES as readonly string[]).includes(r.attempt_state)?'COMPLETED':'OTHER';
  const code=r.migration_original_ln_halos??(r.ln_halos?specimenDisplayCode(r.ln_halos,r.pregnancy,r.ln_halos_resampling):r.ln_halos); // An imported issued identifier is not reconstructed.
  return {kind:'ATTEMPT' as const,category,caseId:r.case_id,roundId:r.round_id,roundNumber:r.round_number,receivedSource:r.received_source,receivedAt:iso(r.received_at),hisLn:r.ln,hn:r.hn,lnHalos:r.ln_halos,labelCode:code,pregnancy:r.pregnancy,pregnancyDefaulted:r.pregnancy_defaulted===true,ga:gestationalAge(r),
   attemptId:r.attempt_id,attemptNumber:r.attempt_number,overallOrdinal:r.overall_ordinal,exceptional:r.overall_ordinal>=5,outcomeStatus:r.migration_rerun?'HALOS แนะนำตรวจซ้ำ':r.no_call_selected?'รอรับ PDF No Call':r.overall_ordinal>=4&&r.attempt_state==='QcFailed'?'รอพิจารณาหลังครบ 4 ครั้ง':null,attemptState:r.attempt_state,printedSampleId:candidatePrintedId(r).id,repeat:r.repeat_order_id?{level:r.repeat_level,state:r.repeat_state}:null,
@@ -24,7 +26,7 @@ export type WorklistAttempt=ReturnType<typeof worklistRow>;
 export type WorklistExpected={kind:'REDRAW_EXPECTED';category:QueueCategory;caseId:string;roundId:string;roundNumber:number;hisLn:string;requestedAt:string;reasonCode:string;previousLnHalos:string|null};
 export type WorklistMissing={kind:'LN_HALOS_MISSING';category:QueueCategory;caseId:string;roundId:string;roundNumber:number;hisLn:string;receivedAt:string;receivedSource:string};
 
-export const WORKLIST_TABS=['READY','GATE_BLOCKED','IN_BATCH','DECISION','REDRAW_EXPECTED','LN_HALOS_MISSING'] as const;
+export const WORKLIST_TABS=['READY','GATE_BLOCKED','IN_BATCH','DECISION','COMPLETED','REDRAW_EXPECTED','LN_HALOS_MISSING'] as const;
 export type WorklistTab=typeof WORKLIST_TABS[number];
 /** Ready attempts are classified (Ready vs Gate-blocked) by the Owner-locked assignment gate, which is evaluated in TypeScript on the full
  * per-attempt facts. That is done in bounded chunks and only for attempts still in state Ready, in the order of the requested sort.
@@ -91,13 +93,13 @@ async function readWorklist(db:Queryable,user:Staff,raw:unknown,tuning:ScanTunin
  const migrationExclusion=await migrationImportedExclusion(db);
  const attemptIdsSql=ATTEMPT_IDS+migrationExclusion,attemptsSql=ATTEMPTS+migrationExclusion;
  // Counts that need no per-attempt facts.
- const c=(await db.query<{ready:number;in_batch:number;decision:number}>(`SELECT count(*) FILTER (WHERE a.state='Ready')::int ready,count(*) FILTER (WHERE a.state IN ('Assigned','InProgress'))::int in_batch,count(*) FILTER (WHERE a.state NOT IN ('Ready','Assigned','InProgress'))::int decision ${attemptIdsSql}`,[scope])).rows[0];
+ const c=(await db.query<{ready:number;in_batch:number;decision:number;completed:number}>(`SELECT count(*) FILTER (WHERE a.state='Ready')::int ready,count(*) FILTER (WHERE a.state IN ('Assigned','InProgress'))::int in_batch,count(*) FILTER (WHERE a.state NOT IN ('Ready','Assigned','InProgress','AnalysisComplete','FinalQcAccepted','Final'))::int decision,count(*) FILTER (WHERE a.state IN ('AnalysisComplete','FinalQcAccepted','Final'))::int completed ${attemptIdsSql}`,[scope])).rows[0];
  const expectedFrom=`FROM specimen_round_current r JOIN nipt_case c ON c.id=r.case_id AND c.current_round_id=r.id JOIN case_ln l ON l.id=r.case_ln_id JOIN redraw_request d ON d.id=r.redraw_request_id
   WHERE r.round_number>=2 AND r.state='Expected' AND (COALESCE(${FIRST_UNIT}::text,'')||':'||c.registration_origin)=ANY($1::text[])`;
  const missingFrom=`FROM specimen_round_current r JOIN nipt_case c ON c.id=r.case_id AND c.current_round_id=r.id JOIN case_ln l ON l.id=r.case_ln_id
   WHERE r.received_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM p2_registration_void removed WHERE removed.case_id=c.id) AND NOT EXISTS(SELECT 1 FROM specimen_lab_number n WHERE n.round_id=r.id) AND (COALESCE(${FIRST_UNIT}::text,'')||':'||c.registration_origin)=ANY($1::text[])`;
  const cnt=async(from:string)=>Number((await db.query<{n:string}>(`SELECT count(*)::text n ${from}`,[scope])).rows[0].n);
- const counts:Record<WorklistTab,number>={READY:0,GATE_BLOCKED:0,IN_BATCH:c.in_batch,DECISION:c.decision,REDRAW_EXPECTED:await cnt(expectedFrom),LN_HALOS_MISSING:await cnt(missingFrom)};
+ const counts:Record<WorklistTab,number>={READY:0,GATE_BLOCKED:0,IN_BATCH:c.in_batch,DECISION:c.decision,COMPLETED:c.completed,REDRAW_EXPECTED:await cnt(expectedFrom),LN_HALOS_MISSING:await cnt(missingFrom)};
  // Ready/Gate: classify the Ready attempts (FIFO order) by the Owner-locked gate, in bounded chunks.
  let capped=false,scanned=0,readyTotal=0;const ready:Light[]=[];
  const rowMatches=(x:Light)=>x.category===f.tab&&lowerIncludes(q,x.hisLn,x.hn,x.lnHalos,x.labelCode,x.printedSampleId,x.runLabel)&&(f.round==='ALL'||(f.round==='S1'?x.roundNumber===1:x.roundNumber>1))&&(!f.unprinted||x.prints===0)&&(!f.urgent||x.urgent);
@@ -125,9 +127,9 @@ async function readWorklist(db:Queryable,user:Staff,raw:unknown,tuning:ScanTunin
   meta=clampPage(f.page,rows.length,f.pageSize);if(capped)meta={...meta,totalPages:meta.totalPages+1}; // unscanned attempts may hold more rows: keep "next" available
   const ids=rows.slice(offsetOf(meta),offsetOf(meta)+meta.size).map(x=>x.attemptId),byId=new Map((await factsOf(db,ids)).map(r=>[r.attempt_id,r]));
   attempts=ids.flatMap(id=>{const r=byId.get(id);return r&&caseVisible(user,r)?[worklistRow(r,policy)]:[];});
- }else if(f.tab==='IN_BATCH'||f.tab==='DECISION'){
+ }else if(f.tab==='IN_BATCH'||f.tab==='DECISION'||f.tab==='COMPLETED'){
   const values:unknown[]=[scope],p=(v:unknown)=>{values.push(v);return '$'+values.length;};
-  const where=[f.tab==='IN_BATCH'?"a.state IN ('Assigned','InProgress')":"a.state NOT IN ('Ready','Assigned','InProgress')"];
+  const where=[f.tab==='IN_BATCH'?"a.state IN ('Assigned','InProgress')":f.tab==='COMPLETED'?"a.state IN ('AnalysisComplete','FinalQcAccepted','Final')":"a.state NOT IN ('Ready','Assigned','InProgress','AnalysisComplete','FinalQcAccepted','Final')"];
   if(q){const t=p(q);where.push(`(strpos(lower(l.ln),${t})>0 OR strpos(lower(COALESCE(n.ln_halos,'')),${t})>0 OR strpos(lower(COALESCE(a.printed_sample_id,'')),${t})>0 OR strpos(lower(COALESCE(b.run_label,'')),${t})>0
    OR strpos(lower(COALESCE(n.ln_halos,'')||CASE WHEN ${TWINS} THEN 'D' ELSE '' END||CASE WHEN n.original_round_id IS NOT NULL THEN 'R' ELSE '' END),${t})>0)`);}
   if(f.round!=='ALL')where.push(f.round==='S1'?'r.round_number=1':'r.round_number>1');
@@ -167,7 +169,7 @@ export async function labWorklistPage(db:Queryable,user:Staff,raw:unknown={},tun
 export async function labWorklist(db:Queryable,user:Staff){
  const all=async<T>(tab:WorklistTab,pick:(d:WorklistPage)=>T[])=>{const out:T[]=[];for(let page=1;;page++){const {data}=await readWorklist(db,user,{tab,page,pageSize:100});out.push(...pick(data));if(page>=data.page.totalPages)return {rows:out,data};}};
  const attempts:WorklistAttempt[]=[];let policy='HOLD',operational=false;
- for(const tab of ['READY','GATE_BLOCKED','IN_BATCH','DECISION'] as const){const r=await all(tab,d=>d.attempts);attempts.push(...r.rows);policy=r.data.policy;operational=r.data.operational;}
+ for(const tab of ['READY','GATE_BLOCKED','IN_BATCH','DECISION','COMPLETED'] as const){const r=await all(tab,d=>d.attempts);attempts.push(...r.rows);policy=r.data.policy;operational=r.data.operational;}
  attempts.sort((a,b)=>compareReceive({receivedAt:a.receivedAt,keys:[a.hisLn,a.attemptId]},{receivedAt:b.receivedAt,keys:[b.hisLn,b.attemptId]},'asc'));
  const expected=(await all('REDRAW_EXPECTED',d=>d.expected)).rows,missing=(await all('LN_HALOS_MISSING',d=>d.missing)).rows;
  const caseIds=[...new Set([...attempts.map(a=>a.caseId),...expected.map(e=>e.caseId),...missing.map(m=>m.caseId)])].slice(0,200);

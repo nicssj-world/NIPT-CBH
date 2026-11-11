@@ -23,7 +23,7 @@ export type Attempt={kind:"ATTEMPT";category:string;caseId:string;roundId:string
  placement:{batchId:string;runLabel:string|null;slot:number|null;sheetState:string|null}|null;labels:{prints:number;lastPrintedAt:string|null}};
 type Expected={kind:"REDRAW_EXPECTED";caseId:string;roundId:string;roundNumber:number;hisLn:string;requestedAt:string;reasonCode:string;previousLnHalos:string|null};
 type Missing={kind:"LN_HALOS_MISSING";caseId:string;roundId:string;roundNumber:number;hisLn:string;receivedAt:string;receivedSource:string};
-const TABS=[["READY","พร้อมเข้าตรวจ"],["GATE_BLOCKED","ยังเข้าตรวจไม่ได้"],["IN_BATCH","อยู่ใน Batch / กำลังทำ"],["DECISION","ต้องตัดสินใจ (QC ไม่ผ่าน / หยุด)"],["REDRAW_EXPECTED","รอรับเจาะซ้ำ (รอบที่ 2+)"],["LN_HALOS_MISSING","ไม่มี LN Halos"]] as const;
+const TABS=[["READY","พร้อมเข้าตรวจ"],["GATE_BLOCKED","ยังเข้าตรวจไม่ได้"],["IN_BATCH","อยู่ใน Batch / กำลังทำ"],["DECISION","ต้องตัดสินใจ (QC ไม่ผ่าน / หยุด)"],["COMPLETED","เสร็จสิ้นแล้ว (ออกผลแล้ว)"],["REDRAW_EXPECTED","รอรับเจาะซ้ำ (รอบที่ 2+)"],["LN_HALOS_MISSING","ไม่มี LN Halos"]] as const;
 type Tab=typeof TABS[number][0];
 /** One page of one tab, answered by the server (filters, sort, FIFO classification and totals are the server's). `counts` are exact for every tab. */
 export type WorklistData={operational?:boolean;policy:string;tab:Tab;counts:Record<Tab,number>;scan:{capped:boolean;limit:number;scanned:number;ready:number};page:{number:number;size:number;total:number;totalPages:number};
@@ -33,7 +33,7 @@ type Batch={id:string;run_label:string;state:string;version:number;samples:numbe
 type Params={tab:Tab;q:string;round:string;unprinted:boolean;urgent:boolean;sort:SortDirection;page:number;pageSize:number};
 // 50 per page: a Run holds 48 samples, so one page covers a whole Run's worth of the FIFO head.
 const DEFAULT_PARAMS:Params={tab:"READY",q:"",round:"ALL",unprinted:false,urgent:false,sort:LAB_SCREEN_DEFAULT_SORT,page:1,pageSize:50};
-const STATE:Record<string,string>={Ready:"พร้อม",Assigned:"จัดเข้า Batch",InProgress:"กำลังปฏิบัติ",QcFailed:"QC ไม่ผ่าน",Stopped:"หยุด",BatchCancelled:"Batch ถูกยกเลิก",Superseded:"ถูกแทนที่"};
+const STATE:Record<string,string>={Ready:"พร้อม",Assigned:"จัดเข้า Batch",InProgress:"กำลังปฏิบัติ",QcFailed:"QC ไม่ผ่าน",Stopped:"หยุด",BatchCancelled:"Batch ถูกยกเลิก",Superseded:"ถูกแทนที่",AnalysisComplete:"วิเคราะห์เสร็จ",FinalQcAccepted:"ผ่าน QC สุดท้าย",Final:"ออกผลแล้ว"};
 const SOURCE:Record<string,string>={HIS_PET_RECEIPT:"รับใน HIS",NIPT_LOCAL_RECEIPT:"รับใน NIPT"};
 
 export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){

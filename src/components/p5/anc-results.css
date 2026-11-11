@@ -84,3 +84,6 @@ html:not([data-theme="dark"]) .anc-result{--nt:var(--color-ink);--nm:var(--color
 .anc-result.anc-result-empty .nipt-result-header{margin-bottom:12px}
 .anc-result .anc-result-empty-text{margin:0;color:var(--nm);font-size:16px;line-height:1.65}
 .nipt-supplement .sca-line{display:block}
+/* "Detected" in the sex-chromosome result: red text, bold so it also reads in black-and-white print; same danger token as a High Risk. */
+.anc-result .nipt-supplement .sca-detected{color:var(--nd);font-weight:700}
+.anc-result .nipt-supplement dt .sca-detected{font-weight:700}

@@ -93,6 +93,8 @@ try {
   Write-Host ''
   Write-Host "STAGING now runs $rid (commit $commit). Open: https://localhost:$($cfg.ports.https)" -ForegroundColor Green
   if (-not $RunJourney) { Write-Host 'Workflow UAT not run: .\deploy\reset-staging.ps1 -Seed  (or redeploy with -RunJourney) before promoting to Production.' -ForegroundColor Yellow }
+  # Owner 2026-11-11: keep the newest few release folders and builds so drive C does not fill up. After success only, best effort.
+  Invoke-NiptPostDeployRetention $tc $cfg
   exit 0
 } catch {
   $detail.error = $_.Exception.Message

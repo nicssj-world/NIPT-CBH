@@ -541,4 +541,117 @@ function Assert-NiptStagingStarted($EnvCfg) {
   if ((Test-NiptInstalled $EnvCfg) -and -not @(Get-NiptOwnedProcesses $EnvCfg).Count) { throw 'STAGING_STOPPED: start it first with .\deploy\start-staging.ps1 (on-demand Staging is never started implicitly)' }
 }
 
+# ───────────── retention of old releases and build worktrees ─────────────
+<# Owner 2026-11-11: drive C was 92% full. Every deploy adds a release folder (~0.6 GB) under <root>\releases and, for a new commit, a build worktree
+   (~1.9 GB) under the toolchain's builds folder, and nothing removed them. Only the installed release and the previous one (the rollback target)
+   are ever needed, plus a few recent ones to look into a problem.
+   The decision is in retention.mjs (unit-tested, pure). These functions read the folders, ask it, and delete ONLY what it lists, ONLY with -Apply.
+   Never touched: data, backups, config, secrets, runtime, logs, deploy\history, the Git repository itself, or any folder that is a junction or link. #>
+function Get-NiptSum($Items, [string]$Property) {
+  $sum = [long]0
+  foreach ($i in @($Items)) { if ($null -ne $i) { $sum += [long]$i.$Property } }
+  $sum
+}
+function Get-NiptFolderBytes([string]$Path) {
+  $sum = [long]0
+  foreach ($f in Get-ChildItem -LiteralPath $Path -Recurse -File -Force -ErrorAction SilentlyContinue) { $sum += [long]$f.Length }
+  $sum
+}
+function Get-NiptRetentionItems([string]$Path) {
+  if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return @() }
+  @(Get-ChildItem -LiteralPath $Path -Directory -Force | ForEach-Object {
+      [pscustomobject]@{ name = $_.Name; modifiedMs = [long]([DateTimeOffset]$_.LastWriteTimeUtc).ToUnixTimeMilliseconds(); bytes = [long]0   # sizes are measured later, only for the folders that would be removed (a tree of node_modules is slow to walk)
+        link = [bool]($_.Attributes -band [IO.FileAttributes]::ReparsePoint) }
+    })
+}
+function Invoke-NiptRetentionPlanner($Toolchain, $PlannerInput) {
+  $file = Join-Path ([IO.Path]::GetTempPath()) ("nipt-retention-$PID-" + [guid]::NewGuid().ToString('N') + '.json')
+  try {
+    [IO.File]::WriteAllText($file, (ConvertTo-Json -InputObject $PlannerInput -Depth 8), (New-Object Text.UTF8Encoding $false))
+    $r = Invoke-NiptProcess -File $Toolchain.Node -Arguments @((Join-Path $script:DeployDir 'retention.mjs'), 'plan', $file) -Quiet
+    $json = Get-NiptLastJson $r.StdOut
+    if (-not $json) { throw "RETENTION_OUTPUT_UNREADABLE: $($r.StdErr)" }
+    if (-not $json.ok) { throw "RETENTION_PLAN_REFUSED: $($json.error)" }
+    $json.plan
+  } finally { Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue }
+}
+<# What would be kept and removed. Nothing is deleted. A link (junction) is never listed for removal. #>
+function Get-NiptRetentionPlan($Toolchain, $EnvCfg, [int]$KeepReleases = 5, [int]$KeepBuilds = 3, [string[]]$EnvRoots = $null) {
+  $installState = Join-Path $EnvCfg.root 'install-state.json'
+  if (-not (Test-Path -LiteralPath $installState -PathType Leaf)) { throw "RETENTION_NO_INSTALLED_RELEASE: $installState not found" }
+  $state = Read-NiptJson $installState
+  if (-not $state.PSObject.Properties['current'] -or -not $state.current -or -not $state.current.version) { throw 'RETENTION_NO_INSTALLED_RELEASE: no installed release is recorded' }
+  $versions = @([string]$state.current.version)
+  if ($state.PSObject.Properties['previous'] -and $state.previous -and $state.previous.PSObject.Properties['version'] -and $state.previous.version) { $versions += [string]$state.previous.version }
+  # A build folder is named by the first 12 characters of its commit and is shared by Staging and Production builds:
+  # the installed and the previous revision of BOTH environments are protected.
+  $revisions = @()
+  if (-not $EnvRoots) { $both = Read-NiptEnvironments $Toolchain 'staging'; $EnvRoots = @([string]$both.staging.root, [string]$both.production.root) }
+  foreach ($root in $EnvRoots) {
+    $f = Join-Path $root 'install-state.json'
+    if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { continue }
+    $s = Read-NiptJson $f
+    foreach ($k in @('current', 'previous')) {
+      if ($s.PSObject.Properties[$k] -and $s.$k -and $s.$k.PSObject.Properties['revision'] -and $s.$k.revision) { $revisions += ([string]$s.$k.revision).Substring(0, 12) }
+    }
+  }
+  $areas = @()
+  foreach ($a in @(
+      @{ kind = 'RELEASE'; path = (Join-Path $EnvCfg.root 'releases'); keep = $KeepReleases; protect = $versions },
+      @{ kind = 'BUILD'; path = [string]$Toolchain.Builds; keep = $KeepBuilds; protect = $revisions })) {
+    $items = @(Get-NiptRetentionItems $a.path)
+    $linked = @($items | Where-Object { $_.link } | ForEach-Object { $_.name })
+    $plan = Invoke-NiptRetentionPlanner $Toolchain @{ items = @($items | ForEach-Object { @{ name = $_.name; modifiedMs = $_.modifiedMs; bytes = $_.bytes } }); keep = $a.keep; protect = @($a.protect) }
+    $remove = @($plan.remove | Where-Object { $linked -notcontains $_.name } | ForEach-Object { [pscustomobject]@{ name = $_.name; modifiedMs = $_.modifiedMs; bytes = (Get-NiptFolderBytes (Join-Path $a.path $_.name)) } })
+    $areas += [pscustomobject]@{ kind = $a.kind; path = $a.path; keep = $a.keep; protect = @($a.protect); kept = @($plan.keep); remove = $remove
+      linkSkipped = @($plan.remove | Where-Object { $linked -contains $_.name } | ForEach-Object { $_.name }); protectedMissing = @($plan.protectedMissing)
+      reclaimBytes = (Get-NiptSum $remove 'bytes') }
+  }
+  [pscustomobject]@{ environment = [string]$EnvCfg.instance; root = [string]$EnvCfg.root; areas = $areas; reclaimBytes = (Get-NiptSum $areas 'reclaimBytes') }
+}
+<# Delete one folder tree, long paths (node_modules) included. #>
+function Remove-NiptFolder([string]$Path) {
+  $full = [IO.Path]::GetFullPath($Path)
+  if ($full.StartsWith('\\?\')) { throw "REMOVE_PATH_INVALID: $Path" }
+  $long = if ($full.StartsWith('\\')) { '\\?\UNC\' + $full.Substring(2) } else { '\\?\' + $full }
+  [IO.Directory]::Delete($long, $true)
+}
+<# Apply a plan from Get-NiptRetentionPlan. One folder failing never stops the rest and never throws: the outcome of each is returned and logged.
+   Run it from a script that holds the deploy lock (cleanup-old-releases.ps1, or a deployment) so no deployment runs while folders are removed. #>
+function Invoke-NiptRetention($Toolchain, $Plan, [switch]$Apply) {
+  $removed = @(); $failed = @()
+  foreach ($area in $Plan.areas) {
+    $root = [IO.Path]::GetFullPath($area.path).TrimEnd('\')
+    foreach ($item in $area.remove) {
+      $target = Join-Path $area.path $item.name
+      # The folder must sit DIRECTLY under the area root (no separator or dot-dot in the name; the planner refuses those, this checks again).
+      $full = [IO.Path]::GetFullPath($target)
+      if ($item.name -match '[\\/]' -or (Split-Path -Parent $full) -ne $root) { $failed += [pscustomobject]@{ kind = $area.kind; name = $item.name; error = 'PATH_OUTSIDE_AREA' }; continue }
+      if (-not $Apply) { continue }
+      try {
+        if ($area.kind -eq 'BUILD') {
+          # A build folder is a Git worktree: let Git forget it first, then remove what is left.
+          try { Invoke-NiptGit $Toolchain $Toolchain.Source @('worktree', 'remove', '--force', $target) | Out-Null } catch { }
+        }
+        if (Test-Path -LiteralPath $target) { Remove-NiptFolder $target }
+        $removed += [pscustomobject]@{ kind = $area.kind; name = $item.name; bytes = [long]$item.bytes }
+        Write-NiptLog ("retention: removed {0} {1} ({2:N2} GB)" -f $area.kind.ToLower(), $item.name, ($item.bytes / 1GB))
+      } catch {
+        $failed += [pscustomobject]@{ kind = $area.kind; name = $item.name; error = $_.Exception.Message }
+        Write-NiptLog ("retention: could not remove {0} {1}: {2}" -f $area.kind.ToLower(), $item.name, $_.Exception.Message) 'WARN'
+      }
+    }
+  }
+  if ($Apply -and ($Plan.areas | Where-Object { $_.kind -eq 'BUILD' -and $_.remove.Count })) { try { Invoke-NiptGit $Toolchain $Toolchain.Source @('worktree', 'prune') | Out-Null } catch { } }
+  [pscustomobject]@{ applied = [bool]$Apply; removed = $removed; failed = $failed; reclaimedBytes = (Get-NiptSum $removed 'bytes') }
+}
+<# After a SUCCESSFUL deployment: keep the newest few releases and builds. Best effort: it can never fail or undo a deployment, and it only logs. #>
+function Invoke-NiptPostDeployRetention($Toolchain, $EnvCfg, [int]$KeepReleases = 5, [int]$KeepBuilds = 3) {
+  try {
+    $plan = Get-NiptRetentionPlan $Toolchain $EnvCfg $KeepReleases $KeepBuilds
+    $r = Invoke-NiptRetention $Toolchain $plan -Apply
+    Write-NiptLog ("retention: kept the newest {0} release(s) and {1} build(s); removed {2}, freed {3:N1} GB{4}" -f $KeepReleases, $KeepBuilds, @($r.removed).Count, ($r.reclaimedBytes / 1GB), $(if (@($r.failed).Count) { "; $(@($r.failed).Count) could not be removed (see above)" } else { '' })) 'OK'
+  } catch { Write-NiptLog "retention skipped: $($_.Exception.Message)" 'WARN' }
+}
+
 Export-ModuleMember -Function *-Nipt*
