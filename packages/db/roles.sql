@@ -245,3 +245,6 @@ GRANT EXECUTE ON FUNCTION task1_no_call_source(uuid) TO worker_rw;
 
 -- v1.1.3 Report batch Worker session check (migration 217): columns only, never the token or CSRF hashes.
 GRANT SELECT(id,user_id,revoked_at,idle_expires_at,absolute_expires_at,signing_suspended) ON app_session TO worker_rw;
+
+-- v1.1.3 Report batch Worker template lookup (migration 218): read-only.
+GRANT SELECT ON report_template_active,report_template_revision TO worker_rw;

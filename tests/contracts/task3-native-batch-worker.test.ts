@@ -9,7 +9,7 @@ import {assertSyntheticDatabase,type Queryable} from '../../packages/db/connecti
 import {FileStore} from '../../packages/storage';
 import {tx} from '../helpers/lab';
 import {addUser} from '../helpers/database';
-import {task3Fixture,halosWorkbook,approveInterpretation,recordPaperRequest,masters} from '../helpers/task3';
+import {task3Fixture,halosWorkbook,approveInterpretation,recordPaperRequest,T3_SOURCES} from '../helpers/task3';
 import {syntheticSignaturePng} from '../helpers/signature-png';
 import {previewHalosImport,decideHalosImport} from '../../packages/readygen/halos-import';
 import {submitSignerProfile,decideSignerProfile,grantDelegation} from '../../packages/readygen/signers';
@@ -36,7 +36,9 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('report batch: worker_rw finalize
  try{
   await migrate(owner);await owner.query(await readFile('packages/db/roles.sql','utf8'));await owner.query(await readFile('packages/p6/grants.sql','utf8'));
   const o=owner as unknown as Queryable,f=await task3Fixture(undefined,{db:o,root:base,store,lookupKey:randomBytes(32),close:async()=>{}});
-  const app=await session('app_rw'),worker=await session('worker_rw'),deps={store,templates:masters()};const [a,b]=f.cases;
+  const app=await session('app_rw'),worker=await session('worker_rw'),workerDeps={store};const [a,b]=f.cases;
+  // The Worker gets only {store}: the template comes from the registry (report_template_active) or the installed master, as in Production.
+  vi.stubEnv('NIPT_REPORT_TEMPLATE_SINGLETON',path.join(T3_SOURCES,'singleton.docx'));vi.stubEnv('NIPT_REPORT_TEMPLATE_TWIN',path.join(T3_SOURCES,'twin.docx'));
   // Every Task 3 action below runs as app_rw (the web role): import, signers, delegation, final, attestation.
   const imp=await tx(app,t=>previewHalosImport(t,f.u.staff,store,{name:'Sample analysis data_S990000003_10242026.xlsx',bytes:halosWorkbook({result:[{sample:a.printed},{sample:b.printed,gender:'Male'}],sampleinfo:f.cases.map(x=>({id:x.vendorId,fetus:x.pregnancy,ga:'17,6'}))})}));
   await tx(app,t=>decideHalosImport(t,f.u.staff,{importId:imp.id,decision:'CONFIRM',expectedRowVersion:imp.rowVersion}));
@@ -60,7 +62,7 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('report batch: worker_rw finalize
   const signedIn={...f.u.certifier,sessionId:sid};
   const batch=await tx(app,t=>enqueueReportBatch(t,signedIn,{idempotencyKey:randomUUID(),defaults:{reportedBy:f.u.staff.id,approvedBy:f.u.certifier.id},release:true,releaseConfirmations:conf,items:[{rowId:rowOf(a.printed)}]} as never));
   const job=(await owner.query<{id:string;payload:unknown}>('SELECT j.id,j.payload FROM job_outbox j JOIN internal_report_request_item i ON i.outbox_id=j.id WHERE i.request_id=$1',[batch.batchId])).rows[0];
-  expect(await tx(worker,t=>runReportBatchItem(t,job.id,job.payload,deps as never,3))).toMatchObject({state:'FINAL'});
+  expect(await tx(worker,t=>runReportBatchItem(t,job.id,job.payload,workerDeps,3))).toMatchObject({state:'FINAL'});
   const st=await readReportBatch(app,f.u.certifier,batch.batchId);
   expect(st.state).toBe('COMPLETED');expect(st.items[0].outcome).toMatchObject({outcome:'FINAL'});
   const versionId=st.items[0].outcome!.versionId as string;
