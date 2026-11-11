@@ -204,8 +204,7 @@ test("T1-09: more than 50 authenticated Ready attempts paginate and remain searc
  await expect(page.locator("[role=status]:not([popover])").filter({hasText:/แสดง 51–55 จาก 55 รายการ/})).toContainText("หน้า 2 จาก 2");
  await expect(rows).toHaveCount(6); // header + five candidates, all from page 2
  const candidate=page.getByRole("row",{name:new RegExp(cases[54].ln)});
- await expect(candidate).toBeVisible();await candidate.getByRole("checkbox").check();
- await expect(page.getByText("เลือก 1 รายการ",{exact:true})).toBeVisible();
+ await expect(candidate).toBeVisible(); // Owner 2026-11-11: the Lab page has no row checkboxes any more
  const search=page.getByLabel("ค้นหา LN / HN / LN Halos / Sample ID / Run");
  await search.fill(cases[54].ln);await expect(page.getByRole("row",{name:new RegExp(cases[54].ln)})).toBeVisible();
  const pageEvidence={scope:"authenticated browser; real worklist API and isolated synthetic PostgreSQL",total:55,pageSize:50,page2Rows:5,selectedAttempt:cases[54].ln,search:"HIS LN"};
@@ -349,31 +348,23 @@ test("T1-50: Manual, Urgent and Repeat fills fit at all required viewports and t
  }
  await writeFile(path.join(process.env.NIPT_E2E_P4_EVIDENCE_DIR??".local/p0-e2e/evidence","task1-responsive.json"),JSON.stringify({scope:"authenticated browser on real Task page; isolated synthetic backend/database",measurements},null,2));
 });
-test("P0-3: choosing a sample out of FIFO order shows the reason requirement before submitting; the user-chosen insertion is recorded",async({page})=>{
+test("P0-3: choosing a sample out of FIFO order for an exact slot is previewed as an override and recorded with the standing reason",async({page})=>{
  test.setTimeout(150000);
  const cases=await readyCases(2);
  await page.setViewportSize({width:1440,height:1000});await login(page,"synthetic.lab");
- await fixtureQuery("UPDATE lab_batch SET state='Cancelled',cancelled_by=(SELECT id FROM app_user WHERE username='synthetic.lab'),cancelled_at=now(),cancel_reason='SYNTHETIC e2e isolation' WHERE state='Draft'");
- await page.goto("/lab");
- // Earlier pagination fixtures can leave >50 synthetic Ready rows in this shared disposable DB.
- await page.getByLabel("ค้นหา LN / HN / LN Halos / Sample ID / Run").fill(cases[1].ln);
- const newest=page.getByRole("row",{name:new RegExp(cases[1].ln)});await expect(newest).toBeVisible({timeout:15000});
- await newest.getByRole("checkbox").check();await page.getByRole("button",{name:/เพิ่มเข้า Batch \(1\)/}).click();
- const dialog=page.getByRole("dialog",{name:"เพิ่มตัวอย่างเข้า Batch"});
- await dialog.getByRole("button",{name:/สร้าง\/เปิด Batch ร่าง/}).click();await expect(dialog.getByLabel("Batch")).not.toHaveValue("");
+ // Owner 2026-11-11: the Lab page has no "add to Batch" any more; a sample is placed from the Task page into an exact slot.
+ const batchId=await freshBatch(page);
+ const attemptId=(await fixtureQuery<{id:string}>("SELECT id FROM analytical_attempt WHERE round_id=$1",[cases[1].roundId]))[0].id;
  // The server preview (same rule as assign) says this selection overtakes FIFO.
- {const batchId=(await fixtureQuery<{id:string}>("SELECT id FROM lab_batch WHERE state='Draft' ORDER BY created_at DESC LIMIT 1"))[0].id;const attemptId=(await fixtureQuery<{id:string}>("SELECT id FROM analytical_attempt WHERE round_id=$1",[cases[1].roundId]))[0].id;
-  const pv=await labPost(page,`/api/p4/batches/${batchId}`,{action:"previewAssign",attemptIds:[attemptId]});const body=await pv.text();expect(pv.ok(),body).toBe(true);expect(JSON.parse(body).reasonRequired,body).toBe(true);}
- // Before any submit: the reason field and the overtaken count are already shown.
- await expect(dialog.getByRole("note")).toContainText(/แซงลำดับ FIFO [1-9]\d* รายการที่รอก่อน — ผู้ใช้เลือกแทรกคิวได้/);
- await expect(dialog.getByLabel("เหตุผลที่แซงลำดับ FIFO (จำเป็น)")).toBeVisible();
- await expect(dialog.getByRole("button",{name:"ยืนยันเพิ่มเข้า Batch"})).toBeDisabled();
- // Owner Task1: a single manual addition must name an exact available slot.
- await dialog.getByLabel("ตำแหน่งที่ต้องการ").selectOption("2");
- await dialog.getByLabel("เหตุผลที่แซงลำดับ FIFO (จำเป็น)").fill("จำลอง ผู้ใช้เลือกแทรกคิว");
- await dialog.getByRole("button",{name:"ยืนยันเพิ่มเข้า Batch"}).click();
- await expect(dialog.locator('[role="status"]:not([popover])')).toContainText("จัดเข้า Batch แล้ว 1 รายการ");
- expect(await fixtureQuery("SELECT e.reason FROM attempt_event e JOIN analytical_attempt a ON a.id=e.attempt_id WHERE a.round_id=$1 AND e.event_type='QUEUE_OVERRIDE'",[cases[1].roundId])).toEqual([{reason:"จำลอง ผู้ใช้เลือกแทรกคิว"}]);
+ {const pv=await labPost(page,`/api/p4/batches/${batchId}`,{action:"previewAssign",attemptIds:[attemptId]});const body=await pv.text();expect(pv.ok(),body).toBe(true);expect(JSON.parse(body).reasonRequired,body).toBe(true);}
+ await page.goto(`/lab/batches/${batchId}?task=1`);
+ const fill=page.locator("details.task-exact-fill").first();await fill.locator("summary").click();
+ await fill.locator("#find-FILL").fill(cases[1].ln);
+ const sample=fill.locator("#sample-FILL");await expect(sample.locator("option")).toHaveCount(2);await sample.selectOption({index:1});
+ await fill.locator("#slot-FILL").selectOption("2");
+ await fill.locator("button.button.secondary").last().click();
+ await expect.poll(async()=>Boolean((await page.request.get(`/api/p4/batches/${batchId}`).then(r=>r.json()) as {slots:{slot:number;assignment:unknown}[]}).slots.find(x=>x.slot===2)?.assignment)).toBe(true);
+ expect(await fixtureQuery("SELECT e.reason FROM attempt_event e JOIN analytical_attempt a ON a.id=e.attempt_id WHERE a.round_id=$1 AND e.event_type='QUEUE_OVERRIDE'",[cases[1].roundId])).toEqual([{reason:"เลือกตัวอย่างเองนอกลำดับคิว"}]);
  await axe(page);
 });
 test("G07 + OD-B: 'เติมตัวอย่างจากคิว' previews then fills the selected Task from FIFO; DRAFT preview PDF before Finalize",async({page})=>{

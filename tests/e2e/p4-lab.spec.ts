@@ -13,6 +13,16 @@ async function login(page:Page,username:string){
  await signInSyntheticBrowser(page,username);
 }
 async function as(browser:Browser,username:string){const c=await browser.newContext({baseURL:process.env.E2E_BASE_URL??"http://127.0.0.1:3000",ignoreHTTPSErrors:process.env.E2E_IGNORE_LOCAL_TLS==="1",extraHTTPHeaders:{"x-real-ip":"synthetic-e2e-"+randomUUID()}});const p=await c.newPage();await login(p,username);return {page:p,close:()=>c.close()};}
+async function labPost(page:Page,path:string,body:unknown){
+ const token=(await page.context().cookies()).find(c=>c.name==="nipt_csrf")?.value??"";
+ return page.request.post(path,{headers:{origin:new URL(page.url()).origin,"x-csrf-token":token,"content-type":"application/json"},data:body});
+}
+/** A fresh Draft batch (the single-assembling-batch rule would otherwise reopen an older one). */
+async function freshBatch(page:Page){
+ await fixtureQuery("UPDATE lab_batch SET state='Cancelled',cancelled_by=(SELECT id FROM app_user WHERE username='synthetic.lab'),cancelled_at=now(),cancel_reason='SYNTHETIC e2e isolation' WHERE state='Draft'");
+ const r=await labPost(page,"/api/p4/batches",{});expect(r.ok(),`${r.status()} ${await r.text()}`).toBe(true);
+ return (await r.json()).batchId as string;
+}
 const AA_TAGS=["wcag2a","wcag2aa","wcag21a","wcag21aa","wcag22aa"];
 const axe=async(page:Page)=>expect((await new AxeBuilder({page}).withTags(AA_TAGS).analyze()).violations).toEqual([]);
 
@@ -70,27 +80,28 @@ test("P4 journey: labels (4 stickers/8 halves) → batch → plan check → fina
  expect(jobs).toEqual([{kind:"PRINT",n:1}]);
  // Reprint requires a reason and never issues a number.
  await page.getByLabel("ค้นหา LN / HN / LN Halos / Sample ID / Run").fill("");
- for(const c of cases)await page.getByRole("row",{name:new RegExp(c.ln)}).getByRole("checkbox").check();
- await page.getByRole("button",{name:/พิมพ์ฉลาก \(2\)/}).click();
- const multi=page.getByRole("dialog",{name:"พิมพ์ฉลากหลอด"});await expect(multi.frameLocator("iframe").locator(".sticker")).toHaveCount(8);await expect(multi.locator(".label-total")).toContainText("เลือก 2 จาก 2 ตัวอย่าง");
+ // Owner 2026-11-11: the Lab page has no row checkboxes; one "print labels (N on this page)" button opens the label dialog and the samples are picked inside it.
+ await page.locator(".bulk-bar").getByRole("button").first().click();
+ const multi=page.getByRole("dialog").filter({has:page.locator(".label-picker")}),dialogSearch=multi.locator("#label-search"),ticked=multi.locator(".label-picker-list input[type=checkbox]:checked");
+ while(await ticked.count())await ticked.first().uncheck(); // start from nothing ticked (the dialog pre-ticks every sample not printed yet)
+ for(const c of cases){await dialogSearch.fill(c.ln);await multi.locator(".label-picker-list input[type=checkbox]").check();}
+ await dialogSearch.fill("");await expect(multi.frameLocator("iframe").locator(".sticker")).toHaveCount(8);await expect(multi.locator(".label-total")).toContainText(/\b2\D+\d+\D/);
  // OWNER-LAB-025: a reprint needs no typed reason (the note is optional); it is audited and never issues a number.
  await expect(multi.getByRole("button",{name:"พิมพ์ซ้ำ",exact:true})).toBeEnabled();
  await multi.getByLabel("หมายเหตุการพิมพ์ซ้ำ (ไม่บังคับ)").fill("สติ๊กเกอร์เสียหาย");
  await multi.getByRole("button",{name:"พิมพ์ซ้ำ",exact:true}).click();await expect(multi.locator('[role="status"]:not([popover])')).toContainText("LN Halos เดิม");
  await multi.getByRole("button",{name:"ปิด"}).last().click();
  expect(await fixtureQuery("SELECT 1 FROM specimen_lab_number WHERE round_id=ANY($1::uuid[])",[cases.map(c=>c.roundId)])).toHaveLength(2);
- // Add both to a batch (FIFO order, control slots skipped).
- for(const c of cases)await page.getByRole("row",{name:new RegExp(c.ln)}).getByRole("checkbox").check();
- await page.getByRole("button",{name:/เพิ่มเข้า Batch \(2\)/}).click();
- const assign=page.getByRole("dialog",{name:"เพิ่มตัวอย่างเข้า Batch"});
- await assign.getByRole("button",{name:/สร้าง\/เปิด Batch ร่าง/}).click();await expect(assign.getByLabel("Batch")).not.toHaveValue("");
- await assign.getByRole("button",{name:"ยืนยันเพิ่มเข้า Batch"}).click();
- // Older Ready samples from earlier runs may precede these two: overtaking FIFO then requires a recorded reason (AT-TASK-09).
- const override=assign.getByLabel("เหตุผลที่แซงลำดับ FIFO (จำเป็น)");
- await expect(assign.locator('[role="status"]:not([popover])').or(override)).toBeVisible();
- if(await override.isVisible()){await override.fill("จำลอง เลือกตัวอย่างของการทดสอบนี้");await assign.getByRole("button",{name:"ยืนยันเพิ่มเข้า Batch"}).click();}
- await expect(assign.locator('[role="status"]:not([popover])')).toContainText(/จัดเข้า Batch แล้ว 2 รายการ: ตน\.2 .*, ตน\.3 /);
- await assign.getByRole("link",{name:"เปิด Batch"}).click();
+ // Add both to a Batch from the Task page: the Lab page has no bulk "add to Batch" any more, so each sample goes to an exact slot (control slots skipped).
+ const batchId=await freshBatch(page);await page.goto(`/lab/batches/${batchId}?task=1`);
+ const fill=page.locator("details.task-exact-fill").first();await fill.locator("summary").click();
+ for(const [i,c] of cases.entries()){
+  await fill.locator("#find-FILL").fill(c.ln);
+  const sample=fill.locator("#sample-FILL");await expect(sample.locator("option")).toHaveCount(2);await sample.selectOption({index:1});
+  await fill.locator("#slot-FILL").selectOption(String(i+2));
+  await fill.locator("button.button.secondary").last().click();
+  await expect.poll(async()=>Boolean((await page.request.get(`/api/p4/batches/${batchId}`).then(r=>r.json()) as {slots:{slot:number;assignment:unknown}[]}).slots.find(x=>x.slot===i+2)?.assignment)).toBe(true);
+ }
  await expect(page.getByRole("heading",{level:1,name:/^Run\d{3}\/\d{4}$/})).toBeVisible();
  await expect(page.getByRole("row",{name:/^1 A1/}).getByText("PC")).toBeVisible();
  await axe(page);
