@@ -13,7 +13,8 @@ import {task3Fixture,halosWorkbook,approveInterpretation,recordPaperRequest,T3_S
 import {syntheticSignaturePng} from '../helpers/signature-png';
 import {previewHalosImport,decideHalosImport} from '../../packages/readygen/halos-import';
 import {submitSignerProfile,decideSignerProfile,grantDelegation} from '../../packages/readygen/signers';
-import {certifyPending,pendingState} from '../helpers/certify-pending';
+import {pendingState} from '../helpers/certify-pending';
+import {sendToHis} from '../../packages/results/send-his';
 import {reserveReleasedResult} from '../../packages/p6/released-result';
 import {runTransfer} from '../../packages/p6/worker';
 import {workerServiceAccount} from '../../packages/integrations/authorized-share';
@@ -36,11 +37,11 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('report batch: worker_rw finalize
  try{
   await migrate(owner);await owner.query(await readFile('packages/db/roles.sql','utf8'));await owner.query(await readFile('packages/p6/grants.sql','utf8'));
   const o=owner as unknown as Queryable,f=await task3Fixture(undefined,{db:o,root:base,store,lookupKey:randomBytes(32),close:async()=>{}});
-  const app=await session('app_rw'),worker=await session('worker_rw'),workerDeps={store};const [a,b]=f.cases;
+  const app=await session('app_rw'),worker=await session('worker_rw'),workerDeps={store};const [a,b,tw]=f.cases,[pc,nc]=f.controls;
   // The Worker gets only {store}: the template comes from the registry (report_template_active) or the installed master, as in Production.
   vi.stubEnv('NIPT_REPORT_TEMPLATE_SINGLETON',path.join(T3_SOURCES,'singleton.docx'));vi.stubEnv('NIPT_REPORT_TEMPLATE_TWIN',path.join(T3_SOURCES,'twin.docx'));
   // Every Task 3 action below runs as app_rw (the web role): import, signers, delegation, final, attestation.
-  const imp=await tx(app,t=>previewHalosImport(t,f.u.staff,store,{name:'Sample analysis data_S990000003_10242026.xlsx',bytes:halosWorkbook({result:[{sample:a.printed},{sample:b.printed,gender:'Male'}],sampleinfo:f.cases.map(x=>({id:x.vendorId,fetus:x.pregnancy,ga:'17,6'}))})}));
+  const imp=await tx(app,t=>previewHalosImport(t,f.u.staff,store,{name:'Sample analysis data_S990000003_10242026.xlsx',bytes:halosWorkbook({result:[{sample:pc,t13:'TH13',t18:'TH18',t21:'TH21',sex:''},{sample:a.printed,ff:'14.7',gender:'Female'},{sample:b.printed,t21:'TH21',ff:'9.6',gender:'Male'},{sample:tw.printed,gender:'Male',ff:'11.25'},{sample:nc,sex:''}],sampleinfo:f.cases.map(x=>({id:x.vendorId,fetus:x.pregnancy,ga:'17,6'}))})}));
   await tx(app,t=>decideHalosImport(t,f.u.staff,{importId:imp.id,decision:'CONFIRM',expectedRowVersion:imp.rowVersion}));
   for(const [user,legal,license,seed] of [[f.u.staff,'Synthetic Reporter','99001',1],[f.u.certifier,'Synthetic Approver','99002',2]] as const){
    const p=await tx(app,t=>submitSignerProfile(t,user,store,{legalName:legal,mtLicenseNo:license,signature:syntheticSignaturePng(seed)}));
@@ -60,17 +61,26 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('report batch: worker_rw finalize
   // A real signed-in session, as in Production: the Worker re-checks it (app_session) before it finalizes. Without one the check is skipped.
   const sid=(await owner.query<{id:string}>("INSERT INTO app_session(user_id,token_hash,csrf_hash,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,now()+interval '30 minutes',now()+interval '8 hours') RETURNING id",[f.u.certifier.id,'a'.repeat(64),'b'.repeat(64)])).rows[0].id;
   const signedIn={...f.u.certifier,sessionId:sid};
-  const batch=await tx(app,t=>enqueueReportBatch(t,signedIn,{idempotencyKey:randomUUID(),defaults:{reportedBy:f.u.staff.id,approvedBy:f.u.certifier.id},release:true,releaseConfirmations:conf,items:[{rowId:rowOf(a.printed)}]} as never));
-  const job=(await owner.query<{id:string;payload:unknown}>('SELECT j.id,j.payload FROM job_outbox j JOIN internal_report_request_item i ON i.outbox_id=j.id WHERE i.request_id=$1',[batch.batchId])).rows[0];
-  expect(await tx(worker,t=>runReportBatchItem(t,job.id,job.payload,workerDeps,3))).toMatchObject({state:'FINAL'});
+  const queue=async(items:unknown[])=>{
+   const batch=await tx(app,t=>enqueueReportBatch(t,signedIn,{idempotencyKey:randomUUID(),defaults:{reportedBy:f.u.staff.id,approvedBy:f.u.certifier.id},release:true,releaseConfirmations:conf,items} as never));
+   const jobs=(await owner.query<{id:string;payload:unknown}>('SELECT j.id,j.payload FROM job_outbox j JOIN internal_report_request_item i ON i.outbox_id=j.id WHERE i.request_id=$1 ORDER BY i.ordinal',[batch.batchId])).rows;
+   return {batch,jobs};
+  };
+  const runAsWorker=(job:{id:string;payload:unknown})=>tx(worker,t=>runReportBatchItem(t,job.id,job.payload,workerDeps,3));
+  // Low risk singleton, High Risk singleton (acknowledged) and twins, in one batch exactly as the dialog sends it.
+  const {batch,jobs}=await queue([{rowId:rowOf(a.printed)},{rowId:rowOf(b.printed)},{rowId:rowOf(tw.printed)}]);
+  for(const job of jobs)expect(await runAsWorker(job)).toMatchObject({state:'FINAL'});
   const st=await readReportBatch(app,f.u.certifier,batch.batchId);
-  expect(st.state).toBe('COMPLETED');expect(st.items[0].outcome).toMatchObject({outcome:'FINAL'});
-  const versionId=st.items[0].outcome!.versionId as string;
-  // The result is on the patient as a version waiting to be sent.
-  expect((await owner.query<{state:string}>('SELECT state FROM result_report_version WHERE id=$1',[versionId])).rows[0].state).toBe('PendingCertification');
+  expect(st.state).toBe('COMPLETED');expect(st.items.map(i=>i.outcome?.outcome)).toEqual(['FINAL','FINAL','FINAL']);
+  const versionIds=st.items.map(i=>i.outcome!.versionId as string),versionId=versionIds[0];
+  for(const id of versionIds)expect((await owner.query<{state:string}>('SELECT state FROM result_report_version WHERE id=$1',[id])).rows[0].state).toBe('PendingCertification');
   expect(await tx(app,t=>pendingState(t,versionId))).toEqual({state:'PendingCertification',reviews:1,qc5:1,releases:0,outbox:0});
+  // The send step certifies the High Risk and twin reports too.
   // The send step (web role) certifies it; that is the release the HIS transfer picks up.
-  await tx(app,t=>certifyPending(t,f.u.certifier,versionId));
+  // The "รอส่ง HIS" board's send button: the real sendToHis with the confirmations the board sends (reviewConfirmed + abnormalAcknowledged), signed in.
+  const rows=(await owner.query<{id:string;row_version:number}>('SELECT id,row_version FROM result_report_version WHERE id=ANY($1::uuid[])',[versionIds])).rows;
+  const sent=await tx(app,t=>sendToHis(t,signedIn,{idempotencyKey:randomUUID(),reviewConfirmed:true,abnormalAcknowledged:true,items:versionIds.map(id=>({versionId:id,expectedRowVersion:rows.find(r=>r.id===id)!.row_version}))}));
+  expect(sent.items.map(i=>i.outcome)).toEqual(['CertifiedReleased','CertifiedReleased','CertifiedReleased']);
   const rel=(await owner.query<{id:string;sha256:string}>('SELECT r.id,v.sha256 FROM result_release r JOIN result_report_version v ON v.id=r.version_id WHERE v.id=$1',[versionId])).rows[0];
   // The Worker reserves the transfer once and publishes PDF, RES and the OK readiness marker.
   const transfer=await reserveReleasedResult(worker,rel.id,store);expect((await reserveReleasedResult(worker,rel.id,store)).id).toBe(transfer.id);
@@ -80,6 +90,10 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('report batch: worker_rw finalize
   expect(res.subarray(0,2).toString('hex')).toBe('fffe');expect(res.subarray(2).toString('utf16le')).toMatch(/low risk/i);
   expect(ok.toString('hex')).toBe('fffe');expect(transfer.plan.okName).toBe(transfer.plan.resName.replace(/.res$/,'.ok'));
   expect((await owner.query('SELECT 1 FROM p6_transfer WHERE clinical_release_id=$1',[rel.id])).rows).toHaveLength(1);
+  // A corrected re-issue of a released report is queued and handled by the Worker as well; the system holds it for Owner decision OD-17 (a business hold, not an error).
+  const again=await queue([{rowId:rowOf(a.printed),reissueReason:'SYNTHETIC corrected wording request'}]);
+  expect(await runAsWorker(again.jobs[0])).toMatchObject({state:'HOLD'});
+  expect((await readReportBatch(app,f.u.certifier,again.batch.batchId)).items[0].outcome).toMatchObject({outcome:'HOLD',holds:[{code:'POST_RELEASE_REVISION_PENDING_OD17'}]});
  }finally{
   vi.unstubAllEnvs();for(const c of clients)await c.end();await owner.end();await admin.query('DROP DATABASE IF EXISTS '+name);await admin.end();
   if(!path.resolve(base).startsWith(path.resolve(os.tmpdir())+path.sep))throw Error('TEMP_CLEANUP_PATH_INVALID');await rm(base,{recursive:true,force:true});

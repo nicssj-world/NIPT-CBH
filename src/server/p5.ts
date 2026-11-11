@@ -29,6 +29,7 @@ const MESSAGES:Record<string,string>={
  NAME_CONFLICT_ACK_REQUIRED:"มีไฟล์ชื่อซ้ำกับรายงานที่มีอยู่แต่เนื้อหาต่างกัน — ติ๊กรับทราบในแถวที่เตือนก่อนนำเข้า แล้วจึงตรวจว่าเป็นรายงานใหม่หรือฉบับแก้ไข",
  NAME_REVIEW_REQUIRED:"ไฟล์นี้ชื่อซ้ำกับรายงานอื่นแต่เนื้อหาต่างกัน — ต้องระบุว่าเป็นรายงานใหม่หรือฉบับแก้ไขก่อนเสนอการเชื่อมโยง",NAME_REVIEW_MISMATCH:"เลือก รายงานใหม่ แล้ว จึงระบุข้อมูลคำขอแก้ไขไม่ได้",FILE_COUNT_INVALID:"เลือกได้ 1–20 ไฟล์ต่อครั้ง",UPLOAD_TOO_LARGE:"ไฟล์รวมใหญ่เกินกำหนด",INVALID_REQUEST:"คำขอไม่ถูกต้อง"
 };
+export const p5Message=(code:string):string|undefined=>MESSAGES[code];
 export function p5Error(error:unknown){
  if(error instanceof ZodError)return NextResponse.json({code:"VALIDATION_ERROR",error:"ข้อมูลไม่ครบหรือไม่ถูกต้อง — เหตุผลต้องมีอย่างน้อย 8 ตัวอักษร",issues:error.issues.map(x=>({path:x.path.join("."),message:x.message}))},{status:422,headers:noStore});
  const code=error instanceof LabError?error.code:error instanceof Error?error.message:"";

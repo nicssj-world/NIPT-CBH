@@ -4,11 +4,14 @@ import {withTransaction} from "../../packages/db/connection";
 import {appendAudit} from "../../packages/db/audit";
 import type {ReportDeps} from "../../packages/readygen/reports";
 import {protect} from "./http";
-import {p5Error,noStore,resultStore} from "./p5";
+import {p5Error,p5Message,noStore,resultStore} from "./p5";
 
 // Task 3 (ReadyGen integration) API helpers: the same authentication, CSRF, no-store and audited-denial rules as P5.
 export const reportDeps=():ReportDeps=>({store:resultStore()});
 const MESSAGES:Record<string,string>={
+ REPORT_BATCH_ITEM_FAILED:"ระบบออกรายงานรายการนี้ไม่สำเร็จ (ข้อผิดพลาดภายใน) — แจ้งผู้ดูแลระบบพร้อมเลข LN ระบบเก็บสาเหตุไว้ในบันทึกของ Worker แล้ว",
+ REPORT_NATIVE_WORD_FAILED:"แปลงรายงานเป็น PDF ด้วย Microsoft Word ไม่สำเร็จ — ตรวจว่า Word บนเครื่องเซิร์ฟเวอร์เปิดได้ แล้วสั่งออกรายงานใหม่",
+ REPORT_NATIVE_WORD_TIMEOUT:"แปลงรายงานเป็น PDF นานเกินกำหนด — ตรวจว่า Word ไม่ค้างอยู่ แล้วสั่งออกรายงานใหม่",
  HALOS_REQUIRED_HEADER_MISSING:"ไฟล์นี้ไม่มีคอลัมน์ที่ HALOS ต้องมี — ตรวจว่าเป็นไฟล์ \"Sample analysis data\" ฉบับจริงจาก HALOS",HALOS_RESULT_SHEET_MISSING:"ไม่พบชีต result ในไฟล์ HALOS",HALOS_SAMPLEINFO_SHEET_MISSING:"ไม่พบชีต sampleinfo ในไฟล์ HALOS",
  HALOS_RESULT_SHEET_HAS_NO_ROWS:"ชีต result ไม่มีข้อมูลตัวอย่าง",HALOS_HEADER_DUPLICATE:"หัวคอลัมน์ซ้ำในไฟล์ HALOS",HALOS_SHEET_DUPLICATE:"ชื่อชีตซ้ำในไฟล์ HALOS",XLSX_ACTIVE_CONTENT_REFUSED:"ไฟล์มี Macro/ลิงก์ภายนอก — ปฏิเสธเพื่อความปลอดภัย",
  ZIP_SIGNATURE:"ไฟล์นี้ไม่ใช่ .xlsx ที่ถูกต้อง",FILE_TOO_LARGE:"ไฟล์ใหญ่เกินกำหนด (8 MB)",EMPTY_FILE:"ไฟล์ว่าง",HALOS_WARNINGS_ACK_REQUIRED:"มีคำเตือนที่ต้องรับทราบก่อนยืนยันนำเข้า",HALOS_ROW_ALREADY_DISMISSED:"แถวนี้ถูกซ่อนไปแล้ว",HALOS_ROW_DISMISSED:"แถวนี้ถูกซ่อนแล้ว ออกรายงานไม่ได้",HALOS_ROW_HAS_FINAL_REPORT:"แถวนี้มีรายงาน Final แล้ว ซ่อนไม่ได้",HALOS_IMPORT_ALREADY_DECIDED:"ไฟล์นี้ยืนยันหรือยกเลิกไปแล้ว",
@@ -56,3 +59,6 @@ export async function uploadedFile(request:NextRequest,field:string,maxBytes:num
 }
 export const fileResponse=(bytes:Buffer,type:string,name:string,inline=false)=>new NextResponse(new Uint8Array(bytes),{headers:{...noStore,"Content-Type":type,"Content-Length":String(bytes.length),
  "Content-Disposition":`${inline?"inline":"attachment"}; filename="${name.normalize("NFC").replace(/[^A-Za-z0-9._ -]/g,"_").slice(0,150)}"; filename*=UTF-8''${encodeURIComponent(name.normalize("NFC"))}`,"Cache-Control":"private, no-store"}});
+
+/** Thai explanation of a batch item's failure code for the progress dialog (Task 3 messages first, then the P5 ones). */
+export const failureMessage=(code:string):string|undefined=>MESSAGES[code]??p5Message(code);
