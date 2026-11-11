@@ -204,7 +204,8 @@ test("T1-09: more than 50 authenticated Ready attempts paginate and remain searc
  await expect(page.locator("[role=status]:not([popover])").filter({hasText:/แสดง 51–55 จาก 55 รายการ/})).toContainText("หน้า 2 จาก 2");
  await expect(rows).toHaveCount(6); // header + five candidates, all from page 2
  const candidate=page.getByRole("row",{name:new RegExp(cases[54].ln)});
- await expect(candidate).toBeVisible(); // Owner 2026-11-11: the Lab page has no row checkboxes any more
+ await expect(candidate).toBeVisible();await candidate.getByRole("checkbox").check();
+ await expect(page.getByText("เลือก 1 รายการ",{exact:true})).toBeVisible();
  const search=page.getByLabel("ค้นหา LN / HN / LN Halos / Sample ID / Run");
  await search.fill(cases[54].ln);await expect(page.getByRole("row",{name:new RegExp(cases[54].ln)})).toBeVisible();
  const pageEvidence={scope:"authenticated browser; real worklist API and isolated synthetic PostgreSQL",total:55,pageSize:50,page2Rows:5,selectedAttempt:cases[54].ln,search:"HIS LN"};

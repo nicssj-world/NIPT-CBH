@@ -1,5 +1,5 @@
 "use client";
-import {useCallback,useEffect,useRef,useState} from "react";
+import {useCallback,useEffect,useMemo,useRef,useState} from "react";
 import Link from "next/link";
 import Image from "next/image";
 import {Dialog,Ln} from "../p2/shared";
@@ -8,7 +8,7 @@ import {formatHisLn} from "./his-ln";
 import {LabelDialog} from "./label-dialog";
 import {labApi,failureText,bkk,gateText,LabFailure} from "./lab-api";
 import {type SortDirection} from "../../../packages/lab/receive-sort";
-import {LAB_SCREEN_DEFAULT_SORT} from "./lab-sort";
+import {LAB_SCREEN_DEFAULT_SORT,byLnHalosAsc} from "./lab-sort";
 import {getSheetNumber} from "../../../packages/lab/rules";
 import {gaBadge,type Ga} from "./ga-badge";
 import {ThaiDateInput} from "../shared/thai-date-input";
@@ -38,7 +38,7 @@ const SOURCE:Record<string,string>={HIS_PET_RECEIPT:"รับใน HIS",NIPT_L
 
 export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
  const [data,setData]=useState(initial),[params,setParams]=useState(DEFAULT_PARAMS),[typed,setTyped]=useState(""),[loading,setLoading]=useState(false);
- const [dialog,setDialog]=useState<null|{type:string;row?:Attempt|Expected|Missing;samples?:Attempt[]}>(null),[status,setStatus]=useState("");
+ const [selected,setSelected]=useState<Map<string,Attempt>>(new Map()),[dialog,setDialog]=useState<null|{type:string;row?:Attempt|Expected|Missing;samples?:Attempt[]}>(null),[status,setStatus]=useState("");
  const seq=useRef(0),first=useRef(true),panel=useRef<HTMLElement>(null),paramsRef=useRef(params);
  useEffect(()=>{paramsRef.current=params;},[params]);
  const fetchPage=useCallback(async(p:Params)=>{
@@ -52,16 +52,22 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
  // Typing in the search box: ask the server once typing pauses (the search covers every attempt, not only the rows on screen).
  useEffect(()=>{const t=setTimeout(()=>setParams(p=>p.q===typed.trim()?p:{...p,q:typed.trim(),page:1}),350);return()=>clearTimeout(t);},[typed]);
  const change=(patch:Partial<Params>)=>setParams(p=>({...p,...patch,page:1}));
- async function reload(){await fetchPage(paramsRef.current);}
+ async function reload(){setSelected(new Map());await fetchPage(paramsRef.current);}
  const tab=data.tab,sort=data.filters.sort;
+ // Owner 2026-11-11: row ticks choose the samples whose labels are printed. A sample whose labels are already printed is greyed out and cannot be ticked
+ // (its own "ฉลาก" button still reprints it); a sample with no LN Halos has nothing to print. Print order = LN Halos ascending, kept across pages.
+ const chosen=useMemo(()=>[...selected.values()].sort(byLnHalosAsc),[selected]);
  const attempts=data.attempts;
+ const tickable=(a:Attempt)=>!!a.lnHalos&&a.labels.prints===0;
+ const toggle=(a:Attempt)=>setSelected(m=>{const n=new Map(m);if(n.has(a.attemptId))n.delete(a.attemptId);else if(tickable(a))n.set(a.attemptId,a);return n;});
+ const tickableShown=attempts.filter(tickable),allShown=tickableShown.length>0&&tickableShown.every(a=>selected.has(a.attemptId));
 
  const goPage=(n:number)=>{setParams(p=>({...p,page:n}));setTimeout(()=>panel.current?.scrollIntoView({block:"start"}),0);};
  const pager=<Pager label="คิวงาน Lab" page={data.page.number} pageSize={data.page.size} total={data.page.total} totalPages={data.page.totalPages} busy={loading} onPage={goPage} onSize={n=>change({pageSize:n})}/>;
  return <>
   {data.operational?<p className="help">จัดเข้า Batch ได้เมื่อรับ PET ตรวจสิ่งส่งตรวจ เอกสารยินยอม และทบทวนทางคลินิกของรอบปัจจุบันครบแล้ว</p>:data.policy==="PROCEED_SYNTHETIC_LABELLED"?<p className="notice warning-notice" role="note"><strong>นโยบายจำลอง:</strong> ตัวอย่างที่ติดเฉพาะข้อที่ยังรอการตัดสิน (OD-01, OD-08, OD-16) จัดเข้า Batch ได้พร้อมป้ายกำกับ — ไม่ใช่การรับรองทางคลินิก ข้อที่ไม่ผ่านจริงยังบล็อกเสมอ</p>
    :<p className="notice warning-notice" role="note"><strong>ยังจัดตัวอย่างเข้า Batch ไม่ได้:</strong> เกณฑ์ทางคลินิก (OD-08) และเกณฑ์การรับตัวอย่าง (OD-01) ยังรอการรับรอง ระบบจึงระงับการจัดเข้า Batch ไว้ก่อน (นโยบาย HOLD)</p>}
-  <div className="tabs" role="tablist" aria-label="คิวงาน Lab">{TABS.map(([t,label])=><button key={t} role="tab" type="button" id={`tab-${t}`} aria-selected={tab===t} aria-controls="queue-panel" className="tab" onClick={()=>setParams(p=>({...p,tab:t,page:1}))}>{label} <span className="count">{data.counts[t]}</span></button>)}</div>
+  <div className="tabs" role="tablist" aria-label="คิวงาน Lab">{TABS.map(([t,label])=><button key={t} role="tab" type="button" id={`tab-${t}`} aria-selected={tab===t} aria-controls="queue-panel" className="tab" onClick={()=>{setSelected(new Map());setParams(p=>({...p,tab:t,page:1}));}}>{label} <span className="count">{data.counts[t]}</span></button>)}</div>
   {data.scan.capped&&<p className="notice warning-notice" role="note">มีตัวอย่างสถานะ Ready {data.scan.ready} รายการ — ระบบตรวจ “พร้อม / ยังเข้าตรวจไม่ได้” แล้ว {data.scan.scanned} รายการแรกตามลำดับ จำนวนที่แสดงเป็นอย่างน้อย และจะตรวจต่อเมื่อเปิดหน้าถัดไป ไม่มีรายการใดถูกตัดทิ้ง</p>}
   <section id="queue-panel" ref={panel} role="tabpanel" aria-labelledby={`tab-${tab}`} aria-busy={loading} className="panel">
    <div className="filters">
@@ -75,12 +81,17 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
    {tab==="REDRAW_EXPECTED"?<><ExpectedTable operational={!!data.operational} rows={data.expected} can={can} open={(type,row)=>setDialog({type,row})} q={data.filters.q}/>{pager}</>
    :tab==="LN_HALOS_MISSING"?<><MissingTable rows={data.missing} can={can} open={(type,row)=>setDialog({type,row})} q={data.filters.q}/>{pager}</>
    :<>
-    {can.labels&&attempts.some(a=>a.lnHalos)&&<div className="bulk-bar"><button className="button secondary" type="button" onClick={()=>setDialog({type:"labels",samples:attempts.filter(a=>a.lnHalos)})}>พิมพ์ฉลาก ({attempts.filter(a=>a.lnHalos).length} รายการในหน้านี้)</button><span className="help">เลือกตัวอย่างที่จะพิมพ์ในหน้าต่างถัดไป (ตัวที่ยังไม่พิมพ์ถูกเลือกให้)</span></div>}
+    <div className="bulk-bar" aria-live="polite"><span>เลือก {chosen.length} รายการ{chosen.length>attempts.filter(a=>selected.has(a.attemptId)).length?` (รวมหน้าอื่น)`:""}</span>
+     {can.labels&&<button className="button secondary" type="button" disabled={!chosen.length} onClick={()=>setDialog({type:"labels",samples:chosen})}>พิมพ์ฉลาก ({chosen.length})</button>}
+     {chosen.length>0&&<button className="button secondary" type="button" onClick={()=>setSelected(new Map())}>ล้างที่เลือก</button>}
+     <span className="help">รายการที่พิมพ์ฉลากแล้วเป็นสีเทาและเลือกไม่ได้ — พิมพ์ซ้ำที่ปุ่ม “ฉลาก” ของแถวนั้น</span>
+    </div>
     {attempts.length===0?<p className="empty-state">ไม่มีรายการในคิวนี้{data.filters.q?" ที่ตรงกับคำค้น":""}</p>:
     <div className="table-wrap" role="region" aria-label="รายการงาน Lab" tabIndex={0}><table className="data-table">
      <caption className="sr-only">รายการตัวอย่าง เรียงตามวันที่/เวลารับสิ่งส่งตรวจ ({sort==="asc"?"เก่าไปใหม่ — FIFO":"ใหม่ไปเก่า"})</caption>
-     <thead><tr><th scope="col">LN Halos / Sample ID</th><th scope="col">LN / HN</th><th scope="col" aria-sort={sort==="asc"?"ascending":"descending"}><button type="button" className="sort-button" aria-label={`วันที่/เวลารับสิ่งส่งตรวจ เรียง${sort==="asc"?"เก่าไปใหม่":"ใหม่ไปเก่า"} กดเพื่อสลับ`} onClick={()=>change({sort:sort==="asc"?"desc":"asc"})}>วันที่/เวลารับ <span aria-hidden="true">{sort==="asc"?"↑":"↓"}</span></button></th><th scope="col">รอบ</th><th scope="col">สถานะ / เงื่อนไข</th><th scope="col">ฉลาก</th><th scope="col">Batch</th><th scope="col">จัดการ</th></tr></thead>
-     <tbody>{attempts.map(a=><tr key={a.attemptId} className={`spec-row spec-${specimenTone(a)}`}>
+     <thead><tr><th scope="col"><label className="table-check-target"><input type="checkbox" aria-label="เลือกทั้งหมดที่ยังไม่พิมพ์ฉลาก" disabled={!tickableShown.length} checked={allShown} onChange={()=>setSelected(m=>{const n=new Map(m);if(allShown)for(const a of tickableShown)n.delete(a.attemptId);else for(const a of tickableShown)n.set(a.attemptId,a);return n;})}/></label></th><th scope="col">LN Halos / Sample ID</th><th scope="col">LN / HN</th><th scope="col" aria-sort={sort==="asc"?"ascending":"descending"}><button type="button" className="sort-button" aria-label={`วันที่/เวลารับสิ่งส่งตรวจ เรียง${sort==="asc"?"เก่าไปใหม่":"ใหม่ไปเก่า"} กดเพื่อสลับ`} onClick={()=>change({sort:sort==="asc"?"desc":"asc"})}>วันที่/เวลารับ <span aria-hidden="true">{sort==="asc"?"↑":"↓"}</span></button></th><th scope="col">รอบ</th><th scope="col">สถานะ / เงื่อนไข</th><th scope="col">ฉลาก</th><th scope="col">Batch</th><th scope="col">จัดการ</th></tr></thead>
+     <tbody>{attempts.map(a=><tr key={a.attemptId} className={`spec-row spec-${specimenTone(a)}${selected.has(a.attemptId)?" selected":""}${a.labels.prints>0?" label-printed":""}`}>
+      <td><label className="table-check-target"><input type="checkbox" aria-label={`เลือก LN ${formatHisLn(a.hisLn)}`} title={a.labels.prints>0?"พิมพ์ฉลากแล้ว — พิมพ์ซ้ำที่ปุ่ม “ฉลาก” ของแถวนี้":!a.lnHalos?"ยังไม่มี LN Halos":undefined} disabled={!tickable(a)} checked={selected.has(a.attemptId)} onChange={()=>toggle(a)}/></label></td>
       <td><span className="mono strong">{a.labelCode??"—"}</span>{a.printedSampleId&&<div className={`mono small${a.exceptional?" task-exceptional":""}`}>{a.printedSampleId}</div>}{a.pregnancy==="Twins"&&<span className="badge">ครรภ์แฝด (D)</span>}</td>
       <td className="ln-hn-cell"><button type="button" className="ln-button" aria-haspopup="dialog" aria-label={`จัดการตัวอย่าง LN ${formatHisLn(a.hisLn)}`} onClick={()=>setDialog({type:"center",row:a})}><Ln value={a.hisLn}/></button><div className="small muted">HN {a.hn??"—"}</div></td>
       <td className="receive-time">{a.receivedAt?bkk(a.receivedAt):"— / ยังไม่รับ"}<div className="small muted">{SOURCE[a.receivedSource??""]??""}</div></td><td>รอบที่ {a.roundNumber}{a.roundNumber>1&&<span className="badge warning">เจาะซ้ำ</span>}{a.repeat&&<span className="badge warning">ตรวจซ้ำ #{a.attemptNumber} {a.repeat.level==="RE_LIBRARY"?"Re-Library":a.repeat.level==="RE_EXTRACTION"?"Re-extraction":""}</span>}</td>

@@ -80,13 +80,17 @@ test("P4 journey: labels (4 stickers/8 halves) → batch → plan check → fina
  expect(jobs).toEqual([{kind:"PRINT",n:1}]);
  // Reprint requires a reason and never issues a number.
  await page.getByLabel("ค้นหา LN / HN / LN Halos / Sample ID / Run").fill("");
- // Owner 2026-11-11: the Lab page has no row checkboxes; one "print labels (N on this page)" button opens the label dialog and the samples are picked inside it.
+ // Owner 2026-11-11: row ticks choose the samples to print; a sample whose labels are already printed is greyed out and cannot be ticked.
+ const printedRow=page.getByRole("row",{name:new RegExp(cases[0].ln)});await expect(printedRow).toHaveClass(/label-printed/);await expect(printedRow.getByRole("checkbox")).toBeDisabled();
+ await page.getByRole("row",{name:new RegExp(cases[1].ln)}).getByRole("checkbox").check();
+ await expect(page.getByText("เลือก 1 รายการ",{exact:true})).toBeVisible();
  await page.locator(".bulk-bar").getByRole("button").first().click();
- const multi=page.getByRole("dialog").filter({has:page.locator(".label-picker")}),dialogSearch=multi.locator("#label-search"),ticked=multi.locator(".label-picker-list input[type=checkbox]:checked");
- while(await ticked.count())await ticked.first().uncheck(); // start from nothing ticked (the dialog pre-ticks every sample not printed yet)
- for(const c of cases){await dialogSearch.fill(c.ln);await multi.locator(".label-picker-list input[type=checkbox]").check();}
- await dialogSearch.fill("");await expect(multi.frameLocator("iframe").locator(".sticker")).toHaveCount(8);await expect(multi.locator(".label-total")).toContainText(/\b2\D+\d+\D/);
- // OWNER-LAB-025: a reprint needs no typed reason (the note is optional); it is audited and never issues a number.
+ const first=page.getByRole("dialog",{name:/^ฉลากหลอด /});await expect(first.frameLocator("iframe").locator(".sticker")).toHaveCount(4);
+ await first.getByRole("button",{name:"พิมพ์",exact:true}).click();await expect(first.locator('[role="status"]:not([popover])')).toContainText("บันทึกการพิมพ์แล้ว");
+ await first.getByRole("button",{name:"ปิด"}).last().click();
+ // Reprint of the printed sample goes through its own row button: the note is optional, the reprint is audited and never issues a number (OWNER-LAB-025).
+ await printedRow.getByRole("button",{name:"ฉลาก",exact:true}).click();
+ const multi=page.getByRole("dialog",{name:/^ฉลากหลอด /});await expect(multi.frameLocator("iframe").locator(".sticker")).toHaveCount(4);
  await expect(multi.getByRole("button",{name:"พิมพ์ซ้ำ",exact:true})).toBeEnabled();
  await multi.getByLabel("หมายเหตุการพิมพ์ซ้ำ (ไม่บังคับ)").fill("สติ๊กเกอร์เสียหาย");
  await multi.getByRole("button",{name:"พิมพ์ซ้ำ",exact:true}).click();await expect(multi.locator('[role="status"]:not([popover])')).toContainText("LN Halos เดิม");
