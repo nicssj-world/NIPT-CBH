@@ -1,9 +1,28 @@
 'use client';
 import Link from 'next/link';
-import {useCallback,useEffect,useState,useEffectEvent} from 'react';
+import {useCallback,useEffect,useMemo,useState,useSyncExternalStore,useEffectEvent} from 'react';
+import {LabIcon} from '../shared/lab-icons';
 import {labApi,failureText,bkk} from '../p4/lab-api';
 
 type Outcome={rowId:string;outcome:'FINAL'|'HOLD'|'ERROR';code?:string;details?:{failed?:string[];pending?:string[]};holds?:{code:string}[];versionId?:string;release?:string;text?:string};
+/** Report runs the person has hidden from their own list (Owner 2026-11-11). The run record is immutable in the database and its reports are never touched;
+ *  only this browser's view changes, so it is a per-viewer convenience kept in localStorage (run ids only, no patient data). Falls back to memory when storage is blocked. */
+const HIDDEN_KEY='nipt.halos.hiddenRuns';let memory='';const listeners=new Set<()=>void>();
+const readHidden=()=>{try{return localStorage.getItem(HIDDEN_KEY)??memory;}catch{return memory;}};
+const writeHidden=(ids:string[])=>{memory=JSON.stringify(ids);try{localStorage.setItem(HIDDEN_KEY,memory);}catch{/* blocked: kept in memory for this page view */}listeners.forEach(f=>f());};
+const subscribeHidden=(f:()=>void)=>{listeners.add(f);window.addEventListener('storage',f);return()=>{listeners.delete(f);window.removeEventListener('storage',f);};};
+function useHiddenRuns(){
+ const raw=useSyncExternalStore(subscribeHidden,readHidden,()=>'');
+ const ids=useMemo(()=>{try{const v=JSON.parse(raw||'[]');return Array.isArray(v)?v.filter((x):x is string=>typeof x==='string'):[];}catch{return [] as string[];}},[raw]);
+ return {hidden:useMemo(()=>new Set(ids),[ids]),hide:(id:string)=>writeHidden([...new Set([...ids,id])].slice(-500)),restoreAll:()=>writeHidden([])};
+}
+/** A section that folds (Owner 2026-11-11): the title carries the count, the state is the person's, and `defaultOpen` only decides the first view. */
+export function Fold({id,title,count,defaultOpen=false,children}:{id:string;title:string;count?:number;defaultOpen?:boolean;children:React.ReactNode}){
+ const [open,setOpen]=useState(defaultOpen);
+ return <details className="halos-fold" open={open} onToggle={e=>setOpen(e.currentTarget.open)}>
+  <summary id={id}>{title}{typeof count==='number'?<span className="count-chip">{count}</span>:null}</summary>
+  <div className="halos-fold-body">{children}</div></details>;
+}
 export type ReportBatch={batchId:string;state:string;createdAt:string;total:number;completed:number;items:{rowId:string;state:string;outcome?:Outcome}[]};
 
 // Report batches (Owner 2026-11-11): the poll lives in the page, not in a dialog, so the lists and the board refresh when the batch finishes even if the
@@ -63,20 +82,28 @@ export function RecentReportBatches({refreshKey=0,activeBatchId=''}:{refreshKey?
  const [items,setItems]=useState<ReportBatch[]>([]),[open,setOpen]=useState(''),[all,setAll]=useState(false),[error,setError]=useState(''),[loaded,setLoaded]=useState(false);
  const load=useCallback(async()=>{try{setItems((await labApi<{items:ReportBatch[]}>('/api/task3/batches')).items);setError('');}catch(e){setError(failureText(e));}finally{setLoaded(true);}},[]);
  useEffect(()=>{void Promise.resolve().then(load);},[load,refreshKey]);
- const shown=all?items:items.slice(0,5);
- return <section className="halos-history" aria-labelledby="recent-runs-h">
-  <h3 id="recent-runs-h">งานออกรายงานของฉัน</h3>
+ const {hidden,hide,restoreAll}=useHiddenRuns();
+ // A run that is still going, or that is being watched at the top, is never hidden.
+ const visible=items.filter(i=>!hidden.has(i.batchId)||i.state!=='COMPLETED'||i.batchId===activeBatchId),hiddenCount=items.length-visible.length;
+ const shown=all?visible:visible.slice(0,5);
+ return <section className="halos-history">
+  <Fold id="recent-runs-h" title="งานออกรายงานของฉัน" count={loaded?visible.length:undefined} defaultOpen={!!activeBatchId}>
   {error&&<p role="alert" className="notice">{error} <button type="button" className="button small secondary" onClick={()=>void load()}>ลองใหม่</button></p>}
-  {loaded&&!items.length&&!error&&<p className="help">ยังไม่มีงาน — เมื่อยืนยันออกรายงาน งานและผลของแต่ละรายการจะอยู่ที่นี่</p>}
+  {loaded&&!visible.length&&!error&&<p className="help">ยังไม่มีงาน — เมื่อยืนยันออกรายงาน งานและผลของแต่ละรายการจะอยู่ที่นี่</p>}
   <ul className="halos-runs">{shown.map(item=>{const isOpen=open===item.batchId,done=item.state==='COMPLETED';
    return <li key={item.batchId}>
+    <div className="halos-run-line">
     <button type="button" className="halos-run-row" aria-expanded={isOpen} aria-controls={`run-${item.batchId}`} onClick={()=>setOpen(isOpen?'':item.batchId)}>
      <span className="mono">{bkk(item.createdAt)}</span><span>{item.total} ราย</span>
      <span className={`status ${done?'good':'info'}`}>{done?'เสร็จสิ้น':`กำลังทำ ${batchPercent(item)}%`}</span>
      <span className="halos-run-chevron" aria-hidden="true">{isOpen?'▾':'▸'}</span></button>
+    {done&&<button type="button" className="button small secondary icon-button" aria-label={`ซ่อนงาน ${bkk(item.createdAt)} จากรายการของฉัน`} title="ซ่อนจากรายการของฉัน (รายงานที่ออกแล้วไม่ถูกลบ)" onClick={()=>{if(isOpen)setOpen('');hide(item.batchId);}}><LabIcon name="trash"/></button>}
+    </div>
     {isOpen&&<div id={`run-${item.batchId}`} className="halos-run-detail">{item.batchId===activeBatchId?<p className="help">กำลังดูที่แถบความคืบหน้าด้านบน</p>:<RunDetail batchId={item.batchId} onComplete={load}/>}</div>}
    </li>;})}</ul>
-  {items.length>5&&<button type="button" className="button small secondary" onClick={()=>setAll(v=>!v)}>{all?'แสดงเฉพาะล่าสุด':`แสดงทั้งหมด (${items.length})`}</button>}
+  {hiddenCount>0&&<p className="help">ซ่อนไว้ {hiddenCount} งานในเบราว์เซอร์นี้ (รายงานที่ออกแล้วไม่ถูกลบ) · <button type="button" className="link-button" onClick={restoreAll}>แสดงกลับทั้งหมด</button></p>}
+  {visible.length>5&&<button type="button" className="button small secondary" onClick={()=>setAll(v=>!v)}>{all?'แสดงเฉพาะล่าสุด':`แสดงทั้งหมด (${visible.length})`}</button>}
+  </Fold>
  </section>;
 }
 function RunDetail({batchId,onComplete}:{batchId:string;onComplete?:()=>void}){

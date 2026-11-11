@@ -69,7 +69,7 @@ return <div className="anc-dashboard" data-mode={operational?"operational":"synt
   <tbody>{data.queue.items.map(c=>{const p=queueProgress(c);return <tr key={c.id}>
    <td className="c-who"><strong className="who-name anc-patient-name">{patientDisplayName(c.patientName?.trim()||'ยังไม่มีข้อมูลชื่อ-นามสกุล')}</strong><span className="who-ids">HN {c.hn??'ยังไม่ยืนยัน'} · LN <Link className="registry-ln-link" href={'/cases/'+c.id} aria-label={'ดูเคส LN '+c.ln}><Ln value={c.ln}/></Link></span></td>
    <td className="c-when">{received(c)}</td>
-   <td className="c-progress"><ProgressView progress={p} round={c.roundNumber} extra={<>{attention(c,p.todo)}{isOtherFiscalYear(c.s1ReceivedAt,filters.fy)&&<span className="badge info">ข้ามปีงบประมาณ</span>}</>}/></td>
+   <td className="c-progress"><ProgressView progress={p} round={c.roundNumber} extra={<>{c.highRisk&&<span className="progress-badge tone-high-risk"><Icon name="alert"/>High Risk</span>}{attention(c,p.todo)}{isOtherFiscalYear(c.s1ReceivedAt,filters.fy)&&<span className="badge info">ข้ามปีงบประมาณ</span>}</>}/></td>
    <td className="c-todo"><TodoSign todo={p.todo} caseId={c.id} ln={c.ln}/></td>
    <td className="c-actions">{c.hasResult&&<ViewResultButton caseId={c.id} ln={c.ln} hn={c.hn} name={patientDisplayName(c.patientName?.trim()||'ยังไม่มีข้อมูลชื่อ-นามสกุล')} className="button secondary anc-case-action"/>}</td></tr>;})}</tbody></table></TableScroll>}
  <Pager label="คิวเคส ANC" sizes={SIZES} page={data.queue.page} pageSize={data.queue.pageSize} total={data.queue.total} totalPages={data.queue.totalPages} busy={stale||loading} onPage={goPage} onSize={n=>patch({pageSize:n})}/></section></>}

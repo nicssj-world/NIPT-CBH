@@ -23,7 +23,7 @@ export type Attempt={kind:"ATTEMPT";category:string;caseId:string;roundId:string
  placement:{batchId:string;runLabel:string|null;slot:number|null;sheetState:string|null}|null;labels:{prints:number;lastPrintedAt:string|null}};
 type Expected={kind:"REDRAW_EXPECTED";caseId:string;roundId:string;roundNumber:number;hisLn:string;requestedAt:string;reasonCode:string;previousLnHalos:string|null};
 type Missing={kind:"LN_HALOS_MISSING";caseId:string;roundId:string;roundNumber:number;hisLn:string;receivedAt:string;receivedSource:string};
-const TABS=[["READY","พร้อมเข้าตรวจ"],["GATE_BLOCKED","ยังเข้าตรวจไม่ได้"],["IN_BATCH","อยู่ใน Batch / กำลังทำ"],["DECISION","ต้องตัดสินใจ (QC ไม่ผ่าน / หยุด)"],["COMPLETED","เสร็จสิ้นแล้ว (ออกผลแล้ว)"],["REDRAW_EXPECTED","รอรับเจาะซ้ำ (รอบที่ 2+)"],["LN_HALOS_MISSING","ไม่มี LN Halos"]] as const;
+const TABS=[["READY","พร้อมเข้าตรวจ"],["GATE_BLOCKED","ยังเข้าตรวจไม่ได้"],["IN_BATCH","อยู่ใน Batch / กำลังทำ"],["DECISION","ต้องตัดสินใจ (QC ไม่ผ่าน / หยุด)"],["COMPLETED","ออกผลแล้ว"],["REDRAW_EXPECTED","รอรับเจาะซ้ำ (รอบที่ 2+)"]] as const;
 type Tab=typeof TABS[number][0];
 /** One page of one tab, answered by the server (filters, sort, FIFO classification and totals are the server's). `counts` are exact for every tab. */
 export type WorklistData={operational?:boolean;policy:string;tab:Tab;counts:Record<Tab,number>;scan:{capped:boolean;limit:number;scanned:number;ready:number};page:{number:number;size:number;total:number;totalPages:number};
@@ -72,14 +72,13 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
   <section id="queue-panel" ref={panel} role="tabpanel" aria-labelledby={`tab-${tab}`} aria-busy={loading} className="panel">
    <div className="filters">
     <div className="field grow"><label htmlFor="q">ค้นหา LN / HN / LN Halos / Sample ID / Run</label><input id="q" type="search" value={typed} onChange={e=>setTyped(e.target.value)} autoComplete="off"/></div>
-    {!["REDRAW_EXPECTED","LN_HALOS_MISSING"].includes(tab)&&<><div className="field"><label htmlFor="round">รอบ</label><select id="round" value={params.round} onChange={e=>change({round:e.target.value})}><option value="ALL">ทุกรอบ</option><option value="S1">รอบที่ 1 (HIS)</option><option value="S2">รอบที่ 2+ (เจาะซ้ำ)</option></select></div>
+    {tab!=="REDRAW_EXPECTED"&&<><div className="field"><label htmlFor="round">รอบ</label><select id="round" value={params.round} onChange={e=>change({round:e.target.value})}><option value="ALL">ทุกรอบ</option><option value="S1">รอบที่ 1 (HIS)</option><option value="S2">รอบที่ 2+ (เจาะซ้ำ)</option></select></div>
      <label className="check-label"><input type="checkbox" checked={params.unprinted} onChange={e=>change({unprinted:e.target.checked})}/> ยังไม่พิมพ์ฉลาก</label>
      <label className="check-label"><input type="checkbox" checked={params.urgent} onChange={e=>change({urgent:e.target.checked})}/> ด่วนเท่านั้น</label></>}
     <button className="button secondary" type="button" onClick={reload}>โหลดใหม่</button><a className="button secondary" href="/api/p4/worklist/export" download>ส่งออก Excel (LN / LN Halos)</a>
    </div>
    {status&&<p className="notice" role="alert">{status}</p>}
    {tab==="REDRAW_EXPECTED"?<><ExpectedTable operational={!!data.operational} rows={data.expected} can={can} open={(type,row)=>setDialog({type,row})} q={data.filters.q}/>{pager}</>
-   :tab==="LN_HALOS_MISSING"?<><MissingTable rows={data.missing} can={can} open={(type,row)=>setDialog({type,row})} q={data.filters.q}/>{pager}</>
    :<>
     <div className="bulk-bar" aria-live="polite"><span>เลือก {chosen.length} รายการ{chosen.length>attempts.filter(a=>selected.has(a.attemptId)).length?` (รวมหน้าอื่น)`:""}</span>
      {can.labels&&<button className="button secondary" type="button" disabled={!chosen.length} onClick={()=>setDialog({type:"labels",samples:chosen})}>พิมพ์ฉลาก ({chosen.length})</button>}
@@ -130,11 +129,6 @@ function ExpectedTable({operational,rows,can,open,q}:{operational:boolean;rows:E
   <tbody>{rows.map(r=><tr key={r.roundId}><td className="mono">{r.hisLn}</td><td>รอบที่ {r.roundNumber} <span className="badge warning">ต้องเก็บตัวอย่างใหม่</span></td><td className="mono">{r.previousLnHalos??"—"}</td><td>{bkk(r.requestedAt)} · {r.reasonCode}</td>
    <td><div className="row-actions">{operational||r.roundNumber>=3?<span className="badge">รอ PET ใหม่จาก HIS</span>:can.receive&&<button className="button small" type="button" onClick={()=>open("receive",r)}>รับตัวอย่างเจาะซ้ำ (ชุดจำลอง)</button>}{can.redrawCancel&&<button className="button small secondary" type="button" onClick={()=>open("cancelRedraw",r)}>ยกเลิกคำสั่ง</button>}</div></td></tr>)}</tbody></table>
   <p className="help">{operational?"เจ้าหน้าที่กดรับสิ่งส่งตรวจรอบใหม่ใน HIS ตามปกติ (HIS LN เดิม) เมื่อระบบอ่าน .pet/.ok ใหม่ได้ รอบนี้จะรับอัตโนมัติด้วยเวลารับจาก HIS และใช้ LN Halos ฐานเดิมต่อท้าย R — ไม่ต้องรับซ้ำใน NIPT":"ชุดจำลอง: รับรอบเจาะซ้ำในระบบ NIPT ได้เพื่อทดสอบ ในการใช้งานจริงรอบเจาะซ้ำรับจาก PET ใหม่ของ HIS เท่านั้น"}</p></div>;
-}
-function MissingTable({rows,can,open,q}:{rows:Missing[];can:Can;open:(t:string,r:Missing)=>void;q:string}){
- if(!rows.length)return <p className="empty-state">{q?"ไม่มีรอบที่ตรงกับคำค้น":"ทุกรอบที่รับแล้วมี LN Halos"}</p>;
- return <div className="table-wrap" role="region" aria-label="รอบที่รับก่อนเปิดใช้ P4" tabIndex={0}><table className="data-table"><caption className="sr-only">รอบที่รับก่อนเปิดใช้ P4 และยังไม่มี LN Halos</caption><thead><tr><th scope="col">LN (HIS)</th><th scope="col">รอบ</th><th scope="col">รับเมื่อ</th><th scope="col">จัดการ</th></tr></thead>
-  <tbody>{rows.map(r=><tr key={r.roundId}><td className="mono">{r.hisLn}</td><td>รอบที่ {r.roundNumber}</td><td>{SOURCE[r.receivedSource]} {bkk(r.receivedAt)}</td><td>{can.receive&&<button className="button small" type="button" onClick={()=>open("recover",r)}>ออก LN Halos จากการรับเดิม</button>}</td></tr>)}</tbody></table></div>;
 }
 type BatchView={batch:{id:string;runLabel:string;state:string;version:number}};
 function AssignDialog({attempts,onClose,onDone}:{attempts:Attempt[];onClose:()=>void;onDone:(msg:string)=>void}){

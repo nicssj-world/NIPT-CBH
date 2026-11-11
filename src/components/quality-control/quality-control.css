@@ -8,7 +8,7 @@
 .iqc-table tr.iqc-run-alt>td{background:var(--info-bg);}
 .iqc-table td.num{font-variant-numeric:tabular-nums;}
 /* Concentration is centered under its heading (Owner 2026-11-11). */
-.iqc-table :is(th,td).iqc-center{text-align:center;}
+.iqc-table.data-table :is(th,td).iqc-center{text-align:center;}
 /* EQA registry (Owner 2026-11-11): search group left, the one primary action right, clear space before the table. */
 .qc-toolbar{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:var(--space-3) var(--space-6);margin-bottom:var(--space-5,20px);}
 .qc-search{display:flex;flex-wrap:wrap;align-items:flex-end;gap:var(--space-3);flex:1 1 30rem;min-width:0;}

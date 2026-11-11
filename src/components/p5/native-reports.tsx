@@ -8,7 +8,8 @@ import {PdfPreview} from "../shared/pdf-preview";
 import {Pager} from "../shared/pager";
 import type {HisDeliveryStatus} from '../../../packages/results/his-status';
 import {HisDeliveryBadge} from './his-delivery-badge';
-import {RecentReportBatches,ReportRunCard} from './report-batch-progress';
+import {Fold,RecentReportBatches,ReportRunCard} from './report-batch-progress';
+import {LabIcon} from '../shared/lab-icons';
 import './halos-flow.css';
 
 // Task 3 pathway A on the existing Results page: HALOS result import, then one report per patient from the Owner's DOCX masters.
@@ -72,6 +73,10 @@ function HalosImport({onConfirmed,onPrepare,refreshKey,confirmedImportId}:{onCon
  const decide=async(decision:"CONFIRM"|"CANCEL")=>{if(!preview)return;setBusy(decision);setError("");try{const d=await labApi<HalosImport>(`/api/task3/halos/${preview.id}`,{decision,expectedRowVersion:preview.rowVersion,acknowledgeWarnings:[...acks]});setPreview(d.state==="Previewed"?d:null);await loadList();if(decision==="CONFIRM")onConfirmed();}catch(e){setError(failureText(e));}finally{setBusy("");}};
  // Owner 2026-11-11: a cancelled upload is not listed.
  const files=list.filter(i=>i.state!=="Cancelled");
+ const pendingFiles=files.filter(i=>i.state!=="Confirmed").length,[removing,setRemoving]=useState("");
+ // Owner 2026-11-11: a file that was uploaded and previewed but never confirmed can be opened again, or removed (= cancelled; the record stays for the audit trail, a confirmed file is evidence of issued reports and is never removed).
+ const reopen=async(id:string)=>{setBusy("reopen");setError("");try{const d=await labApi<HalosImport>(`/api/task3/halos/${id}`);if(d.state!=="Previewed"){setError("ไฟล์นี้ตัดสินใจไปแล้ว");await loadList();return;}setPreview(d);setAcks(new Set());setChosen(new Set(d.rows.filter(r=>r.sheet==='result'&&r.classification==='PATIENT').map(r=>r.id)));setTimeout(()=>document.getElementById("halos-preview-h")?.scrollIntoView({block:"start",behavior:"smooth"}),50);}catch(e){setError(failureText(e));}finally{setBusy("");}};
+ const removePending=async(id:string)=>{setBusy("remove");setError("");try{const d=await labApi<HalosImport>(`/api/task3/halos/${id}`);if(d.state==="Previewed")await labApi(`/api/task3/halos/${id}`,{decision:"CANCEL",expectedRowVersion:d.rowVersion,acknowledgeWarnings:[]});setPreview(p=>p&&p.id===id?null:p);setRemoving("");await loadList();}catch(e){setError(failureText(e));}finally{setBusy("");}};
  const warnings=[...new Set((preview?.issues??[]).filter(i=>i.severity==="WARNING").map(i=>i.code))];
  const result=(preview?.rows??[]).filter(r=>r.sheet!=="sampleinfo");
  const c=preview?.counts??{};
@@ -102,10 +107,18 @@ function HalosImport({onConfirmed,onPrepare,refreshKey,confirmedImportId}:{onCon
     <button type="button" className="button secondary" disabled={!!busy} onClick={()=>decide("CANCEL")}>ยกเลิก</button>
      <button type="button" className="button" disabled={!!busy||preview.state!=="Previewed"||warnings.some(w=>!acks.has(w))||!chosen.size} onClick={()=>onPrepare(preview.rows.filter(r=>chosen.has(r.id)).map(r=>({rowId:r.id,sampleId:r.sampleKey,classification:r.classification,reason:r.reason,status:'READY',holds:[],template:null,ln:r.ln,lnHalos:r.lnHalos,hn:null,importName:preview.name,importedAt:preview.uploadedAt,internalReportId:null,versionId:null,versionState:null,releaseId:null,hisAttested:false})),{id:preview.id,rowVersion:preview.rowVersion,acks:[...acks]})}>ตรวจผลแปลและเลือกผู้ลงนาม ({chosen.size})</button></div>
   </div>}
-  {files.length>0&&<section className="halos-history" aria-labelledby="halos-files-h"><h3 id="halos-files-h">ไฟล์ HALOS ที่นำเข้าแล้ว ({files.length})</h3>
-   <ul className="halos-files">{(allFiles?files:files.slice(0,5)).map(i=><li key={i.id}><div className="halos-file-name"><strong className="p5-file">{i.name}</strong><span className={`status ${i.state==="Confirmed"?"good":"warning"}`}>{i.state==="Confirmed"?"ยืนยันแล้ว":"รอยืนยัน"}</span></div>
-    <div className="help t3-links">{bkk(i.uploadedAt)} · {i.uploadedBy} · ผู้ป่วย {i.counts.PATIENT??0} · <a href={`/api/task3/halos/${i.id}/file`}>ดาวน์โหลดไฟล์ต้นฉบับ</a></div></li>)}</ul>
-   {files.length>5&&<button type="button" className="button small secondary" onClick={()=>setAllFiles(v=>!v)}>{allFiles?"แสดงเฉพาะล่าสุด":`แสดงทั้งหมด (${files.length})`}</button>}</section>}
+  {files.length>0&&<section className="halos-history">
+   <Fold id="halos-files-h" title="ไฟล์ HALOS ที่นำเข้าแล้ว" count={files.length} defaultOpen={pendingFiles>0}>
+   {pendingFiles>0&&<p className="help">“รอยืนยัน” = อัปโหลดและตรวจแล้ว แต่ยังไม่ได้ยืนยันหรือยกเลิก — กด “ตรวจต่อ” เพื่อดูผลตรวจอีกครั้งแล้วยืนยันออกรายงาน หรือกดถังขยะเพื่อลบ (ยกเลิกการนำเข้า)</p>}
+   <ul className="halos-files">{(allFiles?files:files.slice(0,5)).map(i=><li key={i.id}><div className="halos-file-name"><strong className="p5-file">{i.name}</strong><span className="halos-file-actions"><span className={`status ${i.state==="Confirmed"?"good":"warning"}`}>{i.state==="Confirmed"?"ยืนยันแล้ว":"รอยืนยัน"}</span>
+     {i.state!=="Confirmed"&&(removing===i.id
+      ?<span className="halos-confirm" role="group" aria-label={`ลบไฟล์ ${i.name}`}>ลบไฟล์นี้?<button type="button" className="button small danger" disabled={!!busy} onClick={()=>void removePending(i.id)}>ลบ</button><button type="button" className="button small secondary" disabled={!!busy} onClick={()=>setRemoving("")}>ไม่ลบ</button></span>
+      :<><button type="button" className="button small" disabled={!!busy} onClick={()=>void reopen(i.id)}>ตรวจต่อ</button>
+        <button type="button" className="button small secondary icon-button" aria-label={`ลบไฟล์ ${i.name} (ยกเลิกการนำเข้า)`} title="ลบ (ยกเลิกการนำเข้า)" disabled={!!busy} onClick={()=>setRemoving(i.id)}><LabIcon name="trash"/></button></>)}</span></div>
+    <div className="help t3-links">{bkk(i.uploadedAt)} · {i.uploadedBy} · ผู้ป่วย {i.counts.PATIENT??0}{i.state==="Confirmed"&&<> · <a href={`/api/task3/halos/${i.id}/file`}>ดาวน์โหลดไฟล์ต้นฉบับ</a></>}</div></li>)}</ul>
+   {files.length>5&&<button type="button" className="button small secondary" onClick={()=>setAllFiles(v=>!v)}>{allFiles?"แสดงเฉพาะล่าสุด":`แสดงทั้งหมด (${files.length})`}</button>}
+   {error&&<p className="notice" role="alert">{error}</p>}
+   </Fold></section>}
  </div>;
 }
 

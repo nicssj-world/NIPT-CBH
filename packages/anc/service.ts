@@ -144,6 +144,13 @@ export async function dashboard(db:Queryable,user:Staff,input:unknown={}):Promis
  // Progress inside the analysis step is read only for the rows on this page (not for every case of the year).
  const steps=await analysisSteps(db,items.filter(i=>i.stage==='analysis'||i.stage==='review').map(i=>i.currentRoundId??''));
  for(const i of items)i.labSteps=i.stage==='analysis'||i.stage==='review'?steps.get(i.currentRoundId??'')??null:null;
+ // Owner 2026-11-11: a High Risk flag for the rows of this page whose certified result is visible to this user (the dashboard already requires result.read.released).
+ const released=items.filter(i=>i.released).map(i=>i.id);
+ if(released.length){
+  const risky=new Set((await db.query<{case_id:string}>(`SELECT DISTINCT v.case_id FROM result_report_version v JOIN result_release r ON r.version_id=v.id AND r.state='Active'
+   WHERE v.case_id=ANY($1::uuid[]) AND v.kind='RESULT' AND (v.parsed->'results'->'t21'->>'value'='High Risk' OR v.parsed->'results'->'t18'->>'value'='High Risk' OR v.parsed->'results'->'t13'->>'value'='High Risk')`,[released])).rows.map(r=>r.case_id));
+  for(const i of items)if(risky.has(i.id))i.highRisk=true;
+ }
  const last=out.rows.at(-1);
  // Following a cursor the position in the list is not known from `page`, so "is there more" is: this page is full and the cursor query found it so.
  const more=cursor?items.length===f.pageSize:(page-1)*f.pageSize+items.length<out.total;
