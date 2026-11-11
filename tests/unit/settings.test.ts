@@ -11,7 +11,7 @@ describe("settings lifecycle and locked architecture",()=>{
  afterAll(async()=>{await db.close();});
  it("all ten categories and independent cutoff are typed, LD is not a toggle",()=>{
   // Task 3 adds report_interpretation (CLINICAL maker-checker) and report_output (GENERAL) to the twelve earlier keys.
-  expect(Object.keys(SETTINGS)).toEqual(["general","request_consent","doctor_registry","security","his_inbound","laboratory","result_management","his_outbound","storage_backup","notifications","historical_backfill","report_interpretation","report_output","go_live_cutoff"]);
+  expect(Object.keys(SETTINGS)).toEqual(["general","request_consent","doctor_registry","security","his_inbound","laboratory","result_management","his_outbound","storage_backup","notifications","historical_backfill","report_interpretation","report_output","tat","go_live_cutoff"]);
   expect(()=>settingDefinition("disable_redraw_same_ln")).toThrow();
   expect(SETTINGS.his_outbound.schema.parse({...SETTINGS.his_outbound.default,productionAuthorized:true}).productionAuthorized).toBe(true);
   expect(()=>SETTINGS.his_outbound.schema.parse({...SETTINGS.his_outbound.default,resProfile:{invented:true}})).toThrow();
