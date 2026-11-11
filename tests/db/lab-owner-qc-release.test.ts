@@ -16,6 +16,29 @@ import {reviewBenchForResult} from '../../packages/lab/bench-review';
 import {recordActualPooling} from '../../packages/lab/seq-export';
 import {importReport,pdfDate,type ResultFixture} from '../helpers/results';
 import * as results from '../../packages/results/service';
+import {task3Fixture} from '../helpers/task3';
+
+it('HALOS reporting reviews the current worksheet with every Seq Task-G50 observation left empty',async()=>{
+ const f=await task3Fixture();
+ try{
+  const revision=(await f.db.query<{revision:number;values:Record<string,unknown>}>(
+   'SELECT revision,values FROM task_workbook_revision WHERE batch_id=$1 ORDER BY revision DESC LIMIT 1',[f.batchId])).rows[0];
+  for(const key of ['seq.date','seq.operator','seq.dnbId','seq.negativePressureKpa'])expect(revision.values[key]??'').toBe('');
+  const ready=async()=>(await f.db.query<{ready:boolean}>('SELECT lab_bench_measurements_ready($1) ready',[f.batchId])).rows[0].ready;
+  // Reproduce the old database gate without changing the migration ledger or any persisted fixture data.
+  await f.db.query('BEGIN');
+  try{
+   await f.db.exec(readFileSync('db/migrations/204_bench_ready_repeat_slots.sql','utf8'));
+   expect(await ready()).toBe(false);
+  }finally{await f.db.query('ROLLBACK');}
+  expect(await ready()).toBe(true);
+  const review=await f.run(t=>reviewBenchForResult(t,f.u.certifier,f.cases[0].attemptId,{
+   revision:revision.revision,measurementsReviewed:true,reason:'SYNTHETIC HALOS result; no duplicate sequencing transcription',
+  }));
+  expect(review?.id).toBeTruthy();
+  expect((await f.db.query<{current:boolean}>('SELECT lab_bench_review_current($1) current',[review!.id])).rows[0].current).toBe(true);
+ }finally{await f.close();vi.unstubAllEnvs();}
+},120000);
 it('Owner paper worksheet path fails closed when no complete current measurements and review exist',async()=>{
  const db=await testDatabase();try{
   const id=crypto.randomUUID();

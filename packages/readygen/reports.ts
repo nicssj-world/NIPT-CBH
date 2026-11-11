@@ -53,13 +53,14 @@ export async function interpretationApproval(db:Queryable){
 type SourceRow={row_id:string;import_id:string;import_state:string;classification:string;reason:string;sample_key:string;raw:Record<string,string>;attempt_id:string;round_id:string;case_id:string;export_id:string;export_kind:string;
  info_raw:Record<string,string>|null;attempt_state:string;attempt_number:number;printed_sample_id:string|null;no_call:boolean;on_hold:boolean;ln:string;ln_halos:string|null;hn:string|null;registration_origin:string;current_round_id:string;unit_id:string|null;
  pet_sha:string|null;pet_filename:string|null;pet_parsed:{specimenAt?:string;receivedAt?:string}|null;doctor:string|null;edd:string|null;pregnancy:string|null;revoked:boolean;clinical_ready:boolean;newer_row:boolean;
- internal_final:string|null;internal_version_state:string|null;open_series:boolean;active_release:boolean};
-const SOURCE_SQL=`SELECT h.id row_id,h.import_id,i.state import_state,h.classification,h.reason,h.sample_key,h.raw,h.attempt_id,h.round_id,h.case_id,h.export_id,h.export_kind,si.raw info_raw,
+ internal_final:string|null;internal_version_state:string|null;open_series:boolean;active_release:boolean;halos_current:boolean};
+const SOURCE_SQL=`SELECT h.id row_id,h.import_id,i.state import_state,h.classification,h.reason,h.sample_key,h.raw,h.attempt_id,h.round_id,h.case_id,h.export_id,h.export_kind,si.raw info_raw,task3_halos_row_current(h.id) halos_current,
  a.state attempt_state,a.attempt_number,a.printed_sample_id,EXISTS(SELECT 1 FROM attempt_event e WHERE e.attempt_id=a.id AND e.event_type='NO_CALL_SELECTED') no_call,
  COALESCE((SELECT x.event_type='HOLD_SET' FROM attempt_event x WHERE x.attempt_id=a.id AND x.event_type IN ('HOLD_SET','HOLD_RELEASED') ORDER BY x.sequence DESC LIMIT 1),false) on_hold,
  l.ln,n.ln_halos,ci.hn,c.registration_origin,c.current_round_id,(SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=c.id ORDER BY s.unit_id LIMIT 1) unit_id,
  f.sha256 pet_sha,f.filename pet_filename,f.parsed pet_parsed,COALESCE(d.name,ld.name) doctor,COALESCE(w.draft#>>'{pregnancy,edd}',lr.edd::text) edd,COALESCE(w.draft#>>'{pregnancy,type}',lr.pregnancy) pregnancy,
- EXISTS(SELECT 1 FROM p2_revocation v WHERE v.case_id=c.id) revoked,(p2_clinical_ready(r.id) OR lab_owner_paper_ready(r.id)) clinical_ready,
+ EXISTS(SELECT 1 FROM p2_revocation v WHERE v.case_id=c.id) revoked,
+ CASE WHEN task3_halos_row_current(h.id) THEN true ELSE (p2_clinical_ready(r.id) OR lab_owner_paper_ready(r.id)) END clinical_ready,
  EXISTS(SELECT 1 FROM halos_import_row h2 JOIN halos_import i2 ON i2.id=h2.import_id WHERE h2.attempt_id=h.attempt_id AND h2.sheet='result' AND h2.classification='PATIENT' AND i2.state='Confirmed' AND i2.uploaded_at>i.uploaded_at) newer_row,
  (SELECT ir.id FROM internal_report ir WHERE ir.attempt_id=h.attempt_id AND ir.state='Final') internal_final,
  (SELECT v.state FROM internal_report ir JOIN result_report_version v ON v.id=ir.version_id WHERE ir.attempt_id=h.attempt_id AND ir.state='Final') internal_version_state,
@@ -144,7 +145,7 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  // Disclosure follows the recorded wish (RG-11 / OD-09 proposal): the Singleton master always prints Fetal Gender.
  // Owner 2026-11-10: a Lab-registered sample comes with the paper request form, which carries the wish; it is not keyed into the system. So for
  // LAB_DIRECT only a recorded "do not want" holds; for other origins the wish must be recorded as "want".
- if(!noCall&&template==='SINGLETON'&&!eqa&&(req.fetalSex==='DoNotWant'||(req.fetalSex!=='Want'&&s.registration_origin!=='LAB_DIRECT')))h('FETAL_SEX_DISCLOSURE_NOT_PERMITTED',{raw:req.fetalSex??'NOT_RECORDED'});
+ if(!noCall&&template==='SINGLETON'&&!eqa&&(req.fetalSex==='DoNotWant'||(req.fetalSex!=='Want'&&s.registration_origin!=='LAB_DIRECT'&&!s.halos_current)))h('FETAL_SEX_DISCLOSURE_NOT_PERMITTED',{raw:req.fetalSex??'NOT_RECORDED'});
  if(!noCall&&template==='TWIN'&&req.fetalSex==='DoNotWant')h('Y_CHROMOSOME_DISCLOSURE_NOT_PERMITTED');
  let ga:number|null=null;
  // EQA scheme Reporting Option 3 reports fetal sex; the card gives GA by scan at collection, which is used as is (no EDD is invented).
@@ -170,7 +171,7 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  const values:ReportValues|null=canBind?{patientName:eqa?`${eqa.first_name} ${eqa.surname}`:petDisplayName(pet!.name),ga:`${Math.floor(ga!/7)}W ${ga!%7}D`,sampleID:s.sample_key,hn:eqa?eqa.sample_ref:pet!.hn,collectDate_cbh:reportDate(collectionDay!),
   patientIDCard:eqa?'-':pet!.identity||'-',dob_cbh:reportDate(eqa?eqa.dob:pet!.dob),receivedDate_cbh:reportDate(bangkokDay(receivedAt!)),referringPhysician:s.doctor?.trim()||'-',hospitalName:'Chonburi hospital',sampleType:'Peripheral Blood',...results}:null;
  return {rowId:s.row_id,caseId:s.case_id,roundId:s.round_id,attemptId:s.attempt_id,template,noCall,pregnancySource,overrideReason,holds,interpretation,values,productCode,hisLn:s.ln,lnHalos:s.ln_halos,hn:s.hn,sampleId:s.sample_key,approval,reissue,
-  sources:{halosRowId:s.row_id,halosImportId:s.import_id,exportId:s.export_id,exportKind:s.export_kind,petSha256:s.pet_sha,pregnancy:{recorded,used:pregnancy,source:pregnancySource,halos:halosFetus??null},
+  sources:{halosRowId:s.row_id,halosImportId:s.import_id,exportId:s.export_id,exportKind:s.export_kind,petSha256:s.pet_sha,paperDocuments:s.halos_current?'READY_FROM_CONFIRMED_HALOS':null,pregnancy:{recorded,used:pregnancy,source:pregnancySource,halos:halosFetus??null},
    fetalSexPreference:req.fetalSex,edd:req.edd??s.edd,collectionDay,gaDays:ga,halosGa:info?.gestationalWeeks??null,productCode,productName:info?.productName??null,doctor:s.doctor??null}};
 }
 

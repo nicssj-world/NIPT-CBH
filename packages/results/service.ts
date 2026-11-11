@@ -16,6 +16,7 @@ import {registerIntake,parseIntake} from './intake';
 import {isNoCallReport,missingRequired,type Parsed} from './parser';
 import {resultPredicates,noticePredicates,decideGate,crossFailures,type Cmp,type CrossCheck,type Purpose,type GateDecision,type GatePredicate} from './gates';
 import {attemptEvidence} from './evidence';
+import {halosReportEvidence} from './halos-evidence';
 import {benchAttemptEvidence} from '../lab/bench-evidence';
 import {reviewBenchForResult} from '../lab/bench-review';
 import {operationalWorkflow} from '../lab/operational';
@@ -398,14 +399,15 @@ async function gateFor(db:Queryable,v:VersionRow,purpose:Purpose,certifierId?:st
    EXISTS(SELECT 1 FROM lab_slot_assignment s JOIN lab_slot_disposition d ON d.batch_id=s.batch_id AND d.slot_number=s.slot_number AND d.stage='QC1' WHERE s.attempt_id=$1 AND s.removed_at IS NULL) non_measured,
    EXISTS(SELECT 1 FROM lab_slot_assignment s WHERE s.attempt_id=$1 AND s.removed_reason='BATCH_CANCELLED') batch_cancelled`,[v.attempt_id,v.round_id])).rows[0];
  const latestAttempt=(await db.query<{n:number}>('SELECT max(attempt_number)::int n FROM analytical_attempt WHERE round_id=$1',[v.round_id])).rows[0].n===a.attempt_number;
- const evidence=await attemptEvidence(db,a.attempt_id);
+ const halos=operational?await halosReportEvidence(db,v.id):null;
+ const evidence=halos?{current:true,reason:null,analysisAccepted:true,finalQcAccepted:halos.reviewed}:await attemptEvidence(db,a.attempt_id);
  return decideGate(resultPredicates({templateKind:v.template_kind as 'SINGLETON'|'TWIN',templateApproved,missing:missingRequired(v.parsed),pdfQc:v.parsed.results.qc.value,noCall:isNoCallReport(v.parsed),noCallReviewed:qc5?.no_call_valid===true,
   linked:!!v.link_mode&&['Linked','ValidationBlocked','PendingCertification','CertifiedReleased'].includes(v.state),linkMode:v.link_mode as 'MANUAL_REVIEWED'|'AUTO_UNIQUE'|'FROZEN_EXPORT'|null,openProposal:x.open_proposal,cross,
   ...(v.origin==='INTERNAL_GENERATED'?{internal:{current:(await db.query<{ok:boolean}>('SELECT task3_internal_version_current($1) ok',[v.id])).rows[0].ok}}:{}),
-  attemptState:a.attempt_state,attemptIsLatest:latestAttempt,hold:a.hold,qc1Accepted:y.qc1_accepted,nonMeasuredQc1:y.non_measured,batchCancelled:y.batch_cancelled||a.attempt_state==='BatchCancelled',activeSlot:a.slot_batch_id!==null,
+  attemptState:a.attempt_state,attemptIsLatest:latestAttempt,hold:a.hold,qc1Accepted:y.qc1_accepted,nonMeasuredQc1:halos?false:y.non_measured,batchCancelled:y.batch_cancelled||a.attempt_state==='BatchCancelled',activeSlot:!!halos||a.slot_batch_id!==null,
   upstreamCurrent:evidence.current,upstreamReason:evidence.reason,analysisAccepted:evidence.analysisAccepted,finalQcAccepted:evidence.finalQcAccepted,
-  isCurrentRound:cf.isCurrentRound,roundState:cf.roundState,roundNumber:cf.roundNumber,openRepeat:y.open_repeat,openIdentityIssues:cf.openIdentityIssues,clinicalState:operational?((await db.query<{ready:boolean}>('SELECT p2_clinical_ready($1) OR lab_owner_paper_ready($1) ready',[v.round_id])).rows[0]?.ready?'Pass':'PendingClinicalReview'):cf.clinicalState,consentRevoked:cf.consentRevoked,eqa:cf.eqa===true,consent:cf.consentRoundEvidence,
-  pregnancy:req.pregnancy,sexPreference:req.fetalSex,sexShown:v.parsed.results.fetalSex.value!==null,versionState:v.state,latestInSeries:x.latest,activeReleaseInSeries:x.active_release,reviewedCurrent:reviewed,certifierRoleActive:x.certifier,operationalReviewed},purpose),'RG');
+  isCurrentRound:cf.isCurrentRound,roundState:cf.roundState,roundNumber:cf.roundNumber,openRepeat:y.open_repeat,openIdentityIssues:cf.openIdentityIssues,clinicalState:halos?'Pass':operational?((await db.query<{ready:boolean}>('SELECT p2_clinical_ready($1) OR lab_owner_paper_ready($1) ready',[v.round_id])).rows[0]?.ready?'Pass':'PendingClinicalReview'):cf.clinicalState,consentRevoked:cf.consentRevoked,eqa:cf.eqa===true,consent:halos?'PAPER_SELECTED':cf.consentRoundEvidence,
+  pregnancy:req.pregnancy,sexPreference:req.fetalSex,sexShown:v.parsed.results.fetalSex.value!==null,versionState:v.state,latestInSeries:x.latest,activeReleaseInSeries:x.active_release,reviewedCurrent:reviewed,certifierRoleActive:x.certifier,operationalReviewed,paperDisclosureReviewed:!!halos&&operationalReviewed},purpose),'RG');
 }
 async function recordGate(db:Queryable,v:VersionRow,g:GateDecision,purpose:Purpose,outcome:'BLOCKED'|'PENDING_CERTIFICATION'|'RELEASE_HOLD'|'CERTIFIED_RELEASED',actor:string|null,key:string|null){
  await db.query('INSERT INTO result_gate_evaluation(version_id,gate,purpose,rule_version,predicates,eligible,outcome,actor_id,idempotency_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[v.id,g.gate,purpose,g.ruleVersion,JSON.stringify(g.predicates),g.eligible,outcome,actor,key]);
@@ -479,6 +481,26 @@ export async function recordQc5(db:Queryable,user:Staff,input:unknown){
   const g=(await gateFor(db,v,'VALIDATION'))!;if(!g.eligible)throw new LabError('QC5_GATE_FAILED',409,{failed:g.failed,pending:g.pending});
   v=await validate(db,user,v);
   await audit(db,user,'RESULT_QC5_ACCEPTED','result_qc5_review',q.id,{outcome:'NO_CALL',ruleVersion:'OWNER_TASK1_EXTERNAL_NO_CALL_20261024'});
+  return {id:q.id,outcome:v.state};
+ }
+ const halos=await halosReportEvidence(db,v.id);
+ if(halos){
+  const reviewed=(await db.query<{id:string}>('SELECT id FROM result_review WHERE version_id=$1 ORDER BY created_at DESC LIMIT 1',[v.id])).rows[0];
+  if(!reviewed)throw new LabError('REVIEW_NOT_RECORDED',409);
+  const sourceHash=digest({report:v.sha256,attemptId:v.attempt_id,halosRowId:halos.rowId,reviewId:reviewed.id});
+  const q=(await db.query<{id:string}>(`INSERT INTO result_qc5_review(version_id,attempt_id,report_sha256,source_sha256,review_id,criteria_reference,reason,reviewer_id,halos_row_id)
+   VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,[v.id,v.attempt_id,v.sha256,sourceHash,reviewed.id,d.criteriaReference,d.reason,user.id,halos.rowId])).rows[0];
+  const a=(await db.query<{state:string}>('SELECT state FROM analytical_attempt WHERE id=$1',[v.attempt_id])).rows[0];
+  if(a.state==='Assigned'){
+   await db.query("UPDATE analytical_attempt SET state='InProgress' WHERE id=$1",[v.attempt_id]);
+   await db.query('UPDATE specimen_round SET analysis_started=true WHERE id=$1',[v.round_id]);a.state='InProgress';
+  }
+  if(a.state==='InProgress')await db.query("UPDATE analytical_attempt SET state='AnalysisComplete' WHERE id=$1",[v.attempt_id]);
+  if(['InProgress','AnalysisComplete'].includes(a.state))await db.query("UPDATE analytical_attempt SET state='FinalQcAccepted' WHERE id=$1",[v.attempt_id]);
+  const gate=(await gateFor(db,v,'VALIDATION'))!;
+  if(!gate.eligible)throw new LabError('QC5_GATE_FAILED',409,{failed:gate.failed,pending:gate.pending});
+  v=await validate(db,user,v);
+  await audit(db,user,'RESULT_QC5_ACCEPTED','result_qc5_review',q.id,{outcome:'HALOS_CONFIRMED',ruleVersion:'HALOS-REPORT-EVIDENCE-20261111'});
   return {id:q.id,outcome:v.state};
  }
  let upstream=await attemptEvidence(db,v.attempt_id!,user.id);
@@ -819,10 +841,11 @@ export async function versionDetail(db:Queryable,user:Staff,id:string){
  const historicalReported=(await db.query('SELECT 1 FROM historical_reported_result WHERE version_id=$1',[v.id])).rows.length>0;
  const hisDelivery=(await readHisDeliveryStatuses(db,[v.id])).get(v.id);
  const benchEvidence=v.attempt_id&&authorize(user,'worksheet.read',{},'read')?await benchAttemptEvidence(db,v.attempt_id):null;
- const releaseEvidence=operational&&v.attempt_id?await attemptEvidence(db,v.attempt_id,user.id):null;
+ const halos=operational?await halosReportEvidence(db,v.id):null;
+ const releaseEvidence=operational&&v.attempt_id&&!halos?await attemptEvidence(db,v.attempt_id,user.id):null;
  return {historicalReported,hisDelivery,migration:await migrationResultEvidence(db,v.id),operational,nameConflicts:conflicts,origin:v.origin,internal,fallback,attestations,hisTransferState:transfer?.state??null,version:{id:v.id,origin:v.origin,kind:v.kind,templateKind:v.template_kind,templateVersion:v.template_version,parserVersion:v.parser_version,state:v.state,rowVersion:v.row_version,sha256:v.sha256,importedAt:v.imported_at,caseId:v.case_id,roundId:v.round_id,attemptId:v.attempt_id,linkMode:v.link_mode,supersedesId:v.supersedes_id,revision:v.revision},
   parsed:v.parsed,summary:summary(v.parsed),intake:{...intake,size:Number(intake.byte_size)},target,proposal,
-  benchEvidence:benchEvidence?{...benchEvidence,requiresReview:benchEvidence.ownerPaperRoute&&!releaseEvidence?.sequencingId&&(!releaseEvidence?.benchReviewId||releaseEvidence.benchReviewerId!==user.id)}:null,
+  benchEvidence:benchEvidence&&!halos?{...benchEvidence,requiresReview:benchEvidence.ownerPaperRoute&&!releaseEvidence?.sequencingId&&(!releaseEvidence?.benchReviewId||releaseEvidence.benchReviewerId!==user.id)}:null,
   candidates,autoMatch:auto?{caseId:auto.caseId,roundId:auto.round.id,attemptId:auto.attempt.id,reason:AUTO_MATCH_REASON,linksDirectly:true}:null,
   gate:v.round_id?await gateFor(db,v,'VALIDATION'):null,events:events.rows,links:links.rows,gates:gates.rows,reviews:reviews.rows,
   can:{propose:authorize(user,'result.link.manual',{},'propose')&&v.state==='Unlinked'&&!proposal,decide:!!proposal&&authorize(user,'result.link.manual',{actorId:proposal.actor_id},'approve'),

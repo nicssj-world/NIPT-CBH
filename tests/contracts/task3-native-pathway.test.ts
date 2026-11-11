@@ -9,6 +9,31 @@ import * as results from '../../packages/results/service';
 import {pdfText} from '../../packages/results/extract';
 import {certifyPending,pendingState} from '../helpers/certify-pending';
 
+it('confirmed HALOS is the report evidence without QC, Pooling or Seq transcription or duplicate paper-document review',async()=>{
+ const f=await task3Fixture(undefined,undefined,{worksheetMeasurements:false});
+ try{
+  const [a]=f.cases,deps={store:f.store,templates:masters()};
+  const worksheet=(await f.db.query<{values:Record<string,unknown>}>('SELECT values FROM task_workbook_revision WHERE batch_id=$1',[f.batchId])).rows[0].values;
+  expect(Object.keys(worksheet).filter(k=>/^(slot\.\d+\.libraryQc|qc\.|pool\.|seq\.)/.test(k)&&worksheet[k]!=null&&worksheet[k]!=='')).toEqual([]);
+  const imp=await f.run(t=>previewHalosImport(t,f.u.staff,f.store,{name:'Sample analysis data_S990000001_10242026.xlsx',bytes:halosWorkbook({result:[{sample:a.printed}],sampleinfo:[{id:a.vendorId,fetus:a.pregnancy,ga:'17,6'}]})}));
+  const row=imp.rows.find(r=>r.sheet==='result'&&r.sampleKey===a.printed)!;
+  expect((await f.run(t=>reportCandidate(t,f.u.certifier,deps,{rowId:row.id}))).holds.map(h=>h.code)).toContain('HALOS_IMPORT_NOT_CONFIRMED');
+  await f.run(t=>decideHalosImport(t,f.u.staff,{importId:imp.id,decision:'CONFIRM',expectedRowVersion:imp.rowVersion}));
+  await signerSetup(f);await approveInterpretation(f,{interpretationApproved:true,approvalReference:'SYNTHETIC-HALOS-REPORTING'});
+  const fin=await f.run(t=>finalizeReports(t,f.u.certifier,deps,{idempotencyKey:randomUUID(),defaults:{reportedBy:f.u.staff.id,approvedBy:f.u.certifier.id},release:true,releaseConfirmations:{reportContentVerified:true,identityAndValuesMatchReport:true,disclosureReviewed:true,abnormalAcknowledged:true},items:[{rowId:row.id}]}));
+  expect(fin.items[0],JSON.stringify(fin.items[0])).toMatchObject({outcome:'FINAL',release:'PendingCertification'});
+  const id=fin.items[0].versionId!;
+  expect((await f.db.query('SELECT 1 FROM lab_bench_review')).rows).toHaveLength(0);
+  expect((await f.db.query("SELECT 1 FROM lab_actual_pooling WHERE note<>'AUTO_RECORDED_FROM_SAVED_TASK_AT_EXPORT'")).rows).toHaveLength(0);
+  expect((await f.db.query<{halos_row_id:string;bench_review_id:null}>('SELECT halos_row_id,bench_review_id FROM result_qc5_review WHERE version_id=$1',[id])).rows[0]).toEqual({halos_row_id:row.id,bench_review_id:null});
+  const sent=await f.run(t=>certifyPending(t,f.u.certifier,id));expect(sent.outcome).toBe('CertifiedReleased');
+  const eligible=async()=>(await f.db.query<{ok:boolean}>('SELECT p6_release_eligible(id,epoch) ok FROM result_release WHERE version_id=$1',[id])).rows[0].ok;
+  expect(await eligible()).toBe(true);
+  await f.db.query('INSERT INTO halos_row_dismissal(row_id,actor_id,reason) VALUES($1,$2,$3)',[row.id,f.u.certifier.id,'SYNTHETIC withdrawn HALOS row']);
+  expect(await eligible()).toBe(false);
+ }finally{await f.close();vi.unstubAllEnvs();}
+},120000);
+
 // Native: renders through the installed Microsoft Word (as ReadyGen does). Runs on the Windows development PC; it fails, never skips,
 // where Word is unavailable. No real patient data: synthetic cases, synthetic signatures, Owner DOCX masters from the protected copy.
 it('pathway A end-to-end: HALOS → approved interpretation → Owner DOCX → signed Final PDF → existing P5 gates/release → HIS outbound, all fail-closed',async()=>{
@@ -22,7 +47,9 @@ it('pathway A end-to-end: HALOS → approved interpretation → Owner DOCX → s
   const rowOf=(s:string)=>imp.rows.find(r=>r.sheet==='result'&&r.sampleKey===s)!.id;
   // 1. Nothing approved yet: HOLD with explicit reasons, nothing written.
   let cand=await f.run(t=>reportCandidate(t,f.u.certifier,deps,{rowId:rowOf(a.printed)}));
-  expect(cand.holds.map(h=>h.code)).toEqual(expect.arrayContaining(['INTERPRETATION_RULESET_NOT_APPROVED','FETAL_SEX_DISCLOSURE_NOT_PERMITTED']));
+  expect(cand.holds.map(h=>h.code)).toContain('INTERPRETATION_RULESET_NOT_APPROVED');
+  // LAB_DIRECT uses the paper request's disclosure wish; an unkeyed wish is not a second reporting hold.
+  expect(cand.holds.map(h=>h.code)).not.toContain('FETAL_SEX_DISCLOSURE_NOT_PERMITTED');
   expect(cand.values?.qc).toBe('PASS');expect(cand.template).toBe('SINGLETON');
   const sig=await signerSetup(f);
   const held=await f.run(t=>finalizeReports(t,f.u.certifier,deps,{idempotencyKey:randomUUID(),defaults:{reportedBy:f.u.staff.id,approvedBy:f.u.certifier.id},items:[{rowId:rowOf(a.printed)}]}));

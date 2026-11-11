@@ -136,7 +136,7 @@ function ReportDialog({rows,pendingImport,onClose,onDone,onReported}:{rows:Row[]
   const eligibleItems=items.filter(i=>!excluded.has(i.rowId)&&candidateReady(single?cand:batchCandidates.find(c=>c.rowId===i.rowId)));
   if(pendingImport)await labApi(`/api/task3/halos/${pendingImport.id}`,{decision:'CONFIRM',expectedRowVersion:pendingImport.rowVersion,acknowledgeWarnings:pendingImport.acks});
   const res=await labApi<{batchId:string}>("/api/task3/batches",{idempotencyKey:key,defaults:{reportedBy:reportedBy||null,approvedBy:approvedBy||null},items:eligibleItems,
-    ...(release?{release:true,releaseConfirmations:{reportContentVerified:true,identityAndValuesMatchReport:true,disclosureReviewed:true,abnormalAcknowledged:confirm.abnormal,benchMeasurementsReviewed:true}}:{})});
+    ...(release?{release:true,releaseConfirmations:{reportContentVerified:true,identityAndValuesMatchReport:true,disclosureReviewed:true,abnormalAcknowledged:confirm.abnormal}}:{})});
    setQueuedBatchId(res.batchId);onDone();}catch(e){setError(failureText(e));if(e instanceof LabFailure&&e.code==="IDEMPOTENCY_KEY_REUSED")onClose();}finally{setBusy("");}};
  const candidateHolds=(c?:Candidate|null)=>(c?.holds??[]).filter(h=>!(pendingImport&&h.code==='HALOS_IMPORT_NOT_CONFIRMED'));
  const candidateReady=(c?:Candidate|null)=>!!c&&candidateHolds(c).length===0;
@@ -175,7 +175,7 @@ function ReportDialog({rows,pendingImport,onClose,onDone,onReported}:{rows:Row[]
    </div>
    {single&&<div className="action-bar"><button type="button" className="button secondary" disabled={!!busy||!cand?.values} onClick={preview}>{busy==="preview"?"กำลังสร้างร่าง…":"ดูร่างรายงาน"}</button><span className="help">ร่างมีลายน้ำ “PREVIEW” และไม่ถูกบันทึกเป็นรายงาน</span></div>}
    <fieldset className="stack"><legend>ยืนยันออกรายงานและนำเข้า “รอส่ง HIS”</legend>
-    <label className="check-label"><input type="checkbox" checked={confirm.content} onChange={e=>setConfirm(c=>({...c,content:e.target.checked}))}/> ตรวจผลแปล การจับคู่ผู้ป่วย รอบตัวอย่าง และข้อมูลที่เปิดเผยในรายงานของรายการที่เลือกแล้ว และได้เปิดใบงาน QC / Sequencing ตรวจค่าจริงตาม Master ล่าสุดแล้ว</label>
+    <label className="check-label"><input type="checkbox" checked={confirm.content} onChange={e=>setConfirm(c=>({...c,content:e.target.checked}))}/> ตรวจผลแปล การจับคู่ผู้ป่วย รอบตัวอย่าง และข้อมูลที่เปิดเผยในรายงานของรายการที่เลือกแล้ว</label>
     {anyAbnormal&&<label className="check-label"><input type="checkbox" checked={confirm.abnormal} onChange={e=>setConfirm(c=>({...c,abnormal:e.target.checked}))}/> รับทราบผลผิดปกติของรายการที่เลือก (High Risk / Detected)</label>}
     <p className="help">เมื่อยืนยัน ระบบสร้าง PDF ผูกผลกับผู้ป่วย แล้วนำรายการไปที่ “รอส่ง HIS” — ผลยังไม่ถูกส่ง HIS และ ANC ยังไม่เห็น จนกว่าจะกด “ส่ง HIS” ในรายการผลตรวจ รายการที่ยังไม่พร้อมจะถูกพักพร้อมเหตุผล</p>
    </fieldset>

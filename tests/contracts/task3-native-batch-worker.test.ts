@@ -28,7 +28,7 @@ import {enqueueReportBatch,runReportBatchItem,readReportBatch} from '../../packa
 // delivers the exact internal PDF through the existing P6 transport once, and an "มีผลใน HIS แล้ว" attestation stops any transfer.
 it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('report batch: worker_rw finalizes, web certifies, worker_rw delivers PDF + RES + OK to the HIS share',async()=>{
  const shared=process.env.NIPT_TEST_DATABASE_URL!;assertSyntheticDatabase(shared);
- const name='nipt_synthetic_test_task3_'+randomBytes(4).toString('hex'),server=new URL(shared);server.pathname='/postgres';
+ const name='nipt_synthetic_dev_task3_'+randomBytes(4).toString('hex'),server=new URL(shared);server.pathname='/postgres';
  const admin=new Client({connectionString:server.toString()});await admin.connect();await admin.query('CREATE DATABASE '+name);
  const url=new URL(shared);url.pathname='/'+name;assertSyntheticDatabase(url.toString());
  const owner=new Client({connectionString:url.toString()});await owner.connect();const clients:Client[]=[];
@@ -36,7 +36,7 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('report batch: worker_rw finalize
  const session=async(role:'app_rw'|'worker_rw')=>{const c=new Client({connectionString:url.toString()});await c.connect();await c.query(`SET ROLE ${role}`);clients.push(c);return c as unknown as Queryable;};
  try{
   await migrate(owner);await owner.query(await readFile('packages/db/roles.sql','utf8'));await owner.query(await readFile('packages/p6/grants.sql','utf8'));
-  const o=owner as unknown as Queryable,f=await task3Fixture(undefined,{db:o,root:base,store,lookupKey:randomBytes(32),close:async()=>{}});
+  const o=owner as unknown as Queryable,f=await task3Fixture(undefined,{db:o,root:base,store,lookupKey:randomBytes(32),close:async()=>{}},{worksheetMeasurements:false});
   const app=await session('app_rw'),worker=await session('worker_rw'),workerDeps={store};const [a,b,tw]=f.cases,[pc,nc]=f.controls;
   // The Worker gets only {store}: the template comes from the registry (report_template_active) or the installed master, as in Production.
   vi.stubEnv('NIPT_REPORT_TEMPLATE_SINGLETON',path.join(T3_SOURCES,'singleton.docx'));vi.stubEnv('NIPT_REPORT_TEMPLATE_TWIN',path.join(T3_SOURCES,'twin.docx'));
@@ -57,7 +57,7 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('report batch: worker_rw finalize
   const setting=await tx(o,t=>proposeSetting(t,settingsAdmin,'his_outbound',{...SETTINGS.his_outbound.default,enabled:true,target:'AUTHORIZED_SHARE',productionAuthorized:true,resultStyle:'short',resDestinationPath:path.join(share,'res'),pdfDestinationPath:path.join(share,'pdf'),backupPath:path.join(share,'backup'),resProfile:{...syntheticProfile,syntheticOnly:false,version:'SYNTHETIC-TASK3-LOCAL'},certifierHisMappings:{[f.u.certifier.id]:'SYNTHETIC^CERTIFIER'}},'SYNTHETIC disposable loopback local share'));
   await tx(o,t=>validateSetting(t,settingsAdmin,setting,async()=>true));await tx(o,t=>approveSetting(t,f.u.approver,setting));await tx(o,t=>activateSetting(t,f.u.approver,setting));
   // Web queues the batch (app_rw); the Worker (worker_rw) finalizes the item exactly as it does in Production.
-  const conf={reportContentVerified:true,identityAndValuesMatchReport:true,disclosureReviewed:true,abnormalAcknowledged:true,benchMeasurementsReviewed:true};
+  const conf={reportContentVerified:true,identityAndValuesMatchReport:true,disclosureReviewed:true,abnormalAcknowledged:true};
   // A real signed-in session, as in Production: the Worker re-checks it (app_session) before it finalizes. Without one the check is skipped.
   const sid=(await owner.query<{id:string}>("INSERT INTO app_session(user_id,token_hash,csrf_hash,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,now()+interval '30 minutes',now()+interval '8 hours') RETURNING id",[f.u.certifier.id,'a'.repeat(64),'b'.repeat(64)])).rows[0].id;
   const signedIn={...f.u.certifier,sessionId:sid};
@@ -72,6 +72,8 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('report batch: worker_rw finalize
   for(const job of jobs)expect(await runAsWorker(job)).toMatchObject({state:'FINAL'});
   const st=await readReportBatch(app,f.u.certifier,batch.batchId);
   expect(st.state).toBe('COMPLETED');expect(st.items.map(i=>i.outcome?.outcome)).toEqual(['FINAL','FINAL','FINAL']);
+  expect((await owner.query('SELECT 1 FROM lab_bench_review')).rows).toHaveLength(0);
+  expect((await owner.query('SELECT 1 FROM result_qc5_review WHERE halos_row_id IS NOT NULL')).rows).toHaveLength(3);
   const versionIds=st.items.map(i=>i.outcome!.versionId as string),versionId=versionIds[0];
   for(const id of versionIds)expect((await owner.query<{state:string}>('SELECT state FROM result_report_version WHERE id=$1',[id])).rows[0].state).toBe('PendingCertification');
   expect(await tx(app,t=>pendingState(t,versionId))).toEqual({state:'PendingCertification',reviews:1,qc5:1,releases:0,outbox:0});

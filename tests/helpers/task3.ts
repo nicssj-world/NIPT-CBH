@@ -32,7 +32,7 @@ export {halosWorkbook,type HalosSpec} from '../../tools/task3-uat/halos-fixture'
 type CaseSpec={ln:string;hn:string;pregnancy:'Singleton'|'Twins';sheet:1|2|3;priorFailures?:boolean;eqa?:{surname:string;firstName:string;dob:string};pet?:{specimenAt?:string;receivedAt?:string;ward?:string;identity?:string}};
 /** Operational LAB_DIRECT cases through PET receipt, one Owner batch, real Master worksheet, actual pooling and the dual HALOS/NIFTY export. */
 type Provided={db:Queryable;root:string;store:import('../../packages/storage').FileStore;lookupKey:Buffer;close():Promise<void>};
-export async function task3Fixture(cases:CaseSpec[]=[{ln:'9900099511',hn:'9900099951',pregnancy:'Singleton',sheet:1},{ln:'9900099512',hn:'9900099952',pregnancy:'Singleton',sheet:2},{ln:'9900099513',hn:'9900099953',pregnancy:'Twins',sheet:3}],provided?:Provided){
+export async function task3Fixture(cases:CaseSpec[]=[{ln:'9900099511',hn:'9900099951',pregnancy:'Singleton',sheet:1},{ln:'9900099512',hn:'9900099952',pregnancy:'Singleton',sheet:2},{ln:'9900099513',hn:'9900099953',pregnancy:'Twins',sheet:3}],provided?:Provided,options:{worksheetMeasurements?:boolean}={}){
  const f=(provided??await inboundFixture()) as Awaited<ReturnType<typeof inboundFixture>>;
  vi.stubEnv('NIPT_MODE','operational');vi.stubEnv('APP_ORIGIN','https://nipt.test');vi.stubEnv('NIPT_TASK_MASTER_PATH',path.resolve('.local/lab-owner-evidence/lab-combined-master.xlsx'));
  vi.stubEnv('NIPT_POOL_CSV_TEMPLATE',path.resolve('.local/approved/pooling.csv'));vi.stubEnv('NIPT_NIFTY_XLSX_TEMPLATE',path.resolve('.local/approved/nifty.xlsx'));vi.stubEnv('NIPT_HALOS_TASK_TEMPLATE',path.resolve('.local/approved/halos-task.xlsx'));
@@ -67,14 +67,17 @@ export async function task3Fixture(cases:CaseSpec[]=[{ln:'9900099511',hn:'990009
   await run(async t=>batch.planCheck(t,u.staff,{batchId,expectedVersion:await version(),sheetNumber:sheet,confirm:{controlsAtTemplate:true,identifiersMatch:true,noDuplicates:true}}));await run(async t=>batch.finalizeSheet(t,u.staff,{batchId,expectedVersion:await version(),sheetNumber:sheet}));}
  for(const m of made)m.printed=(await f.db.query<{printed_sample_id:string}>('SELECT printed_sample_id FROM analytical_attempt WHERE id=$1',[m.attemptId])).rows[0].printed_sample_id;
  const deps={master:readFileSync(process.env.NIPT_TASK_MASTER_PATH!),store:f.store,render:async()=>{throw Error('NO_STUB_NATIVE_PRINT_CLAIM');}},w=await run(t=>benchWorkspace(t,u.staff,batchId,deps)),values={...w.values};
+ if(options.worksheetMeasurements!==false){
  for(const s of w.slots)if(s.kind!=='EMPTY')values[`slot.${s.slot}.libraryQc`]=s.kind==='BLANK'?0.5:20;
  for(let n=1;n<=3;n++)for(const k of ['standard1','standard2','standard2Concentration'])values[`qc.${n}.${k}`]=10;
  Object.assign(values,{'pool.standard1':0,'pool.standard2':100,'pool.standard2Concentration':10,'pool.concentration':3.33});
- for(const field of w.seqFields)values[field.key]=field.type==='number'?10:field.type==='checkbox'?true:'LOCAL TEST observation';
- Object.assign(values,{'seq.date':'20/10/2569','seq.operator':'SYNTHETIC LOCAL TEST','seq.dnbId':'DNB20261020','seq.negativePressureKpa':-80});
+ }
+ // Owner 2026-11-11: the HALOS file is the completed analysis output; reporting must not require duplicate Seq Task-G50 observations.
  await run(async t=>saveWorkbookDraft(t,u.staff,{batchId,expectedVersion:await version(),expectedRevision:0,values},deps));
+ if(options.worksheetMeasurements!==false){
  await run(t=>benchExport(t,u.staff,{batchId,revision:1,kind:'POOL_CSV'},deps));
  await run(t=>recordActualPooling(t,u.staff,{batchId,revision:1,members:w.slots.map(s=>({slot:s.slot,pooled:['PATIENT','PC','NC'].includes(s.kind)})),note:'LOCAL TEST actual paper pooling transfer recorded by operator'},deps));
+ }
  const pair=await run(t=>exportSeqPair(t,u.staff,{batchId,revision:1,idempotencyKey:randomUUID()},deps));
  const controls=(await f.db.query<{sample:string}>("SELECT m->>'sampleId' sample FROM lab_bench_export h CROSS JOIN LATERAL jsonb_array_elements(h.mapping) m WHERE h.kind='HALOS_TASK_XLSX' AND m->>'attemptId' IS NULL")).rows.map(r=>r.sample);
  const vendor=new Map((await f.db.query<{attempt:string;vendor:string}>("SELECT m->>'attemptId' attempt,m->>'vendorSampleId' vendor FROM lab_bench_export n CROSS JOIN LATERAL jsonb_array_elements(n.mapping) m WHERE n.kind='NIFTY_XLSX' AND m->>'kind'='PATIENT'")).rows.map(r=>[r.attempt,r.vendor]));

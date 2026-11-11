@@ -1,8 +1,7 @@
 import type {Queryable} from '../db/connection';
 import {LabError,need,audit,type Staff} from './core';
 import {loadRuntimeMaster} from '../workbook/runtime';
-import {inspectTaskMaster,validateTaskValues} from '../workbook/master';
-import {parseBeInput} from '../domain/thai-date';
+import {validateTaskValues} from '../workbook/master';
 import {calculateOwnerPooling,type PhysicalQc} from '../pooling/owner-master';
 import {repeatAttemptIds} from './repeat-slots';
 import type {PlacementPayload} from './batch';
@@ -23,10 +22,9 @@ export async function reviewBenchForResult(db:Queryable,user:Staff,attemptId:str
  const r=(await db.query<{id:string;revision:number;values:Record<string,unknown>;created_by:string;source_snapshot:{placements:{payload:PlacementPayload}[]}}>(`SELECT * FROM task_workbook_revision WHERE batch_id=$1 ORDER BY revision DESC LIMIT 1`,[batchId])).rows[0];
  if(!r||r.revision!==input.revision)throw new LabError('TASK_DRAFT_VERSION_CONFLICT',409);
 
- const master=await loadRuntimeMaster(),matrix=inspectTaskMaster(master);validateTaskValues(master,r.values);
- const missing=matrix.bindings.filter(f=>f.sheet==='Seq Task-G50'&&(r.values[f.key]===null||r.values[f.key]===undefined||f.dataType==='text'&&!String(r.values[f.key]).trim()||f.dataType==='checkbox'&&r.values[f.key]!==true)).map(f=>f.key);
- if(missing.length)throw new LabError('OWNER_SEQ_OBSERVATIONS_REQUIRED',409,{fields:missing});
- if(!parseBeInput(String(r.values['seq.date'])).ok)throw new LabError('OWNER_SEQ_WORK_DATE_INVALID',422);
+ const master=await loadRuntimeMaster();validateTaskValues(master,r.values);
+ // Owner 2026-11-11: the HALOS file is the completed analysis output, so duplicate Seq Task-G50 observation cells are not required
+ // to release a report (OWNER_SEQ_OBSERVATIONS_REQUIRED / OWNER_SEQ_WORK_DATE_INVALID removed). QC measurements and the actual pooling stay required: the database checks them.
  const snapSlots=r.source_snapshot.placements.flatMap(p=>p.payload.slots).sort((a,b)=>a.slot-b.slot);
  const failed=await repeatAttemptIds(db,snapSlots);
  const rows:PhysicalQc[]=snapSlots.map(s=>({slot:s.slot,sampleId:s.printedSampleId??s.printedControlId??'',kind:s.control==='positive'?'PC':s.control==='negative'?'NC':s.control==='blank'?'BLANK':s.attemptId?(failed.has(s.attemptId)?'REPEAT':'PATIENT'):'EMPTY',concentration:typeof r.values[`slot.${s.slot}.libraryQc`]==='number'?String(r.values[`slot.${s.slot}.libraryQc`]):null}));
