@@ -1,7 +1,7 @@
 import {readFile} from 'node:fs/promises';
 import {describe,it,expect} from 'vitest';
 import {SETTINGS,type SettingKey} from '../../packages/settings/catalog';
-import {SETTING_FORMS,schemaFields} from '../../packages/settings/fields';
+import {SETTING_FORMS,schemaFields,RETIRED_FIELDS} from '../../packages/settings/fields';
 import {SETTINGS_COVERAGE,COVERAGE_CATEGORIES,coverageSummary} from '../../packages/settings/coverage';
 import {renderCoverageMarkdown} from '../../tools/settings-coverage';
 
@@ -9,7 +9,8 @@ describe('Settings forms and coverage (Plan §13.2, P5 delivery)',()=>{
  it('every catalog field has exactly one labelled form field; locked fields are schema literals',()=>{
   for(const key of Object.keys(SETTINGS) as SettingKey[]){
    const form=SETTING_FORMS[key];expect(form.key).toBe(key);
-   expect(form.fields.map(f=>f.name).sort()).toEqual(schemaFields(key).sort());
+   expect(form.fields.map(f=>f.name).sort()).toEqual(schemaFields(key).filter(n=>!RETIRED_FIELDS[key]?.includes(n)).sort());
+   for(const n of RETIRED_FIELDS[key]??[])expect(schemaFields(key)).toContain(n);
    for(const f of form.fields){expect(f.label.length).toBeGreaterThan(1);expect(f.help.length).toBeGreaterThan(1);
     if(f.kind==='locked'){const def=SETTINGS[key].default as Record<string,unknown>|null;expect(()=>SETTINGS[key].schema.parse({...def,[f.name]:'CHANGED'})).toThrow();}}
   }

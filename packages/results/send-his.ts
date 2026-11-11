@@ -1,6 +1,7 @@
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {z} from 'zod';
 import type {Queryable} from '../db/connection';
+import {appendAudit} from '../db/audit';
 import {assertSession,need,uuid,LabError,type Staff} from '../lab/core';
 import {operationalWorkflow} from '../lab/operational';
 import {certifyAttempt,recordReview,releaseReviewed,reviewExternalForRelease,reviewInternalForRelease,revalidate,validationGateIssues} from './service';
@@ -82,4 +83,20 @@ export async function sendToHis(db:Queryable,user:Staff,input:unknown):Promise<{
   }
  }
  return {items:d.items.map(i=>done.get(i.versionId)!)};
+}
+
+const resendSchema=z.strictObject({versionId:uuid});
+/** "ส่ง HIS อีกครั้ง" (Owner 2026-11-11): queue one more send of a certified result — the worker writes PDF -> CFS and RES + OK again
+ *  from the same release. Same permissions as "ส่ง HIS". EQA and "มีผลใน HIS แล้ว" results have nothing to send. */
+export async function resendToHis(db:Queryable,user:Staff,input:unknown):Promise<{versionId:string;jobId:string}>{
+ await assertSession(db,user);need(user,'result.review');need(user,'result.certify');need(user,'result.release.check');
+ const {versionId}=resendSchema.parse(input);
+ const r=(await db.query<{id:string;eqa:boolean;attested:boolean}>(`SELECT r.id,nipt_case_is_eqa(r.case_id) eqa,task3_his_presence_attested(r.version_id) attested
+  FROM result_release r WHERE r.version_id=$1 AND r.state='Active'`,[versionId])).rows[0];
+ if(!r)throw new LabError('RESEND_REQUIRES_SENT_RESULT',409);
+ if(r.eqa||r.attested)throw new LabError('RESEND_NOT_APPLICABLE',409);
+ const job=(await db.query<{id:string}>("INSERT INTO job_outbox(kind,payload,idempotency_key) VALUES('result_release_completed',$1,$2) RETURNING id",
+  [JSON.stringify({releaseId:r.id,resend:true}),`release:${r.id}:resend:${randomUUID()}`])).rows[0];
+ await appendAudit(db,{actorId:user.id,action:"HIS_RESULT_RESEND_QUEUED",resourceType:"result_release",resourceId:r.id,details:{outcome:"QUEUED"}});
+ return {versionId,jobId:job.id};
 }

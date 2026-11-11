@@ -10,7 +10,9 @@ import {readHisDeliveryStatuses,type HisDeliveryStatus} from './his-status';
 //   ACTION = somebody must do something (a HALOS row on HOLD, or a PDF that is unlinked / in conflict / blocked / linked but not ready)
 //   READY  = waiting to be sent to HIS (PendingCertification), plus Linked/ValidationBlocked versions whose ONLY open gate items are the ones that
 //            "ส่ง HIS" itself records (review + QC5) — see EVIDENCE_RECORDED_BY_SEND; they show reviewed=false
-//   SENT   = CertifiedReleased
+//   SENT   = CertifiedReleased AND the files reached the folders (Owner 2026-11-11, option ข.): "ส่ง HIS แล้ว", or nothing to send
+//            (EQA / "มีผลใน HIS แล้ว"). A certified result whose files are still being written stays in READY ("กำลังส่ง HIS");
+//            one whose send failed or never ran goes to ACTION with the reason and the "ส่ง HIS อีกครั้ง" button.
 export type BoardRow={key:string;source:'HALOS'|'READYGEN';versionId:string|null;halosRowId:string|null;rowVersion:number|null;ln:string|null;hn:string|null;lnHalos:string|null;sampleId:string|null;template:string|null;
  abnormal:boolean;reviewed:boolean;reasons:{code:string;fixHref?:string}[];hisDelivery?:HisDeliveryStatus;pdfHref:string|null};
 export type BoardTab='ACTION'|'READY'|'SENT';
@@ -25,6 +27,11 @@ export const fixHrefFor=(code:string,caseId:string|null):string|undefined=>
 const schema=z.strictObject({tab:z.enum(['ACTION','READY','SENT']),q:z.string().trim().max(40).default(''),page:z.number().int().min(1).max(1000).default(1),pageSize:z.number().int().min(10).max(100).default(50),scope:z.enum(['PATIENT','EQA']).default('PATIENT')});
 const OPEN_ACTION=['Unlinked','LinkConflict','ValidationBlocked','Linked'];
 const TAB_OF:Record<string,BoardTab>={Unlinked:'ACTION',LinkConflict:'ACTION',ValidationBlocked:'ACTION',Linked:'ACTION',PendingCertification:'READY',CertifiedReleased:'SENT'};
+/** Delivery codes (packages/results/his-status.ts) of a certified result: done, in progress; anything else needs a person. */
+const DELIVERED=new Set(['SENT','ATTESTED','NOT_APPLICABLE','DELIVERED_UNCONFIRMED']),IN_PROGRESS=new Set(['QUEUED','SENDING','RETRY']);
+/** Send errors fixed in Settings › HIS ขาออก (folder or RES content configuration). */
+const SETTINGS_SEND_ERROR=/^(SHARE_|UNSAFE_SHARE_PATH|RES_PROFILE_REQUIRED|CERTIFIER_HIS_MAPPING_REQUIRED)/;
+export const deliveryTab=(code:string):BoardTab=>DELIVERED.has(code)?'SENT':IN_PROGRESS.has(code)?'READY':'ACTION';
 const STATE_REASON:Record<string,string>={Unlinked:'UNLINKED',LinkConflict:'LINK_CONFLICT',ValidationBlocked:'VALIDATION_BLOCKED',Linked:'AWAITING_REVIEW'};
 
 /** Gate items ('RG-nn:REASON', governance part dropped) that sendToHis satisfies by itself: it records the review (RG-12) and the QC5 review
@@ -66,7 +73,9 @@ export async function releaseQueue(db:Queryable,user:Staff,deps:ReportDeps,input
  // One gate evaluation per open (Linked/ValidationBlocked) version, shared by the tab decision and the ACTION reasons.
  const gates=new Map<string,{failed:string[];pending:string[]}>();
  for(const v of vs)if(v.state==='ValidationBlocked'||v.state==='Linked')gates.set(v.id,await validationGateIssues(db,v.id).catch(()=>({failed:[] as string[],pending:[] as string[]})));
- const tabOf=(v:V):BoardTab=>{const g=gates.get(v.id);return g&&isSendResolvable(g)?'READY':TAB_OF[v.state];};
+ // Certified results: the tab follows the latest "ส่ง HIS" job (one read for every certified version in view).
+ const delivery=await readHisDeliveryStatuses(db,vs.filter(v=>v.state==='CertifiedReleased').map(v=>v.id));
+ const tabOf=(v:V):BoardTab=>{if(v.state==='CertifiedReleased'){const s=delivery.get(v.id);return s?deliveryTab(s.code):'SENT';}const g=gates.get(v.id);return g&&isSendResolvable(g)?'READY':TAB_OF[v.state];};
  const byTab=(t:BoardTab)=>vs.filter(v=>tabOf(v)===t);
  const counts={ACTION:halos.length+byTab('ACTION').length,READY:byTab('READY').length,SENT:byTab('SENT').length};
 
@@ -75,15 +84,17 @@ export async function releaseQueue(db:Queryable,user:Staff,deps:ReportDeps,input
   ?[...halos.map(h=>({at:new Date(h.importedAt).getTime(),halos:h})),...byTab('ACTION').map(v=>({at:new Date(v.changed).getTime(),v}))].sort((a,b)=>b.at-a.at)
   :byTab(d.tab).map(v=>({at:new Date(v.changed).getTime(),v}));
  const total=items.length,start=(d.page-1)*d.pageSize,slice=items.slice(start,start+d.pageSize);
- const vids=slice.flatMap(i=>i.v?[i.v.id]:[]);
- const delivery=d.tab==='SENT'?await readHisDeliveryStatuses(db,vids):new Map<string,HisDeliveryStatus>();
  const rows:BoardRow[]=[];
  for(const i of slice){
   if(i.halos){const h=i.halos;
    rows.push({key:`halos:${h.rowId}`,source:'HALOS',versionId:null,halosRowId:h.rowId,rowVersion:null,ln:h.ln,hn:h.hn,lnHalos:h.lnHalos,sampleId:h.sampleId,template:h.template,abnormal:false,reviewed:false,
     reasons:h.holds.map(x=>{const href=fixHrefFor(x.code,h.caseId);return {code:x.code,...(href?{fixHref:href}:{})};}),pdfHref:null});continue;}
   const v=i.v!;let reasons:BoardRow['reasons']=[];
-  if(d.tab==='ACTION'){
+  const sent=v.state==='CertifiedReleased'?delivery.get(v.id):undefined;
+  if(d.tab==='ACTION'&&sent){
+   const code='HIS_SEND:'+(sent.error??sent.code);
+   reasons=[{code,...(sent.error&&SETTINGS_SEND_ERROR.test(sent.error)?{fixHref:'/settings?key=his_outbound'}:{})}];
+  }else if(d.tab==='ACTION'){
    const codes:string[]=[STATE_REASON[v.state]];
    if(v.state==='ValidationBlocked'||v.state==='Linked'){
     const g=gates.get(v.id)!;
@@ -94,7 +105,7 @@ export async function releaseQueue(db:Queryable,user:Staff,deps:ReportDeps,input
    reasons=[...new Set(codes)].map(code=>{const href=fixHrefFor(code,v.case_id);return {code,...(href?{fixHref:href}:{})};});
   }
   rows.push({key:`version:${v.id}`,source:v.origin==='INTERNAL_GENERATED'?'HALOS':'READYGEN',versionId:v.id,halosRowId:null,rowVersion:v.row_version,ln:v.ln,hn:v.hn,lnHalos:v.ln_halos,sampleId:v.sample_id,template:v.template_kind,
-   abnormal:v.abnormal,reviewed:d.tab==='READY'||d.tab==='SENT'?await releaseReviewed(db,v.id):false,reasons,...(delivery.get(v.id)?{hisDelivery:delivery.get(v.id)}:{}),pdfHref:`/api/p5/results/${v.id}/file`});
+   abnormal:v.abnormal,reviewed:d.tab==='READY'||d.tab==='SENT'||!!sent?await releaseReviewed(db,v.id):false,reasons,...(sent?{hisDelivery:sent}:{}),pdfHref:`/api/p5/results/${v.id}/file`});
  }
  return {rows,counts,canRevise:authorize(user,'result.revise'),truncated:w.truncated||versionsTruncated,page:{number:d.page,size:d.pageSize,total,totalPages:Math.max(1,Math.ceil(total/d.pageSize)),hasNext:start+d.pageSize<total}};
 }

@@ -771,3 +771,11 @@ input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-o
 .single-patient > summary {min-height:44px;display:list-item;cursor:pointer;font-weight:600;padding-block:var(--space-2);}
 .single-patient[open] > .form-grid {margin-top:var(--space-3);}
 @media(max-width:600px){.login-logo-row{gap:12px;}.login-logo-row .product-logo{width:50px;height:50px;}.login-logo-row .hospital-logo{width:84px;height:56px;}}
+
+/* Results board, "ส่งแล้ว": one HIS delivery badge per row (Owner 2026-11-11) and the icon-only "ส่ง HIS อีกครั้ง" button. */
+.board-status {display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-3);}
+.board-status .his-send-error {flex-basis:100%;margin:0;}
+.button.icon-button {min-width:44px;padding-inline:var(--space-2);display:inline-flex;align-items:center;justify-content:center;}
+.button.icon-button svg.spin {animation:his-resend-spin 1s linear infinite;}
+@keyframes his-resend-spin {to {transform:rotate(360deg);}}
+@media (prefers-reduced-motion:reduce) {.button.icon-button svg.spin {animation:none;}}

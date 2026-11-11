@@ -50,19 +50,11 @@ export const SETTING_FORMS:Record<SettingKey,SettingForm>={
   {name:"postReleaseRecollection",label:"การเก็บตัวอย่างใหม่หลังออกผล",help:"ระหว่างรอ OD-17: ต้อง Void ผลเดิมก่อน",kind:"locked",lockedBy:"OD-17 HOLD"},
   {name:"noticeChannel",label:"ช่องทางหนังสือแจ้งเจาะซ้ำ",help:"ระหว่างรอ OD-07: แสดงใน NIPT เท่านั้น",kind:"locked",lockedBy:"OD-07 HOLD"},
   {name:"releaseAuthority",label:"สิทธิ์ปล่อยผลจริง",help:"HOLD จนกว่า AL-5 (OD-04 Clinical Governance, OD-05, OD-07) ผ่าน",kind:"locked",lockedBy:"AL-5 HOLD"}]},
- his_outbound:{key:"his_outbound",title:"HIS ขาออก / CFS",summary:"ส่ง Synthetic ไปยัง Share ทดสอบที่ IT อนุญาต — Clinical ยัง HOLD",phase:"P6",fields:[
-  {name:"resDestinationPath",label:"ปลายทาง RES / OK",help:"Local/UNC ใน Allowed Root สำหรับ Synthetic Test เท่านั้น",kind:"path"},
-  {name:"pdfDestinationPath",label:"ปลายทาง PDF / CFS",help:"ต้องเป็นคนละโฟลเดอร์กับ RES และ Backup",kind:"path"},
-  {name:"backupPath",label:"โฟลเดอร์สำรองไฟล์ส่ง",help:"ตรวจ PDF/RES และ Backup ก่อนสร้าง OK — ไม่เขียนทับไฟล์เดิม",kind:"path"},
-  {name:"secretRef",label:"Credential / Secret Reference",help:"UUID อ้างอิง Credential ที่ IT จัดเตรียมให้ Service Account — ไม่ใส่รหัสผ่าน",kind:"uuid-or-empty"},
-  {name:"retryDelaySeconds",label:"ระยะรอ Retry เริ่มต้น",help:"เพิ่มแบบ Exponential ตามจำนวนครั้ง สูงสุดหนึ่งวัน",kind:"number",unit:"วินาที",min:1,max:3600},
-  {name:"confirmationTimeoutSeconds",label:"ระยะรอการยืนยัน",help:"หมดเวลาเป็น UNKNOWN_TIMEOUT — ไม่ถือว่า HIS รับผลแล้ว",kind:"number",unit:"วินาที",min:1,max:86400},
-    {name:"enabled",label:"เปิดการส่งผล",help:"Worker ใช้รุ่นที่เปิดใช้งานแล้ว",kind:"boolean"},
-    {name:"target",label:"ปลายทาง",help:"Share ต้องได้รับสิทธิ์จากการตั้งค่าระบบและ Service Account",kind:"select",options:[{value:"SIMULATOR",label:"ตัวจำลอง"},{value:"AUTHORIZED_SHARE",label:"HIS/CFS Share ที่ได้รับอนุญาต"}]},
-    {name:"productionAuthorized",label:"เปิดส่งผลที่รับรองแล้ว",help:"มีผลเฉพาะ Operational runtime และฐานข้อมูลที่ตั้งค่าไว้ตรงกัน",kind:"boolean"},
+ his_outbound:{key:"his_outbound",title:"HIS ขาออก / CFS",summary:"กด “ส่ง HIS” แล้วระบบเขียน PDF ไปโฟลเดอร์ CFS และ .res + .ok ไปโฟลเดอร์ RES — แค่นั้น",phase:"P6",fields:[
+  {name:"resDestinationPath",label:"ปลายทาง RES / OK",help:"โฟลเดอร์ที่ HIS อ่านไฟล์ .res และ .ok (Local หรือ UNC)",kind:"path"},
+  {name:"pdfDestinationPath",label:"ปลายทาง PDF / CFS",help:"โฟลเดอร์ CFS ที่รับไฟล์ PDF รายงานผล",kind:"path"},
   {name:"resultStyle",label:"รูปแบบข้อความผลใน .res",help:"เทียบ NIPTY nipt_result_style",kind:"select",options:[{value:"full",label:"full — ระบุครบ"},{value:"short",label:"short — สั้น"},{value:"fixed",label:"fixed — ข้อความคงที่"}]},
-  {name:"retryLimit",label:"จำนวนครั้งลองใหม่",help:"1–10",kind:"number",unit:"ครั้ง",min:1,max:10},
-    {name:"round2SpecimenDatePolicy",label:"วันที่เก็บตัวอย่างใน .res ของรอบ ≥ 2",help:"เลือกรอบของหลักฐาน PET ที่ HIS ต้องการ",kind:"select",options:[{value:"",label:"ยังไม่กำหนด"},{value:"CURRENT_ROUND",label:"รอบปัจจุบัน"},{value:"ORIGINAL_ORDER",label:"รอบแรก"}]},
+    {name:"round2SpecimenDatePolicy",label:"วันที่เก็บตัวอย่างใน .res ของรอบ ≥ 2",help:"เลือกรอบของหลักฐาน PET ที่ HIS ต้องการ",kind:"select",options:[{value:"",label:"ยังไม่กำหนด (ใช้รอบปัจจุบัน)"},{value:"CURRENT_ROUND",label:"รอบปัจจุบัน"},{value:"ORIGINAL_ORDER",label:"รอบแรก"}]},
     {name:"resProfile",label:"รูปแบบ RES",help:"ใช้ค่าตามข้อกำหนดของ HIS",kind:"res-profile"},
     {name:"operatorHisId",label:"Operator ใน HIS",help:"รหัสและชื่อคงที่สำหรับ RES ใหม่",kind:"his-operator"},
     {name:"certifierHisMappings",label:"ผู้รับรองใน HIS",help:"ผูกรหัสกับผู้รับรองที่ได้รับสิทธิ์",kind:"his-certifiers"}]},
@@ -94,3 +86,6 @@ export const SETTING_FORMS:Record<SettingKey,SettingForm>={
 
 /** Schema keys of a catalog entry, used by the coverage test and the form renderer. */
 export function schemaFields(key:SettingKey):string[]{return Object.keys((SETTINGS[key].schema as unknown as {shape:Record<string,unknown>}).shape);}
+/** Schema fields kept only so saved revisions stay valid; nothing reads them and the form does not show them.
+ *  his_outbound (Owner 2026-11-11): "ส่ง HIS" writes PDF -> CFS and RES + OK -> RES folder only (packages/p6/send-result.ts). */
+export const RETIRED_FIELDS:Partial<Record<SettingKey,readonly string[]>>={his_outbound:['enabled','target','productionAuthorized','retryLimit','backupPath','secretRef','retryDelaySeconds','confirmationTimeoutSeconds']};

@@ -5,7 +5,8 @@ import {labApi,failureText} from "../p4/lab-api";
 import {Pager} from "../shared/pager";
 import {PdfPreviewButton} from "../shared/pdf-preview";
 import type {HisDeliveryStatus} from "../../../packages/results/his-status";
-import {HisDeliveryBadge} from "./his-delivery-badge";
+import {HisDeliveryBadge,ResendHisButton} from "./his-delivery-badge";
+import {hisSendErrorText} from "../../../packages/results/his-status";
 import {HOLD_TEXT} from "./native-reports";
 import {BOARD_REASON_TEXT,reasonText} from "./labels";
 import {attestErrorText,batchSignature,canShowOnPatient,canSend,needsAbnormalTick,needsReviewTick,outcomeText,outcomeTone,selectedRows,sendTicks,type BoardTab,type SendOutcome} from "./release-board-logic";
@@ -16,9 +17,9 @@ import {BulkDiscardDialog,DiscardDialog,PickPatientDialog} from "./release-board
 export type BoardRow={key:string;source:"HALOS"|"READYGEN";versionId:string|null;halosRowId:string|null;rowVersion:number|null;ln:string|null;hn:string|null;lnHalos:string|null;sampleId:string|null;template:string|null;abnormal:boolean;reviewed:boolean;reasons:{code:string;fixHref?:string}[];hisDelivery?:HisDeliveryStatus;pdfHref:string|null};
 type Board={rows:BoardRow[];counts:Record<BoardTab,number>;canRevise:boolean;truncated:boolean;page:{number:number;size:number;total:number;totalPages:number;hasNext:boolean}};
 const TABS:[BoardTab,string][]=[["ACTION","ต้องจัดการ"],["READY","รอส่ง HIS"],["SENT","ส่งแล้ว"]];
-const HELP:Record<BoardTab,string>={ACTION:"รายการที่ยังส่ง HIS ไม่ได้ — แก้ตามเหตุผลที่แสดง เลือกผู้ป่วย หรือทิ้งรายการ",READY:"ผลที่นำเข้าหรือออกรายงานแล้ว ยังไม่ถูกส่ง — ANC จะเห็นผลหลังกด “ส่ง HIS” สำเร็จเท่านั้น",SENT:"ผลที่ส่ง HIS แล้ว เรียงใหม่สุดก่อน"};
+const HELP:Record<BoardTab,string>={ACTION:"รายการที่ยังส่ง HIS ไม่ได้หรือส่งไฟล์ไม่สำเร็จ — แก้ตามเหตุผลที่แสดง เลือกผู้ป่วย ทิ้งรายการ หรือกดไอคอนส่ง HIS อีกครั้ง",READY:"ผลที่นำเข้าหรือออกรายงานแล้ว ยังไม่ถูกส่ง และผลที่กำลังเขียนไฟล์ไป HIS — ANC จะเห็นผลหลังกด “ส่ง HIS” สำเร็จเท่านั้น",SENT:"ผลที่เขียน PDF, .res และ .ok ลงโฟลเดอร์ HIS สำเร็จแล้ว เรียงใหม่สุดก่อน"};
 const TEMPLATE_TEXT:Record<string,string>={SINGLETON:"ครรภ์เดี่ยว",TWIN:"ครรภ์แฝด"};
-export const reasonLabel=(code:string)=>HOLD_TEXT[code]??BOARD_REASON_TEXT[code]??reasonText(code);
+export const reasonLabel=(code:string)=>code.startsWith("HIS_SEND:")?hisSendErrorText(code.slice(9)):HOLD_TEXT[code]??BOARD_REASON_TEXT[code]??reasonText(code);
 const Status=({tone,children}:{tone?:string;children:ReactNode})=><span className={`status ${tone??""}`}>{children}</span>;
 const who=(r:BoardRow)=><><span className="mono">{r.ln??"—"}</span>{r.lnHalos&&<span className="help"> · LN Halos {r.lnHalos}</span>}<br/><span className="mono">{r.hn??"—"}</span></>;
 const source=(r:BoardRow)=><>{r.source==="HALOS"?"HALOS":"ReadyGen"}{r.template&&<div className="help">{TEMPLATE_TEXT[r.template]??r.template}</div>}{r.sampleId&&<div className="help mono">{r.sampleId}</div>}</>;
@@ -43,10 +44,10 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
  const showReview=needsReviewTick(sel),showAbnormal=needsAbnormalTick(sel);
  // The ticks belong to the selection they were given for: any change of selection clears them.
  const changeSelection=(next:Set<string>)=>{setSelected(next);setTicks({reviewConfirmed:false,abnormalAcknowledged:false});};
- const selectable=useMemo(()=>rows.filter(r=>r.versionId&&(tab!=="ACTION"||canShowOnPatient(r))),[rows,tab]);
+ const selectable=useMemo(()=>rows.filter(r=>canShowOnPatient(r)),[rows]);
  // ACTION: a row can be ticked if it can be shown on the patient (has a PDF version) or, for people who may revise, if it can be discarded (a HALOS-only row too).
  const canDiscard=!!data?.canRevise;
- const discardable=(r:BoardRow)=>canDiscard&&((!!r.versionId&&r.rowVersion!==null)||!!r.halosRowId);
+ const discardable=(r:BoardRow)=>canDiscard&&!r.hisDelivery&&((!!r.versionId&&r.rowVersion!==null)||!!r.halosRowId);
  const checkable=useMemo(()=>tab==="ACTION"?rows.filter(r=>canShowOnPatient(r)||discardable(r)):selectable,[tab,rows,selectable,canDiscard]);// eslint-disable-line react-hooks/exhaustive-deps
  const discardSel=useMemo(()=>rows.filter(r=>selected.has(r.key)&&discardable(r)),[rows,selected,canDiscard]);// eslint-disable-line react-hooks/exhaustive-deps
  const toggle=(key:string,on:boolean)=>{const n=new Set(selected);if(on)n.add(key);else n.delete(key);changeSelection(n);};
@@ -96,16 +97,17 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
      {(tab==="READY"||tab==="ACTION")&&<th scope="col"><label className="table-check-target"><input type="checkbox" aria-label="เลือกทั้งหมดที่พร้อมในหน้านี้" disabled={!checkable.length} checked={checkable.length>0&&checkable.every(r=>selected.has(r.key))} onChange={e=>changeSelection(e.target.checked?new Set(checkable.map(r=>r.key)):new Set())}/></label></th>}
      <th scope="col">LN · HN</th><th scope="col">ที่มา</th><th scope="col">{tab==="ACTION"?"เหตุผลที่ยังส่งไม่ได้":"สถานะ"}</th><th scope="col">ไฟล์</th><th scope="col">{tab==="SENT"?"เปิด":"ดำเนินการ"}</th></tr></thead>
      <tbody>{rows.length?rows.map(r=><tr key={r.key} className={selected.has(r.key)?"selected":""}>
-      {(tab==="READY"||tab==="ACTION")&&<td>{(tab==="READY"||canShowOnPatient(r)||discardable(r))&&<label className="table-check-target"><input type="checkbox" aria-label={`เลือก ${r.ln??r.hn??r.key}`} checked={selected.has(r.key)} onChange={e=>toggle(r.key,e.target.checked)}/></label>}</td>}
+      {(tab==="READY"||tab==="ACTION")&&<td>{(canShowOnPatient(r)||(tab==="ACTION"&&discardable(r)))&&<label className="table-check-target"><input type="checkbox" aria-label={`เลือก ${r.ln??r.hn??r.key}`} checked={selected.has(r.key)} onChange={e=>toggle(r.key,e.target.checked)}/></label>}</td>}
       <td>{who(r)}</td><td>{source(r)}</td>
       <td>{tab==="ACTION"?<ul className="help board-reasons">{r.reasons.map(x=><li key={x.code}>{reasonLabel(x.code)}{x.fixHref&&<> · <Link href={x.fixHref}>แก้ที่นี่</Link></>}</li>)}</ul>
-       :tab==="READY"?<><Status tone="warning">รอส่ง HIS</Status>{r.abnormal&&<span className="badge danger">ผิดปกติ</span>}{!r.reviewed&&<span className="badge warning">ยังไม่ตรวจรับ</span>}</>
-       :<><Status tone="good">ส่งแล้ว</Status><HisDeliveryBadge status={r.hisDelivery}/>{r.abnormal&&<span className="badge danger">ผิดปกติ</span>}</>}</td>
+       :tab==="READY"?<span className="board-status">{r.hisDelivery?<HisDeliveryBadge status={r.hisDelivery}/>:<Status tone="warning">รอส่ง HIS</Status>}{r.abnormal&&<span className="badge danger">ผิดปกติ</span>}{!r.reviewed&&<span className="badge warning">ยังไม่ตรวจรับ</span>}</span>
+       :<span className="board-status">{r.hisDelivery?<HisDeliveryBadge status={r.hisDelivery} showError/>:<Status tone="good">ส่งแล้ว</Status>}{r.abnormal&&<span className="badge danger">ผิดปกติ</span>}</span>}</td>
       <td>{r.pdfHref?<PdfPreviewButton src={r.pdfHref} title="เปิด PDF"/>:<span className="muted">—</span>}</td>
       <td><span className="action-bar">
-       {tab==="READY"&&r.versionId&&<button type="button" className="button small" disabled={sending} onClick={()=>sendRow(r)}>ส่ง HIS</button>}
+       {tab==="READY"&&r.versionId&&!r.hisDelivery&&<button type="button" className="button small" disabled={sending} onClick={()=>sendRow(r)}>ส่ง HIS</button>}
        {tab==="ACTION"&&r.versionId&&r.reasons.some(x=>x.code==="UNLINKED")&&<button type="button" className="button small" onClick={()=>setDialog({kind:"pick",row:r})}>เลือกผู้ป่วย</button>}
-       {tab==="ACTION"&&data?.canRevise&&<button type="button" className="button small secondary" onClick={()=>setDialog({kind:"discard",row:r})}>ทิ้งรายการนี้</button>}
+       {tab==="ACTION"&&data?.canRevise&&!r.hisDelivery&&<button type="button" className="button small secondary" onClick={()=>setDialog({kind:"discard",row:r})}>ทิ้งรายการนี้</button>}
+       {tab!=="READY"&&r.versionId&&r.hisDelivery&&!["ATTESTED","NOT_APPLICABLE"].includes(r.hisDelivery.code)&&<ResendHisButton versionId={r.versionId} onQueued={m=>{setNotice(m);void load();}} onError={setSendError}/>}
        {r.versionId&&<Link className="button small secondary" href={`/results/${r.versionId}`}>รายละเอียด</Link>}
       </span></td></tr>)
       :<tr><td colSpan={cols} className="empty-row">{loading?"กำลังโหลด…":empty}</td></tr>}</tbody></table></div>}

@@ -60,12 +60,25 @@ it('a confirmCompletion result appears in READY with reviewed=true and a pdfHref
  }finally{vi.unstubAllEnvs();await f.close();}
 },300000);
 
-it('after sendToHis the row moves to SENT and counts change by one; each row is in exactly one tab; q and paging work',async()=>{
+it('after sendToHis the row stays in READY while the files are written, moves to SENT when written, to ACTION when the send failed; each row is in exactly one tab; q and paging work',async()=>{
  const f=await task3Fixture();try{
   const a=await pending(f,0),b=await pending(f,1),u=await unlinked(f,2);
   const before=(await board(f,'READY')).counts;
   expect(before).toEqual({ACTION:1,READY:2,SENT:0});
   expect((await send(f,b.id)).items[0].outcome).toBe('CertifiedReleased');
+  // Owner 2026-11-11 (option ข.): "ส่งแล้ว" means the PDF, .res and .ok were written. Until the job has a receipt the row is "กำลังส่ง HIS" in READY.
+  const sending=await board(f,'READY');
+  expect(sending.counts).toEqual(before);
+  expect(sending.rows.find(r=>r.versionId===b.id)?.hisDelivery?.code).toBe('QUEUED');
+  const releaseId=(await f.db.query<{id:string}>("SELECT id FROM result_release WHERE version_id=$1 AND state='Active'",[b.id])).rows[0].id;
+  const receipt=async(result:Record<string,unknown>)=>{const j=(await f.db.query<{id:string}>("INSERT INTO job_outbox(kind,payload,idempotency_key) VALUES('result_release_completed',$1,$2) RETURNING id",[JSON.stringify({releaseId,resend:true}),'test-resend:'+randomUUID()])).rows[0].id;
+   await f.db.query("UPDATE job_outbox SET created_at=clock_timestamp() WHERE id=$1",[j]);await f.db.query('INSERT INTO integration_job_receipt(outbox_id,result) VALUES($1,$2)',[j,result]);};
+  // The send failed: ACTION, with the reason and a link to the HIS outbound settings when the folder is the cause.
+  await receipt({sent:false,error:'SHARE_PATH_NOT_FOUND',resend:true});
+  const failed=await board(f,'ACTION');
+  expect(failed.counts).toEqual({ACTION:before.ACTION+1,READY:before.READY-1,SENT:0});
+  expect(failed.rows.find(r=>r.versionId===b.id)?.reasons).toEqual([{code:'HIS_SEND:SHARE_PATH_NOT_FOUND',fixHref:'/settings?key=his_outbound'}]);
+  await receipt({sent:true,sentAt:new Date().toISOString(),pdfName:'x.pdf',resName:'x.res',okName:'x.ok',resend:true});
   const after=await board(f,'SENT');
   expect(after.counts).toEqual({ACTION:before.ACTION,READY:before.READY-1,SENT:before.SENT+1});
   expect(after.rows.map(r=>r.versionId)).toEqual([b.id]);

@@ -38,7 +38,8 @@ export const outcomeTone=(o:SendOutcome)=>o.outcome==="CertifiedReleased"?"good"
 
 /** Owner 2026-11-09: any external PDF on the board can be marked "มีผลใน HIS แล้ว". An unlinked one is linked first by the clean rule (HN + lab number, one attempt); if that
  *  is not clean the reason comes back and a person picks the patient. */
-export const canShowOnPatient=(r:{versionId:string|null;reasons:{code:string}[]})=>!!r.versionId;
+/** A certified result (it carries an HIS delivery status) is never shown-on-patient, sent again by "ส่ง HIS" or discarded from the board. */
+export const canShowOnPatient=(r:{versionId:string|null;reasons:{code:string}[];hisDelivery?:unknown})=>!!r.versionId&&!r.hisDelivery;
 export const ATTEST_ERROR_TEXT:Record<string,string>={
  HIS_ATTESTATION_LINKED_RESULT_REQUIRED:"ยังไม่ได้เชื่อมโยงกับผู้ป่วย — กด “เลือกผู้ป่วย” ก่อน",
  HIS_ATTESTATION_IDENTITY_MISMATCH:"ข้อมูลใน PDF ต่างจากผู้ป่วยที่เชื่อมไว้ — ถ้าตรวจแล้วว่าเป็นคนเดียวกัน เปิด “รายละเอียด” แล้วติ๊ก “มีผลใน HIS แล้ว” ได้เลย",
