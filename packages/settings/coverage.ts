@@ -56,7 +56,7 @@ export const SETTINGS_COVERAGE_BASELINE:CoverageItem[]=[
  i(6,"รูปแบบ Lab ID / Suffix / ระดับ Repeat","§13.2 #6 (OD-03)",null,"packages/lab/rules.ts","HOLD","P4","OD-03 (ใช้ Genomic-CBH parity แบบจำลอง)"),
  i(6,"รหัสเหตุผล Repeat/Redraw + ข้อความที่ ANC เห็น","§13.2 #6 (OD-11)",null,"REDRAW_REASONS / REPEAT_REASONS (โค้ด)","HOLD","P4","OD-11"),
  i(6,"รายการตรวจตอนรับตัวอย่างเจาะซ้ำ","§13.2 #6",null,"specimen_round.receipt_check","Partial","P4","บังคับ identity+label ในโค้ด ยังไม่เป็น Setting"),
- i(6,"เกณฑ์เตือนรอบที่รอรับนานเกิน / TAT","§13.2 #6","alert_days",null,"Missing","P4","ยังไม่มีเกณฑ์เตือนแบบตั้งค่าได้"),
+ i(6,"เกณฑ์เตือนรอบที่รอรับนานเกิน / TAT","§13.2 #6","alert_days","tat.businessDays / tat.warnDaysLeft / business_holiday","Implemented","Dashboard","Owner 2026-11-11: 8 วันทำการจากวันที่ Lab รับตัวอย่าง เตือนเมื่อเหลือ ≤ 2 วัน วันหยุดซิงก์จาก iCal"),
  i(6,"Clinical rule set","§13.2 #6 (OD-08)",null,"RULE_VERSION (โค้ด)","HOLD","P2","OD-08"),
  i(6,"ผู้มีสิทธิ์ลงทะเบียนโดย Lab + หน่วยงานที่เห็นเคส","§13.2 #6 (OD-25)",null,null,"HOLD","P2","OD-25"),
  i(6,"นโยบายเมื่อ Gate รอการตัดสินใจ","—",null,"laboratory.pendingGovernanceGate","Implemented","P4","HOLD หรือข้อมูลจำลองพร้อมป้าย"),

@@ -79,6 +79,10 @@ export const SETTING_FORMS:Record<SettingKey,SettingForm>={
   {name:"approvalReference",label:"เลขที่เอกสารอนุมัติ",help:"อ้างอิงเอกสารการอนุมัติทางคลินิกของโรงพยาบาล",kind:"text",max:300}]},
  report_output:{key:"report_output",title:"ชื่อไฟล์รายงานเมื่อดาวน์โหลด",summary:"รูปแบบชื่อไฟล์ PDF สำหรับดาวน์โหลดและส่ง CFS — รายการที่เตรียมส่งแล้วคงชื่อเดิม",phase:"Task 3",fields:[
   {name:"downloadNameTemplate",label:"รูปแบบชื่อไฟล์",help:"ใช้ได้: {run} (เช่น run042569 จาก Run004/2026) {hisLn} {lnHalos} {sampleId} {hn} {patientName} {reportDate} {template} {version} — ต้องมี {hisLn} หรือ {sampleId} ระบบแทนอักขระที่ Windows ไม่รองรับด้วย _ และเติม (2), (3) เมื่อชื่อซ้ำ",kind:"text",max:160}]},
+ tat:{key:"tat",title:"TAT และวันทำการ",summary:"เกณฑ์ TAT ของ Lab นับเป็นวันทำการจากวันที่ Lab รับตัวอย่าง ไม่นับเสาร์-อาทิตย์และวันหยุดจากปฏิทิน iCal",phase:"Dashboard",fields:[
+  {name:"businessDays",label:"TAT (วันทำการ)",help:"นับจากวันถัดจากวันที่ Lab รับตัวอย่าง 1–60 วันทำการ",kind:"number",unit:"วันทำการ",min:1,max:60},
+  {name:"warnDaysLeft",label:"เตือนใกล้ครบกำหนดเมื่อเหลือ",help:"0–30 วันทำการ",kind:"number",unit:"วันทำการ",min:0,max:30},
+  {name:"holidayIcalUrl",label:"ปฏิทินวันหยุด (iCal URL)",help:"ลิงก์ https ของปฏิทิน Google แบบ iCal (ที่อยู่สาธารณะหรือที่อยู่ลับ) ค่าเริ่มต้นคือวันหยุดราชการไทยของ Google",kind:"text",max:500}]},
  go_live_cutoff:{key:"go_live_cutoff",title:"วันเริ่มใช้ระบบ",summary:"กำหนดขอบเขตวันที่สำหรับพิจารณาข้อมูลย้อนหลัง พร้อมบันทึกผู้จัดทำและผู้ตรวจสอบ",phase:"ข้อมูลย้อนหลัง",fields:[
   {name:"cutoff",label:"วันที่เริ่มใช้ระบบ",help:"แก้ไขไม่ได้หลังมีข้อมูลย้อนหลังที่ผูกกับวันที่นี้แล้ว",kind:"date"},
   {name:"impactReportHash",label:"SHA-256 ของรายงานผลกระทบ (ไม่บังคับ)",help:"ไม่บังคับ — ถ้ามีไฟล์รายงานผลกระทบ ใส่รหัส SHA-256 (64 ตัวอักษร) เพื่อเก็บเป็นหลักฐาน; เว้นว่างได้",kind:"hash",optional:true}]}

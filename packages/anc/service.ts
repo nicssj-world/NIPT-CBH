@@ -113,14 +113,22 @@ export type ProjectionResult={tab_counts:NonNullable<Dashboard['queue']['tabCoun
 export async function runProjection(db:Queryable,sql:string,i:ProjectionInput):Promise<ProjectionResult>{
  return (await db.query<ProjectionResult>(sql,[i.unitIds,i.asOf.toISOString(),i.fy,i.unitId??null,i.kpi??null,i.stage??null,i.flag??null,i.tab,i.q.trim().toLowerCase(),i.cursor?.u??null,i.cursor?.d??null,i.cursor?.id??null,i.limit,i.offset])).rows[0];
 }
+/** Who may read the ANC overview and which units: ANC roles (or the system Admin) with case.read and result.read.released per unit.
+ *  Shared by the queue (`dashboard`) and the insights panel (anc/insights.ts) so both read exactly the same scope. */
+export async function ancUnitScope(db:Queryable,user:Staff,unitId?:string){
+ await assertSession(db,user);
+ if(!user.roles.some(role=>role==='ANC_NURSE'||role==='ANC_SUPERVISOR'||role==='APP_ADMIN'))throw new LabError('FORBIDDEN',403);
+ // A scope probe is safe: policy needs a unit for U cells; it does not invent a new permission.
+ if(!authorize(user,'case.read',{unitId:user.unitIds[0]??'scope-probe',origin:'ANC'},'read')&&!user.unitIds.some(id=>authorize(user,'case.read',{unitId:id,origin:'ANC'},'read')))throw new LabError('FORBIDDEN',403);
+ const units=(await db.query<{id:string;name:string}>('SELECT id,name FROM unit ORDER BY name,id')).rows.filter(u=>authorize(user,'case.read',{unitId:u.id,origin:'ANC'},'read')&&authorize(user,'result.read.released',{unitId:u.id,origin:'ANC'},'read'));
+ if(unitId&&!units.some(u=>u.id===unitId))throw new LabError('FORBIDDEN',403);
+ return units;
+}
 export async function dashboard(db:Queryable,user:Staff,input:unknown={}):Promise<Dashboard> {
  await assertSession(db,user);
  if(!user.roles.some(role=>role==='ANC_NURSE'||role==='ANC_SUPERVISOR'||role==='APP_ADMIN'))throw new LabError('FORBIDDEN',403);
  const f=filterSchema.parse(input);
- // A scope probe is safe: policy needs a unit for U cells; it does not invent a new permission.
- if(!authorize(user,'case.read',{unitId:user.unitIds[0]??'scope-probe',origin:'ANC'},'read')&&!user.unitIds.some(id=>authorize(user,'case.read',{unitId:id,origin:'ANC'},'read')))throw new LabError('FORBIDDEN',403);
- const units=(await db.query<{id:string;name:string}>('SELECT id,name FROM unit ORDER BY name,id')).rows.filter(u=>authorize(user,'case.read',{unitId:u.id,origin:'ANC'},'read')&&authorize(user,'result.read.released',{unitId:u.id,origin:'ANC'},'read'));
- if(f.unitId&&!units.some(u=>u.id===f.unitId))throw new LabError('FORBIDDEN',403);
+ const units=await ancUnitScope(db,user,f.unitId);
  const now=(await db.query<{now:Date|string}>('SELECT CURRENT_TIMESTAMP AS now')).rows[0].now;
  const date=new Date(now),fy=f.fy??fiscalYear(date.toISOString());
  // Pin "now" to the first page's time while someone is paging (never in the future, never older than six hours).

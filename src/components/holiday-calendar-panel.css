@@ -1,0 +1,9 @@
+/* Settings > TAT และวันทำการ: holiday calendar state and list (tokens from globals.css). */
+.holiday-panel .holiday-state{display:grid;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));gap:12px 24px;margin:12px 0}
+.holiday-panel .holiday-state dt{font-size:.8125rem;font-weight:600;color:var(--color-muted)}
+.holiday-panel .holiday-state dd{margin:2px 0 0;font-variant-numeric:tabular-nums}
+.holiday-panel .holiday-error{display:flex;gap:6px;align-items:flex-start;color:var(--color-danger)}
+.holiday-panel .holiday-error svg{flex:none;width:18px;height:18px;margin-top:3px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.holiday-panel details{margin-top:12px}
+.holiday-panel summary{cursor:pointer;font-weight:600;min-height:44px;display:flex;align-items:center}
+.holiday-panel .holiday-table td:first-child{white-space:nowrap}

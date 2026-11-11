@@ -76,7 +76,7 @@ describe('administrator saves system configuration in one step',()=>{
  });
 
  it('clinical, consent, release and result rules keep their own approval; production authorisation of HIS outbound cannot be switched on by a direct save',async()=>{
-  expect(ADMIN_DIRECT_KEYS).toEqual(['general','security','notifications','report_output','his_inbound','his_outbound','laboratory']);
+  expect(ADMIN_DIRECT_KEYS).toEqual(['general','security','notifications','report_output','his_inbound','his_outbound','laboratory','tat']);
   for(const key of ['request_consent','doctor_registry','result_management','historical_backfill','report_interpretation','go_live_cutoff','storage_backup'])expect(isAdminDirectKey(key)).toBe(false);
   await expect(saveSystemSetting(db,admin,'report_interpretation',{...SETTINGS.report_interpretation.default,interpretationApproved:true})).rejects.toThrow('SETTING_REQUIRES_APPROVAL');
   await expect(saveSystemSetting(db,admin,'request_consent',{...SETTINGS.request_consent.default,mode:'ELECTRONIC'})).rejects.toThrow('SETTING_REQUIRES_APPROVAL');

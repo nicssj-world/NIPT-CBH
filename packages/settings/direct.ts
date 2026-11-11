@@ -13,7 +13,7 @@ import {cancelObsoleteInboundScans} from '../jobs/obsolete-scans';
  * Not system configuration (they keep their own two-person rules): consent/request mode, doctor registry, result management rules, historical
  * backfill, report interpretation approval and the go-live cutoff. Production authorisation of HIS outbound also keeps its approval.
  */
-export const ADMIN_DIRECT_KEYS=['general','security','notifications','report_output','his_inbound','his_outbound','laboratory'] as const;
+export const ADMIN_DIRECT_KEYS=['general','security','notifications','report_output','his_inbound','his_outbound','laboratory','tat'] as const;
 export type AdminDirectKey=typeof ADMIN_DIRECT_KEYS[number];
 export const isAdminDirectKey=(key:string):key is AdminDirectKey=>(ADMIN_DIRECT_KEYS as readonly string[]).includes(key);
 export const DEFAULT_REASON='ผู้ดูแลระบบบันทึกการตั้งค่า';

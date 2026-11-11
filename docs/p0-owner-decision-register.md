@@ -82,6 +82,14 @@ Details and tests are in [p2-paper-consent.md](p2-paper-consent.md).
 
 Migration 102 (forward only, synthetic only) adds the refusal rule. Migrations 099–101 are untouched.
 
+## Home dashboards for ANC and Lab (Owner 2026-11-11)
+
+- **Where:** the dashboard is the home page after login (`/`). ANC roles see the ANC dashboard; Lab roles see the Lab dashboard. No new step, approval or click is added; every block is read-only or a link to the page that owns the queue.
+- **ANC sees:** progress (the existing five groups and queue), an attention strip without a heading (`ผลความเสี่ยงสูง`, `GA เกิน 18 สัปดาห์`), results released in the last **14 days** with High Risk first (display only, no "informed" tick), and monthly statistics of the fiscal year including the number of High Risk results. The attention label is exactly "ผลความเสี่ยงสูง", with no clinical instruction appended.
+- **Lab sees:** queue per stage, Runs not yet released, TAT and specimens near or past it, specimens with GA over 18 weeks, and six months of QC failures, repeats and volumes.
+- **TAT:** **8 working days** counted from the day the Lab received the specimen; warn when **2 or fewer** working days remain. Saturdays, Sundays and holidays are not working days. Both numbers are in Settings › TAT และวันทำการ.
+- **Holidays:** synced from an iCal URL in Settings (default: Google's public Thai holiday calendar; the Production server has internet access). One sync covers whole years, so there is no schedule: the administrator presses "ซิงก์วันหยุดตอนนี้" yearly or when a special holiday is announced, and the Worker syncs once by itself only when a needed year is missing. Public holidays are kept; observances (วันสำคัญ) are not days off.
+
 ## External and physical tests (not Owner questions)
 
 - **Hospital IT / HIS (AL-6):**

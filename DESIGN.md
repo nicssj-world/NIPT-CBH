@@ -168,6 +168,11 @@ Noto Sans Thai (OFL), bundled locally through `@fontsource`; no font or CDN netw
 - **Lab registration dialog:** each LN/HN is matched with its PET as it is entered and listed with an icon and words (matched, not matched with the reason, duplicate); one confirm button registers only the matched entries and shows a summary of registered, not registered and the numbers to check. The Lab channel is paper only, so there is no consent choice.
 - **Shared primitives:** `Field` (label, help, error with `aria-describedby`), `Dialog`, `ErrorNotice`, `Status`, `Ln`, `Pager`, `ThaiDateInput`, `TableScroll` (`src/components/p2/shared.tsx`, `src/components/shared/`).
 - **Error versus empty:** a failed load shows the error and a retry, never an empty state beside it.
+- **Home dashboards (Owner 2026-11-11, `src/components/dashboard/`):** quiet panels (`.dash-panel`) with an h2, one muted note line and a dense table or list; no hero numbers, no card grids.
+  - *Attention strip* (`.dash-attention`): pill links with icon, words and count, only for counts above 0; each jumps to its panel. ANC: "ผลความเสี่ยงสูง", "GA เกิน 18 สัปดาห์". Lab: "เกินกำหนด TAT", "ใกล้ครบกำหนด", "GA เกิน 18 สัปดาห์".
+  - *Lab pipeline:* the existing stage signs in one row, left to right, with a sign-blue chevron between stages from 1200 px; stacked below.
+  - *TAT status:* icon + words — "เกินกำหนด N วันทำการ" (danger), "เหลือ N วันทำการ" / "ครบกำหนดวันนี้" (warning), "ภายในกำหนด". Dates are Buddhist Era.
+  - *Charts* (`MonthBars`): monthly columns on one axis, at most two series, bars ≤ 24 px with a 4 px rounded end, hairline grid, the latest value labelled, legend only for two series, a hover / keyboard readout, and "ดูเป็นตาราง" under every chart. Series colours are chart-local and validated (light `#2b8fd0` / `#eb6834`, dark `#3987e5` / `#d95926`); text never uses them. Chart width is capped at 40 rem; chart text is enlarged below 600 px.
 
 ## Do's and Don'ts
 

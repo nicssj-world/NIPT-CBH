@@ -7,7 +7,7 @@ export const BE_OFFSET=543;
 /** ISO years at or above this are almost certainly a BE year typed into a CE field (2026 CE = 2569 BE). */
 export const BE_YEAR_AS_CE_THRESHOLD=2400;
 const ISO=/^(\d{4})-(\d{2})-(\d{2})$/;
-const THAI_MONTH_SHORT=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'] as const;
+export const THAI_MONTH_SHORT=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'] as const;
 export const THAI_MONTH_LONG=['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'] as const;
 
 const daysInMonth=(year:number,month:number)=>new Date(Date.UTC(year,month,0)).getUTCDate();

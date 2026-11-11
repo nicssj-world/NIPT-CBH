@@ -16,7 +16,7 @@ Installation-owned = operator/deployment responsibility; Locked = intentional fi
 | 3 | ANC Doctors | 1 | 1 | 0 | 0 | 0 | 0 | 0 |
 | 4 | User / Role / Permission | 1 | 0 | 0 | 0 | 1 | 0 | 3 |
 | 5 | HIS Inbound | 8 | 1 | 0 | 0 | 1 | 0 | 2 |
-| 6 | Laboratory | 1 | 3 | 1 | 0 | 11 | 0 | 0 |
+| 6 | Laboratory | 2 | 3 | 0 | 0 | 11 | 0 | 0 |
 | 7 | Result Management | 15 | 1 | 0 | 0 | 8 | 0 | 1 |
 | 8 | HIS Outbound / CFS | 10 | 0 | 0 | 0 | 2 | 0 | 0 |
 | 9 | Storage / NAS / Backup | 0 | 1 | 0 | 0 | 0 | 5 | 0 |
@@ -98,7 +98,7 @@ Installation-owned = operator/deployment responsibility; Locked = intentional fi
 | รูปแบบ Lab ID / Suffix / ระดับ Repeat | §13.2 #6 (OD-03) | — | packages/lab/rules.ts | HOLD | P4 | Existing operational receipt/lineage/suffix guards in 084/090 retained; not configurable from Admin |
 | รหัสเหตุผล Repeat/Redraw + ข้อความที่ ANC เห็น | §13.2 #6 (OD-11) | — | REDRAW_REASONS / REPEAT_REASONS (โค้ด) | HOLD | P4 | OD-11 |
 | รายการตรวจตอนรับตัวอย่างเจาะซ้ำ | §13.2 #6 | — | specimen_round.receipt_check | Partial | P4 | บังคับ identity+label ในโค้ด ยังไม่เป็น Setting |
-| เกณฑ์เตือนรอบที่รอรับนานเกิน / TAT | §13.2 #6 | alert_days | — | Missing | P4 | ยังไม่มีเกณฑ์เตือนแบบตั้งค่าได้ |
+| เกณฑ์เตือนรอบที่รอรับนานเกิน / TAT | §13.2 #6 | alert_days | tat.businessDays / tat.warnDaysLeft / business_holiday | Implemented | Dashboard | Owner 2026-11-11: 8 วันทำการจากวันที่ Lab รับตัวอย่าง เตือนเมื่อเหลือ ≤ 2 วัน วันหยุดซิงก์จาก iCal |
 | Clinical rule set | §13.2 #6 (OD-08) | — | RULE_VERSION (โค้ด) | HOLD | P2 | Operational P2 evidence/review guard in 088 exists; clinical acceptance and rule changes remain governed |
 | ผู้มีสิทธิ์ลงทะเบียนโดย Lab + หน่วยงานที่เห็นเคส | §13.2 #6 (OD-25) | — | — | HOLD | P2 | OD-25 |
 | นโยบายเมื่อ Gate รอการตัดสินใจ | — | — | laboratory.pendingGovernanceGate | Implemented | P4 | HOLD หรือข้อมูลจำลองพร้อมป้าย |

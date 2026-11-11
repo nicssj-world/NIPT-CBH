@@ -21,7 +21,7 @@ export function riskOf(p:Parsed):Risk{
  return !p.needsManualReview&&fields.every(k=>p.results[k]?.method==='ANCHORED'&&p.results[k]?.value===(trisomy.includes(k as typeof trisomy[number])?'Low Risk':'Not Detected'))?'LOW':'UNKNOWN';
 }
 const val=(k:string)=>`v.parsed->'results'->'${k}'->>'value'`,method=(k:string)=>`v.parsed->'results'->'${k}'->>'method'`;
-const riskSql=`CASE WHEN v.template_kind NOT IN ('SINGLETON','TWIN') THEN 'UNKNOWN'
+export const riskSql=`CASE WHEN v.template_kind NOT IN ('SINGLETON','TWIN') THEN 'UNKNOWN'
  WHEN (${trisomy.map(k=>`${val(k)}='High Risk'`).join(' OR ')}) OR (v.template_kind='SINGLETON' AND (${sca.map(k=>`${val(k)}='Detected'`).join(' OR ')})) THEN 'HIGH'
  WHEN coalesce(v.parsed->>'needsManualReview','true')='false' AND ${trisomy.map(k=>`${val(k)}='Low Risk' AND ${method(k)}='ANCHORED'`).join(' AND ')}
  AND (v.template_kind='TWIN' OR (${sca.map(k=>`${val(k)}='Not Detected' AND ${method(k)}='ANCHORED'`).join(' AND ')})) THEN 'LOW' ELSE 'UNKNOWN' END`;

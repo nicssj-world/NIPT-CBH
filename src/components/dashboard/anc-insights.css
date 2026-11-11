@@ -1,0 +1,24 @@
+/* ANC dashboard panels (tablet-first): attention strip, recent results, GA over 18 weeks. */
+.anc-insights{display:grid;gap:var(--space-4);min-width:0;transition:opacity .2s ease-out}
+.anc-insights.is-stale{opacity:.7}
+.anc-urgent{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.dash-attention .ui-icon,.dash-status .ui-icon{display:inline-flex;width:18px;height:18px}
+.dash-attention .ui-icon svg,.dash-status .ui-icon svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.anc-insight-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,26rem),1fr));gap:var(--space-4);align-items:start}
+.anc-list{display:grid;margin:0;padding:0;list-style:none}
+.anc-list li{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) auto;align-items:center;gap:6px 16px;padding:10px 0;border-top:1px solid var(--color-line)}
+.anc-list li:first-child{border-top:0}
+.anc-list li.is-high .anc-list-who strong{color:var(--color-danger)}
+.anc-list-who,.anc-list-what{display:grid;gap:2px;min-width:0}
+.anc-list-who strong{overflow-wrap:break-word}
+.anc-list .cell-sub{font-size:.8125rem;color:var(--color-muted)}
+.dash-status.neutral{color:var(--color-ink);font-weight:500}
+.anc-skeleton{grid-template-columns:repeat(3,1fr);gap:12px}
+.anc-skeleton span{height:56px;border-radius:8px;background:var(--raised);animation:anc-pulse 1.4s ease-in-out infinite}
+@keyframes anc-pulse{50%{opacity:.55}}
+@media(max-width:600px){
+ .anc-list li{grid-template-columns:minmax(0,1fr) auto}
+ .anc-list-what{grid-column:1/-1;grid-row:2}
+ .anc-skeleton{grid-template-columns:1fr}
+}
+@media(prefers-reduced-motion:reduce){.anc-skeleton span{animation:none}.anc-insights{transition:none}}

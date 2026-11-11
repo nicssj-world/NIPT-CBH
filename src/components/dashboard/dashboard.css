@@ -1,0 +1,32 @@
+/* Home dashboards (Owner 2026-11-11), ANC and Lab. Operate mode: quiet panels, dense tables, status as icon + word. Tokens from globals.css. */
+.dash-panel{display:grid;gap:12px;min-width:0}
+.dash-panel-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:2px 16px}
+.dash-panel-head h2{margin:0;font-size:1.25rem;line-height:1.5}
+.dash-panel-note{grid-column:1;margin:0;font-size:.8125rem;line-height:1.55;color:var(--color-muted)}
+.dash-panel-head .button{grid-column:2;grid-row:1}
+.dash-empty{margin:0;padding:12px 0;color:var(--color-muted)}
+.dash-note{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0;padding:8px 12px;border-radius:8px;font-size:.875rem;line-height:1.55}
+.dash-note.warn{background:var(--warn-bg);color:var(--color-warning)}
+.dash-note a{color:inherit;font-weight:700}
+.dash-status{display:inline-flex;align-items:center;gap:6px;font-weight:600;white-space:nowrap}
+.dash-status svg{flex:none}
+.dash-status.bad{color:var(--color-danger)}
+.dash-status.warn{color:var(--color-warning)}
+.dash-status.good{color:var(--color-success);font-weight:500}
+.dash-charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr));gap:24px 32px}
+.dash-quality-table caption{caption-side:top;text-align:left;font-weight:600;padding:0 0 8px;color:var(--color-ink)}
+.dash-quality-table th[scope="row"]{font-weight:500;white-space:nowrap}
+.dash-quality-table .cell-sub{display:block}
+.dash-table-tat td{vertical-align:top}
+
+/* Attention strip: one line of counts, each a link to its panel. */
+.dash-attention{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}
+.dash-attention a{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:6px 14px;border-radius:999px;border:1px solid var(--color-line);background:var(--color-surface);color:var(--color-ink);text-decoration:none;font-size:.9375rem;font-weight:600}
+.dash-attention a:hover{border-color:var(--sign-edge);background:var(--sign-soft)}
+.dash-attention .n{font-variant-numeric:tabular-nums;font-weight:700}
+.dash-attention .bad{color:var(--color-danger);border-color:color-mix(in srgb,var(--color-danger) 45%,transparent);background:var(--bad-bg)}
+.dash-attention .warn{color:var(--color-warning);border-color:color-mix(in srgb,var(--color-warning) 40%,transparent);background:var(--warn-bg)}
+.dash-attention .calm{color:var(--color-muted);font-weight:500}
+.dash-quality-table :is(th,td).num,.workspace .dash-quality-table.data-table thead th.num,.workspace .dash-panel .data-table thead th.num,.workspace .dash-chart .data-table thead th.num{text-align:right}
+/* Chart beside its table on wide screens; the chart keeps a reading size instead of growing with the page. */
+.dash-split{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,24rem),1fr));gap:24px 32px;align-items:start}

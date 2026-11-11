@@ -12,6 +12,8 @@ const operationalDefaults = process.env.NIPT_MODE === "operational";
 // Must equal packages/readygen/interpretation RULESET_SHA256 (asserted by unit test); kept literal so this module stays dependency-free.
 export const REPORT_RULESET_SHA256 = "05c7c43c4e0078004155a14f0d87181153b10684861f80b621a5e5e283e9f3a0";
 export const REPORT_PRODUCT_CHOICES = ["NONE", "HNZ0010", "HNZ0011", "HNZ0020", "HNZ0021", "HNZ0040", "HNZ0041", "HNZ0050", "HNZ0051"] as const;
+/** Google Calendar public "Holidays in Thailand" (Thai language), all-day events; observances are filtered out by packages/calendar/ics. */
+export const GOOGLE_THAI_HOLIDAYS_ICAL = "https://calendar.google.com/calendar/ical/th.th%23holiday%40group.v.calendar.google.com/public/basic.ics";
 export const SETTINGS = {
   general: { category: "General", risk: "GENERAL", schema: z.object({ systemName: z.string().min(1).max(80), timezone: z.literal("Asia/Bangkok") }).strict(), default: { systemName: "NIPT CBH", timezone: "Asia/Bangkok" } },
   // OD-06 consumer (2026-10-18): templateVersion selects the installed, hash-verified DCC template set used by the ANC form preview.
@@ -44,6 +46,9 @@ export const SETTINGS = {
     noCallRenderingApproved: z.boolean(), approvalReference: z.string().max(300).refine(v => !/[\r\n\0]/.test(v), "REFERENCE_INVALID") }).strict(),
     default: { rulesetId: "CBH-READYGEN-REF", rulesetVersion: "1.0.0", rulesetSha256: REPORT_RULESET_SHA256, interpretationApproved: false, singletonApprovedProduct: "NONE", twinApprovedProduct: "NONE", noCallRenderingApproved: false, approvalReference: "" } },
   report_output: { category: "Result Management", risk: "GENERAL", schema: z.object({ downloadNameTemplate: z.string().min(5).max(160).refine(v=>templateProblems(v).length===0,'DOWNLOAD_NAME_TEMPLATE_INVALID') }).strict(), default: { downloadNameTemplate: DEFAULT_DOWNLOAD_TEMPLATE } },
+  // Owner 2026-11-11: Lab TAT = 8 working days from Lab receipt (Sat/Sun and synced holidays excluded), warning at 2 or fewer left.
+  // holidayIcalUrl is read only by packages/calendar/holiday-sync (https, size and time limited); the default is Google's public Thai holiday calendar.
+  tat: { category: "Laboratory", risk: "GENERAL", schema: z.object({ businessDays: z.number().int().min(1).max(60), warnDaysLeft: z.number().int().min(0).max(30), holidayIcalUrl: z.string().min(12).max(500).refine(v => /^https:\/\/[^\s]+$/.test(v), "ICAL_URL_HTTPS_REQUIRED") }).strict(), default: { businessDays: 8, warnDaysLeft: 2, holidayIcalUrl: GOOGLE_THAI_HOLIDAYS_ICAL } },
   go_live_cutoff: { category: "Result Management", risk: "CLINICAL", schema: z.object({ cutoff: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), impactReportHash: z.string().regex(/^([a-f0-9]{64})?$/).optional() }).strict(), default: null }
 } as const;
 export type SettingKey = keyof typeof SETTINGS;

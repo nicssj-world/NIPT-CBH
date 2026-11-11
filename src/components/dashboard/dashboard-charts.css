@@ -1,0 +1,30 @@
+/* Dashboard charts (dataviz method). Series colours validated with validate_palette.js:
+   light #2b8fd0 / #eb6834 on #fff, dark #3987e5 / #d95926 on #122130 (all checks pass). Text never wears a series colour. */
+.dash-chart{--series-1:#2b8fd0;--series-2:#eb6834;--grid:var(--color-line);margin:0;display:grid;gap:6px;min-width:0;max-width:40rem}
+html[data-theme="dark"] .dash-chart{--series-1:#3987e5;--series-2:#d95926}
+@media (prefers-color-scheme:dark){:root:where(:not([data-theme="light"])) .dash-chart{--series-1:#3987e5;--series-2:#d95926}}
+.dash-chart figcaption{display:grid;gap:2px}
+.dash-chart figcaption strong{font-size:1rem;font-weight:600;line-height:1.5}
+.dash-chart-note{font-size:.8125rem;color:var(--color-muted);line-height:1.55}
+.dash-legend{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0;padding:0;list-style:none;font-size:.8125rem;color:var(--color-muted)}
+.dash-legend li{display:inline-flex;align-items:center;gap:6px}
+.dash-key{width:12px;height:12px;border-radius:3px;background:var(--series-1)}
+.dash-key.s2,.dash-line.s2{background:var(--series-2)}
+.dash-line{display:inline-block;width:12px;height:2px;margin-right:6px;vertical-align:middle;background:var(--series-1);border-radius:1px}
+.dash-readout{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0;min-height:1.6em;font-size:.875rem;color:var(--color-muted);line-height:1.6}
+.dash-readout strong{color:var(--color-ink);font-weight:700;margin-right:2px}
+.dash-svg{width:100%;height:auto;display:block;overflow:visible}
+.dash-svg text{font-family:inherit;font-size:12px;fill:var(--color-muted);font-variant-numeric:tabular-nums}
+.dash-grid line{stroke:var(--grid);stroke-width:1}
+.dash-base{stroke:var(--input-line);stroke-width:1}
+.dash-bar{fill:var(--series-1)}
+.dash-bar.s2{fill:var(--series-2)}
+.dash-hit{fill:transparent}
+.dash-col{outline:none;cursor:default}
+.dash-col.on .dash-hit,.dash-col:focus-visible .dash-hit{fill:var(--raised)}
+.dash-col:focus-visible .dash-hit{stroke:var(--color-focus);stroke-width:2}
+.dash-value{fill:var(--color-ink)!important;font-weight:700}
+.dash-col.on .dash-x{fill:var(--color-ink)}
+.dash-table summary{cursor:pointer;font-size:.875rem;font-weight:600;color:var(--color-brand);min-height:44px;display:flex;align-items:center}
+.dash-table .data-table td,.dash-table .data-table th{padding-block:6px}
+@media(max-width:600px){.dash-svg text{font-size:19px}}

@@ -250,3 +250,8 @@ GRANT SELECT(id,user_id,revoked_at,idle_expires_at,absolute_expires_at,signing_s
 
 -- v1.1.3 Report batch Worker template lookup (migration 218): read-only.
 GRANT SELECT ON report_template_active,report_template_revision TO worker_rw;
+
+-- Working-day calendar for the Lab TAT (migration 222): holidays synced from the iCal URL in Settings; no patient data.
+GRANT SELECT,INSERT,UPDATE,DELETE ON business_holiday TO app_rw,worker_rw;
+GRANT SELECT,UPDATE ON holiday_sync_state TO app_rw,worker_rw;
+GRANT SELECT ON business_holiday,holiday_sync_state TO report_ro;
