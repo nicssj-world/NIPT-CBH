@@ -55,7 +55,10 @@ it.skipIf(!process.env.NIPT_TEST_DATABASE_URL)('report batch: worker_rw finalize
   await tx(o,t=>validateSetting(t,settingsAdmin,setting,async()=>true));await tx(o,t=>approveSetting(t,f.u.approver,setting));await tx(o,t=>activateSetting(t,f.u.approver,setting));
   // Web queues the batch (app_rw); the Worker (worker_rw) finalizes the item exactly as it does in Production.
   const conf={reportContentVerified:true,identityAndValuesMatchReport:true,disclosureReviewed:true,abnormalAcknowledged:true,benchMeasurementsReviewed:true};
-  const batch=await tx(app,t=>enqueueReportBatch(t,f.u.certifier,{idempotencyKey:randomUUID(),defaults:{reportedBy:f.u.staff.id,approvedBy:f.u.certifier.id},release:true,releaseConfirmations:conf,items:[{rowId:rowOf(a.printed)}]} as never));
+  // A real signed-in session, as in Production: the Worker re-checks it (app_session) before it finalizes. Without one the check is skipped.
+  const sid=(await owner.query<{id:string}>("INSERT INTO app_session(user_id,token_hash,csrf_hash,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,now()+interval '30 minutes',now()+interval '8 hours') RETURNING id",[f.u.certifier.id,'a'.repeat(64),'b'.repeat(64)])).rows[0].id;
+  const signedIn={...f.u.certifier,sessionId:sid};
+  const batch=await tx(app,t=>enqueueReportBatch(t,signedIn,{idempotencyKey:randomUUID(),defaults:{reportedBy:f.u.staff.id,approvedBy:f.u.certifier.id},release:true,releaseConfirmations:conf,items:[{rowId:rowOf(a.printed)}]} as never));
   const job=(await owner.query<{id:string;payload:unknown}>('SELECT j.id,j.payload FROM job_outbox j JOIN internal_report_request_item i ON i.outbox_id=j.id WHERE i.request_id=$1',[batch.batchId])).rows[0];
   expect(await tx(worker,t=>runReportBatchItem(t,job.id,job.payload,deps as never,3))).toMatchObject({state:'FINAL'});
   const st=await readReportBatch(app,f.u.certifier,batch.batchId);
