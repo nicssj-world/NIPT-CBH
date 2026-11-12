@@ -125,7 +125,9 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  const info=s.info_raw?rowValues(s.info_raw,SAMPLEINFO_HEADERS):null;
  if(!info)h('SAMPLEINFO_ROW_MISSING');
  // Template: from the request (ANC / Sample Detail). An override needs an authorised person and a reason, and is recorded.
- const recorded=req.pregnancy??(s.pregnancy==='Singleton'||s.pregnancy==='Twins'?s.pregnancy:null);
+ // A Twin "D" in the Halos Sample ID (BASE + D) selects the Twin template; it also fills a pregnancy type nobody recorded.
+ const keyTwin=/^\d{2}B\d{9}D/.test(s.sample_key);
+ const recorded=req.pregnancy??(s.pregnancy==='Singleton'||s.pregnancy==='Twins'?s.pregnancy:keyTwin?'Twins':null);
  let pregnancy:('Singleton'|'Twins'|null)=recorded,pregnancySource:Prepared['pregnancySource']='ANC_REQUEST',overrideReason:string|null=null;
  if(input.pregnancyOverride&&input.pregnancyOverride!==recorded){
   if(!authorize(user,'result.certify'))throw new LabError('FORBIDDEN',403);
@@ -135,6 +137,7 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  if(!pregnancy)h('PREGNANCY_TYPE_NOT_RECORDED');
  const halosFetus=info?.fetusType?.trim();
  if(pregnancy&&halosFetus&&halosFetus!==(pregnancy==='Twins'?'Twins':'Singleton')&&pregnancySource!=='AUTHORIZED_OVERRIDE')h('PREGNANCY_TYPE_SOURCES_DISAGREE',{raw:halosFetus});
+ if(pregnancy&&keyTwin&&pregnancy!=='Twins'&&pregnancySource!=='AUTHORIZED_OVERRIDE')h('PREGNANCY_TYPE_SOURCES_DISAGREE',{raw:'SAMPLE_ID_HAS_D'});
  const template:'SINGLETON'|'TWIN'=pregnancy==='Twins'?'TWIN':'SINGLETON';
  const analysis=rowValues(s.raw,ANALYSIS_HEADERS),interpretation=interpretRow({values:analysis},template);
  // A No Call prints no finding, so the interpretation's holds and the disclosure wish do not apply.

@@ -5,6 +5,7 @@ import {tx} from '../helpers/lab';
 import {lookupRegistrationPet,registerFromPet} from '../../packages/p2/pet-registration';
 import {getCase,registerP2,saveRequest,saveLabClinicalMetadata,refusePaperConsent,withdraw} from '../../packages/p2/service';
 import {attemptFacts,candidatePrintedId,assignmentDecision} from '../../packages/lab/core';
+import {resyncPrintedSampleIds} from '../../packages/lab/printed-id-sync';
 import {discoverInbound} from '../../packages/inbound/discovery';
 import {orderRedraw} from '../../packages/lab/intake';
 let f:InboundFixture,u:Awaited<ReturnType<typeof registrar>>;
@@ -78,6 +79,16 @@ it('R15-08/15: Unknown pregnancy defaults to Singleton, flagged as a default (Ow
  const facts=(await attemptFacts(f.db,'a.case_id=$1',[r.caseId]))[0];expect(facts.pregnancy).toBe('Singleton');expect(facts.pregnancy_defaulted).toBe(true);expect(candidatePrintedId(facts).status).toBe('YES');
  const twin=structuredClone(draft);twin.pregnancy.type='Twins';const d2=await tx(f.db,db=>getCase(db,u.lab,r.caseId!));await tx(f.db,db=>saveRequest(db,u.lab,r.caseId!,{expectedVersion:d2.workspace.version,draft:twin}));
  const tf=(await attemptFacts(f.db,'a.case_id=$1',[r.caseId]))[0];expect(tf.pregnancy).toBe('Twins');expect(tf.pregnancy_defaulted).toBe(false);
+});
+it('R15-08b: Twins recorded after the Printed Sample ID was frozen adds the D (unless an export already froze it)',async()=>{
+ await pet();const r=await submit({ln,unitId:u.unit,consentMode:'Paper',idempotencyKey:randomUUID()}),detail=await tx(f.db,db=>getCase(db,u.lab,r.caseId!));
+ const base=(await f.db.query<{ln_halos:string}>('SELECT ln_halos FROM specimen_lab_number')).rows[0].ln_halos;
+ await f.db.query('UPDATE analytical_attempt SET printed_sample_id=$2 WHERE case_id=$1',[r.caseId,`${base}-1`]);
+ const twin=structuredClone(detail.workspace.draft);twin.pregnancy.type='Twins';await tx(f.db,db=>saveRequest(db,u.lab,r.caseId!,{expectedVersion:detail.workspace.version,draft:twin}));
+ const roundId=(await f.db.query<{id:string}>('SELECT round_id id FROM specimen_lab_number')).rows[0].id;
+ const out=await tx(f.db,db=>resyncPrintedSampleIds(db,u.lab,roundId));expect(out.changed).toHaveLength(1);
+ expect((await f.db.query<{p:string}>('SELECT printed_sample_id p FROM analytical_attempt WHERE case_id=$1',[r.caseId])).rows[0].p).toBe(`${base}D-1`);
+ expect((await tx(f.db,db=>resyncPrintedSampleIds(db,u.lab,roundId))).changed).toHaveLength(0);
 });
 it('R15-04/15: old S1 PET never satisfies pending S2; a newly discovered Ready S2 PET uses existing redraw receipt/lineage',async()=>{
  await pet();const first=await submit({ln,unitId:u.unit,consentMode:'Paper',idempotencyKey:randomUUID()}),original=(await f.db.query<{ln_halos:string}>('SELECT ln_halos FROM specimen_lab_number')).rows[0].ln_halos;

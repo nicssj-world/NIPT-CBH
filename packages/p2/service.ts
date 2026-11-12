@@ -1,5 +1,6 @@
 import {currentPatient,currentPetPatientJoin} from '../anc/current-patient';
 import {analysisSteps} from '../lab/analysis-progress';
+import {resyncPrintedSampleIds} from '../lab/printed-id-sync';
 import {readCasePetEvidence} from '../inbound/case-pet-evidence';
 import {registryGa} from '../lab/registry-ga';
 import {DCC_CONSENT,isCurrentConsent} from '../forms/consent-content';
@@ -205,6 +206,7 @@ export async function saveLabClinicalMetadata(db:Queryable,user:Staff,id:string,
  if(!(await db.query<{ready:boolean}>('SELECT lab_owner_paper_ready($1) ready',[c.current_round_id])).rows[0]?.ready||(await db.query("SELECT 1 FROM p2_document_revision WHERE round_id=$1 AND kind='REQUEST'",[c.current_round_id])).rows.length||(await db.query('SELECT 1 FROM clinical_snapshot WHERE round_id=$1',[c.current_round_id])).rows.length)throw new P2Error('CLINICAL_REVIEW_REQUIRED',409);
  const draft=structuredClone(w.draft);draft.pregnancy.edd=d.edd;draft.pregnancy.type=d.pregnancy;
  await db.query('UPDATE p2_workspace SET draft=$2,version=version+1,updated_by=$3,updated_at=clock_timestamp() WHERE round_id=$1',[c.current_round_id,draft,user.id]);
+ await resyncPrintedSampleIds(db,user,c.current_round_id);
  await invalidate(db,c.id);await event(db,user,c.id,'LAB_DEFERRED_CLINICAL_SAVED',{roundId:c.current_round_id,workspaceVersion:w.version+1,fields:['pregnancy.edd','pregnancy.type'],clinicalAcceptance:false});
  return {version:w.version+1,edd:d.edd,pregnancy:d.pregnancy,clinicalAcceptance:false};
 }
@@ -267,6 +269,7 @@ export async function paperReview(db:Queryable,user:Staff,id:string,input:unknow
  const clinical={state:conflict?'ClinicalDataConflict':panel.history1to5==='AnyYes'?'BlockedWithReason':status==='Pending'?'NotEvaluable':'PendingClinicalReview',passed:false,ruleVersion:'SYNTHETIC-NEGATIVE-ONLY-v1',authority:'PendingClinicalReview'};
  await db.query('INSERT INTO clinical_snapshot(case_id,round_id,rule_version,input_snapshot,result) VALUES($1,$2,$3,$4,$5)',[id,c.current_round_id,clinical.ruleVersion,{paperReviewId:r.id,panel},clinical]);
  if(short&&status==='Verified'){const draft=structuredClone(w.draft);draft.pregnancy.type=panel.pregnancyType as 'Singleton'|'Twins';draft.pregnancy.edd=panel.edd??null;draft.ordering.doctorVersionId=panel.doctorVersionId??null;await db.query('UPDATE p2_workspace SET draft=$2,version=version+1,updated_by=$3,updated_at=clock_timestamp() WHERE round_id=$1',[c.current_round_id,draft,user.id]);}
+ await resyncPrintedSampleIds(db,user,c.current_round_id);
  await event(db,user,id,'P2_PAPER_REVIEWED');return {...r,clinical};
 }
 export async function preparePaper(db:Queryable,user:Staff,id:string,input:unknown){const d=z.strictObject({kind:z.enum(['REQUEST','CONSENT']),documentReference:syntheticText.refine(v=>v.length>0),location:syntheticText.refine(v=>v.length>0),reason:syntheticText.refine(v=>v.length>0).optional()}).parse(input),c=await activeCase(db,user,id,d.kind==='REQUEST'?'request.edit':'consent.prepare'),w=await workspace(db,c,user);if((d.kind==='REQUEST'?w.request_mode:w.consent_mode)!=='Paper')throw new P2Error('PAPER_DOCUMENT_MODE_TEMPLATE_MISMATCH');if(d.kind==='CONSENT')await assertConsentNotCompleted(db,c.id);const panel=Object.fromEntries(Object.keys(paperSchema.shape).map(k=>[k,null]));const r=(await db.query("INSERT INTO p2_paper_review(case_id,round_id,kind,template_version,document_reference,panel,status,location,reason,verifier_id) VALUES($1,$2,$3,$4,$5,$6,'Pending',$7,$8,$9) RETURNING id,status,created_at",[id,c.current_round_id,d.kind,documentTemplate(d.kind),d.documentReference,panel,d.location,d.reason??'เตรียมเอกสารกระดาษ',user.id])).rows[0];await event(db,user,id,'P2_PAPER_PREPARED');return r;}
