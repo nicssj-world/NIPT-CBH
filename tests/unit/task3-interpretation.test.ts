@@ -33,8 +33,9 @@ describe('Task 3 interpretation (ReadyGen reference, fail-closed)',()=>{
   expect(codes({sampleQc:'Fail'})).toContain('QC_NOT_PASS');expect(codes({sampleQc:'',operationAdvice:''})).toContain('QC_STATUS_UNRECOGNIZED');
   expect(codes({fetalFraction:'abc'})).toContain('FETAL_FRACTION_INVALID');expect(codes({fetalFraction:'3.2'})).toContain('FETAL_FRACTION_BELOW_TEMPLATE_REFERENCE');
   expect(codes({risk21:'≥1/100'})).toContain('T21_RISK_INDEX_INVALID');expect(codes({gender:'Unknown'})).toContain('GENDER_TOKEN_UNRECOGNIZED');expect(codes({gender:''})).toContain('GENDER_MISSING');
-  // The twin master has no SCA section: an SCA call is reviewed, never dropped.
-  expect(codes({testSex:'XO(+++)'},'TWIN')).toContain('TWIN_SCA_FINDING_HAS_NO_TEMPLATE_SECTION');
+  // Owner 2026-11-12: twins never report sex or SCA, so any HALOS testSex value is ignored for the Twin template (not a hold).
+  expect(codes({testSex:'XO(+++)'},'TWIN')).not.toContain('TWIN_SCA_FINDING_HAS_NO_TEMPLATE_SECTION');
+  expect(codes({testSex:'XXY(+++)'},'TWIN')).toEqual([]);expect(codes({testSex:''},'TWIN')).toEqual([]);
  });
  it('is deterministic and versioned; the catalog literal equals the engine hash',()=>{
   expect(run({})).toEqual(run({}));expect(run({}).ruleset).toEqual({id:'CBH-READYGEN-REF',version:'1.0.0',sha256:RULESET_SHA256});

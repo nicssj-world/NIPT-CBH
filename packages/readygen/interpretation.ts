@@ -74,8 +74,8 @@ export function interpretRow(row:Pick<HalosRow,'values'>,template:'SINGLETON'|'T
   if(!mapped)holds.push({code:g?'GENDER_TOKEN_UNRECOGNIZED':'GENDER_MISSING',field:'gender',raw:g});else out.fetalGender=mapped;
   trace.push({rule:'fetalGender',input:g,output:mapped??'HOLD'});
  }else{
-  // The Twin master has no SCA section: any SCA call other than Negative needs clinical review, never silent omission.
-  if(sexRaw&&sexRaw!==RULESET.sca.negative)holds.push({code:'TWIN_SCA_FINDING_HAS_NO_TEMPLATE_SECTION',field:'testSex',raw:sexRaw});
+  // Owner 2026-11-12: a twin pregnancy never reports sex or sex chromosomes, whatever the HALOS testSex says. The Twin master has no SCA section and the value is deliberately not printed, so it is not a hold.
+  trace.push({rule:'twinSca',input:sexRaw,output:'NOT_REPORTED'});
   const g=trim(v.gender),mapped=(RULESET.twinY as Record<string,string>)[g];
   if(!mapped)holds.push({code:g?'GENDER_TOKEN_UNRECOGNIZED':'GENDER_MISSING',field:'gender',raw:g});else out.yChromosome=mapped;
   trace.push({rule:'twinY',input:g,output:mapped??'HOLD'});
