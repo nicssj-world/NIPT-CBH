@@ -614,7 +614,15 @@ function Remove-NiptFolder([string]$Path) {
   $full = [IO.Path]::GetFullPath($Path)
   if ($full.StartsWith('\\?\')) { throw "REMOVE_PATH_INVALID: $Path" }
   $long = if ($full.StartsWith('\\')) { '\\?\UNC\' + $full.Substring(2) } else { '\\?\' + $full }
-  [IO.Directory]::Delete($long, $true)
+  # cmd's rmdir /s removes a junction or symbolic link itself and never follows it. [IO.Directory]::Delete (.NET Framework, Windows PowerShell 5.1) fails on the links
+  # a build leaves (.next\node_modules, node_modules\.bin) and, worse, can follow a junction and delete what it points to. Found on Production 2026-11-12.
+  $psi = New-Object Diagnostics.ProcessStartInfo
+  $psi.FileName = Join-Path $env:SystemRoot 'System32\cmd.exe'
+  $psi.Arguments = '/d /c rmdir /s /q "' + $long + '"'
+  $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true; $psi.RedirectStandardError = $true; $psi.RedirectStandardOutput = $true
+  $proc = [Diagnostics.Process]::Start($psi)
+  $out = $proc.StandardOutput.ReadToEnd() + $proc.StandardError.ReadToEnd(); $proc.WaitForExit()
+  if (Test-Path -LiteralPath $full) { throw "REMOVE_FAILED (rmdir exit $($proc.ExitCode)): $($out.Trim())" }
 }
 <# Apply a plan from Get-NiptRetentionPlan. One folder failing never stops the rest and never throws: the outcome of each is returned and logged.
    Run it from a script that holds the deploy lock (cleanup-old-releases.ps1, or a deployment) so no deployment runs while folders are removed. #>
