@@ -25,11 +25,13 @@ export const riskSql=`CASE WHEN v.template_kind NOT IN ('SINGLETON','TWIN') THEN
  WHEN (${trisomy.map(k=>`${val(k)}='High Risk'`).join(' OR ')}) OR (v.template_kind='SINGLETON' AND (${sca.map(k=>`${val(k)}='Detected'`).join(' OR ')})) THEN 'HIGH'
  WHEN coalesce(v.parsed->>'needsManualReview','true')='false' AND ${trisomy.map(k=>`${val(k)}='Low Risk' AND ${method(k)}='ANCHORED'`).join(' AND ')}
  AND (v.template_kind='TWIN' OR (${sca.map(k=>`${val(k)}='Not Detected' AND ${method(k)}='ANCHORED'`).join(' AND ')})) THEN 'LOW' ELSE 'UNKNOWN' END`;
+/** The report date printed on the result PDF (parser ISO evidence), NULL when missing or not a real calendar day. */
+export const reportedDaySql=(()=>{const reported="v.parsed->'identifiers'->'reportedDate'->>'value'";
+ return `CASE WHEN ${reported} ~ '^[1-9][0-9]{3}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$' THEN CASE WHEN substring(${reported},9,2)::int<=extract(day FROM (make_date(substring(${reported},1,4)::int,substring(${reported},6,2)::int,1)+interval '1 month - 1 day')) THEN ${reported} END END`;})();
 export function resultQuerySql(q:ResultQuery){
  const values:unknown[]=[],where:string[]=[];const param=(v:unknown)=>{values.push(v);return '$'+values.length;};
  // Reported dates are parser ISO evidence; validate calendar shape/day before lexical comparison, with missing/invalid values NULL.
- const reported="v.parsed->'identifiers'->'reportedDate'->>'value'";
- const safeReported=`CASE WHEN ${reported} ~ '^[1-9][0-9]{3}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$' THEN CASE WHEN substring(${reported},9,2)::int<=extract(day FROM (make_date(substring(${reported},1,4)::int,substring(${reported},6,2)::int,1)+interval '1 month - 1 day')) THEN ${reported} END END`;
+ const safeReported=reportedDaySql;
  if(q.dateField==='REPORTED'){
   if(q.from)where.push(`(${safeReported})>=${param(q.from)}`);
   if(q.to)where.push(`(${safeReported})<=${param(q.to)}`);

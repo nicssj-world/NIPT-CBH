@@ -52,3 +52,10 @@ export function median(values:readonly number[]):number|null{
  const s=[...values].sort((x,y)=>x-y),m=Math.floor(s.length/2);
  return s.length%2?s[m]:(s[m-1]+s[m])/2;
 }
+
+/** Nearest-rank percentile (p in 1..100); null for an empty list. */
+export function percentile(values:readonly number[],p:number):number|null{
+ if(!values.length)return null;
+ const s=[...values].sort((a,c)=>a-c);
+ return s[Math.min(s.length-1,Math.max(0,Math.ceil(p/100*s.length)-1))];
+}

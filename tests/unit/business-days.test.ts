@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {addDays,bangkokDay,businessDaysBetween,dueDay,isBusinessDay,median,tatStatus} from '../../packages/calendar/business-days';
+import {addDays,bangkokDay,businessDaysBetween,dueDay,isBusinessDay,median,percentile,tatStatus} from '../../packages/calendar/business-days';
 import {neededYears} from '../../packages/calendar/holiday-sync';
 
 const none=new Set<string>();
@@ -52,5 +52,14 @@ describe('working days for the Lab TAT (Owner 2026-11-11: 8 working days, warn a
   expect(neededYears(new Date('2026-09-30T10:00:00Z'))).toEqual([2026]);
   expect(neededYears(new Date('2026-09-30T17:30:00Z'))).toEqual([2026,2027]);
   expect(neededYears(new Date('2026-12-31T20:00:00Z'))).toEqual([2027]);
+ });
+});
+
+describe('percentile (nearest rank)',()=>{
+ it('returns the value at the rank, null when empty',()=>{
+  expect(percentile([],90)).toBeNull();
+  expect(percentile([5],90)).toBe(5);
+  expect(percentile([1,2,3,4,5,6,7,8,9,10],90)).toBe(9);
+  expect(percentile([10,1,2],50)).toBe(2);
  });
 });

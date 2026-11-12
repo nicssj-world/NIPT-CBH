@@ -3,6 +3,8 @@ import "./shared/console.css";
 import "./lab-workload.css";
 import {LabIcon} from "./shared/lab-icons";
 import {LabOverviewPanels} from "./dashboard/lab-overview";
+import {LabStats} from "./dashboard/lab-stats";
+import {HomeTabs} from "./dashboard/home-tabs";
 import type {LabOverview} from "../../packages/lab/overview";
 
 /** One stage of today's Lab work. `n` is an existing queue count (no new counting rule); null = the queue could not be read. */
@@ -22,6 +24,7 @@ export function LabWorkload({stages,generatedAt,alerts,overview}:{stages:Workloa
  ].filter(a=>a.n>0):[];
  return <div className="lab-workload">
   <header className="page-header"><div><h1>สรุปงานวันนี้</h1><p className="page-meta">ข้อมูล ณ <time dateTime={generatedAt}>{new Date(generatedAt).toLocaleString("th-TH",{timeZone:"Asia/Bangkok",dateStyle:"full",timeStyle:"short"})} น.</time> · ตัวเลขมาจากคิวของแต่ละหน้าโดยตรง</p></div><Link className="button secondary" href="/cases">เปิดทะเบียนกลาง</Link></header>
+  <HomeTabs label="มุมมองหน้าแรก Lab" tabs={[{id:"overview",label:"ภาพรวม",content:<>
   {(attention.length>0||alerts.length>0||overview===null)&&<nav aria-label="รายการเตือน"><ul className="dash-attention">
    {attention.map(a=><li key={a.text}><Link href={a.href} className={a.tone}><LabIcon name="alert" size={18}/>{a.text} <span className="n">{a.n}</span></Link></li>)}
    {alerts.map(a=><li key={a.href+a.text}><Link href={a.href} className="warn"><LabIcon name="info" size={18}/>{a.text}</Link></li>)}
@@ -33,5 +36,6 @@ export function LabWorkload({stages,generatedAt,alerts,overview}:{stages:Workloa
    <span className="lab-sign-go"><span>{s.go}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d={ARROW}/></svg></span>
   </Link></li>)}</ol></nav>:<p className="empty-state">บัญชีนี้ยังไม่มีสิทธิ์เปิดคิวงานของ Lab</p>}
   {overview&&<LabOverviewPanels data={overview}/>}
+  </>},...(overview?[{id:"stats",label:"สถิติการส่งตรวจ",content:<LabStats data={overview}/>}]:[])]}/>
  </div>;
 }

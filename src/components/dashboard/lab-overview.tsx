@@ -4,13 +4,10 @@ import {LabIcon} from "../shared/lab-icons";
 import {BatchStatus} from "../p4/batch-status";
 import {displayBe,displayBeDateTime} from "../../../packages/domain/thai-date";
 import type {LabOverview,LabStage,OpenSpecimen} from "../../../packages/lab/overview";
-import {MonthBars} from "./month-bars";
-import {monthLabelLong} from "./month-label";
 import "./dashboard.css";
 
 const STAGE:Record<LabStage,string>={READY:"รอเข้า Batch",IN_RUN:"อยู่ใน Run",QC_FAILED:"QC ไม่ผ่าน · รอตัดสินใจ",ANALYSIS_DONE:"วิเคราะห์เสร็จ · รอผลตรวจ",AWAITING_RESULT:"รอออกผล",HOLD:"HOLD",OTHER:"กำลังดำเนินการ"};
 const stageText=(r:OpenSpecimen)=>r.stage==="IN_RUN"&&r.runLabel?`อยู่ใน ${r.runLabel}`:STAGE[r.stage];
-const QC_STAGE:Record<string,string>={QC1:"QC1",QC2:"QC2",QC3:"QC3",QC4:"QC4",SEQUENCING:"Sequencing"};
 
 function Who({r}:{r:OpenSpecimen}){
  return <><Link className="registry-ln-link" href={`/cases/${r.caseId}`} aria-label={`ดูเคส LN ${r.ln}`}><Ln value={r.ln}/></Link><span className="cell-sub">HN {r.hn??"ยังไม่ยืนยัน"}</span></>;
@@ -23,7 +20,7 @@ export function TatWord({state,left}:{state:"ok"|"due-soon"|"overdue";left:numbe
 }
 
 export function LabOverviewPanels({data}:{data:LabOverview}){
- const {tat,gaOver18,runs,quality,policy,calendar}=data;
+ const {tat,gaOver18,runs,policy,calendar}=data;
  return <>
   <section className="panel dash-panel" id="tat" aria-labelledby="tat-h">
    <header className="dash-panel-head"><h2 id="tat-h">เคสใกล้ / เกินกำหนด TAT</h2>
@@ -57,21 +54,6 @@ export function LabOverviewPanels({data}:{data:LabOverview}){
    <div className="table-wrap" role="region" aria-label="ตาราง Run ที่ยังไม่ปล่อยผล" tabIndex={0}><table className="data-table">
     <thead><tr><th scope="col">Run</th><th scope="col">ขั้นที่บันทึกล่าสุด</th><th scope="col" className="num">ตัวอย่าง</th><th scope="col">สร้างเมื่อ</th></tr></thead>
     <tbody>{runs.rows.map(r=><tr key={r.id}><td><Link className="mono strong" href={`/lab/batches/${r.id}`}>{r.runLabel}</Link></td><td><BatchStatus {...r}/></td><td className="num">{r.samples}</td><td className="num">{r.createdAt?displayBeDateTime(r.createdAt):"—"}</td></tr>)}</tbody></table></div>}
-  </section>
-
-  <section className="panel dash-panel" aria-labelledby="quality-h">
-   <header className="dash-panel-head"><h2 id="quality-h">คุณภาพและปริมาณงาน 6 เดือน</h2>
-    <p className="dash-panel-note">{monthLabelLong(quality[0]?.month??"")} – {monthLabelLong(quality.at(-1)?.month??"")} · ไม่รวม EQA และข้อมูลย้อนหลัง</p></header>
-   <div className="dash-charts">
-    <MonthBars title="รับตัวอย่างและออกผล" note="จำนวนตัวอย่างที่ Lab รับ และผลที่ออกในเดือนนั้น" series={[{name:"รับตัวอย่าง"},{name:"ออกผล"}]} months={quality.map(m=>({month:m.month,values:[m.received,m.released]}))}/>
-    <MonthBars title="ออกผลภายใน TAT" note={`ผลที่ออกภายใน ${policy.businessDays} วันทำการ เป็นร้อยละของผลที่ออกในเดือนนั้น`} unit="%" series={[{name:"ภายใน TAT"}]} months={quality.map(m=>({month:m.month,values:[m.released?m.withinTat/m.released*100:null]}))}/>
-   </div>
-   <div className="table-wrap" role="region" aria-label="ตาราง QC ไม่ผ่านและการตรวจซ้ำรายเดือน" tabIndex={0}><table className="data-table dash-quality-table">
-    <caption>QC ไม่ผ่าน การตรวจซ้ำ และเวลาออกผล</caption>
-    <thead><tr><th scope="col">เดือน</th><th scope="col" className="num">QC ไม่ผ่าน</th><th scope="col" className="num">Re-Library</th><th scope="col" className="num">Re-Extraction</th><th scope="col" className="num">Re-Sampling</th><th scope="col" className="num">มัธยฐานวันทำการถึงออกผล</th></tr></thead>
-    <tbody>{[...quality].reverse().map(m=>{const qc=Object.entries(m.qcFailed),n=qc.reduce((s,[,v])=>s+v,0);return <tr key={m.month}><th scope="row">{monthLabelLong(m.month)}</th>
-     <td className="num">{n}{n>0&&<span className="cell-sub">{qc.map(([k,v])=>`${QC_STAGE[k]??k} ${v}`).join(" · ")}</span>}</td>
-     <td className="num">{m.repeats.RE_LIBRARY}</td><td className="num">{m.repeats.RE_EXTRACTION}</td><td className="num">{m.repeats.RE_SAMPLING}</td><td className="num">{m.medianDays??"—"}</td></tr>;})}</tbody></table></div>
   </section>
  </>;
 }

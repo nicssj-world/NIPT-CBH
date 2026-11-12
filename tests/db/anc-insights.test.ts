@@ -39,16 +39,16 @@ beforeAll(async()=>{
 afterAll(async()=>{await db?.close();});
 
 describe('ANC overview panel (Owner 2026-11-11)',()=>{
- it('lists results released in the last 14 days, High Risk first, only in the nurse\'s units',async()=>{
+ it('lists only High Risk results, in the nurse units',async()=>{
   const d=await ancInsights(q(),u.anc,{},NOW);
   expect(d.fiscalYear).toBe(2570);
-  expect(d.recent).toMatchObject({days:14,high:1,total:2});
-  expect(d.recent.rows.map(r=>[r.caseId,r.risk])).toEqual([[c.high.caseId,'HIGH'],[c.plain.caseId,'UNKNOWN']]);
+  expect(d.recent).toMatchObject({high:1,total:1});
+  expect(d.recent.rows.map(r=>[r.caseId,r.risk])).toEqual([[c.high.caseId,'HIGH']]);
   expect(d.recent.rows.some(r=>r.caseId===c.otherUnit.caseId)).toBe(false);
  });
- it('drops a result older than 14 days from the recent list',async()=>{
+ it('keeps a High Risk result in the list however long ago it was released',async()=>{
   const d=await ancInsights(q(),u.anc,{},new Date('2026-11-21T05:00:00Z'));
-  expect(d.recent.rows.map(r=>r.caseId)).toEqual([c.plain.caseId]);
+  expect(d.recent.rows.map(r=>r.caseId)).toEqual([c.high.caseId]);
  });
  it('lists cases without a result whose GA at collection is over 18 weeks',async()=>{
   const d=await ancInsights(q(),u.anc,{},NOW);

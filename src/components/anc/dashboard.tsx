@@ -11,7 +11,9 @@ import "../shared/console.css";
 import "./dashboard.css";
 import {Pager} from "../shared/pager";
 import {isOtherFiscalYear} from "./presentation";
-import {AncAttention,AncMonthly} from "../dashboard/anc-insights";
+import {AncAttention} from "../dashboard/anc-insights";
+import {AncStats} from "../dashboard/anc-stats";
+import {HomeTabs} from "../dashboard/home-tabs";
 import type {Dashboard as Snapshot,QueueItem as Item} from "../../../packages/anc/model";
 type Filters={fy:number;unitId:string;kpi:string;stage:string;flag:string;tab:string;q:string;page:number;pageSize:number;after:string;asOf:string};
 const SIZES=[10,20,50] as const;
@@ -58,6 +60,7 @@ const pickTile=(tab:string)=>updateFilters(f=>({...initial(f.fy),unitId:f.unitId
 const exceptionCount=count('exception');
 const received=(c:Item)=><><span className="num">{fmt(c.s1ReceivedAt)}</span>{(c.roundNumber??0)>1&&<span className="cell-sub">รับครั้งที่ {c.roundNumber}: {fmt(c.currentReceivedAt)}</span>}<span className="cell-sub">{c.daysWaiting===null?'ระยะเวลารอ: ไม่ทราบ':`รอ ${c.daysWaiting} วัน`}</span></>;
 return <div className="anc-dashboard" data-mode={operational?"operational":"synthetic"}><header className="page-header"><div><h1>ติดตามผลตรวจ NIPT</h1><p className="page-meta">{unitScope} · ยอดส่งตรวจ: ปี {filters.fy} · รับ ตัวอย่างเลือดครั้งแรก · ขั้นตอนและคิวติดตาม: รวมทุกปี</p></div><Link className="button" href="/cases?register=anc">ลงทะเบียนคุณแม่ใหม่</Link></header>
+<HomeTabs label="มุมมองหน้าแรก ANC" tabs={[{id:"overview",label:"ภาพรวม",content:<>
 {!forbidden&&<AncAttention fy={filters.fy} unitId={filters.unitId}/>}
 {error&&<div className="error" role="alert">{error}{data&&<p>ข้อมูลด้านล่างเป็น Snapshot เดิม ยังยืนยันยอดล่าสุดไม่ได้</p>}<button data-anc-control="retry" className="button secondary" onClick={()=>setRefresh(n=>n+1)}>ลองใหม่</button></div>}
 {forbidden?<section className="panel"><h2>ไม่มีสิทธิ์เปิดภาพรวม ANC</h2><p>ไม่แสดงตัวเลขหรือเคสนอกขอบเขตสิทธิ์</p></section>:!data?<section className="panel" role="status">{loading?'กำลังโหลดภาพรวม — ยังไม่แสดงยอด 0 จนได้รับข้อมูล':'ยังไม่มี Snapshot กรุณาลองใหม่'}</section>:<>
@@ -73,5 +76,5 @@ return <div className="anc-dashboard" data-mode={operational?"operational":"synt
    <td className="c-todo"><TodoSign todo={p.todo} caseId={c.id} ln={c.ln}/></td>
    <td className="c-actions">{c.hasResult&&<ViewResultButton caseId={c.id} ln={c.ln} hn={c.hn} name={patientDisplayName(c.patientName?.trim()||'ยังไม่มีข้อมูลชื่อ-นามสกุล')} className="button secondary anc-case-action"/>}</td></tr>;})}</tbody></table></TableScroll>}
  <Pager label="คิวเคส ANC" sizes={SIZES} page={data.queue.page} pageSize={data.queue.pageSize} total={data.queue.total} totalPages={data.queue.totalPages} busy={stale||loading} onPage={goPage} onSize={n=>patch({pageSize:n})}/></section></>}
-{!forbidden&&<AncMonthly fy={filters.fy} unitId={filters.unitId}/>}</div>
+</>},...(forbidden?[]:[{id:"stats",label:"สถิติการส่งตรวจ",content:<AncStats fy={filters.fy} unitId={filters.unitId} units={data?.units??[]} fyOptions={Array.from({length:8},(_,i)=>FY()-i)} onFilter={v=>patch(v)}/>}])]}/></div>
 }

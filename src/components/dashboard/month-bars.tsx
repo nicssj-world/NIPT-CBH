@@ -16,7 +16,7 @@ export type MonthBarsProps={
 };
 
 const W=560,H=200,PAD={top:24,right:8,bottom:28,left:36},BAR_MAX=24,GAP=2;
-const nice=(v:number)=>{if(v<=5)return 5;const p=10**Math.floor(Math.log10(v)),n=v/p;return (n<=1?1:n<=2?2:n<=5?5:10)*p;};
+const nice=(v:number)=>{if(v<=4)return 4;if(v<=6)return 6;if(v<=8)return 8;if(v<=10)return 10;const p=10**Math.floor(Math.log10(v)),n=v/p;return (n<=1?1:n<=2?2:n<=5?5:10)*p;};
 const fmt=(v:number|null,unit?:'%')=>v===null?'—':unit==='%'?`${Math.round(v)}%`:v.toLocaleString('th-TH');
 
 /**

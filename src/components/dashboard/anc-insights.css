@@ -22,3 +22,7 @@
  .anc-skeleton{grid-template-columns:1fr}
 }
 @media(prefers-reduced-motion:reduce){.anc-skeleton span{animation:none}.anc-insights{transition:none}}
+.anc-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,15rem),1fr));gap:12px;margin:0;padding:0;list-style:none}
+.anc-card{display:grid;align-content:start;gap:6px;padding:14px;border:1px solid var(--color-danger);border-radius:10px;background:var(--color-surface,transparent);min-width:0}
+.anc-card strong{overflow-wrap:break-word}
+.anc-card .anc-case-action{justify-self:start;margin-top:6px}
