@@ -13,10 +13,12 @@ const WEEKDAYS=["จันทร์","อังคาร","พุธ","พฤห
 const pct=(n:number,d:number)=>d?`${(n/d*100).toLocaleString("th-TH",{maximumFractionDigits:1})}%`:"—";
 
 /**
- * Statistics tab of the ANC home dashboard (Owner 2026-11-12): the fiscal year of the nurse's units in numbers and charts.
- * Read-only. The year and unit follow the same filter as the queue and can be changed here too.
+ * ANC statistics page (Owner 2026-11-12), a menu item beside the doctor registry: the fiscal year of the nurse's units in numbers and charts.
+ * Read-only. The year and unit are chosen here (the unit list comes from the same scope as the queue).
  */
-export function AncStats({fy,unitId,units,fyOptions,onFilter}:{fy:number;unitId:string;units:{id:string;name:string}[];fyOptions:number[];onFilter:(v:{fy?:number;unitId?:string})=>void}){
+const FY=()=>{const d=new Date(),y=d.getFullYear()+543;return d.getMonth()>=9?y+1:y;};
+export function AncStatsPage(){
+ const [fy,setFy]=useState(FY),[unitId,setUnitId]=useState("");
  const [state,setState]=useState<{data:Data|null;error:string;loading:boolean}>({data:null,error:"",loading:true});
  const [n,setN]=useState(0);
  useEffect(()=>{let live=true;const t=setTimeout(()=>{setState(s=>({...s,loading:true,error:""}));
@@ -24,13 +26,15 @@ export function AncStats({fy,unitId,units,fyOptions,onFilter}:{fy:number;unitId:
   api<Data>("/api/anc/insights?"+q).then(d=>{if(live)setState({data:d,error:"",loading:false});},e=>{if(live)setState({data:null,error:message(e),loading:false});});},0);
   return()=>{live=false;clearTimeout(t);};},[fy,unitId,n]);
  const {data,error,loading}=state;
+ const units=data?.units??[];
  const filters=<section className="anc-toolbar dash-stat-filters" aria-label="ตัวกรองสถิติ">
-  <label>หน่วยงาน<select value={unitId} onChange={e=>onFilter({unitId:e.target.value})}><option value="">ทุกหน่วยในขอบเขตสิทธิ์</option>{units.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></label>
-  <label>ปีงบประมาณ<select value={fy} onChange={e=>onFilter({fy:Number(e.target.value)})}>{fyOptions.map(y=><option key={y} value={y}>{y} · 1 ต.ค. {y-1} – 30 ก.ย. {y}</option>)}</select></label>
+  <label>หน่วยงาน<select value={unitId} onChange={e=>setUnitId(e.target.value)}><option value="">ทุกหน่วยในขอบเขตสิทธิ์</option>{units.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></label>
+  <label>ปีงบประมาณ<select value={fy} onChange={e=>setFy(Number(e.target.value))}>{Array.from({length:8},(_,i)=>FY()-i).map(y=><option key={y} value={y}>{y} · 1 ต.ค. {y-1} – 30 ก.ย. {y}</option>)}</select></label>
  </section>;
- if(error)return <>{filters}<div className="error" role="alert">{error||"โหลดสถิติไม่สำเร็จ"} <button type="button" className="button secondary" onClick={()=>setN(x=>x+1)}>ลองใหม่</button></div></>;
- if(!data)return <>{filters}<section className="panel dash-panel anc-skeleton" aria-busy="true" aria-label="กำลังโหลดสถิติ"><span/><span/><span/></section></>;
- return <AncStatsView data={data} filters={filters} loading={loading}/>;
+ const head=<header className="page-header"><div><h1>สถิติการส่งตรวจ</h1><p className="page-meta">ANC · ปีงบประมาณ {fy} · นับตามหน่วยงานที่เลือก · ตัวเลขอ่านอย่างเดียว</p></div></header>;
+ if(error)return <div className="dash-stats">{head}{filters}<div className="error" role="alert">{error||"โหลดสถิติไม่สำเร็จ"} <button type="button" className="button secondary" onClick={()=>setN(x=>x+1)}>ลองใหม่</button></div></div>;
+ if(!data)return <div className="dash-stats">{head}{filters}<section className="panel dash-panel anc-skeleton" aria-busy="true" aria-label="กำลังโหลดสถิติ"><span/><span/><span/></section></div>;
+ return <div><AncStatsView data={data} filters={<>{head}{filters}</>} loading={loading}/></div>;
 }
 
 /** The statistics themselves (no fetching): the tab above wraps it. */

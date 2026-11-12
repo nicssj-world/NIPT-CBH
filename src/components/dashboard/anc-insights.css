@@ -1,7 +1,6 @@
 /* ANC dashboard panels (tablet-first): attention strip, recent results, GA over 18 weeks. */
 .anc-insights{display:grid;gap:var(--space-4);min-width:0;transition:opacity .2s ease-out}
 .anc-insights.is-stale{opacity:.7}
-.anc-urgent{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
 .dash-attention .ui-icon,.dash-status .ui-icon{display:inline-flex;width:18px;height:18px}
 .dash-attention .ui-icon svg,.dash-status .ui-icon svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .anc-insight-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,26rem),1fr));gap:var(--space-4);align-items:start}
@@ -14,6 +13,7 @@
 .anc-list .cell-sub{font-size:.8125rem;color:var(--color-muted)}
 .dash-status.neutral{color:var(--color-ink);font-weight:500}
 .anc-skeleton{grid-template-columns:repeat(3,1fr);gap:12px}
+.anc-focus.anc-skeleton{grid-template-columns:repeat(auto-fit,minmax(min(100%,16rem),1fr))}
 .anc-skeleton span{height:56px;border-radius:8px;background:var(--raised);animation:anc-pulse 1.4s ease-in-out infinite}
 @keyframes anc-pulse{50%{opacity:.55}}
 @media(max-width:600px){
@@ -22,7 +22,21 @@
  .anc-skeleton{grid-template-columns:1fr}
 }
 @media(prefers-reduced-motion:reduce){.anc-skeleton span{animation:none}.anc-insights{transition:none}}
-.anc-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,15rem),1fr));gap:12px;margin:0;padding:0;list-style:none}
-.anc-card{display:grid;align-content:start;gap:6px;padding:14px;border:1px solid var(--color-danger);border-radius:10px;background:var(--color-surface,transparent);min-width:0}
-.anc-card strong{overflow-wrap:break-word}
-.anc-card .anc-case-action{justify-self:start;margin-top:6px}
+/* Count cards that open a popup with the names (Owner 2026-11-12). */
+.anc-focus{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,16rem),1fr));gap:12px;margin:0;padding:0;list-style:none}
+.anc-focus-card{appearance:none;display:grid;gap:2px;width:100%;min-height:44px;padding:14px 16px;text-align:left;font:inherit;color:var(--color-ink);background:var(--color-surface);border:1px solid var(--color-line);border-radius:10px;cursor:pointer}
+.anc-focus-card:hover:not(:disabled){border-color:var(--sign-edge);background:var(--sign-soft)}
+.anc-focus-card:focus-visible{outline:2px solid var(--color-focus);outline-offset:2px}
+.anc-focus-card:disabled{cursor:default;opacity:.75}
+.anc-focus-card.bad{border-color:color-mix(in srgb,var(--color-danger) 45%,transparent);background:var(--bad-bg)}
+.anc-focus-card .f-title{display:inline-flex;align-items:center;gap:6px;font-weight:600}
+.anc-focus-card.bad .f-title,.anc-focus-card.bad .f-n{color:var(--color-danger)}
+.anc-focus-card .f-n{font-size:1.75rem;font-weight:700;line-height:1.25;font-variant-numeric:tabular-nums}
+.anc-focus-card .f-n small{font-size:.875rem;font-weight:500;color:var(--color-muted)}
+.anc-focus-card .f-sub{font-size:.8125rem;color:var(--color-muted)}
+.anc-dialog{width:min(44rem,calc(100vw - 32px));max-height:min(80vh,40rem);padding:0;border:1px solid var(--color-line);border-radius:12px;background:var(--color-surface);color:var(--color-ink);overflow:auto}
+.anc-dialog::backdrop{background:rgb(0 0 0/.45)}
+.anc-dialog-head{position:sticky;top:0;z-index:1;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:2px 16px;padding:16px 20px;background:var(--color-surface);border-bottom:1px solid var(--color-line)}
+.anc-dialog-head h2{margin:0;font-size:1.25rem}
+.anc-dialog-head .button{grid-column:2;grid-row:1/3}
+.anc-dialog .anc-list{padding:0 20px 8px}
