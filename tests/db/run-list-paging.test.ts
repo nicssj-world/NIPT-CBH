@@ -14,11 +14,12 @@ beforeAll(async()=>{
  db=await testDatabase();u=await labUsers(q());
  for(let i=0;i<RUNS-1;i++){
   const b=await tx(q(),t=>batch.createBatch(t,u.staff));
-  await tx(q(),async t=>batch.cancelBatch(t,u.staff,{batchId:b.batchId,expectedVersion:(await t.query<{version:number}>('SELECT version FROM lab_batch WHERE id=$1',[b.batchId])).rows[0].version,reason:'SYNTHETIC cancel for Run list paging'}));
+  // Close each Run as a completed Run (as in photo-search paging) so the next one gets a new number. Cancelling is not used:
+  // since Owner 2026-11-12 a cancelled Run gives its number back, so the next Batch would reuse Run001.
+  await db.query("UPDATE lab_task_sheet SET state='Cancelled' WHERE batch_id=$1",[b.batchId]);   // as before: no editable Task List left
+  await db.query("UPDATE lab_batch SET state='QC1Complete' WHERE id=$1",[b.batchId]);
  }
  await tx(q(),t=>batch.createBatch(t,u.staff)); // the newest Run stays an open Draft
- // Cancelled Runs are hidden from working lists. Keep the older paging fixtures as completed Runs, as in photo-search paging.
- await db.query("UPDATE lab_batch SET state='QC1Complete',cancelled_by=NULL,cancelled_at=NULL,cancel_reason=NULL WHERE state='Cancelled'");
 },300000);
 afterAll(async()=>{await db?.close();});
 
