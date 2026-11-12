@@ -5,7 +5,7 @@ import {labApi,failureText} from "../p4/lab-api";
 import {Pager} from "../shared/pager";
 import {PdfPreviewButton} from "../shared/pdf-preview";
 import type {HisDeliveryStatus} from "../../../packages/results/his-status";
-import {HisDeliveryBadge,ResendHisButton} from "./his-delivery-badge";
+import {HisDeliveryBadge,HisSendProgress,ResendHisButton} from "./his-delivery-badge";
 import {hisSendErrorText} from "../../../packages/results/his-status";
 import {HOLD_TEXT} from "./native-reports";
 import {BOARD_REASON_TEXT,reasonText} from "./labels";
@@ -24,6 +24,7 @@ const Status=({tone,children}:{tone?:string;children:ReactNode})=><span classNam
 const who=(r:BoardRow)=><><span className="mono">{r.ln??"—"}</span>{r.lnHalos&&<span className="help"> · LN Halos {r.lnHalos}</span>}<br/><span className="mono">{r.hn??"—"}</span></>;
 const source=(r:BoardRow)=><>{r.source==="HALOS"?"HALOS":"ReadyGen"}{r.template&&<div className="help">{TEMPLATE_TEXT[r.template]??r.template}</div>}{r.sampleId&&<div className="help mono">{r.sampleId}</div>}</>;
 
+const HIS_IN_PROGRESS=["QUEUED","SENDING","RETRY"];
 export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}:{tab:BoardTab;onTab:(t:BoardTab)=>void;refreshKey?:number;sentExtras?:ReactNode;scope?:"PATIENT"|"EQA"}){
  const [q,setQ]=useState(""),[term,setTerm]=useState(""),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50);
  const [data,setData]=useState<Board|null>(null),[counts,setCounts]=useState<Board["counts"]|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(""),[notice,setNotice]=useState("");
@@ -32,10 +33,16 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
  const [sending,setSending]=useState(false),[outcomes,setOutcomes]=useState<{row:BoardRow;outcome:SendOutcome}[]|null>(null),[sendError,setSendError]=useState("");
  const [dialog,setDialog]=useState<{kind:"pick"|"discard";row:BoardRow}|{kind:"bulk";rows:BoardRow[]}|null>(null);
  const seq=useRef(0),sendKey=useRef<{sig:string;key:string}|null>(null);
- const load=useCallback(async()=>{const n=++seq.current;setLoading(true);
+ const load=useCallback(async(silent=false)=>{const n=++seq.current;if(!silent)setLoading(true);
   try{const d=await labApi<Board>("/api/p5/results",{action:"board",tab,page,pageSize,scope,...(term?{q:term}:{})});if(n===seq.current){setData(d);setCounts(d.counts);setError("");}}
-  catch(e){if(n===seq.current){setData(null);setError(failureText(e));}}finally{if(n===seq.current)setLoading(false);}},[tab,page,pageSize,term,scope]);
- useEffect(()=>{void Promise.resolve().then(load);},[load,refreshKey]);
+  catch(e){if(n===seq.current){if(!silent)setData(null);setError(failureText(e));}}finally{if(n===seq.current)setLoading(false);}},[tab,page,pageSize,term,scope]);
+ // Owner 2026-11-12: the HIS file is written by the Worker after "ส่ง HIS", so a row stays "กำลังส่ง HIS" for a while. While any row on this page is
+ // still in progress the board refreshes by itself (quietly, every 3 s, for at most 15 minutes) and shows how many of them are done.
+ const [track,setTrack]=useState<{ids:string[];startedAt:number}|null>(null),[gaveUp,setGaveUp]=useState(false);
+ const inProgress=useMemo(()=>(data?.rows??[]).filter(r=>r.versionId&&r.hisDelivery&&HIS_IN_PROGRESS.includes(r.hisDelivery.code)).map(r=>r.versionId!),[data]);
+ useEffect(()=>{if(!data)return;const now=Date.now();void Promise.resolve().then(()=>setTrack(t=>inProgress.length?{ids:[...new Set([...(t?.ids??[]),...inProgress])],startedAt:t?.startedAt??now}:t));},[data,inProgress]);
+ useEffect(()=>{if(!inProgress.length||!track||gaveUp)return;const t=setTimeout(()=>{if(Date.now()-track.startedAt>15*60_000)setGaveUp(true);else void load(true);},3000);return()=>clearTimeout(t);},[inProgress,track,data,load,gaveUp]);
+ useEffect(()=>{void Promise.resolve().then(()=>load());},[load,refreshKey]);
  // Realtime search: typing filters after a short pause (same behaviour as the HALOS worklist it replaces).
  useEffect(()=>{const t=setTimeout(()=>{setTerm(q.trim());setPage(1);},q?300:0);return()=>clearTimeout(t);},[q]);
  const clearSelection=()=>{setSelected(new Set());setTicks({reviewConfirmed:false,abnormalAcknowledged:false});};
@@ -51,7 +58,7 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
  const checkable=useMemo(()=>tab==="ACTION"?rows.filter(r=>canShowOnPatient(r)||discardable(r)):selectable,[tab,rows,selectable,canDiscard]);// eslint-disable-line react-hooks/exhaustive-deps
  const discardSel=useMemo(()=>rows.filter(r=>selected.has(r.key)&&discardable(r)),[rows,selected,canDiscard]);// eslint-disable-line react-hooks/exhaustive-deps
  const toggle=(key:string,on:boolean)=>{const n=new Set(selected);if(on)n.add(key);else n.delete(key);changeSelection(n);};
- const changeTab=(t:BoardTab)=>{clearSelection();setShownResult(null);setShownTick(false);setOutcomes(null);setSendError("");setNotice("");setPage(1);onTab(t);};
+ const changeTab=(t:BoardTab)=>{setTrack(null);setGaveUp(false);clearSelection();setShownResult(null);setShownTick(false);setOutcomes(null);setSendError("");setNotice("");setPage(1);onTab(t);};
 
  const send=async(batch:BoardRow[])=>{
   const given=sendTicks(batch,ticks),sig=batchSignature(batch,ticks);
@@ -84,6 +91,7 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
    <p className="help">{HELP[tab]}</p>
    <div aria-live="polite">
     {loading&&<p className="help" role="status">กำลังโหลด…</p>}
+    {track&&track.ids.length>0&&<HisSendProgress total={track.ids.length} left={inProgress.filter(id=>track.ids.includes(id)).length} stalled={inProgress.length>0&&gaveUp} onDismiss={()=>{setTrack(null);setGaveUp(false);}}/>}
     {notice&&<p className="notice success" role="status">{notice}</p>}
     {error&&<div className="notice" role="alert">{error} <button type="button" className="button small secondary" onClick={()=>void load()}>ลองใหม่</button></div>}
     {sendError&&<p className="notice" role="alert">{sendError}</p>}
