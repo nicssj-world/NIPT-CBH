@@ -1,6 +1,7 @@
 /* "วันที่ส่งตรวจ" range (ANC overview, central registry): legend reads like the other filter labels; two calendar fields in one row. */
 .sent-date-range{margin:0;padding:0;border:0;min-width:0}
-.sent-date-range legend{padding:0;margin:0 0 4px;color:var(--color-muted);font-size:.8125rem;font-weight:600;line-height:1.55}
+/* The legend is the same label block as every other toolbar field (27px + the field gap, 14px bold), so the date boxes sit on the same row as the search box. */
+.sent-date-range legend{display:block;box-sizing:border-box;min-height:27px;margin:0 0 var(--ui-field-gap,8px);padding:0;font-size:14px;line-height:1.6;font-weight:600;color:inherit}
 .sent-date-range-fields{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .sent-date-range-fields>span{color:var(--color-muted);font-size:.875rem}
 .sent-date-range-fields .be-date{width:13.5rem;max-width:100%}

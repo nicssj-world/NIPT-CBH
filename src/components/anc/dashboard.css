@@ -95,3 +95,6 @@
 .anc-sort-mark.on{color:var(--color-brand)}
 .anc-dashboard .anc-toolbar .anc-sort-select{display:none}
 @media(max-width:900px){.anc-dashboard .anc-toolbar .anc-sort-select{display:flex}}
+
+/* The overview's own filter labels are small and grey (13px); the shared "วันที่ส่งตรวจ" legend follows them here. */
+.anc-toolbar .sent-date-range legend{min-height:0;margin:0 0 4px;font-size:.8125rem;line-height:1.55;color:var(--color-muted)}

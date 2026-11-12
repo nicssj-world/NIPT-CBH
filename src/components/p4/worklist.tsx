@@ -23,7 +23,7 @@ export type Attempt={kind:"ATTEMPT";category:string;caseId:string;roundId:string
  placement:{batchId:string;runLabel:string|null;slot:number|null;sheetState:string|null}|null;labels:{prints:number;lastPrintedAt:string|null}};
 type Expected={kind:"REDRAW_EXPECTED";caseId:string;roundId:string;roundNumber:number;hisLn:string;requestedAt:string;reasonCode:string;previousLnHalos:string|null};
 type Missing={kind:"LN_HALOS_MISSING";caseId:string;roundId:string;roundNumber:number;hisLn:string;receivedAt:string;receivedSource:string};
-const TABS=[["READY","พร้อมเข้าตรวจ"],["GATE_BLOCKED","ยังเข้าตรวจไม่ได้"],["IN_BATCH","อยู่ใน Batch / กำลังทำ"],["DECISION","ต้องตัดสินใจ (QC ไม่ผ่าน / หยุด)"],["COMPLETED","ออกผลแล้ว"],["REDRAW_EXPECTED","รอรับเจาะซ้ำ (รอบที่ 2+)"]] as const;
+const TABS=[["READY","พร้อมเข้าตรวจ"],["GATE_BLOCKED","ยังเข้าตรวจไม่ได้"],["IN_BATCH","อยู่ใน Batch / กำลังทำ"],["DECISION","ต้องตัดสินใจ (QC ไม่ผ่าน / หยุด)"],["COMPLETED","วิเคราะห์เสร็จ"],["REDRAW_EXPECTED","รอรับเจาะซ้ำ (รอบที่ 2+)"]] as const;
 type Tab=typeof TABS[number][0];
 /** One page of one tab, answered by the server (filters, sort, FIFO classification and totals are the server's). `counts` are exact for every tab. */
 export type WorklistData={operational?:boolean;policy:string;tab:Tab;counts:Record<Tab,number>;scan:{capped:boolean;limit:number;scanned:number;ready:number};page:{number:number;size:number;total:number;totalPages:number};
