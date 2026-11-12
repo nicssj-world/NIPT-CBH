@@ -23,3 +23,21 @@ describe('Owner ANC queue ordering and full filtered tab counts',()=>{
   const c=await run({unitId:'unauthorized'});expect(c.tab_counts.all).toBe(0);
  });
 });
+describe('Owner ANC queue: sort by first receipt (Owner 2026-11-12)',()=>{
+ // n%6=0 has no receipt; the rest are received on one of five days, so ties occur and must stay stable across cursor pages.
+ const facts2=facts.replace(`NULL::timestamptz "s1ReceivedAt"`,`CASE WHEN n%6=0 THEN NULL ELSE '2026-10-01T02:00:00Z'::timestamptz+(n%5)*interval '1 day' END "s1ReceivedAt"`);
+ const sql2=projectionFor(facts2,true);
+ const walk=async(sort:string)=>{const seen:{id:string;at:string|null}[]=[];let cursor:ProjectionInput['cursor']=null;
+  for(;;){const page=await runProjection(db as unknown as Queryable,sql2,{...input,sort,limit:4,cursor});seen.push(...page.rows.map(r=>({id:r.id,at:r.s1ReceivedAt})));if(page.rows.length<4)break;const last=page.rows.at(-1)!;cursor={u:0,d:Number(last.ord_d),id:last.id};}
+  return seen;};
+ for(const sort of ['received_desc','received_asc'] as const)it(`${sort}: every case once, receipts in order, cases without a receipt last`,async()=>{
+  const seen=await walk(sort);
+  expect(new Set(seen.map(s=>s.id)).size).toBe(25);expect(seen).toHaveLength(25);
+  const firstNull=seen.findIndex(s=>s.at===null);expect(firstNull).toBe(25-4);expect(seen.slice(firstNull).every(s=>s.at===null)).toBe(true);
+  const times=seen.slice(0,firstNull).map(s=>Date.parse(s.at!));
+  expect(times).toEqual([...times].sort((a,b)=>sort==='received_desc'?b-a:a-b));
+ });
+ it('without a sort the queue stays newest registration first',async()=>{
+  const a=await runProjection(db as unknown as Queryable,sql2,{...input});expect(a.rows[0].ln).toBe('0025');
+ });
+});

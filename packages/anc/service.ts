@@ -6,7 +6,9 @@ import {analysisSteps} from '../lab/analysis-progress';
 import {authorize} from '../security/policy';
 import {fiscalYear,flagLabels,stages,type Dashboard,type QueueItem} from './model';
 
-export const filterSchema=z.object({fy:z.coerce.number().int().min(2543).max(2743).optional(),unitId:z.uuid().optional(),kpi:z.enum(['sent','pending','released','attention']).optional(),stage:z.enum(stages.map(s=>s[0])).optional(),flag:z.enum(Object.keys(flagLabels) as [keyof typeof flagLabels,...(keyof typeof flagLabels)[]]).optional(),tab:z.enum(['all','pending','released','attention','redraw','hold','awaiting','testing','followup']).optional(),q:z.string().trim().max(60).optional(),page:z.coerce.number().int().min(1).max(1000000).default(1),pageSize:z.coerce.number().int().min(1).max(100).default(20),
+export const filterSchema=z.object({fy:z.coerce.number().int().min(2543).max(2743).optional(),unitId:z.uuid().optional(),kpi:z.enum(['sent','pending','released','attention']).optional(),stage:z.enum(stages.map(s=>s[0])).optional(),flag:z.enum(Object.keys(flagLabels) as [keyof typeof flagLabels,...(keyof typeof flagLabels)[]]).optional(),tab:z.enum(['all','pending','released','attention','redraw','hold','awaiting','testing','followup']).optional(),q:z.string().trim().max(60).optional(),
+ /** Queue order (Owner 2026-11-12): newest registration first by default; the first-receipt column can be sorted either way (no receipt last). */
+ sort:z.enum(['registered','received_desc','received_asc']).optional(),page:z.coerce.number().int().min(1).max(1000000).default(1),pageSize:z.coerce.number().int().min(1).max(100).default(20),
  /** Keyset cursor of the last row already shown (from the previous response) and the time that response was computed at. Following a cursor
   * continues strictly after that row in the same total order, so a row that changes meanwhile can neither repeat nor push another row out;
   * `asOf` keeps "days waiting" (a sort key) from drifting across midnight while one person pages. Both are optional: without them the page is OFFSET-based. */
@@ -14,7 +16,7 @@ export const filterSchema=z.object({fy:z.coerce.number().int().min(2543).max(274
 export type Cursor={u:0|1;d:number;id:string};
 const encodeCursor=(c:Cursor)=>Buffer.from(JSON.stringify(c)).toString('base64url');
 function decodeCursor(raw:string):Cursor{
- try{return z.strictObject({u:z.union([z.literal(0),z.literal(1)]),d:z.number().int().min(-1).max(8640000000000000),id:z.uuid()}).parse(JSON.parse(Buffer.from(raw,'base64url').toString('utf8')));}
+ try{return z.strictObject({u:z.union([z.literal(0),z.literal(1)]),d:z.number().int().min(-8640000000000000).max(8640000000000000),id:z.uuid()}).parse(JSON.parse(Buffer.from(raw,'base64url').toString('utf8')));}
  catch{throw new LabError('INVALID_CURSOR',400);}
 }
 
@@ -66,6 +68,11 @@ export const factsSql=`SELECT c.created_at "registeredAt",c.id,l.ln,i.hn,CASE WH
 
 /** Port of project()/matches() (model.ts) to SQL so the queue is filtered, ordered, counted and paged by the database. model.ts stays the
  * reference definition: tests/db/anc-sql-parity.test.ts runs both over the same data. A change to a stage, flag or KPI rule must be made in BOTH. */
+/** Sort key of the registration-ordered queue ($15 = sort). Always DESC in SQL: received_asc negates the time; a case without a receipt sorts last both ways. */
+const registrationOrderKey=`CASE $15::text
+  WHEN 'received_desc' THEN COALESCE(floor(extract(epoch FROM "s1ReceivedAt")*1000000)::bigint,-1)
+  WHEN 'received_asc' THEN COALESCE(-floor(extract(epoch FROM "s1ReceivedAt")*1000000)::bigint,-8640000000000000)
+  ELSE floor(extract(epoch FROM "registeredAt")*1000000)::bigint END`;
 export const projectionFor=(facts:string,registrationOrder=false)=>`WITH facts AS MATERIALIZED (${facts}),
  rel AS (SELECT f.*,(f."currentReceivedAt" IS NOT NULL AND f."s1ReceivedAt" IS NULL) missing_s1,(f."activeReleaseCount">1 OR f."activeReleaseCount"<>f."certifiedReleaseCount") conflict FROM facts f),
  rel2 AS (SELECT r.*,(NOT r.missing_s1 AND NOT r.conflict AND r."certifiedReleaseCount"=1) released,(NOT r.missing_s1 AND NOT r.conflict AND (r."certifiedReleaseCount"=1 OR COALESCE(r."historicalResult",false))) has_result FROM rel r),
@@ -93,7 +100,7 @@ export const projectionFor=(facts:string,registrationOrder=false)=>`WITH facts A
    AND ($6::text IS NULL OR stage=$6::text) AND ($7::text IS NULL OR $7::text=ANY(flags))
    AND ($9::text='' OR strpos(lower(ln),$9::text)>0 OR strpos(lower(COALESCE(hn,'')),$9::text)>0 OR strpos(lower(id::text),$9::text)>0 OR strpos(lower(COALESCE("patientName",'')),$9::text)>0 OR ($9::text ~ '^[0-9]{2}-[0-9]{3}-[0-9]-[0-9]{4}$' AND strpos(ln,replace($9::text,'-',''))>0)))
  , tabbed AS (SELECT * FROM flt WHERE ($8::text='all' OR CASE $8::text WHEN 'redraw' THEN redraw WHEN 'hold' THEN hold WHEN 'pending' THEN pending WHEN 'released' THEN has_result WHEN 'attention' THEN cardinality(flags)>0 WHEN 'awaiting' THEN stage IN ('documents','expected') WHEN 'testing' THEN stage IN ('received','analysis','review') WHEN 'followup' THEN stage='followup' ELSE false END)),
- ordered AS (SELECT *,${registrationOrder?'0':'urgent::int'} ord_u,${registrationOrder?'floor(extract(epoch FROM "registeredAt")*1000000)::bigint':'COALESCE(days_waiting,-1)'} ord_d FROM tabbed)
+ ordered AS (SELECT *,${registrationOrder?'0':'urgent::int'} ord_u,${registrationOrder?registrationOrderKey:'COALESCE(days_waiting,-1)'} ord_d,$15::text sort_mode FROM tabbed)
  SELECT
   (SELECT json_build_object('all',count(*),'pending',count(*) FILTER(WHERE pending),'released',count(*) FILTER(WHERE has_result),'attention',count(*) FILTER(WHERE cardinality(flags)>0),'redraw',count(*) FILTER(WHERE redraw),'hold',count(*) FILTER(WHERE hold),'awaiting',count(*) FILTER(WHERE stage IN ('documents','expected')),'testing',count(*) FILTER(WHERE stage IN ('received','analysis','review')),'followup',count(*) FILTER(WHERE stage='followup')) FROM flt) tab_counts,
   (SELECT json_build_object('sent',count(*) FILTER (WHERE sent),'pending',count(*) FILTER (WHERE pending),'released',count(*) FILTER (WHERE has_result),'attention',count(*) FILTER (WHERE cardinality(flags)>0)) FROM sc) metrics,
@@ -107,11 +114,11 @@ export const projectionFor=(facts:string,registrationOrder=false)=>`WITH facts A
 const projectionSql=projectionFor(factsSql,true);
 type SqlRow=Omit<QueueItem,'stageLabel'|'s1ReceivedAt'|'currentReceivedAt'>&{s1ReceivedAt:string|null;currentReceivedAt:string|null;ord_u:number;ord_d:number};
 const SIX_HOURS=6*3600000;
-export type ProjectionInput={unitIds:string[];asOf:Date;fy:number;unitId?:string;kpi?:string;stage?:string;flag?:string;tab:string;q:string;cursor:Cursor|null;limit:number;offset:number};
+export type ProjectionInput={unitIds:string[];asOf:Date;fy:number;unitId?:string;kpi?:string;stage?:string;flag?:string;tab:string;q:string;cursor:Cursor|null;limit:number;offset:number;sort?:string};
 export type ProjectionResult={tab_counts:NonNullable<Dashboard['queue']['tabCounts']>;metrics:Dashboard['metrics'];stage_counts:Record<string,number>;total:number;rows:SqlRow[]};
 /** The one place parameter order is defined (also used by the parity test with a fixture in place of the facts query). */
 export async function runProjection(db:Queryable,sql:string,i:ProjectionInput):Promise<ProjectionResult>{
- return (await db.query<ProjectionResult>(sql,[i.unitIds,i.asOf.toISOString(),i.fy,i.unitId??null,i.kpi??null,i.stage??null,i.flag??null,i.tab,i.q.trim().toLowerCase(),i.cursor?.u??null,i.cursor?.d??null,i.cursor?.id??null,i.limit,i.offset])).rows[0];
+ return (await db.query<ProjectionResult>(sql,[i.unitIds,i.asOf.toISOString(),i.fy,i.unitId??null,i.kpi??null,i.stage??null,i.flag??null,i.tab,i.q.trim().toLowerCase(),i.cursor?.u??null,i.cursor?.d??null,i.cursor?.id??null,i.limit,i.offset,i.sort??null])).rows[0];
 }
 /** Who may read the ANC overview and which units: ANC roles (or the system Admin) with case.read and result.read.released per unit.
  *  Shared by the queue (`dashboard`) and the insights panel (anc/insights.ts) so both read exactly the same scope. */
@@ -135,7 +142,7 @@ export async function dashboard(db:Queryable,user:Staff,input:unknown={}):Promis
  const asOfMs=f.asOf?Date.parse(f.asOf):NaN,asOf=Number.isFinite(asOfMs)&&asOfMs<=date.getTime()&&date.getTime()-asOfMs<=SIX_HOURS?new Date(asOfMs):date;
  const unitIds=units.map(u=>u.id);
  const cursor=f.after?decodeCursor(f.after):null;
- const run=(offset:number)=>runProjection(db,projectionSql,{unitIds,asOf,fy,unitId:f.unitId,kpi:f.kpi,stage:f.stage,flag:f.flag,tab:f.tab??'all',q:f.q??'',cursor,limit:f.pageSize,offset});
+ const run=(offset:number)=>runProjection(db,projectionSql,{unitIds,asOf,fy,unitId:f.unitId,kpi:f.kpi,stage:f.stage,flag:f.flag,tab:f.tab??'all',q:f.q??'',cursor,limit:f.pageSize,offset,sort:f.sort});
  let page=f.page,out=await run(cursor?0:(page-1)*f.pageSize);
  const totalPages=Math.max(1,Math.ceil(out.total/f.pageSize));
  // A page past the end (rows left the queue since the last response) answers with the last real page instead of an empty one.

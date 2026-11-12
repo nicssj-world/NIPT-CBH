@@ -9,9 +9,9 @@ import {api,ApiFailure,Dialog,ErrorNotice,Field,message,type CaseData,type Docto
 import {bangkokInput,bangkokInstant} from "./bangkok-time";
 import {ThaiDateInput,ThaiDateTimeInput} from "../shared/thai-date-input";
 import {DoctorCombobox} from "./doctor-combobox";
-const sections=["ผู้รับบริการและสถานพยาบาล","การตั้งครรภ์","ประวัติทางการแพทย์","ความประสงค์ทราบเพศทารก","ข้อควรทราบเพิ่มเติม"];
+export const sections=["ผู้รับบริการและสถานพยาบาล","การตั้งครรภ์","ประวัติทางการแพทย์","ความประสงค์ทราบเพศทารก","ข้อควรทราบเพิ่มเติม"];
 const answerOptions:[[string,string],[string,string]]=[["Yes","ใช่"],["No","ไม่ใช่"]];
-const historyFacts=[["transfusion4months","1. ได้รับเลือดจากผู้อื่น ภายในช่วง 4 เดือน"],["heparin24h","2. รักษาโรคด้วย Heparin ภายใน 24 ชั่วโมง"],["immune1month","3. ได้รับภูมิคุ้มกันบำบัดภายในช่วง 1 เดือน"]];
+export const historyFacts=[["transfusion4months","1. ได้รับเลือดจากผู้อื่น ภายในช่วง 4 เดือน"],["heparin24h","2. รักษาโรคด้วย Heparin ภายใน 24 ชั่วโมง"],["immune1month","3. ได้รับภูมิคุ้มกันบำบัดภายในช่วง 1 เดือน"]];
 // The currently approved question labels have one source of truth: request-history-contract.ts.
 const conditionA="ตัวอย่างที่เก็บจากมารดาอายุครรภ์ระหว่าง 8-10 สัปดาห์หรือในมารดาที่มีค่า BMI > 40 สามารถส่งตรวจได้ แต่มีความเสี่ยงที่อาจต้องเจาะเลือดซ้ำ เพราะปริมาณสารพันธุกรรมมีไม่มากพอในการตรวจวิเคราะห์ ให้ขึ้นอยู่กับดุลยพินิจของแพทย์ในการสั่งตรวจ";
 const conditionB="ตัวอย่างที่เก็บจากมารดาที่มีอายุครรภ์มากกว่า 18 สัปดาห์ สามารถส่งตรวจได้ ทั้งนี้เรื่องระยะเวลาหรือแนวทางการรักษาหากตรวจพบเป็นครรภ์ความเสี่ยงสูง ให้ขึ้นอยู่กับดุลยพินิจของแพทย์ในการสั่งตรวจ";

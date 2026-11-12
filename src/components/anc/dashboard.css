@@ -86,3 +86,12 @@
 .anc-dashboard .anc-toolbar label{display:flex;flex-direction:column;gap:4px;margin:0;padding:0}
 .anc-dashboard .anc-toolbar form{align-items:flex-end}
 .anc-dashboard .anc-updated{align-self:flex-end;height:var(--ui-control-height);padding:0}
+
+/* Sortable first-receipt column (Owner 2026-11-12): the header itself is the control; the arrow shows the current direction. */
+.anc-table th .anc-sort{display:inline-flex;align-items:center;gap:6px;min-height:36px;margin:-8px -8px;padding:4px 8px;border:0;border-radius:8px;background:transparent;color:inherit;font:inherit;font-weight:inherit;text-align:left;cursor:pointer}
+.anc-table th .anc-sort:hover{background:color-mix(in srgb,var(--color-brand) 8%,transparent)}
+.anc-table th .anc-sort:focus-visible{outline:2px solid var(--color-focus,var(--color-brand));outline-offset:2px}
+.anc-sort-mark{flex:none;color:var(--color-muted)}
+.anc-sort-mark.on{color:var(--color-brand)}
+.anc-dashboard .anc-toolbar .anc-sort-select{display:none}
+@media(max-width:900px){.anc-dashboard .anc-toolbar .anc-sort-select{display:flex}}

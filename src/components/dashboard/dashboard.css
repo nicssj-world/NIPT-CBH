@@ -57,3 +57,6 @@
 @media(prefers-reduced-motion:reduce){.dash-stats{transition:none}}
 .dash-stat-grid .dash-wide{grid-column:1/-1}
 .dash-stat-grid{align-items:stretch}
+
+/* Date columns: header and value share one centre line (the generic .num rule right-aligned values under left-aligned headers). */
+.workspace .dash-panel .data-table :is(th,td).date-col{text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums}

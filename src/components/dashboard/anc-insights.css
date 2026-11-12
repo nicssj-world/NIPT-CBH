@@ -34,7 +34,8 @@
 .anc-focus-card .f-n{font-size:1.75rem;font-weight:700;line-height:1.25;font-variant-numeric:tabular-nums}
 .anc-focus-card .f-n small{font-size:.875rem;font-weight:500;color:var(--color-muted)}
 .anc-focus-card .f-sub{font-size:.8125rem;color:var(--color-muted)}
-.anc-dialog{width:min(44rem,calc(100vw - 32px));max-height:min(80vh,40rem);padding:0;border:1px solid var(--color-line);border-radius:12px;background:var(--color-surface);color:var(--color-ink);overflow:auto}
+/* Centred like a native modal: the global reset (*{margin:0}) removes the UA margin:auto that centres a <dialog>. */
+.anc-dialog{position:fixed;inset:0;margin:auto;height:fit-content;width:min(44rem,calc(100vw - 32px));max-height:min(80vh,40rem);padding:0;border:1px solid var(--color-line);border-radius:12px;background:var(--color-surface);color:var(--color-ink);overflow:auto}
 .anc-dialog::backdrop{background:rgb(0 0 0/.45)}
 .anc-dialog-head{position:sticky;top:0;z-index:1;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:2px 16px;padding:16px 20px;background:var(--color-surface);border-bottom:1px solid var(--color-line)}
 .anc-dialog-head h2{margin:0;font-size:1.25rem}

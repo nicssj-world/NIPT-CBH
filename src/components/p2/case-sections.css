@@ -1,38 +1,18 @@
 /* ANC case page (Console C, Owner 2026-11-08): numbered sections. Numbers follow the VISUAL order that anc-workspace.css /
    ui-backlog-polish.css already lock per stage (tests/unit/case-page-order.test.ts); nothing here reorders anything.
    The NIPT result panel keeps its own design (p5/anc-results.css); it only gets its number beside the title. */
-.anc-case-workspace :is(.case-his,.case-results,.case-laboratory,.case-request,.case-documents,.clinical-readiness) h2:first-of-type,
+.anc-case-workspace :is(.case-his,.case-results,.case-requisition,.case-laboratory,.case-request,.case-documents,.clinical-readiness) h2:first-of-type,
 .anc-case-workspace :is(.case-activity-details,.case-pet-evidence)>summary{display:flex;align-items:center;gap:10px}
 .anc-case-workspace .case-section-n,
-.anc-case-workspace :is(.case-his,.case-laboratory,.case-request,.case-documents,.clinical-readiness) h2:first-of-type::before,
+.anc-case-workspace :is(.case-his,.case-requisition,.case-laboratory,.case-request,.case-documents,.clinical-readiness) h2:first-of-type::before,
 .anc-case-workspace .case-results #anc-results-h::before,
 .anc-case-workspace :is(.case-activity-details,.case-pet-evidence)>summary::before{display:inline-grid;place-items:center;flex:none;width:26px;height:26px;border-radius:50%;background:var(--raised);color:var(--color-muted);font-size:.8125rem;font-weight:700;line-height:1}
 
-/* registered: Request 1 · Documents 2 · Readiness 3 · HIS 4 · Lab 5 · Results 6 */
-.case-stage-registered>.case-request h2:first-of-type::before{content:"1"}
-.case-stage-registered>.case-documents h2:first-of-type::before{content:"2"}
-.case-stage-registered>.clinical-readiness h2:first-of-type::before{content:"3"}
-.case-stage-registered>.case-his h2:first-of-type::before{content:"4"}
-.case-stage-registered>.case-laboratory h2:first-of-type::before{content:"5"}
-.case-stage-registered>.case-results #anc-results-h::before{content:"6"}
-.case-stage-registered>.case-activity-details>summary::before{content:"7"}
-.case-stage-registered>.case-pet-evidence>summary::before{content:"8"}
-/* received: HIS 1 · Lab 2 · Results 3 · Request 4 · Documents 5 */
-.case-stage-received>.case-his h2:first-of-type::before{content:"1"}
-.case-stage-received>.case-laboratory h2:first-of-type::before{content:"2"}
-.case-stage-received>.case-results #anc-results-h::before{content:"3"}
-.case-stage-received>.case-request h2:first-of-type::before{content:"4"}
-.case-stage-received>.case-documents h2:first-of-type::before{content:"5"}
-.case-stage-received>.case-activity-details>summary::before{content:"6"}
-.case-stage-received>.case-pet-evidence>summary::before{content:"7"}
-/* released ("ดูผลตรวจ"): HIS 1 · NIPT result 2 · Lab 3 · Request 4 · Documents 5 · History 6 · HIS orders 7 */
-.case-stage-released>.case-his h2:first-of-type::before{content:"1"}
-.case-stage-released>.case-results #anc-results-h::before{content:"2"}
-.case-stage-released>.case-laboratory h2:first-of-type::before{content:"3"}
-.case-stage-released>.case-request h2:first-of-type::before{content:"4"}
-.case-stage-released>.case-documents h2:first-of-type::before{content:"5"}
-.case-stage-released>.case-activity-details>summary::before{content:"6"}
-.case-stage-released>.case-pet-evidence>summary::before{content:"7"}
+/* The number itself is the section's place among the sections actually shown, in visual order (case-section-numbers.ts writes
+   data-n; Owner 2026-11-12): a section that renders nothing, e.g. no NIPT result yet, leaves no gap. Without data-n no badge is drawn. */
+.anc-case-workspace>:is(.case-his,.case-requisition,.case-laboratory,.case-request,.case-documents,.clinical-readiness) h2[data-n]:first-of-type::before,
+.anc-case-workspace>.case-results #anc-results-h[data-n]::before,
+.anc-case-workspace>:is(.case-activity-details,.case-pet-evidence)>summary[data-n]::before{content:attr(data-n)}
 /* The result title sits in a flex header next to its icon; keep the number on the title line. */
 .anc-case-workspace .case-results #anc-results-h{display:flex;align-items:center;gap:10px}
 /* Collapsed sections: number + title + count read as one left-aligned group; only the chevron sits at the far edge. */
@@ -41,5 +21,5 @@
 
 /* Every numbered section opens the same way as HIS (1) and the NIPT result (3): icon tile, then the number, then the title (Owner 2026-11-09). */
 .anc-case-workspace .case-sec-icon{order:-1;display:inline-flex;align-items:center;justify-content:center;flex:0 0 40px;width:40px;height:40px;border-radius:10px;background:var(--info-bg);color:var(--color-brand)}
-.anc-case-workspace :is(.case-laboratory,.case-request,.case-documents,.clinical-readiness) h2:first-of-type{font-size:20px;line-height:1.3}
+.anc-case-workspace :is(.case-requisition,.case-laboratory,.case-request,.case-documents,.clinical-readiness) h2:first-of-type{font-size:20px;line-height:1.3}
 .anc-case-workspace :is(.case-activity-details,.case-pet-evidence)>summary{font-weight:700}

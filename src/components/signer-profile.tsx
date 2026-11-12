@@ -12,7 +12,10 @@ type Overview={canManage:boolean;profiles:Profile[]};
 const stateText=(p:Profile)=>p.state==="REVOKED"?"เพิกถอนแล้ว":p.state==="VERIFIED"?(p.current?"ใช้งานได้":"มีฉบับใหม่กว่า"):"รอผู้ดูแลระบบตรวจ";
 const tone=(p:Profile)=>p.current?"good":p.state==="REVOKED"?"bad":"warning";
 
-export function SignerProfile({targetUserId,self,onChanged}:{targetUserId:string;self:boolean;onChanged?:()=>void}){
+/** The signature already saved in the Profile "ลายเซ็น" tab is reused when no new file is chosen. */
+function profileBlob(sig:{mime:string;data:string}){const bin=atob(sig.data),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return new Blob([u],{type:sig.mime});}
+export function SignerProfile({targetUserId,self,onChanged,profileSignature}:{targetUserId:string;self:boolean;onChanged?:()=>void;profileSignature?:{mime:string;data:string}|null}){
+ const [editing,setEditing]=useState(false);
  const [d,setD]=useState<Overview|null>(null),[error,setError]=useState(""),[notice,setNotice]=useState(""),[busy,setBusy]=useState(false);
  const [review,setReview]=useState<{id:string;SINGLETON:boolean;TWIN:boolean;unavailable:boolean;skip:boolean;ok:boolean}|null>(null);
  const [form,setForm]=useState({legalName:"",license:""}),[note,setNote]=useState("ตรวจตัวตน เลขใบอนุญาต และลายเซ็นกับทะเบียนบุคลากรแล้ว"),file=useRef<HTMLInputElement>(null);
@@ -20,10 +23,11 @@ export function SignerProfile({targetUserId,self,onChanged}:{targetUserId:string
  useEffect(()=>{void Promise.resolve().then(load);},[load]);
  const profiles=(d?.profiles??[]).filter(p=>p.userId===targetUserId);
  const latest=profiles[0];
- async function submit(){const f=file.current?.files?.[0];if(!f){setError("กรุณาเลือกภาพลายเซ็น (PNG หรือ JPEG)");file.current?.focus();return;}
-  setBusy(true);setError("");setNotice("");try{const body=new FormData();body.append("legalName",form.legalName);body.append("mtLicenseNo",form.license);body.append("signature",f);
+ async function submit(){const chosen=file.current?.files?.[0];if(!chosen&&!profileSignature){setError("กรุณาเลือกภาพลายเซ็น (PNG หรือ JPEG)");file.current?.focus();return;}
+  const f:Blob=chosen??profileBlob(profileSignature!);
+  setBusy(true);setError("");setNotice("");try{const body=new FormData();body.append("legalName",form.legalName);body.append("mtLicenseNo",form.license);body.append("signature",f,chosen?.name??(profileSignature!.mime==="image/png"?"signature.png":"signature.jpg"));
    const r=await fetch("/api/task3/signers",{method:"POST",headers:{"x-csrf-token":csrf()},body});const j=await r.json().catch(()=>({}));if(!r.ok){setError(j.error??"บันทึกไม่สำเร็จ");return;}
-   setNotice((j.state==="Verified"?"บันทึกแล้ว — ใช้ลงนามรายงานได้ทันที":"บันทึกแล้ว — ใช้ลงนามรายงานได้หลังผู้ดูแลระบบตรวจ")+(j.opaqueBackground?" · พื้นหลังสีขาวอาจทับเส้นในแบบฟอร์ม — แนะนำ PNG พื้นโปร่งใส (ผู้ดูแลระบบจะตรวจจากตัวอย่างก่อนอนุมัติ)":""));setForm({legalName:"",license:""});if(file.current)file.current.value="";await load();onChanged?.();}finally{setBusy(false);}}
+   setNotice((j.state==="Verified"?"บันทึกแล้ว — ใช้ลงนามรายงานได้ทันที":"บันทึกแล้ว — ใช้ลงนามรายงานได้หลังผู้ดูแลระบบตรวจ")+(j.opaqueBackground?" · พื้นหลังสีขาวอาจทับเส้นในแบบฟอร์ม — แนะนำ PNG พื้นโปร่งใส (ผู้ดูแลระบบจะตรวจจากตัวอย่างก่อนอนุมัติ)":""));setForm({legalName:"",license:""});setEditing(false);if(file.current)file.current.value="";await load();onChanged?.();}finally{setBusy(false);}}
  const rv=(p:Profile)=>review?.id===p.id?review:{id:p.id,SINGLETON:false,TWIN:false,unavailable:false,skip:false,ok:false};
  async function sample(p:Profile,kind:"SINGLETON"|"TWIN"){setError("");try{await labPdf(`/api/task3/signers/${p.id}/preview`,{kind});setReview({...rv(p),[kind]:true});}
   catch(e){if(e instanceof LabFailure&&(e.code==="REPORT_MASTER_NOT_INSTALLED"||e.code==="REPORT_RENDER_UNAVAILABLE"))setReview({...rv(p),unavailable:true});setError(failureText(e));}}
@@ -45,12 +49,13 @@ export function SignerProfile({targetUserId,self,onChanged}:{targetUserId:string
     <div className="action-bar">{latest.state===null&&<button type="button" className="button" disabled={busy||!rv(latest).ok&&!(rv(latest).unavailable&&rv(latest).skip)} onClick={()=>void decide(latest,"VERIFY")}>ยืนยันใบอนุญาตและลายเซ็น</button>}
      <button type="button" className="button secondary" disabled={busy} onClick={()=>void decide(latest,"REVOKE")}>เพิกถอน</button></div></div>}
   </div>:<p className="help">{self?"ยังไม่มีใบอนุญาตและลายเซ็นสำหรับรายงาน":"ผู้ใช้นี้ยังไม่ได้บันทึกใบอนุญาตและลายเซ็นในโปรไฟล์ของตนเอง"}</p>}
-  {self&&<div className="stack"><h3>{latest?"บันทึกฉบับใหม่":"บันทึกใบอนุญาตและลายเซ็น"}</h3>
+  {self&&latest&&!editing&&<div className="action-bar"><button type="button" className="button secondary" onClick={()=>{setForm({legalName:latest.legalName,license:latest.license});setNotice("");setEditing(true);}}>แก้ไข</button></div>}
+  {self&&(!latest||editing)&&<div className="stack"><h3>{latest?"บันทึกฉบับใหม่":"บันทึกใบอนุญาตและลายเซ็น"}</h3>
    <div className="form-grid">
     <div className="field"><label htmlFor="sig-name">ชื่อ-สกุลตามใบอนุญาต</label><input id="sig-name" maxLength={120} value={form.legalName} onChange={e=>setForm(f=>({...f,legalName:e.target.value}))}/></div>
     <div className="field"><label htmlFor="sig-license">เลขใบอนุญาตประกอบวิชาชีพ</label><input id="sig-license" inputMode="numeric" maxLength={10} value={form.license} onChange={e=>setForm(f=>({...f,license:e.target.value.replace(/\D/g,"")}))}/></div>
    </div>
-   <div className="field"><label htmlFor="sig-file">ภาพลายเซ็น (PNG หรือ JPEG ไม่เกิน 512 KB)</label><FileDropInput id="sig-file" ref={file} type="file" accept="image/png,image/jpeg"/><p className="help">แนะนำ PNG พื้นโปร่งใส — ภาพพื้นขาว (JPEG หรือ PNG ไม่โปร่งใส) อาจทับเส้นในแบบฟอร์ม</p></div>
-   <div className="action-bar"><button type="button" className="button" disabled={busy||form.legalName.trim().length<3||form.license.length<3} onClick={()=>void submit()}>{busy?"กำลังบันทึก…":"บันทึก"}</button></div></div>}
+   <div className="field"><label htmlFor="sig-file">{profileSignature?"เปลี่ยนภาพลายเซ็น (ไม่บังคับ)":"ภาพลายเซ็น (PNG หรือ JPEG ไม่เกิน 512 KB)"}</label>{profileSignature&&<p className="help">ใช้ลายเซ็นที่บันทึกไว้ในแท็บ “ลายเซ็น” โดยอัตโนมัติ หากไม่เลือกไฟล์ใหม่</p>}<FileDropInput id="sig-file" ref={file} type="file" accept="image/png,image/jpeg"/><p className="help">แนะนำ PNG พื้นโปร่งใส — ภาพพื้นขาว (JPEG หรือ PNG ไม่โปร่งใส) อาจทับเส้นในแบบฟอร์ม</p></div>
+   <div className="action-bar"><button type="button" className="button" disabled={busy||form.legalName.trim().length<3||form.license.length<3} onClick={()=>void submit()}>{busy?"กำลังบันทึก…":"บันทึก"}</button>{latest&&<button type="button" className="button secondary" disabled={busy} onClick={()=>setEditing(false)}>ยกเลิก</button>}</div></div>}
  </section>;
 }
