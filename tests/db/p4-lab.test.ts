@@ -282,7 +282,7 @@ describe('Pre-work → execution → reconciliation → Completed → QC1 (§12.
   const {b,cases}=await readyBatch(1);
   await run(async t=>batch.cancelBatch(t,u.staff,{batchId:b.batchId,expectedVersion:await version(t,b.batchId),reason:'จำลอง ยกเลิกร่าง'}));
   expect(await attemptOf(q(db),cases[0].roundId)).toMatchObject({state:'Ready'});
-  const b2=await run(t=>batch.createBatch(t,u.staff));expect(b2.runLabel).toMatch(/^Run002\//);
+  const b2=await run(t=>batch.createBatch(t,u.staff));expect(b2.runLabel).toMatch(/^Run001\//);
   await run(async t=>batch.assignToBatch(t,u.staff,{batchId:b2.batchId,expectedVersion:0,attemptIds:[(await attemptOf(t,cases[0].roundId)).id]}));
   await finalize(b2.batchId);
   await expect(run(async t=>batch.cancelBatch(t,u.staff,{batchId:b2.batchId,expectedVersion:await version(t,b2.batchId),reason:'จำลอง ยกเลิกหลังล็อก'}))).rejects.toMatchObject({code:'FORBIDDEN'});

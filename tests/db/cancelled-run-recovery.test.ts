@@ -25,7 +25,8 @@ async function legacy(count=2,started=false,fixedId?:string){
   await db.query("UPDATE analytical_attempt SET state='BatchCancelled' WHERE id=$1",[id]);
   await db.query("INSERT INTO attempt_event(attempt_id,case_id,event_type,from_state,to_state) SELECT id,case_id,'STATE_CHANGED',$2,'BatchCancelled' FROM analytical_attempt WHERE id=$1",[id,started?'InProgress':'Assigned']);
  }
- await tx(db,async t=>batch.cancelBatch(t,u.certifier,{batchId:b.batchId,expectedVersion:await version(t,b.batchId),reason:'SYNTHETIC legacy cancellation'}));
+ // Production's Run007 was cancelled by the pre-2026-11-12 code, which kept the Run number: reproduce that by skipping today's release step.
+ await tx(db,async t=>batch.cancelBatch({query:async<T>(sql:string,values?:unknown[])=>sql.startsWith('UPDATE lab_batch SET run_released_at')?t.query<T>('SELECT 1 WHERE false'):t.query<T>(sql,values)} as Queryable,u.certifier,{batchId:b.batchId,expectedVersion:await version(t,b.batchId),reason:'SYNTHETIC legacy cancellation'}));
  return {...b,ids};
 }
 const recover=(id:string,n=2)=>tx(db,t=>t.query<{result:string}>('SELECT lab_recover_cancelled_unstarted_run($1,$2) result',[id,n]));
@@ -42,6 +43,9 @@ it('applies the real migration to the exact 15-attempt legacy Run and keeps the 
   expect((await db.query<{n:number}>("SELECT count(*)::int n FROM attempt_event WHERE details->>'repair'='CANCELLED_RUN_BEFORE_EXECUTION'")).rows[0].n).toBe(15);
   await migrate(db,path.resolve('db/migrations'));
   expect((await db.query<{n:number}>("SELECT count(*)::int n FROM attempt_event WHERE details->>'repair'='CANCELLED_RUN_BEFORE_EXECUTION'")).rows[0].n).toBe(15);
+  // Migration 225 gave the cancelled Run007 number back once (no duplicate event on rerun), so the next Batch is Run007 again.
+  expect((await db.query<{n:number}>("SELECT count(*)::int n FROM lab_batch_event WHERE batch_id=$1 AND event_type='RUN_NUMBER_RELEASED' AND details->>'migration'='225_release_run007_number'",[b.batchId])).rows[0].n).toBe(1);
+  expect((await tx(db,t=>batch.createBatch(t,u.staff))).runLabel).toContain('Run007/');
  }finally{
   if(!path.resolve(baseline).startsWith(devRoot+path.sep))throw Error('UNSAFE_TEST_CLEANUP');
   await rm(baseline,{recursive:true});

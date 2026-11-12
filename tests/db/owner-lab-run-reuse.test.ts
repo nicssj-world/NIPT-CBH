@@ -9,8 +9,8 @@ import {orderRepeat} from '../../packages/lab/intake';
 import * as records from '../../packages/lab/records';
 import {MASTER_SHA256} from '../../packages/workbook/master';
 
-// OWNER-LAB-030 (Owner 2026-10-26, handoff 10): deleting an UNUSED Batch gives its Run number back for the next Batch;
-// a Batch that was printed/executed/has evidence never gives its number back. Synthetic fixtures only.
+// OWNER-LAB-030 (Owner 2026-10-26; extended 2026-11-12): any cancelled Run (unused, or placed/printed before execution) gives its Run number back with its specimens;
+// a Run with recorded execution evidence cannot be cancelled and so keeps its number. Synthetic fixtures only.
 let db:PGlite,u:Awaited<ReturnType<typeof labUsers>>,docs:Awaited<ReturnType<typeof docDeps>>;
 beforeEach(async()=>{db=await testDatabase();u=await labUsers(db);docs=await docDeps();});
 afterEach(async()=>{await db.close();await docs.close();});
@@ -101,18 +101,22 @@ describe('OWNER-LAB-030 run-number reuse',()=>{
   const b=await run(t=>batch.createBatch(t,u.staff));expect(b.runLabel).toBe(a.runLabel);
   await assign(b.batchId,c.roundId);expect(await attemptOf(q(db),c.roundId)).toMatchObject({state:'Assigned'});
  });
- it('Run002 deleted unused → next Batch gets Run002 (no gap); an evidenced/placed Run is never reused',async()=>{
+ it('Run002 deleted unused → next Batch gets Run002 (no gap); a placed Run cancelled before work also gives its number and specimen back',async()=>{
   const c=await readySpecimen();
   const r1=await run(t=>batch.createBatch(t,u.staff));await assign(r1.batchId,c.roundId);await finalize(r1.batchId);   // Run001 now has placement evidence
   const r2=await run(t=>batch.createBatch(t,u.staff));expect(r2.runLabel).toMatch(/^Run002\//);
   await trash(r2.batchId);
   const r2b=await run(t=>batch.createBatch(t,u.staff));expect(r2b.runLabel).toBe(r2.runLabel);
-  // Run001 (placed): trash needs a reason (and authority) and does NOT hand the number back.
+  // Run001 (placed): trash still needs a reason (and authority), then hands back BOTH the number and the specimen.
   await expect(trash(r1.batchId)).rejects.toMatchObject({code:'REASON_REQUIRED_FOR_USED_BATCH'});
   const cancelled=await run(async t=>batch.trashBatch(t,u.certifier,{batchId:r1.batchId,expectedVersion:await version(t,r1.batchId),reason:'จำลอง ยกเลิกหลังล็อก'}));
-  expect(cancelled).toMatchObject({runReleased:false});
-  await expect(db.query("UPDATE lab_batch SET run_released_at=now(),run_released_by=$2 WHERE id=$1",[r1.batchId,u.staff.id])).rejects.toThrow(/RUN_RELEASE_REQUIRES_(CANCELLED|UNUSED_BATCH)/);
-  const used=(await labels()).filter(r=>r.run_label===r1.runLabel);expect(used).toHaveLength(1);expect(used[0].released).toBe(false);
+  expect(cancelled).toMatchObject({runReleased:true,runLabel:r1.runLabel,released:1});
+  expect(await attemptOf(q(db),c.roundId)).toMatchObject({state:'Ready'});
+  const was=(await labels()).filter(r=>r.run_label===r1.runLabel);expect(was).toHaveLength(1);expect(was[0].released).toBe(true);
+  await trash(r2b.batchId);
+  const r3=await run(t=>batch.createBatch(t,u.staff));expect(r3.runLabel).toBe(r1.runLabel);expect(r3.reused).toBe(true);
+  // A Run that was NOT cancelled can never be released by a direct update.
+  await expect(db.query("UPDATE lab_batch SET run_released_at=now(),run_released_by=$2 WHERE id=$1",[r3.batchId,u.staff.id])).rejects.toThrow(/RUN_RELEASE_REQUIRES_CANCELLED/);
  });
  it('double-click on delete is harmless; a released number is reused exactly once; the identity of a row can never change',async()=>{
   const a=await run(t=>batch.createBatch(t,u.staff));const v=await version(q(db),a.batchId);

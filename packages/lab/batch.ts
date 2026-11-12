@@ -383,7 +383,14 @@ export async function cancelBatch(db:Queryable,user:Staff,input:unknown){
  await db.query("UPDATE lab_document SET status='Cancelled',status_reason=$2,status_changed_by=$3,status_changed_at=now() WHERE batch_id=$1 AND status IN ('Issued','StopUse')",[b.id,d.reason,user.id]);
  await db.query("UPDATE lab_batch SET state='Cancelled',cancelled_by=$2,cancelled_at=now(),cancel_reason=$3,version=version+1 WHERE id=$1",[b.id,user.id,d.reason]);
  await batchEvent(db,user,b.id,'BATCH_CANCELLED',null,d.reason,{released:live.length});await audit(db,user,'LAB_BATCH_CANCELLED','lab_batch',b.id,{count:live.length});
- return {released:live.length};
+ // Owner 2026-11-12: every cancelled Run gives its Run number back (with its specimens, if it had any) so the next Batch reuses the lowest free number.
+ // Upgrade rehearsals run this before migration 136 adds the column.
+ const releasable=(await db.query<{present:boolean}>("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name='lab_batch' AND column_name='run_released_at') present")).rows[0].present;
+ if(!releasable)return {released:live.length,runReleased:false,runLabel:b.run_label};
+ await db.query('UPDATE lab_batch SET run_released_at=now(),run_released_by=$2 WHERE id=$1',[b.id,user.id]);
+ await batchEvent(db,user,b.id,'RUN_NUMBER_RELEASED',null,null,{runLabel:b.run_label});
+ await audit(db,user,'LAB_RUN_NUMBER_RELEASED','lab_batch',b.id,{count:live.length});
+ return {released:live.length,runReleased:true,runLabel:b.run_label};
 }
 
 /** Online start of physical execution (§12.9 ขั้น 10): server time is the execution anchor; Assigned → InProgress. */
@@ -474,13 +481,7 @@ export async function trashBatch(db:Queryable,user:Staff,input:unknown){
   OR EXISTS(SELECT 1 FROM lab_placement_snapshot WHERE batch_id=$1) OR EXISTS(SELECT 1 FROM lab_document WHERE batch_id=$1) OR EXISTS(SELECT 1 FROM lab_observation WHERE batch_id=$1)
   OR EXISTS(SELECT 1 FROM task_workbook_revision WHERE batch_id=$1) OR EXISTS(SELECT 1 FROM p4b_pool_attempt WHERE batch_id=$1) OR EXISTS(SELECT 1 FROM p4c_dnb_attempt WHERE batch_id=$1)
   OR EXISTS(SELECT 1 FROM lab_actual_pooling WHERE batch_id=$1) OR EXISTS(SELECT 1 FROM lab_bench_export WHERE batch_id=$1) OR EXISTS(SELECT 1 FROM lab_seq_export_pair WHERE batch_id=$1)) unused`,[b.id])).rows[0].unused;
- if(!unused){
-  if(!d.reason||d.reason.length<8)throw new LabError('REASON_REQUIRED_FOR_USED_BATCH',422);
-  return {...await cancelBatch(db,user,{batchId:b.id,expectedVersion:d.expectedVersion,reason:d.reason}),runReleased:false};
- }
- const r=await cancelBatch(db,user,{batchId:b.id,expectedVersion:d.expectedVersion,reason:'ยกเลิก Batch ที่ยังไม่ได้ใช้งาน (คืนเลข Run)'});
- await db.query('UPDATE lab_batch SET run_released_at=now(),run_released_by=$2 WHERE id=$1',[b.id,user.id]);
- await batchEvent(db,user,b.id,'RUN_NUMBER_RELEASED',null,null,{runLabel:b.run_label});
- await audit(db,user,'LAB_RUN_NUMBER_RELEASED','lab_batch',b.id,{count:r.released});
- return {...r,runReleased:true,runLabel:b.run_label};
+ if(!unused&&(!d.reason||d.reason.length<8))throw new LabError('REASON_REQUIRED_FOR_USED_BATCH',422);
+ // Unused or used (before execution), the Run number and the specimens both go back; cancelBatch releases the number.
+ return cancelBatch(db,user,{batchId:b.id,expectedVersion:d.expectedVersion,reason:unused?'ยกเลิก Batch ที่ยังไม่ได้ใช้งาน (คืนเลข Run)':d.reason});
 }
