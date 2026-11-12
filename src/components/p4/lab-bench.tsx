@@ -165,7 +165,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
      <tbody>{pool.calculation.rows.map(row=>{const slot=data.slots.find(s=>s.slot===row.slot)!;
       const shown=row.volume===null?null:Number(row.volume),low=shown!==null&&shown<2;
       return <tr key={row.slot} className={KIND_CLASS[slot?.kind??'']??(slot?.kind==='EMPTY'?'row-empty':undefined)}><th scope="row">{row.slot}</th><td>{slot?sampleCell(slot):row.sampleId}</td>
-       <td className={`bench-volume${low?' bench-volume-low':''}`}>{shown===null?'—':shown.toFixed(2)}</td></tr>;})}</tbody></table></div>
+       <td className={`bench-volume${low?' bench-volume-low':''}`}>{shown===null?'—':shown.toFixed(2)}{low&&shown!==null&&shown.toFixed(2)==='2.00'&&<small> ({(Math.floor(shown*1000)/1000).toFixed(3)})</small>}</td></tr>;})}</tbody></table></div>
    </>}
    <h3 className="bench-subhead">QC2 หลัง Pooling</h3>
    <div className="lab-bench-qc2">{[['pool.standard1','Ref.Std dsDNA Standard 1'],['pool.standard2','Ref.Std dsDNA Standard 2'],['pool.standard2Concentration','Standard 2 Conc.'],['pool.concentration','Pool Library concentration (ng/µL)']].map(([key,label])=><label key={key} className="lab-bench-qc2-field"><span>{label}</span>
@@ -174,7 +174,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
    {poolHigh&&<fieldset className="bench-dilution"><legend>Pooling DNA Library Dilution</legend>
     {/* Owner 2026-11-11: C1 is the Pool Library concentration typed above (nothing to type twice); V1 = C2 × V2 ÷ C1. The saved value also fills E52 of the Pooling Table, so the PDF shows the same V1 and EB. */}
     <p>C1 = <strong>{poolConc} ng/µL</strong> (ค่า Pool Library concentration ที่กรอกด้านบน) · C2 = {basis?basis.target:"3.33"} ng/µL · V2 = {basis?basis.total:"100"} µL ตาม Master</p>
-    {dilutionPreview&&<p role="status" className="bench-dilution-result">C1 × V1 = C2 × V2 → <strong>V1 = {dilutionPreview.v1.toFixed(2)} µL</strong> · EB {dilutionPreview.eb.toFixed(2)} µL (รวม {basis!.total} µL)</p>}
+    {dilutionPreview&&<p role="status" className="bench-dilution-result">C1 × V1 = C2 × V2 → <strong className="bench-dilution-key">V1 = {dilutionPreview.v1.toFixed(2)} µL</strong> · <strong className="bench-dilution-key">EB {dilutionPreview.eb.toFixed(2)} µL</strong> (รวม {basis!.total} µL)</p>}
     <p className="help">กด “บันทึกร่าง QC2” หรือ “บันทึก QC2” แล้วค่านี้จะอยู่ใน Pooling Table (PDF) ด้วย</p></fieldset>}
   </section>}
   {data&&tab==='SEQ'&&<section aria-labelledby="seq-title" className="bench-section">

@@ -68,7 +68,11 @@ html[data-theme="dark"] .lab-bench {--row-pc:#3d2226;--row-nc:#1c3a2a;--row-blan
 .bench-volume {font-variant-numeric:tabular-nums;font-weight:600;}
 .bench-volume-override {color:var(--color-brand);}
 .bench-volume-low {color:var(--color-danger);}
+.bench-table td.bench-volume small {display:inline;margin:0;color:inherit;font-size:.875rem;font-weight:500;}
 .bench-icon-button {width:44px;padding:0;justify-content:center;}
+/* Owner 2026-11-12: V1 and EB are the two numbers the bench user pipettes, so they stand out from the formula text. */
+.bench-dilution-result {line-height:2.2;}
+.bench-dilution-key {display:inline-block;padding:2px var(--space-3);border-radius:var(--radius);background:var(--info-bg);border:1px solid var(--color-brand);color:var(--color-brand);font-size:1.125rem;font-weight:700;font-variant-numeric:tabular-nums;}
 .bench-criterion-note {color:var(--color-muted);font-size:.875rem;line-height:1.5;}
 .bench-out {color:var(--color-danger);}
 .lab-bench-qc2 {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-2) var(--space-4);align-items:start;}
