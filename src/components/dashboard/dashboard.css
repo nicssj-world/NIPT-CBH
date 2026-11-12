@@ -60,3 +60,11 @@
 
 /* Date columns: header and value share one centre line (the generic .num rule right-aligned values under left-aligned headers). */
 .workspace .dash-panel .data-table :is(th,td).date-col{text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums}
+
+/* LN and HN in the Lab dashboard tables: a clear gap between them, wrapping to a second line on narrow cells. */
+.dash-who{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 14px}
+.dash-who .cell-sub{display:inline;margin:0}
+
+/* Administrator home: the two overviews as links styled like the home tabs; the open one is marked by aria-current. */
+.home-view-switch .home-tab{display:inline-flex;align-items:center;text-decoration:none;white-space:nowrap}
+.home-view-switch .home-tab[aria-current="page"]{color:var(--color-brand);border-bottom-color:var(--color-brand)}

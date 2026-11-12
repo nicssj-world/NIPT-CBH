@@ -62,7 +62,7 @@
  .anc-table tbody tr:last-child{border-bottom:0}
  .workspace .anc-dashboard .anc-table tbody td{height:auto;padding:0;border:0}
  .anc-table .c-when{white-space:normal;color:var(--color-muted);font-size:.8125rem}
- .anc-table .c-when::before{content:"รับตัวอย่างเลือดครั้งแรก ";font-weight:600}
+ .anc-table .c-when::before{content:"วันที่ส่งตรวจ ";font-weight:600}
  .anc-table .c-when .cell-sub{display:inline;margin-left:6px}
  .anc-table :is(.c-progress,.c-todo){min-width:0}
  .anc-table .c-actions{width:auto;text-align:left}

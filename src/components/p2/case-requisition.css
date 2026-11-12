@@ -2,7 +2,6 @@
    Measurements read as figures, people and places as a quiet fact list, the medical history as answered questions. */
 .case-requisition{display:grid;gap:16px}
 .case-requisition>h2{margin:0}
-.case-requisition .req-source{margin:-8px 0 0;font-size:13px;color:var(--color-muted)}
 
 /* Segmented category switch: one track, the open category lifts onto the surface. */
 .req-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:4px;border-radius:14px;background:var(--raised)}

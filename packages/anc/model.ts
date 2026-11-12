@@ -7,7 +7,7 @@ export type Stage = typeof stages[number][0];
 export const flagLabels = {redraw:'เก็บตัวอย่างใหม่',repeat:'ตรวจซ้ำ',hold:'HOLD',urgent:'เร่งด่วน',documents:'เอกสารยังไม่ครบ',missing_s1:'ข้อมูล S1 ไม่ครบ',conflicting_release:'หลักฐานผลตรวจขัดกัน',unmapped_state:'ตรวจสอบสถานะ',validation_blocked:'ผลตรวจติดเงื่อนไข',consent_revoked:'ถอนความยินยอม',identity_issue:'ข้อมูลระบุตัวตนรอตรวจสอบ'} as const;
 export type Flag = keyof typeof flagLabels;
 export type CaseFacts = {
- registeredAt?:string; id:string; ln:string; hn:string|null; patientName?:string|null; unitIds:string[]; currentRoundId:string|null; roundNumber:number|null; roundState:string|null;
+ registeredAt?:string; /** "วันที่ส่งตรวจ" (sent-date.ts) */ sentAt?:string|null; id:string; ln:string; hn:string|null; patientName?:string|null; unitIds:string[]; currentRoundId:string|null; roundNumber:number|null; roundState:string|null;
  s1ReceivedAt:string|null; currentReceivedAt:string|null; analysisStarted:boolean; documentsReady:boolean;
  reportState:string|null; activeReleaseCount:number; certifiedReleaseCount:number; redraw:boolean; repeat:boolean; hold:boolean; urgent:boolean; consentRevoked:boolean; identityIssue:boolean; /** a migrated historical case with an official PDF linked to its imported attempt */historicalResult?:boolean;
 };

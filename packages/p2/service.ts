@@ -1,4 +1,5 @@
 import {currentPatient,currentPetPatientJoin} from '../anc/current-patient';
+import {sentAtSql,sentDayRangeSql} from '../anc/sent-date';
 import {analysisSteps} from '../lab/analysis-progress';
 import {resyncPrintedSampleIds} from '../lab/printed-id-sync';
 import {readCasePetEvidence} from '../inbound/case-pet-evidence';
@@ -399,13 +400,13 @@ export async function doctorAction(db:Queryable,user:Staff,input:unknown){
  await db.query('INSERT INTO p2_doctor_event(doctor_version_id,event_type,actor_id,reason) VALUES($1,$2,$3,$4)',[d.id,d.action==='approve'?'Approved':'Suspended',user.id,d.reason]);await appendAudit(db,{actorId:user.id,action:d.action==='approve'?'P2_DOCTOR_APPROVED':'P2_DOCTOR_SUSPENDED',resourceType:'p2_doctor_version',resourceId:d.id,details:{synthetic:!operationalDataEnabled()}});return {id:d.id,status:d.action==='approve'?'Approved':'Suspended'};
 }
 export async function doctorUnits(db:Queryable,user:Staff){await assertStaff(db,user);if(!user.roles.some(r=>['ANC_NURSE','ANC_SUPERVISOR','LAB_STAFF','LAB_CERTIFIER','APP_ADMIN','CLINICAL_APPROVER'].includes(r)))throw new P2Error('FORBIDDEN',403);return (await db.query<{id:string;code:string;name:string}>('SELECT id,code,name FROM unit WHERE active ORDER BY code')).rows;}
-const registryInput=z.strictObject({q:z.string().max(60).default(''),sort:z.enum(['registered','asc','desc']).default('registered'),...pageFields(25)});
+const registryInput=z.strictObject({q:z.string().max(60).default(''),sort:z.enum(['registered','asc','desc']).default('registered'),from:z.iso.date().optional(),to:z.iso.date().optional(),...pageFields(25)});
 /** Registry page. Everything that decides what is on the page - scope, search, sort, total - is evaluated by one SQL predicate, so the
  * total always matches the rows reachable by paging, and a page costs one bounded query plus one count (never the whole registry). */
 export async function listP2Cases(db:Queryable,user:Staff,input:unknown={}){
  const parsed=registryInput.safeParse(input);
  if(!parsed.success){const bad=new Set(parsed.error.issues.map(i=>String(i.path[0])));throw new P2Error(bad.has('sort')?'SORT_INVALID':bad.has('q')?'SEARCH_INVALID':'PAGE_INVALID');}
- const {q:search,sort,page:requested,pageSize}=parsed.data;
+ const {q:search,sort,page:requested,pageSize,from,to}=parsed.data;
  await assertStaff(db,user);
  const allUnits=(await db.query<{id:string;code:string;name:string}>('SELECT id,code,name FROM unit ORDER BY code')).rows;
  // Scope is decided per (unit, origin) exactly as authorize() decides it for the row; the SQL predicate and the post-filter below agree.
@@ -414,7 +415,7 @@ export async function listP2Cases(db:Queryable,user:Staff,input:unknown={}){
  const halosTerm=search.replace(/[DR]{1,2}$/i,'');
  const canHalos=authorize(user,'worksheet.read',{},'read')&&halosTerm.length>=4;
  const scanLn=/^\d{2}-\d{3}-\d-\d{4}$/.test(search)?search.replaceAll('-',''):search;
- const values:unknown[]=[likeContains(search),readable,canHalos,likeContains(halosTerm),likeContains(scanLn)];
+ const values:unknown[]=[likeContains(search),readable,canHalos,likeContains(halosTerm),likeContains(scanLn),from??null,to??null];
  // LN Halos is Lab numbering: searchable only by roles that can already read the Lab worksheet. The printed code may carry a D/R suffix.
  const base=`FROM nipt_case c JOIN case_ln l ON l.id=(SELECT cl.id FROM case_ln cl WHERE cl.case_id=c.id ORDER BY cl.id LIMIT 1) LEFT JOIN p2_case_identity i ON i.case_id=c.id
   JOIN LATERAL(SELECT us.unit_id FROM case_unit_scope us WHERE us.case_id=c.id AND (us.unit_id::text||':'||c.registration_origin)=ANY($2::text[]) ORDER BY us.unit_id LIMIT 1) s ON true
@@ -427,11 +428,12 @@ export async function listP2Cases(db:Queryable,user:Staff,input:unknown={}){
    ORDER BY older_round.round_number DESC LIMIT 1
   ) patient_history ON true
   WHERE c.registration_origin IN ('ANC','LAB_DIRECT') AND NOT EXISTS(SELECT 1 FROM p2_registration_void v WHERE v.case_id=c.id) AND NOT EXISTS(SELECT 1 FROM eqa_case eqa WHERE eqa.case_id=c.id) AND (l.ln LIKE $1 OR l.ln LIKE $5 OR i.hn LIKE $1 OR COALESCE(CASE WHEN pet_patient.inbound_file_id IS NOT NULL THEN pet_patient.name ELSE COALESCE(NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),''),patient_history.name) END,'') ILIKE $1
-   OR ($3::boolean AND EXISTS(SELECT 1 FROM specimen_lab_number n WHERE n.case_id=c.id AND n.ln_halos ILIKE $4)))`;
+   OR ($3::boolean AND EXISTS(SELECT 1 FROM specimen_lab_number n WHERE n.case_id=c.id AND n.ln_halos ILIKE $4)))
+  AND ${sentDayRangeSql(sentAtSql('c'),'$6','$7')}`;
  const total=Number((await db.query<{n:string}>(`SELECT count(*)::text n ${base}`,values)).rows[0].n);
  const meta=clampPage(requested,total,pageSize);
- const rows=(await db.query<CaseScope&{received_at:Date|null;received_source:string|null;draft:RequestDraft|null;patient_name:string|null;collection_date:string|null;version:number|null;request_mode:string|null;consent_mode:string|null;consent_decision:string|null;clinical_ready:boolean;released:boolean;reported_before:boolean}>(
-  `SELECT c.id,l.ln,i.hn,c.registration_origin,c.current_round_id,s.unit_id,r.state,r.analysis_started,r.round_number,r.received_at,r.received_source,r.collection_date::text,w.draft,CASE WHEN pet_patient.inbound_file_id IS NOT NULL THEN pet_patient.name ELSE COALESCE(NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),''),patient_history.name) END patient_name,w.version,w.request_mode,w.consent_mode,p2_clinical_ready(r.id) clinical_ready,EXISTS(SELECT 1 FROM result_release rr JOIN result_report_version rv ON rv.id=rr.version_id WHERE rr.case_id=c.id AND rr.round_id=r.id AND rr.kind='RESULT' AND rr.state='Active' AND rv.case_id=c.id AND rv.round_id=r.id AND rv.kind='RESULT' AND rv.state='CertifiedReleased') released,EXISTS(SELECT 1 FROM historical_reported_result hr WHERE hr.case_id=c.id AND hr.round_id=r.id) reported_before,(CASE WHEN w.round_id IS NULL THEN NULL ELSE p2_consent_latest_decision(w.round_id) END) consent_decision ${base}
+ const rows=(await db.query<CaseScope&{received_at:Date|null;received_source:string|null;draft:RequestDraft|null;patient_name:string|null;collection_date:string|null;sent_at:Date|null;version:number|null;request_mode:string|null;consent_mode:string|null;consent_decision:string|null;clinical_ready:boolean;released:boolean;reported_before:boolean}>(
+  `SELECT c.id,l.ln,i.hn,c.registration_origin,c.current_round_id,${sentAtSql('c')} sent_at,s.unit_id,r.state,r.analysis_started,r.round_number,r.received_at,r.received_source,r.collection_date::text,w.draft,CASE WHEN pet_patient.inbound_file_id IS NOT NULL THEN pet_patient.name ELSE COALESCE(NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),''),patient_history.name) END patient_name,w.version,w.request_mode,w.consent_mode,p2_clinical_ready(r.id) clinical_ready,EXISTS(SELECT 1 FROM result_release rr JOIN result_report_version rv ON rv.id=rr.version_id WHERE rr.case_id=c.id AND rr.round_id=r.id AND rr.kind='RESULT' AND rr.state='Active' AND rv.case_id=c.id AND rv.round_id=r.id AND rv.kind='RESULT' AND rv.state='CertifiedReleased') released,EXISTS(SELECT 1 FROM historical_reported_result hr WHERE hr.case_id=c.id AND hr.round_id=r.id) reported_before,(CASE WHEN w.round_id IS NULL THEN NULL ELSE p2_consent_latest_decision(w.round_id) END) consent_decision ${base}
    ORDER BY ${sort==='registered'?"c.created_at DESC,(CASE WHEN c.registration_origin='HISTORICAL' THEN r.received_at END) DESC NULLS LAST,c.id":receiveOrderSql('r.received_at',sort,['l.ln','c.id'])} LIMIT ${pageSize} OFFSET ${offsetOf(meta)}`,values)).rows;
  // A paper request is checked on the paper review, so the electronic draft's missing fields say nothing about it.
  const seen=new Set<string>();const cases=rows.filter(c=>{if(seen.has(c.id)||!authorize(user,'case.read',{unitId:c.unit_id,origin:c.registration_origin},'read'))return false;seen.add(c.id);return true;}).map(({draft,...c})=>({...c,hasResult:c.released||c.reported_before,patient_name:c.patient_name?.trim()||null,ga:registryGa(draft?.pregnancy.edd,c.collection_date??draft?.pregnancy.collectionDate),identityVerified:c.hn!==null,progress:draft&&c.request_mode!=='Paper'?{missing:requestProgressIssues(draft),savedVersion:c.version}:null}));
@@ -475,4 +477,21 @@ export async function approveClinicalP2(db:Queryable,user:Staff,id:string,input:
  const result={state:'ClinicalPassed',passed:true,authority:'AUTHORIZED_CLINICAL_REVIEW',sourceHash:source.hash,workspaceVersion:w.version,reviewerId:user.id,reason:d.reason,sourceReference:d.sourceReference,attestation:true};
  const row=(await db.query('INSERT INTO clinical_snapshot(case_id,round_id,rule_version,input_snapshot,result) VALUES($1,$2,$3,$4,$5) RETURNING id',[id,c.current_round_id,'CBH-AUTHORIZED-REVIEW-v1',source.source,result])).rows[0];
  await event(db,user,id,'P2_CLINICAL_REVIEW_APPROVED',{snapshotId:row.id,sourceHash:source.hash});return {id:row.id,...result};
+}
+
+/** National ID shown (masked, revealed on demand) in the case page's requisition summary (Owner 2026-11-12).
+ *  The ANC request's own value wins; when ANC left it empty the ID is read from the stored PET bytes, as the NHSO popup does.
+ *  Never persisted in clear and never part of the case payload; each read is PHI-access-logged. */
+export async function caseNationalId(db:Queryable,store:FileStore,user:Staff,id:string):Promise<{nationalId:string|null;source:'REQUEST'|'PET'|null}>{
+ const c=await scopedCase(db,user,id);
+ const w=(await db.query<{draft:{patient?:{identifier?:string|null}}}>('SELECT draft FROM p2_workspace WHERE case_id=$1 AND round_id=$2',[id,c.current_round_id])).rows[0];
+ const own=w?.draft?.patient?.identifier?.trim();
+ await recordPhiAccess(db,user.id,[id],'CASE_DETAIL_VIEW');
+ if(own)return {nationalId:own,source:'REQUEST'};
+ // The PET of this round; a round without its own PET (e.g. a redraw received in NIPT) uses the case's latest one.
+ const file=(await db.query<{sha256:string;filename:string}>(`SELECT f.sha256,f.filename FROM his_order_current o JOIN his_inbound_file_current f ON f.id=o.inbound_file_id JOIN specimen_round x ON x.id=o.round_id
+   WHERE x.case_id=$1 ORDER BY (o.round_id=$2) DESC,x.round_number DESC,o.his_received_at DESC LIMIT 1`,[id,c.current_round_id])).rows[0];
+ if(!file)return {nationalId:null,source:null};
+ try{const {parsePet}=await import('../integrations/pet');const identity=parsePet(await store.get(file.sha256),file.filename).identity.trim();return identity?{nationalId:identity,source:'PET'}:{nationalId:null,source:null};}
+ catch{return {nationalId:null,source:null};}
 }

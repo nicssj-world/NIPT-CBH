@@ -1,5 +1,5 @@
 "use client";
-import {useId,useRef,useState,type KeyboardEvent,type ReactNode} from "react";
+import {useEffect,useId,useRef,useState,type KeyboardEvent,type ReactNode} from "react";
 import {LabIcon} from "../shared/lab-icons";
 import {sections,historyFacts} from "./request-form";
 import {historyAnswers} from "./request-history-contract";
@@ -32,14 +32,19 @@ const PREGNANCY:Record<string,string>={Singleton:"ครรภ์เดี่ย
 function requestSource(data:CaseData){
  const confirmed=data.revisions.find(r=>r.kind==="REQUEST"&&(r.payload.identity as {roundId?:string}|undefined)?.roundId===data.case.current_round_id);
  const payload=confirmed?.payload as {draft?:RequestDraft;doctor?:{name?:string}|null}|undefined;
- return {draft:payload?.draft??data.workspace.draft,doctorName:payload?.doctor?.name??null,
-  source:confirmed?`แบบขอส่งตรวจที่ยืนยันแล้ว ฉบับที่ ${confirmed.version}`:data.workspace.request_mode==="Paper"?"ข้อมูลที่บันทึกจากใบส่งตรวจกระดาษ":"ร่างแบบขอส่งตรวจ (ยังไม่ยืนยัน)"};
+ return {draft:payload?.draft??data.workspace.draft,doctorName:payload?.doctor?.name??null};
 }
 
 const Empty=()=> <span className="req-empty">{EMPTY}</span>;
 /** National ID is masked by default; only the last 3 digits show until the eye button is pressed (Owner 2026-11-12). */
 function maskId(v:string){const digits=v.replace(/\D/g,"");if(digits.length<4)return "x".repeat(v.length);
  const shown=thaiId(digits)??digits;let keep=3;return [...shown].reverse().map(ch=>/\d/.test(ch)?(keep-->0?ch:"x"):ch).reverse().join("");}
+function useNationalId(caseId:string,own:string|null){
+ // ANC's own entry wins; otherwise the server reads the ID the PET carries (same as the NHSO popup). Fetched once per case, never stored in the browser.
+ const [fetched,setFetched]=useState<{caseId:string;id:string|null}|null>(null);
+ useEffect(()=>{if(own)return;let live=true;void fetch(`/api/p2/cases/${caseId}/national-id`,{cache:"no-store"}).then(r=>r.ok?r.json():null).then(j=>{if(live)setFetched({caseId,id:typeof j?.nationalId==="string"&&j.nationalId.trim()?j.nationalId.trim():null});}).catch(()=>{if(live)setFetched({caseId,id:null});});return()=>{live=false;};},[caseId,own]);
+ return own??(fetched?.caseId===caseId?fetched.id:null);
+}
 function NationalId({value}:{value:string}){
  const [open,setOpen]=useState(false);
  return <span className="req-id"><span className="req-mono">{open?thaiId(value):maskId(value)}</span>
@@ -60,7 +65,7 @@ function Group({title,span=false,children}:{title:string;span?:boolean;children:
 
 export function CaseRequisition({data,doctors}:{data:CaseData;doctors:Doctor[]}){
  const base=useId(),[open,setOpen]=useState(0),refs=useRef<(HTMLButtonElement|null)[]>([]);
- const {draft,doctorName,source}=requestSource(data);
+ const {draft,doctorName}=requestSource(data);
  const p=draft.patient,g=draft.pregnancy,h=draft.history,o=draft.ordering as RequestDraft["ordering"]&{coordinator?:string|null;phone?:string|null};
  // GA on the blood-draw date: the request's own draw date first, then the round receipt, then the HIS collection time (Bangkok date).
  const hisDraw=data.his?.specimenAt&&!Number.isNaN(Date.parse(data.his.specimenAt))?new Date(data.his.specimenAt).toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"}):null;
@@ -69,7 +74,8 @@ export function CaseRequisition({data,doctors}:{data:CaseData;doctors:Doctor[]})
  const doctor=doctors.find(d=>d.id===o.doctorVersionId)?.name??doctorName;
 
  // 1 · ผู้รับบริการและสถานพยาบาล
- const person:Fact[]=[{label:"เลขประจำตัวประชาชน",value:text(p.identifier)?<NationalId value={text(p.identifier)!}/>:null},{label:"สิทธิการตรวจ",value:p.entitlement?<span className="req-pill tone-info">{ENTITLEMENT[p.entitlement]??p.entitlement}</span>:null}];
+ const nationalId=useNationalId(data.case.id,text(p.identifier));
+ const person:Fact[]=[{label:"เลขประจำตัวประชาชน",value:nationalId?<NationalId value={nationalId}/>:null},{label:"สิทธิการตรวจ",value:p.entitlement?<span className="req-pill tone-info">{ENTITLEMENT[p.entitlement]??p.entitlement}</span>:null}];
  const body:Figure[]=[{label:"น้ำหนัก",value:fixed(g.weightKg),unit:"กก."},{label:"ส่วนสูง",value:fixed(g.heightCm),unit:"ซม."},
   {label:"BMI",value:calc.bmi===null?null:calc.bmi.toFixed(2),tone:calc.bmi!==null&&calc.bmi>40?"warn":undefined}];
  const ordering:Fact[]=[{label:"สถานพยาบาล",value:text(o.facility)},{label:"แพทย์ผู้สั่งตรวจ",value:doctor},
@@ -101,7 +107,6 @@ export function CaseRequisition({data,doctors}:{data:CaseData;doctors:Doctor[]})
 
  return <section className="panel case-requisition" aria-labelledby={`${base}-h`}>
   <h2 id={`${base}-h`}><span className="case-sec-icon" aria-hidden="true"><LabIcon name="list" size={22}/></span>ข้อมูลจากใบส่งตรวจ</h2>
-  <p className="req-source">{source}</p>
   <div className="req-tabs" role="tablist" aria-label="หมวดใบส่งตรวจ" onKeyDown={onKey}>{tabs.map((t,i)=><button key={i} ref={el=>{refs.current[i]=el;}} type="button" role="tab" className="req-tab" id={`${base}-t${i}`} aria-selected={open===i} aria-controls={`${base}-p`} tabIndex={open===i?0:-1} onClick={()=>choose(i)}>
    <span className="req-tab-n" aria-hidden="true">{i+1}</span><span className="req-tab-label">{sections[i]}</span>
    {t.alert?<span className={t.stop?"req-tab-alert is-stop":"req-tab-alert"}>ใช่ {t.alert} ข้อ</span>:<span className="req-tab-count" aria-label={`มีข้อมูล ${t.count} ช่อง`}>{t.count}</span>}

@@ -1,4 +1,5 @@
 import {currentPetPatientJoin} from './current-patient';
+import {sentAtSql,sentDayRangeSql} from './sent-date';
 import {z} from 'zod';
 import type {Queryable} from '../db/connection';
 import {assertSession,LabError,type Staff} from '../lab/core';
@@ -8,7 +9,9 @@ import {fiscalYear,flagLabels,stages,type Dashboard,type QueueItem} from './mode
 
 export const filterSchema=z.object({fy:z.coerce.number().int().min(2543).max(2743).optional(),unitId:z.uuid().optional(),kpi:z.enum(['sent','pending','released','attention']).optional(),stage:z.enum(stages.map(s=>s[0])).optional(),flag:z.enum(Object.keys(flagLabels) as [keyof typeof flagLabels,...(keyof typeof flagLabels)[]]).optional(),tab:z.enum(['all','pending','released','attention','redraw','hold','awaiting','testing','followup']).optional(),q:z.string().trim().max(60).optional(),
  /** Queue order (Owner 2026-11-12): newest registration first by default; the first-receipt column can be sorted either way (no receipt last). */
- sort:z.enum(['registered','received_desc','received_asc']).optional(),page:z.coerce.number().int().min(1).max(1000000).default(1),pageSize:z.coerce.number().int().min(1).max(100).default(20),
+ sort:z.enum(['registered','sent_desc','sent_asc']).optional(),
+ /** "วันที่ส่งตรวจ" range, inclusive Bangkok days (Owner 2026-11-12: replaces the fiscal-year picker on the queue). */
+ from:z.iso.date().optional(),to:z.iso.date().optional(),page:z.coerce.number().int().min(1).max(1000000).default(1),pageSize:z.coerce.number().int().min(1).max(100).default(20),
  /** Keyset cursor of the last row already shown (from the previous response) and the time that response was computed at. Following a cursor
   * continues strictly after that row in the same total order, so a row that changes meanwhile can neither repeat nor push another row out;
   * `asOf` keeps "days waiting" (a sort key) from drifting across midnight while one person pages. Both are optional: without them the page is OFFSET-based. */
@@ -25,7 +28,7 @@ function decodeCursor(raw:string):Cursor{
  * Documents use the authoritative p2_clinical_source and document portion of the readiness predicate
  * (migration 088; Paper Consent marker 101; refusal-aware decision 102). Collection-date/clinical-review gates remain separate from document readiness. */
 // documentsReady is also true for a migrated Historical case whose result was already issued: its request/consent evidence is never created retroactively.
-export const factsSql=`SELECT c.created_at "registeredAt",c.id,l.ln,i.hn,CASE WHEN pet_patient.inbound_file_id IS NOT NULL THEN pet_patient.name ELSE COALESCE(NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),''),patient_history.name) END "patientName",
+export const factsSql=`SELECT c.created_at "registeredAt",${sentAtSql('c')} "sentAt",c.id,l.ln,i.hn,CASE WHEN pet_patient.inbound_file_id IS NOT NULL THEN pet_patient.name ELSE COALESCE(NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),''),patient_history.name) END "patientName",
  ARRAY(SELECT s.unit_id::text FROM case_unit_scope s WHERE s.case_id=c.id AND s.unit_id=ANY($1::uuid[]) ORDER BY s.unit_id) "unitIds",
  c.current_round_id "currentRoundId",r.round_number "roundNumber",r.state "roundState",
  (SELECT s.received_at FROM specimen_round s WHERE s.case_id=c.id AND s.round_number=1) "s1ReceivedAt",r.received_at "currentReceivedAt",COALESCE(r.analysis_started,false) "analysisStarted",
@@ -68,10 +71,10 @@ export const factsSql=`SELECT c.created_at "registeredAt",c.id,l.ln,i.hn,CASE WH
 
 /** Port of project()/matches() (model.ts) to SQL so the queue is filtered, ordered, counted and paged by the database. model.ts stays the
  * reference definition: tests/db/anc-sql-parity.test.ts runs both over the same data. A change to a stage, flag or KPI rule must be made in BOTH. */
-/** Sort key of the registration-ordered queue ($15 = sort). Always DESC in SQL: received_asc negates the time; a case without a receipt sorts last both ways. */
+/** Sort key of the registration-ordered queue ($15 = sort). Always DESC in SQL: sent_asc negates the time; a case without a send date sorts last both ways. */
 const registrationOrderKey=`CASE $15::text
-  WHEN 'received_desc' THEN COALESCE(floor(extract(epoch FROM "s1ReceivedAt")*1000000)::bigint,-1)
-  WHEN 'received_asc' THEN COALESCE(-floor(extract(epoch FROM "s1ReceivedAt")*1000000)::bigint,-8640000000000000)
+  WHEN 'sent_desc' THEN COALESCE(floor(extract(epoch FROM "sentAt")*1000000)::bigint,-1)
+  WHEN 'sent_asc' THEN COALESCE(-floor(extract(epoch FROM "sentAt")*1000000)::bigint,-8640000000000000)
   ELSE floor(extract(epoch FROM "registeredAt")*1000000)::bigint END`;
 export const projectionFor=(facts:string,registrationOrder=false)=>`WITH facts AS MATERIALIZED (${facts}),
  rel AS (SELECT f.*,(f."currentReceivedAt" IS NOT NULL AND f."s1ReceivedAt" IS NULL) missing_s1,(f."activeReleaseCount">1 OR f."activeReleaseCount"<>f."certifiedReleaseCount") conflict FROM facts f),
@@ -99,26 +102,27 @@ export const projectionFor=(facts:string,registrationOrder=false)=>`WITH facts A
    ($5::text IS NULL OR CASE $5::text WHEN 'sent' THEN sent WHEN 'pending' THEN pending WHEN 'released' THEN has_result WHEN 'attention' THEN cardinality(flags)>0 ELSE false END)
    AND ($6::text IS NULL OR stage=$6::text) AND ($7::text IS NULL OR $7::text=ANY(flags))
    AND ($9::text='' OR strpos(lower(ln),$9::text)>0 OR strpos(lower(COALESCE(hn,'')),$9::text)>0 OR strpos(lower(id::text),$9::text)>0 OR strpos(lower(COALESCE("patientName",'')),$9::text)>0 OR ($9::text ~ '^[0-9]{2}-[0-9]{3}-[0-9]-[0-9]{4}$' AND strpos(ln,replace($9::text,'-',''))>0)))
- , tabbed AS (SELECT * FROM flt WHERE ($8::text='all' OR CASE $8::text WHEN 'redraw' THEN redraw WHEN 'hold' THEN hold WHEN 'pending' THEN pending WHEN 'released' THEN has_result WHEN 'attention' THEN cardinality(flags)>0 WHEN 'awaiting' THEN stage IN ('documents','expected') WHEN 'testing' THEN stage IN ('received','analysis','review') WHEN 'followup' THEN stage='followup' ELSE false END)),
+ , dated AS (SELECT * FROM flt WHERE ${registrationOrder?sentDayRangeSql('"sentAt"','$16','$17'):'($16::date IS NULL OR $16::date IS NOT NULL) AND ($17::date IS NULL OR $17::date IS NOT NULL)'}),
+ tabbed AS (SELECT * FROM dated WHERE ($8::text='all' OR CASE $8::text WHEN 'redraw' THEN redraw WHEN 'hold' THEN hold WHEN 'pending' THEN pending WHEN 'released' THEN has_result WHEN 'attention' THEN cardinality(flags)>0 WHEN 'awaiting' THEN stage IN ('documents','expected') WHEN 'testing' THEN stage IN ('received','analysis','review') WHEN 'followup' THEN stage='followup' ELSE false END)),
  ordered AS (SELECT *,${registrationOrder?'0':'urgent::int'} ord_u,${registrationOrder?registrationOrderKey:'COALESCE(days_waiting,-1)'} ord_d,$15::text sort_mode FROM tabbed)
  SELECT
-  (SELECT json_build_object('all',count(*),'pending',count(*) FILTER(WHERE pending),'released',count(*) FILTER(WHERE has_result),'attention',count(*) FILTER(WHERE cardinality(flags)>0),'redraw',count(*) FILTER(WHERE redraw),'hold',count(*) FILTER(WHERE hold),'awaiting',count(*) FILTER(WHERE stage IN ('documents','expected')),'testing',count(*) FILTER(WHERE stage IN ('received','analysis','review')),'followup',count(*) FILTER(WHERE stage='followup')) FROM flt) tab_counts,
+  (SELECT json_build_object('all',count(*),'pending',count(*) FILTER(WHERE pending),'released',count(*) FILTER(WHERE has_result),'attention',count(*) FILTER(WHERE cardinality(flags)>0),'redraw',count(*) FILTER(WHERE redraw),'hold',count(*) FILTER(WHERE hold),'awaiting',count(*) FILTER(WHERE stage IN ('documents','expected')),'testing',count(*) FILTER(WHERE stage IN ('received','analysis','review')),'followup',count(*) FILTER(WHERE stage='followup')) FROM dated) tab_counts,
   (SELECT json_build_object('sent',count(*) FILTER (WHERE sent),'pending',count(*) FILTER (WHERE pending),'released',count(*) FILTER (WHERE has_result),'attention',count(*) FILTER (WHERE cardinality(flags)>0)) FROM sc) metrics,
   (SELECT COALESCE(json_object_agg(stage,n),'{}'::json) FROM (SELECT stage,count(*)::int n FROM sc GROUP BY stage) x) stage_counts,
   (SELECT count(*)::int FROM tabbed) total,
   (SELECT COALESCE(json_agg(row_to_json(p) ORDER BY p.ord_u DESC,p.ord_d DESC,p.id),'[]'::json) FROM (
     SELECT id,ln,hn,"patientName","unitIds","currentRoundId","roundNumber","roundState","s1ReceivedAt","currentReceivedAt","analysisStarted","documentsReady","reportState","activeReleaseCount","certifiedReleaseCount",
-     redraw,repeat,hold,urgent,"consentRevoked","identityIssue","historicalResult",stage,flags,released,has_result "hasResult",pending,days_waiting "daysWaiting",ord_u,ord_d
+     redraw,repeat,hold,urgent,"consentRevoked","identityIssue","historicalResult",stage,flags,released,has_result "hasResult",pending,days_waiting "daysWaiting",${registrationOrder?'"sentAt"':'NULL::timestamptz "sentAt"'},ord_u,ord_d
     FROM ordered WHERE ($10::int IS NULL OR (ord_u<$10::int OR (ord_u=$10::int AND ord_d<$11::bigint) OR (ord_u=$10::int AND ord_d=$11::bigint AND id>$12::uuid)))
     ORDER BY ord_u DESC,ord_d DESC,id LIMIT $13 OFFSET $14) p) rows`;
 const projectionSql=projectionFor(factsSql,true);
-type SqlRow=Omit<QueueItem,'stageLabel'|'s1ReceivedAt'|'currentReceivedAt'>&{s1ReceivedAt:string|null;currentReceivedAt:string|null;ord_u:number;ord_d:number};
+type SqlRow=Omit<QueueItem,'stageLabel'|'s1ReceivedAt'|'currentReceivedAt'|'sentAt'>&{s1ReceivedAt:string|null;currentReceivedAt:string|null;sentAt:string|null;ord_u:number;ord_d:number};
 const SIX_HOURS=6*3600000;
-export type ProjectionInput={unitIds:string[];asOf:Date;fy:number;unitId?:string;kpi?:string;stage?:string;flag?:string;tab:string;q:string;cursor:Cursor|null;limit:number;offset:number;sort?:string};
+export type ProjectionInput={unitIds:string[];asOf:Date;fy:number;unitId?:string;kpi?:string;stage?:string;flag?:string;tab:string;q:string;cursor:Cursor|null;limit:number;offset:number;sort?:string;from?:string;to?:string};
 export type ProjectionResult={tab_counts:NonNullable<Dashboard['queue']['tabCounts']>;metrics:Dashboard['metrics'];stage_counts:Record<string,number>;total:number;rows:SqlRow[]};
 /** The one place parameter order is defined (also used by the parity test with a fixture in place of the facts query). */
 export async function runProjection(db:Queryable,sql:string,i:ProjectionInput):Promise<ProjectionResult>{
- return (await db.query<ProjectionResult>(sql,[i.unitIds,i.asOf.toISOString(),i.fy,i.unitId??null,i.kpi??null,i.stage??null,i.flag??null,i.tab,i.q.trim().toLowerCase(),i.cursor?.u??null,i.cursor?.d??null,i.cursor?.id??null,i.limit,i.offset,i.sort??null])).rows[0];
+ return (await db.query<ProjectionResult>(sql,[i.unitIds,i.asOf.toISOString(),i.fy,i.unitId??null,i.kpi??null,i.stage??null,i.flag??null,i.tab,i.q.trim().toLowerCase(),i.cursor?.u??null,i.cursor?.d??null,i.cursor?.id??null,i.limit,i.offset,i.sort??null,i.from??null,i.to??null])).rows[0];
 }
 /** Who may read the ANC overview and which units: ANC roles (or the system Admin) with case.read and result.read.released per unit.
  *  Shared by the queue (`dashboard`) and the insights panel (anc/insights.ts) so both read exactly the same scope. */
@@ -142,12 +146,12 @@ export async function dashboard(db:Queryable,user:Staff,input:unknown={}):Promis
  const asOfMs=f.asOf?Date.parse(f.asOf):NaN,asOf=Number.isFinite(asOfMs)&&asOfMs<=date.getTime()&&date.getTime()-asOfMs<=SIX_HOURS?new Date(asOfMs):date;
  const unitIds=units.map(u=>u.id);
  const cursor=f.after?decodeCursor(f.after):null;
- const run=(offset:number)=>runProjection(db,projectionSql,{unitIds,asOf,fy,unitId:f.unitId,kpi:f.kpi,stage:f.stage,flag:f.flag,tab:f.tab??'all',q:f.q??'',cursor,limit:f.pageSize,offset,sort:f.sort});
+ const run=(offset:number)=>runProjection(db,projectionSql,{unitIds,asOf,fy,unitId:f.unitId,kpi:f.kpi,stage:f.stage,flag:f.flag,tab:f.tab??'all',q:f.q??'',cursor,limit:f.pageSize,offset,sort:f.sort,from:f.from,to:f.to});
  let page=f.page,out=await run(cursor?0:(page-1)*f.pageSize);
  const totalPages=Math.max(1,Math.ceil(out.total/f.pageSize));
  // A page past the end (rows left the queue since the last response) answers with the last real page instead of an empty one.
  if(!cursor&&page>totalPages){page=totalPages;out=await run((page-1)*f.pageSize);}
- const items:QueueItem[]=out.rows.map(row=>{const c:Partial<SqlRow>={...row};delete c.ord_u;delete c.ord_d;return c as Omit<SqlRow,'ord_u'|'ord_d'>;}).map(c=>({...c,s1ReceivedAt:c.s1ReceivedAt?new Date(c.s1ReceivedAt).toISOString():null,currentReceivedAt:c.currentReceivedAt?new Date(c.currentReceivedAt).toISOString():null,stageLabel:stages.find(s=>s[0]===c.stage)![1]}));
+ const items:QueueItem[]=out.rows.map(row=>{const c:Partial<SqlRow>={...row};delete c.ord_u;delete c.ord_d;return c as Omit<SqlRow,'ord_u'|'ord_d'>;}).map(c=>({...c,s1ReceivedAt:c.s1ReceivedAt?new Date(c.s1ReceivedAt).toISOString():null,currentReceivedAt:c.currentReceivedAt?new Date(c.currentReceivedAt).toISOString():null,sentAt:c.sentAt?new Date(c.sentAt).toISOString():null,stageLabel:stages.find(s=>s[0]===c.stage)![1]}));
  // Progress inside the analysis step is read only for the rows on this page (not for every case of the year).
  const steps=await analysisSteps(db,items.filter(i=>i.stage==='analysis'||i.stage==='review').map(i=>i.currentRoundId??''));
  for(const i of items)i.labSteps=i.stage==='analysis'||i.stage==='review'?steps.get(i.currentRoundId??'')??null:null;

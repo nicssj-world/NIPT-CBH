@@ -10,7 +10,7 @@ const STAGE:Record<LabStage,string>={READY:"รอเข้า Batch",IN_RUN:"�
 const stageText=(r:OpenSpecimen)=>r.stage==="IN_RUN"&&r.runLabel?`อยู่ใน ${r.runLabel}`:STAGE[r.stage];
 
 function Who({r}:{r:OpenSpecimen}){
- return <><Link className="registry-ln-link" href={`/cases/${r.caseId}`} aria-label={`ดูเคส LN ${r.ln}`}><Ln value={r.ln}/></Link><span className="cell-sub">HN {r.hn??"ยังไม่ยืนยัน"}</span></>;
+ return <span className="dash-who"><Link className="registry-ln-link" href={`/cases/${r.caseId}`} aria-label={`ดูเคส LN ${r.ln}`}><Ln value={r.ln}/></Link><span className="cell-sub">HN {r.hn??"ยังไม่ยืนยัน"}</span></span>;
 }
 /** TAT in words, icon + word; colour only supports it (DESIGN.md: status is always a word). */
 export function TatWord({state,left}:{state:"ok"|"due-soon"|"overdue";left:number}){
