@@ -666,6 +666,17 @@ export async function registerInternalVersion(db:Queryable,user:Staff,store:File
  await audit(db,user,'RESULT_FROZEN_EXPORT_LINKED','RESULT_VERSION',v.id,{outcome:'Linked',reasonCode:'TASK3_FROZEN_EXPORT_V1'});
  return validate(db,user,v);
 }
+/**
+ * "ออกผลใหม่แทนผลเดิม" (Owner 2026-11-12): the wrong released result is deleted (migration 226 result_purge_released) before the new
+ * report is generated, so the round is empty and the new report links and waits to be sent as usual. Only the audit chain keeps its ids.
+ */
+export async function purgeReleasedForReplacement(db:Queryable,user:Staff,oldVersionId:string){
+ const pre=await versionOf(db,oldVersionId);
+ if(pre.state!=='CertifiedReleased'||!pre.round_id)throw new LabError('REPLACEMENT_REQUIRES_RELEASED_RESULT',409,{state:pre.state});
+ await lockChain(db,pre.round_id,pre.attempt_id,[pre.id]);
+ await db.query('SELECT result_purge_released($1)',[pre.id]);
+ await audit(db,user,'RESULT_RELEASE_PURGED','RESULT_VERSION',pre.id,{outcome:'Deleted'});
+}
 /** "ตรวจรับรายงานและยืนยันส่งผล" for an internal report: same review, QC5 and certification transaction as P5-B, but with the internal
  *  attestation (content verified against the frozen interpretation), never the external-final attestation. */
 export async function acceptInternalAndRelease(db:Queryable,user:Staff,input:unknown){

@@ -11,7 +11,7 @@ import {petDisplayName} from '../sequencing/owner-export';
 import {SETTINGS} from '../settings/catalog';
 import {pdfText} from '../results/extract';
 import {parseReport,isNoCallReport} from '../results/parser';
-import {roundRequest,registerInternalVersion,reviewInternalForRelease} from '../results/service';
+import {roundRequest,registerInternalVersion,reviewInternalForRelease,purgeReleasedForReplacement} from '../results/service';
 import {writeArchive,sha256} from '../workbook/archive';
 import {interpretRow,productCodeOf,reportGaDays,TEMPLATES,RULESET,RULESET_SHA256,type Interpretation,type Hold} from './interpretation';
 import {isReportablePatientEvidence} from './halos-import';
@@ -80,7 +80,7 @@ export type Prepared={rowId:string;caseId:string;roundId:string;attemptId:string
 const rowValues=(raw:Record<string,string>,headers:Record<string,string>)=>{const norm=Object.fromEntries(Object.entries(raw).map(([k,v])=>[k.replace(/\s+/g,' ').trim().toLowerCase(),v]));
  return Object.fromEntries(Object.entries(headers).map(([k,h])=>[k,norm[h.toLowerCase()]??''])) as HalosRow['values'];};
 /** Everything the report would print, from its authoritative source, and every reason it cannot be final yet. Reads only. */
-export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,input:{rowId:string;pregnancyOverride?:'Singleton'|'Twins';overrideReason?:string;reissue?:boolean}):Promise<Prepared>{
+export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,input:{rowId:string;pregnancyOverride?:'Singleton'|'Twins';overrideReason?:string;reissue?:boolean;replaceReleased?:boolean}):Promise<Prepared>{
  const s=(await db.query<SourceRow>(SOURCE_SQL+' WHERE h.id=$1',[uuid.parse(input.rowId)])).rows[0];
  // A row hidden from the worklist (halos_row_dismissal) is never a report candidate.
  if((await db.query('SELECT 1 FROM halos_row_dismissal WHERE row_id=$1',[input.rowId])).rows[0])throw new LabError('HALOS_ROW_DISMISSED',409);
@@ -109,7 +109,8 @@ export async function prepareReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
  if(s.current_round_id!==s.round_id)h('ROUND_NOT_CURRENT');
  const reissue=s.internal_final?{internalId:s.internal_final,versionState:s.internal_version_state}:null;
  if(reissue&&!input.reissue)h('INTERNAL_REPORT_ALREADY_FINAL');
- if(reissue&&input.reissue&&reissue.versionState==='CertifiedReleased')h('POST_RELEASE_REVISION_PENDING_OD17');
+ // Owner 2026-11-12: a released result may be replaced only when the person ticks "ออกผลใหม่แทนผลเดิม" (replaceReleased).
+ if(reissue&&input.reissue&&reissue.versionState==='CertifiedReleased'&&!input.replaceReleased)h('POST_RELEASE_REVISION_PENDING_OD17');
  if(!reissue&&s.open_series)h('OPEN_REPORT_EXISTS_FOR_ROUND');
  if(!reissue&&s.active_release)h('ACTIVE_RELEASE_EXISTS_FOR_ROUND');
  // Identity: printed values come from the verified HIS PET of the round and the case identity; a disagreement is never resolved here.
@@ -222,7 +223,7 @@ export async function verifyRendered(pdf:Buffer,p:Prepared,signers:{reported:Sig
  return {ok:problems.length===0,problems,parsed};
 }
 
-const previewSchema=z.strictObject({rowId:uuid,pregnancyOverride:z.enum(['Singleton','Twins']).optional(),overrideReason:z.string().max(500).optional(),reportedBy:uuid.nullable().optional(),approvedBy:uuid.nullable().optional()});
+const previewSchema=z.strictObject({rowId:uuid,reissue:z.boolean().optional(),replaceReleased:z.boolean().optional(),pregnancyOverride:z.enum(['Singleton','Twins']).optional(),overrideReason:z.string().max(500).optional(),reportedBy:uuid.nullable().optional(),approvedBy:uuid.nullable().optional()});
 /** Draft preview from the exact master. Watermarked, never stored as a report, never linked or released. */
 export async function previewReport(db:Queryable,user:Staff,deps:ReportDeps,input:unknown){
  await assertSession(db,user);need(user,'result.review','read');
@@ -239,7 +240,7 @@ export async function previewReport(db:Queryable,user:Staff,deps:ReportDeps,inpu
 /** Read model for the report dialog: values, sources, interpretation trace and HOLD reasons. */
 export async function reportCandidate(db:Queryable,user:Staff,deps:ReportDeps,input:unknown){
  await assertSession(db,user);need(user,'result.review','read');
- const d=previewSchema.pick({rowId:true,pregnancyOverride:true,overrideReason:true}).parse(input),p=await prepareReport(db,user,deps,d);
+ const d=previewSchema.pick({rowId:true,pregnancyOverride:true,overrideReason:true,reissue:true,replaceReleased:true}).parse(input),p=await prepareReport(db,user,deps,d);
  return {rowId:p.rowId,template:p.template,templateCode:(await masterBytes(db,deps,p.template))?.code??TEMPLATES[p.template].code,pregnancySource:p.pregnancySource,holds:p.holds,eligible:p.holds.length===0,values:p.values,interpretation:p.interpretation,
   productCode:p.productCode,sources:p.sources,hisLn:p.hisLn,lnHalos:p.lnHalos,hn:p.hn,sampleId:p.sampleId,reissue:p.reissue,approval:{revisionId:p.approval.revisionId,approved:p.approval.approvedRevision&&p.approval.value.interpretationApproved,reference:p.approval.value.approvalReference},
   canFinalize:authorize(user,'result.certify')};
@@ -247,7 +248,7 @@ export async function reportCandidate(db:Queryable,user:Staff,deps:ReportDeps,in
 
 const finalizeSchema=z.strictObject({idempotencyKey:uuid,defaults:z.strictObject({reportedBy:uuid.nullable().default(null),approvedBy:uuid.nullable().default(null)}).default({reportedBy:null,approvedBy:null}),
  release:z.boolean().default(false),releaseConfirmations:z.strictObject({reportContentVerified:z.literal(true),identityAndValuesMatchReport:z.literal(true),disclosureReviewed:z.literal(true),abnormalAcknowledged:z.boolean(),benchMeasurementsReviewed:z.literal(true).optional()}).optional(),
- items:z.array(z.strictObject({rowId:uuid,pregnancyOverride:z.enum(['Singleton','Twins']).optional(),overrideReason:z.string().max(500).optional(),reportedBy:uuid.nullable().optional(),approvedBy:uuid.nullable().optional(),reissueReason:z.string().trim().min(8).max(500).refine(x=>!/\d{13}/.test(x),'REASON_TEXT_INVALID').optional()})).min(1).max(100)});
+ items:z.array(z.strictObject({rowId:uuid,pregnancyOverride:z.enum(['Singleton','Twins']).optional(),overrideReason:z.string().max(500).optional(),reportedBy:uuid.nullable().optional(),approvedBy:uuid.nullable().optional(),reissueReason:z.string().trim().min(8).max(500).refine(x=>!/\d{13}/.test(x),'REASON_TEXT_INVALID').optional(),replaceReleased:z.literal(true).optional()})).min(1).max(100)});
 export type FinalizeOutcome={rowId:string;outcome:'FINAL'|'HOLD'|'ERROR';holds?:Hold[];code?:string;details?:unknown;internalReportId?:string;versionId?:string;versionState?:string;release?:string;downloadName?:string};
 /**
  * Single or batch Final. One PDF per patient; held/invalid rows stay visible and unfinalised. Each row runs in its own savepoint,
@@ -264,7 +265,7 @@ export async function finalizeReports(db:Queryable,user:Staff,deps:ReportDeps,in
  // Phase 1: authority, eligibility and filled masters. Nothing is written yet.
  for(const [i,item] of d.items.entries()){
   try{
-   const p=await prepareReport(db,user,deps,{rowId:item.rowId,pregnancyOverride:item.pregnancyOverride,overrideReason:item.overrideReason,reissue:!!item.reissueReason});
+   const p=await prepareReport(db,user,deps,{rowId:item.rowId,pregnancyOverride:item.pregnancyOverride,overrideReason:item.overrideReason,reissue:!!item.reissueReason||!!item.replaceReleased,replaceReleased:!!item.replaceReleased});
    if(p.holds.length||!p.values){out[i]={rowId:item.rowId,outcome:'HOLD',holds:p.holds};continue;}
    const signers=await signerSlots(db,user,deps.store,{reportedBy:item.reportedBy??d.defaults.reportedBy,approvedBy:item.approvedBy??d.defaults.approvedBy},true);
    const master=(await masterBytes(db,deps,p.template))!;
@@ -296,15 +297,21 @@ export async function finalizeReports(db:Queryable,user:Staff,deps:ReportDeps,in
    // A No Call is a recorded disposition of the attempt, not an interpretation of findings; the HALOS trace is kept for the record only.
    const interpretation=w.p.noCall?{status:'NO_CALL',template:w.p.template,source:'ATTEMPT_NO_CALL_SELECTED',qc:w.p.values!.qc,ruleset:w.p.interpretation.ruleset,halosTrace:w.p.interpretation.trace}:w.p.interpretation;
    // A re-issue before release retires the earlier internal report: its version can no longer pass RG-14, and the new version waits
-   // Unlinked for the existing two-person revision link. After release the existing OD-17 policy holds it (see prepareReport).
-   if(w.p.reissue)await db.query("UPDATE internal_report SET state='Superseded',state_reason=$2 WHERE id=$1 AND state='Final'",[w.p.reissue.internalId,'REISSUED: '+item.reissueReason]);
+   // Unlinked for the existing two-person revision link. After release the existing OD-17 policy holds it (see prepareReport), unless
+   // "ออกผลใหม่แทนผลเดิม" is ticked (Owner 2026-11-12): then the wrong released result is deleted first and the new report takes its place.
+   const replacing=w.p.reissue?.versionState==='CertifiedReleased'&&!!item.replaceReleased;
+   if(replacing){
+    const old=(await db.query<{version_id:string|null}>('SELECT version_id FROM internal_report WHERE id=$1',[w.p.reissue!.internalId])).rows[0];
+    if(!old?.version_id)throw new LabError('REPLACEMENT_REQUIRES_RELEASED_RESULT',409);
+    await purgeReleasedForReplacement(db,user,old.version_id);
+   }else if(w.p.reissue)await db.query("UPDATE internal_report SET state='Superseded',state_reason=$2 WHERE id=$1 AND state='Final'",[w.p.reissue.internalId,'REISSUED: '+item.reissueReason]);
    const report=(await db.query<{id:string}>(`INSERT INTO internal_report(halos_row_id,attempt_id,round_id,case_id,template_kind,template_code,template_sha256,pregnancy_source,pregnancy_override_reason,interpretation,ruleset,bindings,operator_id,
      reported_by,reported_profile_id,reported_authority,reported_at,approved_by,approved_profile_id,approved_authority,approved_at,pdf_sha256,download_name,supersedes_id,batch_id)
      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25) RETURNING id`,
     [w.p.rowId,w.p.attemptId,w.p.roundId,w.p.caseId,w.p.template,w.master.code,w.master.sha256,w.p.pregnancySource,w.p.overrideReason,JSON.stringify(interpretation),JSON.stringify(ruleset),
      JSON.stringify({values:w.p.values,docx:w.docx.bindings,sources:w.p.sources,docxSha256:w.docx.sha256,renderer:pdf.renderer,pages:pdf.pages,readback:{templateKind:check.parsed.templateKind,parserVersion:check.parsed.parserVersion}}),user.id,
      w.signers.reported.authority!.profile.user_id,w.signers.reported.authority!.profile.id,JSON.stringify(snap(w.signers.reported.authority!)),w.signers.reported.authority!.checkedAt,
-     w.signers.approved.authority!.profile.user_id,w.signers.approved.authority!.profile.id,JSON.stringify(snap(w.signers.approved.authority!)),w.signers.approved.authority!.checkedAt,hash,name,w.p.reissue?.internalId??null,batchId])).rows[0];
+     w.signers.approved.authority!.profile.user_id,w.signers.approved.authority!.profile.id,JSON.stringify(snap(w.signers.approved.authority!)),w.signers.approved.authority!.checkedAt,hash,name,replacing?null:w.p.reissue?.internalId??null,batchId])).rows[0];
    await audit(db,user,'INTERNAL_REPORT_FINALIZED','INTERNAL_REPORT',report.id,{outcome:w.p.noCall?'NO_CALL':'FINAL',origin:'INTERNAL_GENERATED',ruleVersion:`${RULESET.id}-${RULESET.version}`});
    let v=await registerInternalVersion(db,user,deps.store,report.id);
    let release:string|undefined;

@@ -48,7 +48,7 @@ export const HOLD_TEXT:Record<string,string>={
  TESTOTHER_FINDING_REQUIRES_REVIEW:"มีผลโครโมโซมอื่น (เช่น T22/T10) ที่แบบฟอร์มไม่มีส่วนรองรับ — ต้องตรวจทางคลินิก",DISEASE_FINDING_REQUIRES_REVIEW:"มีผล Disease ที่ต้องตรวจทางคลินิก",TESTCNV_FINDING_REQUIRES_REVIEW:"มีผล CNV ที่ต้องตรวจทางคลินิก",
  HALOS_IMPORT_NOT_CONFIRMED:"ยังไม่ยืนยันการนำเข้าไฟล์ HALOS",ROW_NOT_REPORTABLE:"แถวนี้ไม่ใช่ผู้ป่วยที่ออกรายงานได้",MATCH_CHANGED_SINCE_IMPORT:"การจับคู่เปลี่ยนหลังนำเข้า (เช่น Pooling ใหม่) — นำเข้าผลชุดใหม่",NEWER_HALOS_RESULT_EXISTS:"มีผล HALOS ที่ใหม่กว่าสำหรับ Attempt นี้",
  SAMPLE_ID_DIFFERS_FROM_ATTEMPT_PRINTED_ID:"รหัสใน HALOS ไม่ตรงกับรหัสที่พิมพ์ของ Attempt",NO_CALL_RENDERING_NOT_APPROVED:"Attempt นี้เป็น No Call — รอผู้อนุมัติทางคลินิกอนุมัติรูปแบบรายงาน No Call ในหน้าตั้งค่า",NO_CALL_ATTEMPT_NOT_CONFIRMED_FAILED:"Attempt ที่เลือก No Call ยังไม่อยู่ในสถานะล้มเหลวที่ยืนยันแล้ว",NO_CALL_QC_STATUS_UNREADABLE:"อ่านค่า Sample QC ของ No Call จาก HALOS ไม่ได้",ATTEMPT_ON_QC_HOLD:"Attempt ถูกระงับ (QC Hold)",
- CONSENT_REVOKED:"ถอนความยินยอมแล้ว",CLINICAL_DATA_NOT_READY:"ข้อมูลทางคลินิก/ความยินยอมยังไม่พร้อม",ROUND_NOT_CURRENT:"ไม่ใช่รอบปัจจุบัน",INTERNAL_REPORT_ALREADY_FINAL:"มีรายงานฉบับจริงแล้ว",POST_RELEASE_REVISION_PENDING_OD17:"ส่งผลแล้ว — การออกฉบับแก้ไขหลังส่งผลรอนโยบาย OD-17",
+ CONSENT_REVOKED:"ถอนความยินยอมแล้ว",CLINICAL_DATA_NOT_READY:"ข้อมูลทางคลินิก/ความยินยอมยังไม่พร้อม",ROUND_NOT_CURRENT:"ไม่ใช่รอบปัจจุบัน",INTERNAL_REPORT_ALREADY_FINAL:"มีรายงานฉบับจริงแล้ว",POST_RELEASE_REVISION_PENDING_OD17:"ส่งผลแล้ว — ติ๊ก “ออกผลใหม่แทนผลเดิม” เพื่อออกผลใหม่แทน",
  OPEN_REPORT_EXISTS_FOR_ROUND:"รอบนี้มีรายงาน (เช่น PDF ภายนอก) ที่เปิดอยู่แล้ว",ACTIVE_RELEASE_EXISTS_FOR_ROUND:"รอบนี้ส่งผลแล้ว (เช่น จาก ReadyGen)",PET_EVIDENCE_REQUIRED:"ไม่มี PET จาก HIS ของรอบนี้",PET_EVIDENCE_UNVERIFIED:"ตรวจ PET ไม่ผ่าน",
  HN_SOURCES_DISAGREE:"HN ใน PET ไม่ตรงกับเคส",PET_CLOCKS_REQUIRED:"ไม่มีเวลาเจาะ/รับจาก PET",COLLECTION_DATE_SOURCES_DISAGREE:"วันที่เจาะไม่ตรงกันระหว่างแหล่งข้อมูล",
  SAMPLEINFO_ROW_MISSING:"ไม่พบข้อมูลตัวอย่าง (sampleinfo) ที่ตรงกับไฟล์ NIFTY",PREGNANCY_TYPE_NOT_RECORDED:"ยังไม่บันทึกชนิดครรภ์ (เดี่ยว/แฝด) — บันทึกที่หน้าเคส",PREGNANCY_TYPE_SOURCES_DISAGREE:"ชนิดครรภ์ใน HALOS ไม่ตรงกับที่บันทึก",
@@ -140,19 +140,21 @@ function ReportDialog({rows,pendingImport,onClose,onDone,onQueued}:{rows:Row[];p
  const [release]=useState(true),[confirm,setConfirm]=useState({content:false,identity:false,disclosure:false,abnormal:false});
  const [batchCandidates,setBatchCandidates]=useState<Candidate[]>([]),[excluded,setExcluded]=useState<Set<string>>(new Set());
  const [previewUrl,setPreviewUrl]=useState(""),[key]=useState(()=>crypto.randomUUID());
+ // Owner 2026-11-12: "ออกผลใหม่แทนผลเดิม" — a case that already has a report (released or not) gets a new one from this HALOS row; the old one is replaced.
+ const [replace,setReplace]=useState(false);
  const [rowSigners,setRowSigners]=useState<Record<string,{reportedBy:string;approvedBy:string}>>({}),[opts,setOpts]=useState<{REPORTED:Signer[];APPROVED:Signer[]}>({REPORTED:[],APPROVED:[]});
  useEffect(()=>{if(single)return;void Promise.all((["REPORTED","APPROVED"] as const).map(r=>labApi<{signers:Signer[]}>(`/api/task3/signers?role=${r}`).then(x=>x.signers))).then(([REPORTED,APPROVED])=>setOpts({REPORTED,APPROVED})).catch(e=>setError(failureText(e)));},[single]);
  const setRow=(rowId:string,role:"reportedBy"|"approvedBy",value:string)=>setRowSigners(s=>({...s,[rowId]:{reportedBy:s[rowId]?.reportedBy??"",approvedBy:s[rowId]?.approvedBy??"",[role]:value}}));
- const loadCandidate=useCallback(async()=>{if(!single)return;try{setCand(await labApi<Candidate>("/api/task3/reports",{action:"candidate",rowId:single.rowId,...(override?{pregnancyOverride:override,overrideReason}:{})}));setError("");}catch(e){setError(failureText(e));}},[single,override,overrideReason]);
+ const loadCandidate=useCallback(async()=>{if(!single)return;try{setCand(await labApi<Candidate>("/api/task3/reports",{action:"candidate",rowId:single.rowId,...(override?{pregnancyOverride:override,overrideReason}:{}),...(replace?{reissue:true,replaceReleased:true}:{})}));setError("");}catch(e){setError(failureText(e));}},[single,override,overrideReason,replace]);
  useEffect(()=>{void Promise.resolve().then(loadCandidate);},[loadCandidate]);
- useEffect(()=>{if(single)return;let active=true;void labApi<{items:Candidate[]}>('/api/task3/reports',{action:'candidates',rowIds:rows.map(r=>r.rowId)}).then(r=>{if(active)setBatchCandidates(r.items);}).catch(e=>{if(active)setError(failureText(e));});return()=>{active=false;};},[single,rows]);
+ useEffect(()=>{if(single)return;let active=true;void labApi<{items:Candidate[]}>('/api/task3/reports',{action:'candidates',rowIds:rows.map(r=>r.rowId),...(replace?{reissue:true,replaceReleased:true}:{})}).then(r=>{if(active)setBatchCandidates(r.items);}).catch(e=>{if(active)setError(failureText(e));});return()=>{active=false;};},[single,rows,replace]);
  useEffect(()=>()=>{if(previewUrl)URL.revokeObjectURL(previewUrl);},[previewUrl]);
  const abnormal=!!cand?.values&&[cand.values.trisomy21_ra,cand.values.trisomy18_ra,cand.values.trisomy13_ra,cand.values.XO_NEW,cand.values.XXX_NEW,cand.values.XXY_NEW,cand.values.XYY_NEW].some(v=>v==="High Risk"||v==="Detected");
  const preview=async()=>{if(!single)return;setBusy("preview");setError("");
   try{const r=await fetch("/api/task3/reports/preview",{method:"POST",cache:"no-store",headers:{"content-type":"application/json","x-csrf-token":csrf()},body:JSON.stringify({rowId:single.rowId,...(override?{pregnancyOverride:override,overrideReason}:{}),reportedBy:reportedBy||null,approvedBy:approvedBy||null})});
    if(!r.ok){const d=await r.json().catch(()=>({}));setError(d.error??"สร้างร่างไม่สำเร็จ");return;}setPreviewUrl(URL.createObjectURL(await r.blob()));}finally{setBusy("");}};
  const finalize=async()=>{setBusy("final");setError("");
-  try{const items=rows.map(r=>({rowId:r.rowId,...(single&&override?{pregnancyOverride:override,overrideReason}:{}),...(rowSigners[r.rowId]?.reportedBy?{reportedBy:rowSigners[r.rowId].reportedBy}:{}),...(rowSigners[r.rowId]?.approvedBy?{approvedBy:rowSigners[r.rowId].approvedBy}:{})}));
+  try{const items=rows.map(r=>({rowId:r.rowId,...(single&&override?{pregnancyOverride:override,overrideReason}:{}),...(rowSigners[r.rowId]?.reportedBy?{reportedBy:rowSigners[r.rowId].reportedBy}:{}),...(rowSigners[r.rowId]?.approvedBy?{approvedBy:rowSigners[r.rowId].approvedBy}:{}),...(replace?{replaceReleased:true as const}:{})}));
   const eligibleItems=items.filter(i=>!excluded.has(i.rowId)&&candidateReady(single?cand:batchCandidates.find(c=>c.rowId===i.rowId)));
   if(pendingImport)await labApi(`/api/task3/halos/${pendingImport.id}`,{decision:'CONFIRM',expectedRowVersion:pendingImport.rowVersion,acknowledgeWarnings:pendingImport.acks});
   const res=await labApi<{batchId:string}>("/api/task3/batches",{idempotencyKey:key,defaults:{reportedBy:reportedBy||null,approvedBy:approvedBy||null},items:eligibleItems,
@@ -164,8 +166,9 @@ function ReportDialog({rows,pendingImport,onClose,onDone,onQueued}:{rows:Row[];p
  const anyAbnormal=abnormal||allCandidates.some(c=>Object.values(c.values??{}).some(v=>v==='High Risk'||v==='Detected'));
  const releaseReady=confirm.content&&(!anyAbnormal||confirm.abnormal);
  const holds=single?candidateHolds(cand):[];
+ const replaceOffered=replace||allCandidates.some(c=>c.holds.some(h=>h.code==='INTERNAL_REPORT_ALREADY_FINAL'));
  const canSubmit=!!reportedBy&&!!approvedBy&&releaseReady&&(single?candidateReady(cand):batchCandidates.length===rows.length&&batchCandidates.some(c=>candidateReady(c)&&!excluded.has(c.rowId)))&&(!override);
- const dirty=!!(reportedBy||approvedBy||override);
+ const dirty=!!(reportedBy||approvedBy||override||replace);
  return <Dialog title={single?`ออกรายงาน ${single.ln??single.sampleId}`:`ออกรายงาน ${rows.length} ราย (หนึ่ง PDF ต่อผู้ป่วย)`} onClose={onClose} dirty={dirty}>
   <div className="stack t3-dialog">
    {error&&<p className="notice" role="alert">{error}</p>}
@@ -194,6 +197,10 @@ function ReportDialog({rows,pendingImport,onClose,onDone,onQueued}:{rows:Row[];p
     <SignerPicker id="t3-approved" role="APPROVED" label={single?"Approved by":"Approved by (ค่าเริ่มต้นของชุด)"} value={approvedBy} onChange={setApprovedBy}/>
    </div>
    {single&&<div className="action-bar"><button type="button" className="button secondary" disabled={!!busy||!cand?.values} onClick={preview}>{busy==="preview"?"กำลังสร้างร่าง…":"ดูร่างรายงาน"}</button><span className="help">ร่างมีลายน้ำ “PREVIEW” และไม่ถูกบันทึกเป็นรายงาน</span></div>}
+   {replaceOffered&&<fieldset className="stack t3-replace"><legend>ผลเดิมผิด</legend>
+    <label className="check-label"><input type="checkbox" checked={replace} onChange={e=>setReplace(e.target.checked)}/> <strong>ออกผลใหม่แทนผลเดิม</strong></label>
+    <p className="help">รายการที่ส่งผลไปแล้ว: ผลเดิมจะถูกลบออกจากระบบทันทีที่ออกรายงานใหม่ แล้วผลใหม่ไปที่ “รอส่ง HIS” เพื่อส่งตามปกติ</p>
+   </fieldset>}
    <fieldset className="stack"><legend>ยืนยันออกรายงานและนำเข้า “รอส่ง HIS”</legend>
     <label className="check-label"><input type="checkbox" checked={confirm.content} onChange={e=>setConfirm(c=>({...c,content:e.target.checked}))}/> ตรวจผลแปล การจับคู่ผู้ป่วย รอบตัวอย่าง และข้อมูลที่เปิดเผยในรายงานของรายการที่เลือกแล้ว</label>
     {anyAbnormal&&<label className="check-label"><input type="checkbox" checked={confirm.abnormal} onChange={e=>setConfirm(c=>({...c,abnormal:e.target.checked}))}/> รับทราบผลผิดปกติของรายการที่เลือก (High Risk / Detected)</label>}

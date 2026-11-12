@@ -10,7 +10,7 @@ import {batchZip,finalizeReports,type FinalizeOutcome,type ReportDeps} from './r
 
 export const REPORT_BATCH_JOB='internal_report_batch_item';
 const confirmations=z.strictObject({reportContentVerified:z.literal(true),identityAndValuesMatchReport:z.literal(true),disclosureReviewed:z.literal(true),abnormalAcknowledged:z.boolean(),benchMeasurementsReviewed:z.literal(true).optional()});
-const itemSchema=z.strictObject({rowId:uuid,pregnancyOverride:z.enum(['Singleton','Twins']).optional(),overrideReason:z.string().max(500).optional(),reportedBy:uuid.nullable().optional(),approvedBy:uuid.nullable().optional(),reissueReason:z.string().trim().min(8).max(500).refine(x=>!/\d{13}/.test(x),'REASON_TEXT_INVALID').optional()});
+const itemSchema=z.strictObject({rowId:uuid,pregnancyOverride:z.enum(['Singleton','Twins']).optional(),overrideReason:z.string().max(500).optional(),reportedBy:uuid.nullable().optional(),approvedBy:uuid.nullable().optional(),reissueReason:z.string().trim().min(8).max(500).refine(x=>!/\d{13}/.test(x),'REASON_TEXT_INVALID').optional(),replaceReleased:z.literal(true).optional()});
 export const reportBatchSchema=z.strictObject({idempotencyKey:uuid,defaults:z.strictObject({reportedBy:uuid.nullable().default(null),approvedBy:uuid.nullable().default(null)}).default({reportedBy:null,approvedBy:null}),release:z.boolean().default(false),releaseConfirmations:confirmations.optional(),items:z.array(itemSchema).min(1).max(100)}).refine(x=>!x.release||!!x.releaseConfirmations,'RELEASE_CONFIRMATIONS_REQUIRED');
 type Request=z.infer<typeof reportBatchSchema>;
 type RequestRow={id:string;operator_id:string;session_id:string|null;request:Request;created_at:Date};
