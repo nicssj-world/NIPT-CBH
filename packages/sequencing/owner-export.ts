@@ -5,8 +5,8 @@ export type VendorControl={slot:1|25;kind:'PC'|'NC';sampleId:string};
 export type VendorRow=VendorPatient|VendorControl;
 /** Export diagnostics omit names, HN, national IDs and raw PET contents. */
 export type VendorExportIssue={slot:number;sampleId:string;caseId:string|null;problems:string[]};
-/** Only the approved NIFTY identifier column drops the analytical suffix. */
-export const niftySampleId=(sampleId:string)=>sampleId.replace(/-[12]$/,'');
+/** Only the approved NIFTY identifier column drops the analytical suffix (-1/-2, and -3 since Owner 2026-11-13 allows a second S1 repeat). */
+export const niftySampleId=(sampleId:string)=>sampleId.replace(/-[123]$/,'');
 function dateOnly(value:string){if(!/^\d{4}-\d{2}-\d{2}$/.test(value)||new Date(value+'T00:00:00Z').toISOString().slice(0,10)!==value)throw Error('VENDOR_DATE_INVALID');return value.slice(5,7)+'/'+value.slice(8,10)+'/'+value.slice(0,4);}
 function bangkok(value:string){if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)||!Number.isFinite(Date.parse(value)))throw Error('VENDOR_PET_TIMESTAMP_REQUIRED');const local=new Date(Date.parse(value)+7*3600000).toISOString();return {day:local.slice(0,10),text:dateOnly(local.slice(0,10))+' '+local.slice(11,16)};}
 /** CP874 is decoded by the PET parser. Reorder LIS surname^^prefix firstname into display name. */

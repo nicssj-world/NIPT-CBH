@@ -3,7 +3,7 @@ import {inboundFixture,register,registrar,writePet,cycle} from '../helpers/inbou
 import {tx} from '../helpers/lab';
 import {orderRepeat,orderRedraw,previewLabels,receiveRedraw} from '../../packages/lab/intake';
 import {worklistRow} from '../../packages/lab/worklist';
-import {attemptFacts,candidatePrintedId} from '../../packages/lab/core';
+import {attemptFacts,candidatePrintedId,assignmentDecision} from '../../packages/lab/core';
 
 it.each(['S2','S3'] as const)('Task1 persisted case ordinals and exceptional %s lineage with repeated nonunique IDs',async(specimen)=>{
  const f=await inboundFixture();try{
@@ -92,5 +92,23 @@ it('Owner early Re-Sampling: S3 before LAB4 and S4 onward use genuine newer PET 
   }
   expect(display).toEqual([base+'D-1',...Array(5).fill(base+'DR-1')]);expect(new Set(ids).size).toBe(6);expect(new Set(rounds).size).toBe(6);
   expect((await f.db.query('SELECT ln FROM case_ln WHERE case_id=$1',[caseId])).rows).toEqual([{ln}]);expect((await f.db.query('SELECT id FROM his_order')).rows).toHaveLength(6);
+ }finally{await f.close();}
+},120000);
+
+it('Owner 2026-11-13: the first round repeats up to attempt -3 (printed -3, fillable into a Batch), then only Re-Sampling',async()=>{
+ const f=await inboundFixture();try{
+  const ln='990001009232',hn='9900001232',caseId=await register(f,{ln,hn}),{lab}=await registrar(f.db);
+  await writePet(f.root,'20261021',{ln,hn,receivedAt:'20261021090000',specimenAt:'20261021080000'});await cycle(f,{now:new Date('2026-10-21T05:00:00Z')});
+  const current=async()=>{const a=(await attemptFacts(f.db,'a.case_id=$1 ORDER BY a.overall_ordinal DESC LIMIT 1',[caseId]))[0];await f.db.query("INSERT INTO p2_paper_review(case_id,round_id,kind,template_version,document_reference,panel,status,location,reason,verifier_id) VALUES($1,$2,'REQUEST','SYNTHETIC-FM01-v1','SYNTHETIC-DOC','{\"pregnancyType\":\"Twins\"}','Verified','SYNTHETIC','SYNTHETIC task1 fixture',$3)",[caseId,a.round_id,lab.id]);return (await attemptFacts(f.db,'a.id=$1',[a.attempt_id]))[0];};
+  const fail=async(id:string)=>{await f.db.query("UPDATE repeat_work_order SET state='RepeatInProgress' WHERE id=(SELECT repeat_order_id FROM analytical_attempt WHERE id=$1) AND state='RepeatPendingBatch'",[id]);await f.db.query("UPDATE analytical_attempt SET state='Assigned' WHERE id=$1",[id]);await f.db.query("UPDATE analytical_attempt SET state='InProgress' WHERE id=$1",[id]);await f.db.query("UPDATE analytical_attempt SET state='QcFailed',qc_failed_stage='QC1' WHERE id=$1",[id]);};
+  const first=await current(),base=first.ln_halos!;await fail(first.attempt_id);
+  const second=await tx(f.db,db=>orderRepeat(db,lab,{attemptId:first.attempt_id,level:'RE_LIBRARY',reasonCode:'LIBRARY_FAILURE',note:'SYNTHETIC first repeat'}));expect(second.printedSampleId).toBe(base+'D-2');
+  await fail(second.attemptId);
+  const third=await tx(f.db,db=>orderRepeat(db,lab,{attemptId:second.attemptId,level:'RE_EXTRACTION',reasonCode:'LIBRARY_FAILURE',note:'SYNTHETIC second repeat of the first round'}));
+  expect(third.attemptNumber).toBe(3);expect(third.printedSampleId).toBe(base+'D-3');
+  // The third attempt is Ready with a printed ID, so the Assignment Gate lets it be filled into a Batch.
+  const facts=(await attemptFacts(f.db,'a.id=$1',[third.attemptId]))[0];expect(candidatePrintedId(facts)).toEqual({status:'YES',id:base+'D-3'});expect(assignmentDecision(facts,'HOLD').failed).not.toContain('PRINTED_ID_FORMAT_PENDING_OD03');
+  await fail(third.attemptId);
+  await expect(tx(f.db,db=>orderRepeat(db,lab,{attemptId:third.attemptId,level:'RE_LIBRARY',reasonCode:'LIBRARY_FAILURE',note:'SYNTHETIC beyond -3'}))).rejects.toThrow('RESAMPLING_REQUIRED_AFTER_S1_REPEAT');
  }finally{await f.close();}
 },120000);

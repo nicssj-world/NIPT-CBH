@@ -29,7 +29,7 @@ export const masters=()=>({SINGLETON:readFileSync(path.join(T3_SOURCES,'singleto
 export {halosWorkbook,type HalosSpec} from '../../tools/task3-uat/halos-fixture';
 
 
-type CaseSpec={ln:string;hn:string;pregnancy:'Singleton'|'Twins';sheet:1|2|3;priorFailures?:boolean;eqa?:{surname:string;firstName:string;dob:string};pet?:{specimenAt?:string;receivedAt?:string;ward?:string;identity?:string}};
+type CaseSpec={ln:string;hn:string;pregnancy:'Singleton'|'Twins';sheet:1|2|3;priorFailures?:boolean;/** Owner 2026-11-13: -1 and -2 fail in S1 and the batched attempt is the S1 third attempt (-3). */s1ThirdAttempt?:boolean;eqa?:{surname:string;firstName:string;dob:string};pet?:{specimenAt?:string;receivedAt?:string;ward?:string;identity?:string}};
 /** Operational LAB_DIRECT cases through PET receipt, one Owner batch, real Master worksheet, actual pooling and the dual HALOS/NIFTY export. */
 type Provided={db:Queryable;root:string;store:import('../../packages/storage').FileStore;lookupKey:Buffer;close():Promise<void>};
 export async function task3Fixture(cases:CaseSpec[]=[{ln:'9900099511',hn:'9900099951',pregnancy:'Singleton',sheet:1},{ln:'9900099512',hn:'9900099952',pregnancy:'Singleton',sheet:2},{ln:'9900099513',hn:'9900099953',pregnancy:'Twins',sheet:3}],provided?:Provided,options:{worksheetMeasurements?:boolean}={}){
@@ -58,6 +58,14 @@ export async function task3Fixture(cases:CaseSpec[]=[{ln:'9900099511',hn:'990009
    const third=await fail();
    const fourth=await run(t=>orderRepeat(t,u.staff,{attemptId:third,level:'RE_EXTRACTION',reasonCode:'LIBRARY_FAILURE',note:'SYNTHETIC fourth attempt'}));
    a={id:fourth.attemptId,round_id:redraw.newRoundId};
+  }
+  if(c.s1ThirdAttempt){
+   const fail=async(id:string)=>{const x=(await f.db.query<{repeat_order_id:string|null}>('SELECT repeat_order_id FROM analytical_attempt WHERE id=$1',[id])).rows[0];
+    await f.db.query("UPDATE analytical_attempt SET state='Assigned' WHERE id=$1",[id]);if(x.repeat_order_id)await f.db.query("UPDATE repeat_work_order SET state='RepeatInProgress' WHERE id=$1",[x.repeat_order_id]);
+    await f.db.query("UPDATE analytical_attempt SET state='InProgress' WHERE id=$1",[id]);await f.db.query("UPDATE analytical_attempt SET state='QcFailed',qc_failed_stage='QC1' WHERE id=$1",[id]);};
+   await fail(a.id);const second=await run(t=>orderRepeat(t,u.staff,{attemptId:a.id,level:'RE_LIBRARY',reasonCode:'LIBRARY_FAILURE',note:'SYNTHETIC first S1 repeat'}));
+   await fail(second.attemptId);const third=await run(t=>orderRepeat(t,u.staff,{attemptId:second.attemptId,level:'RE_EXTRACTION',reasonCode:'LIBRARY_FAILURE',note:'SYNTHETIC second S1 repeat'}));
+   a={id:third.attemptId,round_id:a.round_id};
   }
   if(c.eqa)await run(t=>acceptSpecimen(t,u.staff,{roundId:a.round_id,condition:'ACCEPTABLE'}));
   const placed=await run(async t=>batch.assignToBatch(t,u.staff,{batchId,expectedVersion:await version(),attemptIds:[a.id],sheetNumber:c.sheet}));if(placed.rejected.length)throw Error('FIXTURE_ASSIGNMENT_REJECTED '+JSON.stringify(placed.rejected));

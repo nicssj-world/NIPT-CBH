@@ -158,7 +158,8 @@ export async function orderRepeat(db:Queryable,user:Staff,input:unknown){
  const historicalRerun=a.attempt_state==='Ready'&&(await migrationRerunAttempts(db,[a.attempt_id])).has(a.attempt_id);
  if(!historicalRerun&&!['QcFailed','Stopped','BatchCancelled'].includes(a.attempt_state))throw new LabError('REPEAT_REQUIRES_FAILED_OR_STOPPED_ATTEMPT',409);
  if(a.overall_ordinal===4&&a.attempt_state!=='QcFailed')throw new LabError('FOURTH_ATTEMPT_FAILURE_NOT_CONFIRMED',409);
- if(a.round_number===1&&a.attempt_number>=2)throw new LabError('RESAMPLING_REQUIRED_AFTER_S1_REPEAT',409);
+ // Owner 2026-11-13: the first round may be repeated up to attempt -3 (Re-Library/Re-Extraction twice); after that only Re-Sampling.
+ if(a.round_number===1&&a.attempt_number>=3)throw new LabError('RESAMPLING_REQUIRED_AFTER_S1_REPEAT',409);
  if(a.current_round_id!==a.round_id||!['ReceivedInHIS','ReceivedInNIPT'].includes(a.round_state))throw new LabError('REPEAT_REQUIRES_CURRENT_RECEIVED_ROUND',409);
  if(a.repeat_order_id&&a.repeat_state==='RepeatInProgress')await db.query("UPDATE repeat_work_order SET state='RepeatFailed',closed_by=$2,closed_at=now(),close_reason=$3 WHERE id=$1",[a.repeat_order_id,user.id,'CHILD_'+a.attempt_state.toUpperCase()]);
  const order=(await db.query<{id:string}>("INSERT INTO repeat_work_order(case_id,round_id,reason_code,state,parent_attempt_id,level,note,requested_by) VALUES($1,$2,$3,'RepeatPendingBatch',$4,$5,$6,$7) RETURNING id",[a.case_id,a.round_id,d.reasonCode,a.attempt_id,d.level,d.note,user.id])).rows[0].id;

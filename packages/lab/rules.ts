@@ -102,6 +102,8 @@ export function printedSampleId(input: { base: string; pregnancy: "Singleton" | 
   if(ordinal!==undefined&&(!Number.isInteger(ordinal)||ordinal<1))return null;
   if(ordinal!==undefined&&ordinal>=5)return `${specimenDisplayCode(input.base,input.pregnancy,true)}-1`;
   if(input.attemptNumber===1&&input.repeatLevel===null)return `${code}-1`;
+  // Owner 2026-11-13: S1 may be repeated up to attempt 3, which prints -3 so the export/result mapping of the three attempts stays unique.
+  if(round===1&&input.attemptNumber===3&&(input.repeatLevel==='RE_LIBRARY'||input.repeatLevel==='RE_EXTRACTION'))return `${code}-3`;
   if((input.attemptNumber===2||round>1&&input.attemptNumber>2)&&(input.repeatLevel==='RE_LIBRARY'||input.repeatLevel==='RE_EXTRACTION'))return `${code}-2`;
   return null;
 }

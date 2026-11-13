@@ -34,9 +34,11 @@ describe("Genomic-CBH identifier parity (vendored legacy oracle @44ce3f4)",()=>{
   expect(lab.printedSampleId({base,pregnancy:"Twins",attemptNumber:1,repeatLevel:null,earlierReLibraryCount:0})).toBe("26B260601005D-1");
   expect(lab.printedSampleId({base,pregnancy:"Singleton",attemptNumber:2,repeatLevel:"RE_LIBRARY",earlierReLibraryCount:0})).toBe("26B260601005-2");
  });
- it("Task1 replaces only approved repeat rule while retaining shared S1 repeat limit",()=>{
+ it("Task1 repeat rule; Owner 2026-11-13: the first round repeats up to attempt 3 (printed -3), a fourth attempt has no S1 ID",()=>{
   const base="26B260601005";
-  expect(lab.printedSampleId({base,pregnancy:"Singleton",attemptNumber:3,repeatLevel:"RE_LIBRARY",earlierReLibraryCount:1})).toBeNull();
+  expect(lab.printedSampleId({base,pregnancy:"Singleton",attemptNumber:3,repeatLevel:"RE_LIBRARY",earlierReLibraryCount:1})).toBe(base+"-3");
+  expect(lab.printedSampleId({base,pregnancy:"Singleton",attemptNumber:3,repeatLevel:"RE_EXTRACTION",earlierReLibraryCount:0})).toBe(base+"-3");
+  expect(lab.printedSampleId({base,pregnancy:"Singleton",attemptNumber:4,repeatLevel:"RE_LIBRARY",earlierReLibraryCount:2})).toBeNull();
   expect(lab.printedSampleId({base,pregnancy:"Singleton",attemptNumber:2,repeatLevel:"RE_EXTRACTION",earlierReLibraryCount:0})).toBe(base+"-2");
  });
  it("control codes, printed control -1, PC1/NC25/Blank40, plate positions, sheets and run labels (AT-IDPAR-05/06)",()=>{
@@ -52,4 +54,15 @@ describe("Genomic-CBH identifier parity (vendored legacy oracle @44ce3f4)",()=>{
   expect(lab.formatRunLabel(1234,2026)).toBe("Run1234/2026");
   expect(lab.stripLabels("Run007/2026",2)).toEqual({s1:"Run007 S1-2/3",s2:"Run007 S2-2/3"});
  });
+});
+it("Owner 2026-11-13: the NIFTY vendor ID drops -3 like -1/-2, and nothing else",async()=>{
+ const {niftySampleId}=await import("../../packages/sequencing/owner-export");
+ expect(niftySampleId("26B261102017-1")).toBe("26B261102017");expect(niftySampleId("26B261102017-2")).toBe("26B261102017");expect(niftySampleId("26B261102017-3")).toBe("26B261102017");
+ expect(niftySampleId("26B261102017DR-3")).toBe("26B261102017DR");expect(niftySampleId("26B261102017-4")).toBe("26B261102017-4");expect(niftySampleId("26N120261109-1")).toBe("26N120261109");
+});
+it("Owner 2026-11-13: an S1 third attempt (-3) heads the Task fill queue ahead of earlier LN Halos; the rest keep LN Halos order",async()=>{
+ const {fifo}=await import("../../packages/lab/core");
+ const row=(id:string,lnHalos:string,round:number,attempt:number)=>({attempt_id:id,ln:id,ln_halos:lnHalos,round_number:round,attempt_number:attempt,received_at:new Date("2026-11-01T00:00:00Z")}) as never;
+ const rows=[row("a","26B261101001",1,1),row("b","26B261101002",1,2),row("c","26B261102017",1,3),row("d","26B261101003",2,3),row("e","26B261101000",1,1)];
+ expect([...rows].sort(fifo).map((r:{attempt_id:string})=>r.attempt_id)).toEqual(["c","e","a","b","d"]);
 });
