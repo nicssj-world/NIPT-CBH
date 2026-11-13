@@ -23,5 +23,5 @@ it('Owner Task 1: shared repeat methods, persistent R, exceptional attempts 5 an
  expect(printedSampleId({base,pregnancy:'Twins',earlierReLibraryCount:0,receivedSource:'HIS_PET_RECEIPT',roundNumber:3,attemptNumber:1,repeatLevel:null,overallOrdinal:5})).toBe(base+'DR-1');
  expect(specimenDisplayCode(base,'Twins',true)).toBe(base+'DR');
  expect(printedSampleId({base,pregnancy:'Singleton',earlierReLibraryCount:0,roundNumber:4,attemptNumber:1,repeatLevel:null,overallOrdinal:7,receivedSource:'HIS_PET_RECEIPT'})).toBe(base+'R-1');
- expect(printedSampleId({base,pregnancy:'Singleton',earlierReLibraryCount:1,roundNumber:1,attemptNumber:3,repeatLevel:'RE_LIBRARY',overallOrdinal:3})).toBeNull();
+ expect(printedSampleId({base,pregnancy:'Singleton',earlierReLibraryCount:1,roundNumber:1,attemptNumber:3,repeatLevel:'RE_LIBRARY',overallOrdinal:3})).toBe(base+'-3');   // Owner 2026-11-13: S1 repeats up to -3
 });
