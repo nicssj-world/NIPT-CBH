@@ -35,9 +35,11 @@ describe('High Risk badge on the ANC list',()=>{
   const [t21,t18,t13,low,sca]=[await makeCase('9922200001'),await makeCase('9922200002'),await makeCase('9922200003'),await makeCase('9922200004'),await makeCase('9922200005')];
   await release(t21,parsed('High Risk','Low Risk','Low Risk'));await release(t18,parsed('Low Risk','High Risk','Low Risk'));await release(t13,parsed('Low Risk','Low Risk','High Risk'));
   await release(low,parsed('Low Risk','Low Risk','Low Risk'));
-  await release(sca,parsed('Low Risk','Low Risk','Low Risk','Detected')); // a sex-chromosome finding is not "High Risk"
+  await release(sca,parsed('Low Risk','Low Risk','Low Risk','Detected'));
   for(const c of [t21,t18,t13]){const i=await flag(c);expect(i?.hasResult,c.ln).toBe(true);expect(i?.highRisk,c.ln).toBe(true);}
-  for(const c of [low,sca]){const i=await flag(c);expect(i?.hasResult,c.ln).toBe(true);expect(i?.highRisk,c.ln).toBeUndefined();}
+  expect((await flag(low))?.highRisk).toBeUndefined();
+  // Owner 2026-11-13: any positive result counts, a sex-chromosome Detected too.
+  const i=await flag(sca);expect(i?.hasResult).toBe(true);expect(i?.highRisk).toBe(true);
  });
  it('never flags a result that is not the active certified release',async()=>{
   const superseded=await makeCase('9922200011'),voided=await makeCase('9922200012'),pending=await makeCase('9922200013');
@@ -49,5 +51,17 @@ describe('High Risk badge on the ANC list',()=>{
  it('a case without any result has no flag',async()=>{
   const none=await makeCase('9922200021');const i=await flag(none);
   expect(i?.hasResult).toBe(false);expect(i?.highRisk).toBeUndefined();
+ });
+});
+describe('High Risk filter on the ANC overview',()=>{
+ it('risk=high lists only cases with a positive result, with a correct total',async()=>{
+  const [pos,neg,none]=[await makeCase('9922200031'),await makeCase('9922200032'),await makeCase('9922200033')];
+  await release(pos,parsed('Low Risk','Low Risk','Low Risk','Detected'));await release(neg,parsed('Low Risk','Low Risk','Low Risk'));
+  const all=await dashboard(db,anc,{q:'99222000'}),high=await dashboard(db,anc,{q:'99222000',risk:'high'});
+  expect(all.queue.items.map(i=>i.id)).toEqual(expect.arrayContaining([pos.caseId,neg.caseId,none.caseId]));
+  expect(high.queue.items.length).toBe(high.queue.total);
+  expect(high.queue.items.map(i=>i.id)).toContain(pos.caseId);
+  expect(high.queue.items.map(i=>i.id)).not.toContain(neg.caseId);expect(high.queue.items.map(i=>i.id)).not.toContain(none.caseId);
+  expect(high.queue.items.every(i=>i.highRisk)).toBe(true);
  });
 });

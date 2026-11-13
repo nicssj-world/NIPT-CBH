@@ -7,7 +7,7 @@ import {analysisSteps} from '../lab/analysis-progress';
 import {authorize} from '../security/policy';
 import {fiscalYear,flagLabels,stages,type Dashboard,type QueueItem} from './model';
 
-export const filterSchema=z.object({fy:z.coerce.number().int().min(2543).max(2743).optional(),unitId:z.uuid().optional(),kpi:z.enum(['sent','pending','released','attention']).optional(),stage:z.enum(stages.map(s=>s[0])).optional(),flag:z.enum(Object.keys(flagLabels) as [keyof typeof flagLabels,...(keyof typeof flagLabels)[]]).optional(),tab:z.enum(['all','pending','released','attention','redraw','hold','awaiting','testing','followup']).optional(),q:z.string().trim().max(60).optional(),
+export const filterSchema=z.object({fy:z.coerce.number().int().min(2543).max(2743).optional(),unitId:z.uuid().optional(),kpi:z.enum(['sent','pending','released','attention']).optional(),stage:z.enum(stages.map(s=>s[0])).optional(),flag:z.enum(Object.keys(flagLabels) as [keyof typeof flagLabels,...(keyof typeof flagLabels)[]]).optional(),tab:z.enum(['all','pending','released','attention','redraw','hold','awaiting','testing','followup']).optional(),risk:z.literal('high').optional(),q:z.string().trim().max(60).optional(),
  /** Queue order (Owner 2026-11-12): newest registration first by default; the first-receipt column can be sorted either way (no receipt last). */
  sort:z.enum(['registered','sent_desc','sent_asc']).optional(),
  /** "วันที่ส่งตรวจ" range, inclusive Bangkok days (Owner 2026-11-12: replaces the fiscal-year picker on the queue). */
@@ -28,6 +28,12 @@ function decodeCursor(raw:string):Cursor{
  * Documents use the authoritative p2_clinical_source and document portion of the readiness predicate
  * (migration 088; Paper Consent marker 101; refusal-aware decision 102). Collection-date/clinical-review gates remain separate from document readiness. */
 // documentsReady is also true for a migrated Historical case whose result was already issued: its request/consent evidence is never created retroactively.
+/** Owner 2026-11-13: "High Risk" = ANY positive result (High Risk T21/T18/T13, or Detected for XO/XXX/XXY/XYY) in the case's active certified release or in a result
+ * already reported by the previous system. One definition for the list filter and for the badge. `caseId` is the SQL expression of the case id. */
+const highRiskSql=(caseId:string)=>`EXISTS(SELECT 1 FROM result_report_version v WHERE v.case_id=${caseId} AND v.kind='RESULT'
+   AND (EXISTS(SELECT 1 FROM result_release r WHERE r.version_id=v.id AND r.state='Active') OR EXISTS(SELECT 1 FROM historical_reported_result h WHERE h.version_id=v.id))
+   AND (COALESCE((v.parsed->>'abnormal')::boolean,false) OR v.parsed->'results'->'t21'->>'value'='High Risk' OR v.parsed->'results'->'t18'->>'value'='High Risk' OR v.parsed->'results'->'t13'->>'value'='High Risk'
+    OR v.parsed->'results'->'xo'->>'value'='Detected' OR v.parsed->'results'->'xxx'->>'value'='Detected' OR v.parsed->'results'->'xxy'->>'value'='Detected' OR v.parsed->'results'->'xyy'->>'value'='Detected'))`;
 export const factsSql=`SELECT c.created_at "registeredAt",${sentAtSql('c')} "sentAt",c.id,l.ln,i.hn,CASE WHEN pet_patient.inbound_file_id IS NOT NULL THEN pet_patient.name ELSE COALESCE(NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),''),patient_history.name) END "patientName",
  ARRAY(SELECT s.unit_id::text FROM case_unit_scope s WHERE s.case_id=c.id AND s.unit_id=ANY($1::uuid[]) ORDER BY s.unit_id) "unitIds",
  c.current_round_id "currentRoundId",r.round_number "roundNumber",r.state "roundState",
@@ -48,6 +54,7 @@ export const factsSql=`SELECT c.created_at "registeredAt",${sentAtSql('c')} "sen
  (SELECT count(*)::int FROM result_release rr WHERE rr.case_id=c.id AND rr.round_id=r.id AND rr.kind='RESULT' AND rr.state='Active') "activeReleaseCount",
  (SELECT count(*)::int FROM result_release rr JOIN result_report_version v ON v.id=rr.version_id WHERE rr.case_id=c.id AND rr.round_id=r.id AND rr.kind='RESULT' AND rr.state='Active' AND v.state='CertifiedReleased' AND v.kind='RESULT' AND v.case_id=c.id AND v.round_id=r.id) "certifiedReleaseCount",
  EXISTS(SELECT 1 FROM historical_reported_result hr WHERE hr.case_id=c.id AND hr.round_id=r.id) "historicalResult",
+ ${highRiskSql('c.id')} "positiveResult",
  EXISTS(SELECT 1 FROM p2_revocation v WHERE v.case_id=c.id) "consentRevoked",
  EXISTS(SELECT 1 FROM his_intake_issue i WHERE i.case_id=c.id AND i.state IN ('Open','Proposed')) "identityIssue",
  EXISTS(SELECT 1 FROM redraw_request d WHERE d.case_id=c.id AND d.state='Requested') redraw,
@@ -101,9 +108,10 @@ export const projectionFor=(facts:string,registrationOrder=false)=>`WITH facts A
  flt AS (SELECT * FROM sc WHERE
    ($5::text IS NULL OR CASE $5::text WHEN 'sent' THEN sent WHEN 'pending' THEN pending WHEN 'released' THEN has_result WHEN 'attention' THEN cardinality(flags)>0 ELSE false END)
    AND ($6::text IS NULL OR stage=$6::text) AND ($7::text IS NULL OR $7::text=ANY(flags))
-   AND ($9::text='' OR strpos(lower(ln),$9::text)>0 OR strpos(lower(COALESCE(hn,'')),$9::text)>0 OR strpos(lower(id::text),$9::text)>0 OR strpos(lower(COALESCE("patientName",'')),$9::text)>0 OR ($9::text ~ '^[0-9]{2}-[0-9]{3}-[0-9]-[0-9]{4}$' AND strpos(ln,replace($9::text,'-',''))>0)))
+   AND ($18::text IS NULL OR (has_result AND "positiveResult")))
  , dated AS (SELECT * FROM flt WHERE ${registrationOrder?sentDayRangeSql('"sentAt"','$16','$17'):'($16::date IS NULL OR $16::date IS NOT NULL) AND ($17::date IS NULL OR $17::date IS NOT NULL)'}),
- tabbed AS (SELECT * FROM dated WHERE ($8::text='all' OR CASE $8::text WHEN 'redraw' THEN redraw WHEN 'hold' THEN hold WHEN 'pending' THEN pending WHEN 'released' THEN has_result WHEN 'attention' THEN cardinality(flags)>0 WHEN 'awaiting' THEN stage IN ('documents','expected') WHEN 'testing' THEN stage IN ('received','analysis','review') WHEN 'followup' THEN stage='followup' ELSE false END)),
+ -- Owner 2026-11-12: the cards (tab_counts) do not move with the search box; the search only narrows the list and its total.
+ tabbed AS (SELECT * FROM dated WHERE ($9::text='' OR strpos(lower(ln),$9::text)>0 OR strpos(lower(COALESCE(hn,'')),$9::text)>0 OR strpos(lower(id::text),$9::text)>0 OR strpos(lower(COALESCE("patientName",'')),$9::text)>0 OR ($9::text ~ '^[0-9]{2}-[0-9]{3}-[0-9]-[0-9]{4}$' AND strpos(ln,replace($9::text,'-',''))>0)) AND ($8::text='all' OR CASE $8::text WHEN 'redraw' THEN redraw WHEN 'hold' THEN hold WHEN 'pending' THEN pending WHEN 'released' THEN has_result WHEN 'attention' THEN cardinality(flags)>0 WHEN 'awaiting' THEN stage IN ('documents','expected') WHEN 'testing' THEN stage IN ('received','analysis','review') WHEN 'followup' THEN stage='followup' ELSE false END)),
  ordered AS (SELECT *,${registrationOrder?'0':'urgent::int'} ord_u,${registrationOrder?registrationOrderKey:'COALESCE(days_waiting,-1)'} ord_d,$15::text sort_mode FROM tabbed)
  SELECT
   (SELECT json_build_object('all',count(*),'pending',count(*) FILTER(WHERE pending),'released',count(*) FILTER(WHERE has_result),'attention',count(*) FILTER(WHERE cardinality(flags)>0),'redraw',count(*) FILTER(WHERE redraw),'hold',count(*) FILTER(WHERE hold),'awaiting',count(*) FILTER(WHERE stage IN ('documents','expected')),'testing',count(*) FILTER(WHERE stage IN ('received','analysis','review')),'followup',count(*) FILTER(WHERE stage='followup')) FROM dated) tab_counts,
@@ -118,11 +126,11 @@ export const projectionFor=(facts:string,registrationOrder=false)=>`WITH facts A
 const projectionSql=projectionFor(factsSql,true);
 type SqlRow=Omit<QueueItem,'stageLabel'|'s1ReceivedAt'|'currentReceivedAt'|'sentAt'>&{s1ReceivedAt:string|null;currentReceivedAt:string|null;sentAt:string|null;ord_u:number;ord_d:number};
 const SIX_HOURS=6*3600000;
-export type ProjectionInput={unitIds:string[];asOf:Date;fy:number;unitId?:string;kpi?:string;stage?:string;flag?:string;tab:string;q:string;cursor:Cursor|null;limit:number;offset:number;sort?:string;from?:string;to?:string};
+export type ProjectionInput={unitIds:string[];asOf:Date;fy:number;unitId?:string;kpi?:string;stage?:string;flag?:string;tab:string;q:string;cursor:Cursor|null;limit:number;offset:number;sort?:string;from?:string;to?:string;risk?:string};
 export type ProjectionResult={tab_counts:NonNullable<Dashboard['queue']['tabCounts']>;metrics:Dashboard['metrics'];stage_counts:Record<string,number>;total:number;rows:SqlRow[]};
 /** The one place parameter order is defined (also used by the parity test with a fixture in place of the facts query). */
 export async function runProjection(db:Queryable,sql:string,i:ProjectionInput):Promise<ProjectionResult>{
- return (await db.query<ProjectionResult>(sql,[i.unitIds,i.asOf.toISOString(),i.fy,i.unitId??null,i.kpi??null,i.stage??null,i.flag??null,i.tab,i.q.trim().toLowerCase(),i.cursor?.u??null,i.cursor?.d??null,i.cursor?.id??null,i.limit,i.offset,i.sort??null,i.from??null,i.to??null])).rows[0];
+ return (await db.query<ProjectionResult>(sql,[i.unitIds,i.asOf.toISOString(),i.fy,i.unitId??null,i.kpi??null,i.stage??null,i.flag??null,i.tab,i.q.trim().toLowerCase(),i.cursor?.u??null,i.cursor?.d??null,i.cursor?.id??null,i.limit,i.offset,i.sort??null,i.from??null,i.to??null,i.risk??null])).rows[0];
 }
 /** Who may read the ANC overview and which units: ANC roles (or the system Admin) with case.read and result.read.released per unit.
  *  Shared by the queue (`dashboard`) and the insights panel (anc/insights.ts) so both read exactly the same scope. */
@@ -146,7 +154,7 @@ export async function dashboard(db:Queryable,user:Staff,input:unknown={}):Promis
  const asOfMs=f.asOf?Date.parse(f.asOf):NaN,asOf=Number.isFinite(asOfMs)&&asOfMs<=date.getTime()&&date.getTime()-asOfMs<=SIX_HOURS?new Date(asOfMs):date;
  const unitIds=units.map(u=>u.id);
  const cursor=f.after?decodeCursor(f.after):null;
- const run=(offset:number)=>runProjection(db,projectionSql,{unitIds,asOf,fy,unitId:f.unitId,kpi:f.kpi,stage:f.stage,flag:f.flag,tab:f.tab??'all',q:f.q??'',cursor,limit:f.pageSize,offset,sort:f.sort,from:f.from,to:f.to});
+ const run=(offset:number)=>runProjection(db,projectionSql,{unitIds,asOf,fy,unitId:f.unitId,kpi:f.kpi,stage:f.stage,flag:f.flag,tab:f.tab??'all',q:f.q??'',cursor,limit:f.pageSize,offset,sort:f.sort,from:f.from,to:f.to,risk:f.risk});
  let page=f.page,out=await run(cursor?0:(page-1)*f.pageSize);
  const totalPages=Math.max(1,Math.ceil(out.total/f.pageSize));
  // A page past the end (rows left the queue since the last response) answers with the last real page instead of an empty one.
@@ -155,11 +163,11 @@ export async function dashboard(db:Queryable,user:Staff,input:unknown={}):Promis
  // Progress inside the analysis step is read only for the rows on this page (not for every case of the year).
  const steps=await analysisSteps(db,items.filter(i=>i.stage==='analysis'||i.stage==='review').map(i=>i.currentRoundId??''));
  for(const i of items)i.labSteps=i.stage==='analysis'||i.stage==='review'?steps.get(i.currentRoundId??'')??null:null;
- // Owner 2026-11-11: a High Risk flag for the rows of this page whose certified result is visible to this user (the dashboard already requires result.read.released).
- const released=items.filter(i=>i.released).map(i=>i.id);
- if(released.length){
-  const risky=new Set((await db.query<{case_id:string}>(`SELECT DISTINCT v.case_id FROM result_report_version v JOIN result_release r ON r.version_id=v.id AND r.state='Active'
-   WHERE v.case_id=ANY($1::uuid[]) AND v.kind='RESULT' AND (v.parsed->'results'->'t21'->>'value'='High Risk' OR v.parsed->'results'->'t18'->>'value'='High Risk' OR v.parsed->'results'->'t13'->>'value'='High Risk')`,[released])).rows.map(r=>r.case_id));
+ // Owner 2026-11-13: the High Risk flag marks a patient with ANY positive result (High Risk T21/T18/T13, or Detected for XO/XXX/XXY/XYY) on every row that shows "มีผลตรวจแล้ว":
+ // the active certified release, or a result already reported by the previous system (historical_reported_result). The dashboard already requires result.read.released.
+ const withResult=items.filter(i=>i.hasResult).map(i=>i.id);
+ if(withResult.length){
+  const risky=new Set((await db.query<{case_id:string}>(`SELECT c.id case_id FROM unnest($1::uuid[]) AS c(id) WHERE ${highRiskSql('c.id')}`,[withResult])).rows.map(r=>r.case_id));
   for(const i of items)if(risky.has(i.id))i.highRisk=true;
  }
  const last=out.rows.at(-1);

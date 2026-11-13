@@ -29,6 +29,7 @@
 .progress-badge.tone-done{background:var(--good-bg);color:var(--color-success)}
 /* Owner 2026-11-11: High Risk beside "มีผลตรวจแล้ว" — red, with the warning triangle and bold so it still reads in black-and-white print. */
 .progress-badge.tone-high-risk{background:var(--bad-bg);color:var(--color-danger);font-weight:700;box-shadow:inset 0 0 0 1.5px var(--color-danger)}
+.progress-badge.tone-high-risk .ui-icon{fill:#f5c518;stroke:#4a3200;stroke-width:2}
 .progress-badge.tone-warn{background:var(--warn-bg);color:var(--color-warning)}
 .progress-badge.tone-stop{background:var(--bad-bg);color:var(--color-danger)}
 .progress-badge.tone-check{background:var(--warn-bg);color:var(--color-warning)}
