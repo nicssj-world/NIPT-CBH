@@ -5,7 +5,7 @@ import {monthLabelLong} from "./month-label";
 import {MonthBars} from "./month-bars";
 import "./dashboard.css";
 
-const QC_STAGE:Record<string,string>={QC1:"QC1",QC2:"QC2",QC3:"QC3",QC4:"QC4",SEQUENCING:"Sequencing"};
+import {QC_STAGE_LABEL as QC_STAGE} from "../shared/qc-stages";
 const pct=(n:number,d:number)=>d?`${(n/d*100).toLocaleString("th-TH",{maximumFractionDigits:1})}%`:"—";
 
 /**

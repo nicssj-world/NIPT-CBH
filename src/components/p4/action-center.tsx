@@ -1,4 +1,5 @@
 "use client";
+import {QC_STAGE_LABEL} from "../shared/qc-stages";
 import {useState} from "react";
 import {Dialog} from "../p2/shared";
 import {labApi,failureText} from "./lab-api";
@@ -47,7 +48,7 @@ export function SampleActionCenter({subject:s,can,onClose,onDone}:{subject:Actio
    </label>)}
   </fieldset>
   {kind&&<div className="form-grid">
-   {live&&kind!=="RE_SAMPLING"&&<div className="field"><label htmlFor="ac-stage">ขั้นตอนที่ไม่สำเร็จ</label><select id="ac-stage" value={stage} onChange={e=>setStage(e.target.value)}>{STAGES.map(v=><option key={v} value={v}>{v==="SEQUENCING"?"Sequencing":v}</option>)}</select></div>}
+   {live&&kind!=="RE_SAMPLING"&&<div className="field"><label htmlFor="ac-stage">ขั้นตอนที่ไม่สำเร็จ</label><select id="ac-stage" value={stage} onChange={e=>setStage(e.target.value)}>{STAGES.map(v=><option key={v} value={v}>{QC_STAGE_LABEL[v]}</option>)}</select></div>}
    {kind!=="NO_CALL"&&<div className="field"><label htmlFor="ac-reason">เหตุผล</label><select id="ac-reason" value={reason} onChange={e=>setReason(e.target.value)}><option value="">เลือกเหตุผล</option>{reasons.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div>}
    {(override||kind!=="NO_CALL")&&<div className="field action-center-note"><label htmlFor="ac-note">{override?"เหตุผลการตรวจเกิน 4 ครั้ง (ไม่บังคับ)":"หมายเหตุ (ถ้ามี)"}</label><textarea id="ac-note" rows={2} maxLength={500} value={note} onChange={e=>setNote(e.target.value)}/></div>}
   </div>}
