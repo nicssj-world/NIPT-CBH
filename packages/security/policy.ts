@@ -22,7 +22,7 @@ const rows = {
   "clinical.sop": "---CC--R-",
   "consent.prepare": "UULL-----",
   "consent.sign.patient": "---------",
-  "paper.verify": "CCCY---R-",
+  "paper.verify": "CCYY---R-",   // Owner 2026-11-14: LAB_STAFF verifies paper request/consent on every case, as LAB_CERTIFIER
   "round.collect": "UUYY---R-",
   "round.attest": "CCCY C--R-".replaceAll(" ", ""),
   "consent.withdraw.receive": "UUYY---R-",
