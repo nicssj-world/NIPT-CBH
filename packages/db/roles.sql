@@ -156,6 +156,9 @@ GRANT SELECT,INSERT,UPDATE ON halos_import,report_signature_delegation,internal_
 -- Migration 205: hidden HALOS rows (append-only). Repeated here because migrations run before roles exist on a fresh install.
 GRANT SELECT,INSERT ON halos_row_dismissal TO app_rw;
 GRANT SELECT ON halos_row_dismissal TO report_ro;
+-- Migration 228: the Approved Date read from a previous-system PDF (append-only).
+GRANT SELECT,INSERT ON historical_result_approved_date TO app_rw;
+GRANT SELECT ON historical_result_approved_date TO worker_rw,report_ro;
 -- Migration 199: durable HALOS batch requests. Web creates and reads; worker records only item outcomes.
 GRANT SELECT ON internal_report_request,internal_report_request_item TO app_rw;
 GRANT INSERT(operator_id,session_id,idempotency_key,request) ON internal_report_request TO app_rw;

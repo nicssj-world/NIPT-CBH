@@ -2,7 +2,7 @@ import {z} from 'zod';
 import type {Queryable} from '../db/connection';
 import type {Staff} from '../lab/core';
 import {gestationalAge} from '../lab/core';
-import {riskSql,reportedDaySql,trisomyHighSql,scaHighSql,positiveKeysSql,emptyPositive,type PositiveKey,type Risk} from '../results/query';
+import {riskSql,historicalReportedAtSql,trisomyHighSql,scaHighSql,positiveKeysSql,emptyPositive,type PositiveKey,type Risk} from '../results/query';
 import {addDays,bangkokDay,businessDaysBetween,median,percentile} from '../calendar/business-days';
 import {workingCalendar} from '../calendar/holiday-sync';
 import {ancUnitScope,factsSql} from './service';
@@ -94,12 +94,12 @@ export async function ancInsights(db:Queryable,user:Staff,raw:unknown={},now=new
  const facts=`WITH facts AS NOT MATERIALIZED (${factsSql})`;
  // view=dashboard (Dashboard and statistics): the card lists are not shown, so their two queries are not run.
  const brief=f.view==='dashboard';
- // A result counts once: certified in this system, or reported by the previous system and imported (dated by the report date on its PDF).
+ // A result counts once: certified in this system, or reported by the previous system and imported (dated by the report / Approved date on its PDF).
  const released=`SELECT f.id,f.ln,f.hn,f."patientName",f."unitIds" unit_ids,rr.certified_at,r.received_at,${riskSql} risk,${trisomyHighSql} hi_t,${scaHighSql} hi_s,${positiveKeysSql} pos
   FROM facts f JOIN result_release rr ON rr.case_id=f.id AND rr.kind='RESULT' AND rr.state='Active' AND rr.round_id=f."currentRoundId"
   JOIN result_report_version v ON v.id=rr.version_id AND v.state='CertifiedReleased' AND v.kind='RESULT'
   JOIN specimen_round r ON r.id=rr.round_id
-  UNION ALL SELECT f.id,f.ln,f.hn,f."patientName",f."unitIds" unit_ids,COALESCE((${reportedDaySql})::date::timestamp AT TIME ZONE 'Asia/Bangkok',v.imported_at),r.received_at,${riskSql} risk,${trisomyHighSql} hi_t,${scaHighSql} hi_s,${positiveKeysSql} pos
+  UNION ALL SELECT f.id,f.ln,f.hn,f."patientName",f."unitIds" unit_ids,${historicalReportedAtSql},r.received_at,${riskSql} risk,${trisomyHighSql} hi_t,${scaHighSql} hi_s,${positiveKeysSql} pos
   FROM facts f JOIN historical_reported_result h ON h.case_id=f.id AND h.round_id=f."currentRoundId"
   JOIN result_report_version v ON v.id=h.version_id
   JOIN specimen_round r ON r.id=h.round_id`;

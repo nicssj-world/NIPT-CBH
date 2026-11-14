@@ -41,6 +41,10 @@ export const emptyPositive=():Record<PositiveKey,number>=>({t13:0,t18:0,t21:0,xo
 /** The report date printed on the result PDF (parser ISO evidence), NULL when missing or not a real calendar day. */
 export const reportedDaySql=(()=>{const reported="v.parsed->'identifiers'->'reportedDate'->>'value'";
  return `CASE WHEN ${reported} ~ '^[1-9][0-9]{3}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$' THEN CASE WHEN substring(${reported},9,2)::int<=extract(day FROM (make_date(substring(${reported},1,4)::int,substring(${reported},6,2)::int,1)+interval '1 month - 1 day')) THEN ${reported} END END`;})();
+/** When a result reported by the previous system (historical_reported_result, version alias `v`) was reported, as a timestamp (Bangkok midnight):
+ *  the printed "Reported Date:", else the "Approved Date" read from the same PDF (migration 228, Owner 2026-11-15), else the import time. */
+export const historicalReportedAtSql=`COALESCE((${reportedDaySql})::date::timestamp AT TIME ZONE 'Asia/Bangkok',
+ (SELECT ad.approved_on::timestamp AT TIME ZONE 'Asia/Bangkok' FROM historical_result_approved_date ad WHERE ad.version_id=v.id AND ad.sha256=v.sha256),v.imported_at)`;
 export function resultQuerySql(q:ResultQuery){
  const values:unknown[]=[],where:string[]=[];const param=(v:unknown)=>{values.push(v);return '$'+values.length;};
  // Reported dates are parser ISO evidence; validate calendar shape/day before lexical comparison, with missing/invalid values NULL.

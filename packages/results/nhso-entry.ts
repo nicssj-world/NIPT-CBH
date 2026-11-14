@@ -9,6 +9,7 @@ import {ageOnDate,type RequestDraft} from '../p2/schema';
 import {bangkokIsoDay,formatBe,formatBeDateTime} from '../domain/thai-date';
 import {simpleXlsx} from '../workbook/simple-xlsx';
 import {gaFromEdd} from './nhso-format';
+import {historicalReportedAtSql} from './query';
 import {recordPhiAccess} from '../db/phi-access';
 
 // ลงผลสปสช. (Owner 2026-11-09). Lists every certified, Active result of a patient whose request records the NHSO (สปสช.) entitlement;
@@ -26,7 +27,7 @@ type R={subject_id:string;source:'RELEASE'|'HISTORICAL';version_id:string;case_i
 const ROWS_SQL=`WITH subj AS (
   SELECT rr.id subject_id,'RELEASE' source,rr.version_id,rr.case_id,rr.round_id,rr.certified_at FROM result_release rr WHERE rr.state='Active' AND rr.kind='RESULT'
   UNION ALL
-  SELECT h.version_id,'HISTORICAL',h.version_id,h.case_id,h.round_id,h.imported_at FROM historical_reported_result h)
+  SELECT h.version_id,'HISTORICAL',h.version_id,h.case_id,h.round_id,${historicalReportedAtSql} FROM historical_reported_result h JOIN result_report_version v ON v.id=h.version_id)
  SELECT r.subject_id,r.source,r.version_id,r.case_id,r.round_id,r.certified_at,l.ln,n.ln_halos,i.hn,c.registration_origin,
   (SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=r.case_id ORDER BY s.unit_id LIMIT 1) unit_id,
   w.draft,ent.entitlement,COALESCE(NULLIF(btrim(pet.parsed->>'name'),''),NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),'')) AS name,

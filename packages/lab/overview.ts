@@ -5,7 +5,7 @@ import {addDays,bangkokDay,businessDaysBetween,median,percentile,tatStatus,type 
 import {workingCalendar} from '../calendar/holiday-sync';
 import {recordPhiAccess} from '../db/phi-access';
 import {inOrder} from '../db/in-order';
-import {reportedDaySql,riskSql,trisomyHighSql,scaHighSql,positiveKeysSql,emptyPositive,type PositiveKey,type Risk} from '../results/query';
+import {historicalReportedAtSql,riskSql,trisomyHighSql,scaHighSql,positiveKeysSql,emptyPositive,type PositiveKey,type Risk} from '../results/query';
 
 /**
  * Lab overview for the home page (Owner 2026-11-11). Read-only; every number comes from records the Lab pages already own.
@@ -80,7 +80,7 @@ async function quality(db:Queryable,now:Date,holidays:ReadonlySet<string>,busine
   ()=>db.query<{at:Date}>(`SELECT r.received_at at FROM specimen_round r JOIN nipt_case c ON c.id=r.case_id WHERE r.received_at>=${since} AND r.state<>'Cancelled' AND ${scope}`,[from]),
   ()=>db.query<{at:Date;received:Date|null;risk:Risk;hi_t:boolean;hi_s:boolean;pos:PositiveKey[]}>(`SELECT rr.certified_at at,r.received_at received,${riskSql} risk,${trisomyHighSql} hi_t,${scaHighSql} hi_s,${positiveKeysSql} pos FROM result_release rr JOIN result_report_version v ON v.id=rr.version_id JOIN specimen_round r ON r.id=rr.round_id JOIN nipt_case c ON c.id=rr.case_id
    WHERE rr.kind='RESULT' AND rr.state='Active' AND rr.certified_at>=${since} AND r.received_at IS NOT NULL AND ${scope}
-   UNION ALL SELECT x.at,NULL,x.risk,x.hi_t,x.hi_s,x.pos FROM (SELECT COALESCE((${reportedDaySql})::date::timestamp AT TIME ZONE 'Asia/Bangkok',v.imported_at) at,h.round_id,${riskSql} risk,${trisomyHighSql} hi_t,${scaHighSql} hi_s,${positiveKeysSql} pos FROM historical_reported_result h JOIN result_report_version v ON v.id=h.version_id) x
+   UNION ALL SELECT x.at,NULL,x.risk,x.hi_t,x.hi_s,x.pos FROM (SELECT ${historicalReportedAtSql} at,h.round_id,${riskSql} risk,${trisomyHighSql} hi_t,${scaHighSql} hi_s,${positiveKeysSql} pos FROM historical_reported_result h JOIN result_report_version v ON v.id=h.version_id) x
    WHERE x.at>=${since}`,[from]),
   ()=>db.query<{at:Date;stage:string|null}>(`SELECT e.created_at at,COALESCE(e.stage,a.qc_failed_stage) stage FROM attempt_event e JOIN analytical_attempt a ON a.id=e.attempt_id
    WHERE e.event_type='STATE_CHANGED' AND e.to_state='QcFailed' AND e.created_at>=${since}`,[from]),
