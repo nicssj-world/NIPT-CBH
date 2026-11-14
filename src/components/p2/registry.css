@@ -34,7 +34,6 @@
 .registry-case-actions{display:inline-flex;flex-wrap:wrap;justify-content:flex-end;gap:var(--space-2)}
 .registry-case-action{min-height:44px}
 .registry-table .c-progress{min-width:260px}
-.registry-table .c-todo{min-width:180px}
 
 @media(max-width:900px){
  .registry-table thead{display:none}
@@ -44,14 +43,14 @@
  .workspace .registry-page .registry-table tbody td{height:auto;padding:0;border:0}
  .registry-table :is(.c-id,.c-who){grid-column:1}
  .registry-table .c-status{grid-column:1/-1}
- .registry-table :is(.c-ga,.c-when,.c-round,.c-progress,.c-todo){grid-column:1/-1}
+ .registry-table :is(.c-ga,.c-when,.c-round,.c-progress){grid-column:1/-1}
  .registry-table :is(.c-when,.c-round,.c-ga){color:var(--color-muted);font-size:.8125rem}
  .registry-table .c-when::before{content:"รับสิ่งส่งตรวจ ";font-weight:600}
  .anc-registry .registry-table .c-ga::before{content:"GA ณ วันเจาะเลือด ";font-weight:600}
  .registry-table .c-round .cell-sub{display:inline;margin-left:6px}
  .registry-table .c-actions{grid-column:1/-1;width:auto;text-align:left}
  .registry-case-actions{justify-content:flex-start}
- .registry-table .c-progress,.registry-table .c-todo{min-width:0}
+ .registry-table .c-progress{min-width:0}
  .registry-toolbar>.toggle-chip{margin-top:0}
 }
 @media(max-width:600px){
@@ -61,7 +60,25 @@
 @media(prefers-reduced-motion:reduce){.registry-table tbody tr{transition:none}}
 /* globals' `.data-table .num` right-aligns numerals for numeric columns; identifiers and dates here read left to right. */
 .registry-table .num{text-align:inherit}
-@media(max-width:900px){.registry-table td.c-actions:not(:has(a,button)),.registry-table td.c-todo:not(:has(.next-sign)){display:none}}
+@media(max-width:900px){.registry-table td.c-actions:not(:has(a,button)){display:none}}
+/* Owner 2026-11-14: the overview's filters live here. Toolbar = search, unit, send date, sort, refresh; then two chip rows (status, follow-up)
+   whose numbers are the server's facet counts, and one line saying what is filtered with a clear-all. */
+.registry-filter{display:grid;gap:var(--ui-field-gap,8px);font-weight:600;font-size:.875rem;margin:0}
+.registry-filter select{min-height:var(--ui-control-height);min-width:12rem}
+.registry-refresh{display:inline-flex;align-items:center;gap:8px;align-self:flex-end;min-height:var(--ui-control-height)}
+.registry-facets{display:grid;gap:8px;margin-bottom:var(--space-3)}
+.registry-facet-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
+.registry-facet-label{min-width:3.5rem;font-size:.8125rem;font-weight:600;color:var(--color-muted)}
+.registry-chip{display:inline-flex;align-items:center;gap:6px;min-height:44px}
+.registry-chip .n{min-width:1.5rem;padding:0 6px;border-radius:999px;background:var(--raised);color:var(--color-ink);font-size:.8125rem;font-weight:700;line-height:1.6;text-align:center}
+.registry-chip[aria-pressed="true"] .n{background:var(--color-surface)}
+.registry-chip.bad{color:var(--color-danger)}
+.registry-chip.bad[aria-pressed="true"]{background:var(--bad-bg);box-shadow:inset 0 0 0 1.5px var(--color-danger)}
+.registry-chip .ui-icon{width:18px;height:18px}
+.registry-active{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin:0;font-size:.875rem;color:var(--color-muted)}
+.registry-clear{appearance:none;display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:0 4px;border:0;background:none;font:inherit;font-weight:600;color:var(--color-brand);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.registry-clear:focus-visible{outline:3px solid var(--color-focus);outline-offset:2px;border-radius:6px}
+@media(max-width:600px){.registry-filter,.registry-filter select{width:100%;min-width:0}.registry-refresh{width:100%;justify-content:center}.registry-facet-label{flex-basis:100%}}
 /* Search + sort chip on one line. The chip drops by exactly the field label block (globals: label min-height 27px + --ui-field-gap),
    so its box lines up with the input; both use --ui-control-height. */
 .registry-toolbar>.toggle-chip{margin-top:calc(27px + var(--ui-field-gap,8px));min-height:var(--ui-control-height)}

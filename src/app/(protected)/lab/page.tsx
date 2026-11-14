@@ -3,14 +3,17 @@ import {currentUser} from "../../../server/http";
 import {authorize} from "../../../../packages/security/policy";
 import {withTransaction} from "../../../../packages/db/connection";
 import {labWorklistPage} from "../../../../packages/lab/intake";
+import {WORKLIST_TABS} from "../../../../packages/lab/worklist";
 import {LabWorklist,type WorklistData} from "../../../components/p4/worklist";
 import {MigrationWorklist} from '../../../components/p4/migration-worklist';
 import {LnHalosImport} from '../../../components/p4/ln-halos-import';
 
-export default async function LabPage(){
+/** `?tab=` opens one queue tab directly (Dashboard alerts, Owner 2026-11-14); an unknown value falls back to the default tab. */
+export default async function LabPage({searchParams}:{searchParams:Promise<{tab?:string}>}){
  const user=(await currentUser())!;
+ const asked=(await searchParams).tab,tab=(WORKLIST_TABS as readonly string[]).includes(asked??"")?asked as typeof WORKLIST_TABS[number]:undefined;
  if(!authorize(user,"worksheet.read",{},"read"))return <section className="panel"><h1>งาน Lab</h1><p role="alert">ไม่มีสิทธิ์เปิดคิวงาน Lab</p></section>;
- const data=JSON.parse(JSON.stringify(await withTransaction(db=>labWorklistPage(db,user,{sort:"desc"})))) as WorklistData;
+ const data=JSON.parse(JSON.stringify(await withTransaction(db=>labWorklistPage(db,user,{sort:"desc",...(tab?{tab}:{})})))) as WorklistData;
  const can={labels:authorize(user,"label.print"),assign:authorize(user,"batch.assign"),receive:authorize(user,"round.receive"),repeat:authorize(user,"repeat.order"),redraw:authorize(user,"redraw.order"),noCall:authorize(user,"attempt.noCall"),redrawCancel:authorize(user,"redraw.cancel"),hold:authorize(user,"specimen.hold")};
  return <>
   <header className="page-header"><div><h1>งาน Lab — คิวตัวอย่าง</h1></div><Link className="button secondary" href="/lab/batches">Batch / Task List</Link></header>

@@ -48,6 +48,18 @@ describe('Lab overview on the home page (Owner 2026-11-11)',()=>{
   expect(o.quality.at(-2)).toMatchObject({month:'2026-10',received:2});
   expect(o.calendar.missingYears).toEqual([]);
  });
+ it('Dashboard mode: aging by TAT state and 14 days of receipts, without rows or a PHI-access record (Owner 2026-11-14)',async()=>{
+  const before=(await db.query<{n:number}>("SELECT count(*)::int n FROM phi_access_log WHERE actor_id=$1",[u.staff.id])).rows[0].n;
+  const o=await labOverview(q(),u.staff,NOW,{rows:false});
+  expect(o.tat.rows).toEqual([]);expect(o.gaOver18.rows).toEqual([]);expect(o.gaOver18.count).toBe(1);
+  expect((await db.query<{n:number}>("SELECT count(*)::int n FROM phi_access_log WHERE actor_id=$1",[u.staff.id])).rows[0].n).toBe(before);
+  const sum=(k:'ok'|'dueSoon'|'overdue')=>o.aging.reduce((n,b)=>n+b[k],0);
+  expect([sum('ok'),sum('dueSoon'),sum('overdue')]).toEqual([1,1,1]);
+  expect(o.aging).toHaveLength(o.policy.businessDays+5);
+  expect(o.recent).toHaveLength(14);
+  expect(o.recent.find(d=>d.day==='2026-10-30')).toMatchObject({received:1});
+  expect(o.recent.find(d=>d.day==='2026-11-09')).toMatchObject({received:1});
+ });
  it('records PHI access for the rows it shows, and a received specimen whose round is cancelled leaves the list',async()=>{
   const before=(await db.query<{n:number}>("SELECT count(*)::int n FROM phi_access_log WHERE actor_id=$1",[u.staff.id])).rows[0].n;
   await labOverview(q(),u.staff,NOW);

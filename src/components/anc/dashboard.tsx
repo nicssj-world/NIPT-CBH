@@ -1,84 +1,91 @@
 "use client";
 import Link from "next/link";
-import {ViewResultButton} from "../p5/result-popup";
-import {patientDisplayName} from "../../../packages/domain/patient-name";
-import {useCallback,useEffect,useRef,useState} from "react";
-import {api,ApiFailure,Ln,message} from "../p2/shared";
-import {queueProgress} from "../p2/anc-progress";
-import {Icon,ProgressView,TodoSign} from "../p2/anc-progress-view";
-import {TableScroll} from "../shared/table-scroll";
+import {useEffect,useState} from "react";
+import {api,ApiFailure,message} from "../p2/shared";
+import {Icon} from "../p2/anc-progress-view";
+import {Columns,LinkBars} from "../dashboard/stat-charts";
+import {Kpi} from "../dashboard/kpi";
+import {registryHref,STATUS_LABEL} from "../p2/registry-filters";
+import type {AncInsights} from "../../../packages/anc/insights";
 import "../shared/console.css";
-import "./dashboard.css";
-import {Pager} from "../shared/pager";
-import {SentDateRange} from "../shared/sent-date-range";
-import {isOtherFiscalYear} from "./presentation";
-import {AncFocusCards} from "../dashboard/anc-insights";
-import type {Dashboard as Snapshot,QueueItem as Item} from "../../../packages/anc/model";
-type Sort=''|'sent_desc'|'sent_asc';
-type Filters={fy:number;unitId:string;kpi:string;stage:string;flag:string;tab:string;risk:string;q:string;sort:Sort;from:string;to:string;page:number;pageSize:number;after:string;asOf:string};
-const SIZES=[10,20,50] as const;
-const FY=()=>{const p=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Bangkok',year:'numeric',month:'numeric'}).formatToParts(new Date());const v=(t:string)=>Number(p.find(x=>x.type===t)?.value);return v('year')+(v('month')>=10?1:0)+543};
-const titles={sent:'ส่งตรวจแล้วในปีงบประมาณ',pending:'อยู่ระหว่างรอผลตรวจ',released:'มีผลตรวจแล้ว',attention:'ต้องดำเนินการเพิ่มเติม'};
-const flagLabels:Record<string,string>={REDRAW:'เก็บตัวอย่างใหม่',redraw:'เก็บตัวอย่างใหม่',HOLD:'HOLD',hold:'HOLD',URGENT:'เร่งด่วน',urgent:'เร่งด่วน',DOCUMENTS:'เอกสารยังไม่ครบ',documents:'เอกสารยังไม่ครบ',MISSING_S1:'ข้อมูลรับตัวอย่างครั้งแรกไม่ครบ',missing_s1:'ข้อมูลรับตัวอย่างครั้งแรกไม่ครบ',REPEAT:'ตรวจซ้ำ',repeat:'ตรวจซ้ำ',CONSENT_REVOKED:'ถอนความยินยอม',consent_revoked:'ถอนความยินยอม',identity_issue:'ข้อมูลตัวตนรอตรวจสอบ',conflicting_release:'หลักฐานผลขัดกัน',unmapped_state:'ตรวจสอบสถานะ',validation_blocked:'ผลติดเงื่อนไข'};
+import "../dashboard/dashboard.css";
+import "../p2/registry.css";
 
-type IdentityIssue={id:string;kind:string;state:string;fields:string[];createdAt:string};
-const IDENTITY_KIND:Record<string,string>={IDENTITY_MISMATCH:"ข้อมูลระบุตัวตนไม่ตรงกัน",IDENTITY_UNVERIFIED:"ข้อมูลตัวตนยังตรวจสอบไม่ครบ",LN_REUSED_OR_CHANGED:"ข้อมูลจาก HIS เปลี่ยนหลังรับตัวอย่าง",LN_REUSED_DIFFERENT_PATIENT:"LN อาจผูกกับคนละ HN",UNLINKED:"ไม่พบเคสที่เชื่อมกับ LN",S1_INTEGRITY_EVENT:"ข้อมูลรับตัวอย่างเดิมเปลี่ยน",HISTORICAL_LN_INTAKE:"ข้อมูลจากเคสย้อนหลัง"};
-const IDENTITY_FIELD:Record<string,string>={hn:"HN",name:"ชื่อ",dob:"วันเกิด",sex:"เพศ",identity:"เลขประจำตัว",receivedAt:"เวลารับจาก HIS",specimenAt:"เวลาเก็บตัวอย่าง",ward:"หน่วยงานส่งตรวจ"};
-function IdentityIssueDetails({caseId}:{caseId:string}){
- const [open,setOpen]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(""),[items,setItems]=useState<IdentityIssue[]|null>(null);
- const toggle=async()=>{if(open){setOpen(false);return;}setOpen(true);setBusy(true);setError("");try{const d=await api<{issues:IdentityIssue[]}>("/api/anc/identity-issues",{caseId});setItems(d.issues);}catch{setError("โหลดรายละเอียดปัญหาจาก HIS ไม่สำเร็จ กรุณาลองอีกครั้ง");}finally{setBusy(false);}};
- return <div className="anc-identity-issue"><button type="button" className="badge attention warning anc-issue-trigger" onClick={()=>void toggle()} aria-expanded={open} aria-label="ข้อมูลตัวตนรอตรวจสอบ เปิดดูสาเหตุ">{flagLabels.identity_issue} <span aria-hidden="true">{open?"▴":"▾"}</span></button>
-  {open&&<div className="anc-issue-detail" role="region" aria-label="รายละเอียดข้อมูลตัวตนที่ต้องตรวจสอบ">
-   {busy?<p role="status">กำลังโหลดรายละเอียด…</p>:error?<><p role="alert">{error}</p><button className="anc-text" onClick={()=>void toggle()}>ปิดแล้วเปิดอีกครั้ง</button></>:items?.length?items.map(i=><div key={i.id}><strong>{IDENTITY_KIND[i.kind]??"ข้อมูลจาก HIS ต้องตรวจสอบ"}</strong><p>สถานะ: {i.state==="Open"?"รอตรวจสอบ":i.state==="Proposed"?"มีข้อเสนอเดิมค้างอยู่":i.state}</p>{i.fields.length>0&&<p>ข้อมูลที่เกี่ยวข้อง: {i.fields.map(v=>IDENTITY_FIELD[v]??v).join(" · ")}</p>}</div>):<p>ไม่มีรายการตัวตนที่ค้างอยู่แล้ว โปรดรีเฟรชภาพรวมเพื่อปรับคำเตือน</p>}
-   <p className="help">ตรวจสอบหลักฐาน HIS และแจ้งเจ้าหน้าที่ผู้มีสิทธิ์แก้ไขรายการก่อนดำเนินการต่อ</p>
-  </div>}
+type Counts=Record<"all"|"awaiting"|"testing"|"released"|"followup"|"other"|"high"|"high_run"|"ga18"|"hold"|"identity"|"attention",number>;
+type Summary={counts:Counts;latestRun:string|null;scopeUnits:{id:string;name:string}[]};
+type Source<T>={data:T|null;error:string;forbidden:boolean};
+const W=STATUS_LABEL.anc;
+const n=(v:number|undefined|null)=>v===undefined||v===null?"—":v.toLocaleString("th-TH");
+const dayLong=(day:string)=>new Date(day+"T00:00:00Z").toLocaleDateString("th-TH",{timeZone:"UTC",weekday:"short",day:"numeric",month:"short",year:"numeric"});
+const dayShort=(day:string)=>String(Number(day.slice(8,10)));
+async function load<T>(url:string):Promise<Source<T>>{try{return {data:await api<T>(url),error:"",forbidden:false};}catch(e){return {data:null,error:message(e),forbidden:e instanceof ApiFailure&&e.status===403};}}
+
+/**
+ * ANC Dashboard (Owner 2026-11-14): current work at a glance, no patient list. Counts come from the central registry's own filters
+ * (registry summary: same scope and rules as /cases) and the ANC insights (TAT of the cases waiting, the last 14 days). Every card,
+ * alert and chart row opens /cases with the matching filter; the statistics of the year stay on "สถิติการส่งตรวจ".
+ */
+export function AncDashboard({operational=false}:{operational?:boolean}){
+ const [unitId,setUnitId]=useState(""),[tick,setTick]=useState(0);
+ const [state,setState]=useState<{summary:Source<Summary>;insights:Source<AncInsights>;loading:boolean}>({summary:{data:null,error:"",forbidden:false},insights:{data:null,error:"",forbidden:false},loading:true});
+ useEffect(()=>{let live=true;const t=setTimeout(()=>{setState(s=>({...s,loading:true}));const u=unitId?"&unitId="+encodeURIComponent(unitId):"";
+  void Promise.all([load<Summary>("/api/p2/cases?summary=1"+u),load<AncInsights>("/api/anc/insights?view=dashboard"+u)]).then(([summary,insights])=>{if(live)setState({summary,insights,loading:false});});},0);
+  return()=>{live=false;clearTimeout(t);};},[unitId,tick]);
+ const {summary,insights,loading}=state,c=summary.data?.counts,ins=insights.data,tat=ins?.tat;
+ const units=ins?.units??[],scope=unitId?units.find(u=>u.id===unitId)?.name??"หน่วยงานที่เลือก":units.length===1?units[0].name:"ทุกหน่วยงานในสิทธิ์";
+ const forbidden=summary.forbidden&&insights.forbidden;
+ const head=<header className="page-header"><div><h1>Dashboard</h1><p className="page-meta">ANC · {scope}{!operational&&" · ข้อมูลจำลอง"}{ins&&<> · ข้อมูล ณ <time dateTime={ins.generatedAt}>{new Date(ins.generatedAt).toLocaleString("th-TH",{timeZone:"Asia/Bangkok",dateStyle:"medium",timeStyle:"short"})} น.</time></>}</p></div>
+  <div className="action-bar"><button type="button" className="button secondary" disabled={loading} onClick={()=>setTick(x=>x+1)}>{loading?"กำลังอัปเดต…":"รีเฟรช"}</button><Link className="button secondary" href="/cases">เปิดทะเบียนกลาง</Link><Link className="button" href="/cases?register=anc">ลงทะเบียนคุณแม่</Link></div></header>;
+ if(forbidden)return <div className="dash-home">{head}<section className="panel"><h2>ไม่มีสิทธิ์เปิด Dashboard ANC</h2><p>ไม่แสดงตัวเลขหรือเคสนอกขอบเขตสิทธิ์</p></section></div>;
+ const first=loading&&!c&&!ins;
+ const toolbar=<section className="dash-toolbar" aria-label="ตัวกรอง Dashboard">
+  {units.length>1&&<label className="registry-filter">หน่วยงาน<select value={unitId} onChange={e=>setUnitId(e.target.value)}><option value="">ทุกหน่วยงานในสิทธิ์</option>{units.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></label>}
+  </section>;
+ // A source the user may not read (403) is said too, so "—" is never left unexplained.
+ const failed=[summary.error&&(summary.forbidden?"ตัวเลขสถานะเคส (ไม่มีสิทธิ์ในหน่วยงานนี้)":"ตัวเลขสถานะเคส"),insights.error&&(insights.forbidden?"TAT และ 14 วันล่าสุด (ไม่มีสิทธิ์ในหน่วยงานนี้)":"TAT และ 14 วันล่าสุด")].filter(Boolean);
+ // Alerts = what needs a person today: results and time. Workflow follow-ups are the chart below, so nothing is said twice.
+ const alerts=[
+  {key:"high",text:`ผลความเสี่ยงสูง · ${summary.data?.latestRun??"Run ล่าสุด"}`,v:c?.high_run,href:registryHref({flag:"high_run"}),tone:"bad"},
+  {key:"ga",text:"GA เกิน 18 สัปดาห์ (ยังไม่มีผล)",v:c?.ga18,href:registryHref({flag:"ga18"}),tone:"bad"},
+  {key:"over",text:"เกินกำหนด TAT",v:tat?.overdue,href:registryHref({status:"testing",sort:"asc"}),tone:"bad"},
+  {key:"soon",text:`ใกล้ครบกำหนด TAT (เหลือ ≤ ${tat?.policy.warnDaysLeft??2} วันทำการ)`,v:tat?.dueSoon,href:registryHref({status:"testing",sort:"asc"}),tone:"warn"},
+ ].filter(a=>(a.v??0)>0);
+ return <div className={"dash-home"+(loading&&!first?" is-stale":"")} aria-busy={loading}>
+  {head}{units.length>1&&toolbar}
+  {failed.length>0&&<div className="error" role="alert">โหลด{failed.join(" และ ")}ไม่สำเร็จ ช่องที่อ่านไม่ได้แสดง “—” <button type="button" className="button secondary" onClick={()=>setTick(x=>x+1)}>ลองใหม่</button></div>}
+  {first?<section className="dash-skeleton" aria-label="กำลังโหลด Dashboard" role="status"><span/><span/><span/></section>:<>
+  <section className="dash-alerts" aria-labelledby="ad-alerts"><h2 id="ad-alerts">ต้องดูตอนนี้</h2>
+   {alerts.length?<ul className="dash-attention">{alerts.map(a=><li key={a.key}><Link href={a.href} className={a.tone}><Icon name="alert"/>{a.text} <span className="n">{n(a.v)}</span></Link></li>)}</ul>
+   :c&&tat?<p className="dash-calm"><Icon name="done"/>ไม่มีผลความเสี่ยงสูงใน Run ล่าสุด, GA เกิน 18 สัปดาห์ หรือเคสเกินกำหนด TAT</p>:<p className="dash-empty">ยังอ่านรายการเตือนไม่ได้</p>}</section>
+  <ul className="dash-kpis" aria-label="ตัวเลขสำคัญ">
+   <Kpi label={`ส่งตรวจ ปีงบ ${ins?.fiscalYear??""}`} value={ins?.stats.totals.sent} sub="Lab รับตัวอย่างครั้งแรก · ดูสถิติ" href="/anc-stats"/>
+   <Kpi label={W.awaiting} value={c?.awaiting} sub="ลงทะเบียนแล้ว ตัวอย่างยังไม่ถึง Lab" href={registryHref({status:"awaiting"})}/>
+   <Kpi label={W.testing} value={c?.testing} sub="Lab รับแล้ว ยังไม่มีผล" href={registryHref({status:"testing"})}/>
+   <Kpi label={W.released} value={c?.released} sub="รวมทุกปีในสิทธิ์" href={registryHref({status:"released"})} tone="good"/>
+   <Kpi label="ต้องติดตาม" value={c?.attention} sub="เจาะซ้ำ · HOLD · ข้อมูลตัวตน · ตรวจสอบสถานะ" href={registryHref({flag:"attention"})} tone="warn"/>
+   <Kpi label="ใกล้ / เกินกำหนด TAT" value={tat?tat.overdue+tat.dueSoon:null} sub={tat?`เกิน ${tat.overdue} · ใกล้ครบ ${tat.dueSoon} จากที่รอผล ${tat.open} ราย`:"กำหนดตามวันทำการของ Lab"} href={registryHref({status:"testing",sort:"asc"})} tone={tat?.overdue?"bad":"warn"}/>
+  </ul>
+  <div className="dash-stat-grid">
+   <section className="panel dash-panel" aria-labelledby="ad-status"><header className="dash-panel-head"><h2 id="ad-status">สถานะเคสตอนนี้</h2><p className="dash-panel-note">ทุกปีในสิทธิ์ · กดแถวเพื่อเปิดรายการในทะเบียนกลาง</p></header>
+    {c?<LinkBars title="จำนวนเคสตามสถานะ" parts={[{name:"เคส",tone:"s1"}]} unit="ราย" rows={[
+     {label:W.awaiting,values:[c.awaiting],href:registryHref({status:"awaiting"})},
+     {label:W.testing,values:[c.testing],href:registryHref({status:"testing"})},
+     {label:W.followup,values:[c.followup],href:registryHref({status:"followup"}),tone:"warn" as const},
+     ...(c.other?[{label:W.other,sub:"ไม่ยินยอม · ถอนความยินยอม · ตัวตนยังไม่ยืนยัน",values:[c.other],href:registryHref({status:"other"}),tone:"warn" as const}]:[]),
+     {label:W.released,values:[c.released],href:registryHref({status:"released"})}]}/>:<p className="dash-empty">อ่านตัวเลขสถานะไม่ได้</p>}</section>
+   <section className="panel dash-panel" aria-labelledby="ad-tat"><header className="dash-panel-head"><h2 id="ad-tat">ระยะรอผลเทียบกำหนด TAT</h2><p className="dash-panel-note">เคสที่ Lab รับแล้วและยังไม่มีผล · กำหนด {tat?.policy.businessDays??"—"} วันทำการ</p></header>
+    {tat?<Columns title="เคสที่รอผล แยกตามวันทำการที่ใช้ไป" mode="stack" parts={[{name:"ภายในกำหนด",tone:"good"},{name:`ใกล้ครบ (≤ ${tat.policy.warnDaysLeft} วัน)`,tone:"warn"},{name:"เกินกำหนด",tone:"bad"}]}
+     items={tat.aging.map((b,i,all)=>({label:i===all.length-1?`${b.days}+`:String(b.days),long:`ใช้ไป ${b.days}${i===all.length-1?" วันทำการขึ้นไป":" วันทำการ"}`,values:[b.ok,b.dueSoon,b.overdue]}))}
+     limit={{at:tat.policy.businessDays,label:`กำหนด ${tat.policy.businessDays} วัน`}} axisNote="แกนนอน = วันทำการตั้งแต่ Lab รับตัวอย่าง (ไม่นับเสาร์-อาทิตย์และวันหยุด)" empty="ไม่มีเคสที่รอผลอยู่"/>:<p className="dash-empty">อ่านข้อมูล TAT ไม่ได้</p>}
+    {tat&&tat.overdue+tat.dueSoon>0&&<Link className="button secondary" href={registryHref({status:"testing",sort:"asc"})}>เปิดเคสที่รอผล เรียงจากรอนานที่สุด</Link>}</section>
+   <section className="panel dash-panel" aria-labelledby="ad-follow"><header className="dash-panel-head"><h2 id="ad-follow">เคสที่ต้องติดตาม</h2><p className="dash-panel-note">ปัญหาค้างตามขั้นตอนจริง · เคสหนึ่งอาจอยู่หลายแถว</p></header>
+    {c?<LinkBars title="ติดตามตามเรื่อง" parts={[{name:"เคส",tone:"s2"}]} unit="ราย" rows={[
+     {label:W.followup,sub:"ตัวอย่างเดิมตรวจไม่ได้",values:[c.followup],href:registryHref({status:"followup"}),tone:"warn" as const},
+     {label:"HOLD · ห้อง Lab พักการตรวจ",values:[c.hold],href:registryHref({flag:"hold"}),tone:"warn" as const},
+     {label:"ข้อมูลตัวตนรอตรวจสอบ",sub:"ข้อมูลจาก HIS ไม่ตรงหรือยังยืนยันไม่ครบ",values:[c.identity],href:registryHref({flag:"identity"}),tone:"warn" as const},
+     {label:"High Risk ทั้งหมด",sub:"ทุกผลที่ออกแล้วในสิทธิ์",values:[c.high],href:registryHref({flag:"high"}),tone:"bad" as const}]}/>:<p className="dash-empty">อ่านตัวเลขติดตามไม่ได้</p>}</section>
+   <section className="panel dash-panel" aria-labelledby="ad-recent"><header className="dash-panel-head"><h2 id="ad-recent">14 วันล่าสุด</h2><p className="dash-panel-note">ส่งตรวจ = Lab รับตัวอย่างครั้งแรก · ออกผล = ผลที่ออกในวันนั้น · ภาพรายเดือนอยู่ในสถิติการส่งตรวจ</p></header>
+    {ins?<Columns title="ส่งตรวจและออกผลรายวัน" mode="group" parts={[{name:"ส่งตรวจ",tone:"s1"},{name:"ออกผล",tone:"s2"}]} items={ins.recent.map(d=>({label:dayShort(d.day),long:dayLong(d.day),values:[d.sent,d.released]}))} axisNote="แกนนอน = วันที่ของเดือน" empty="ไม่มีการส่งตรวจหรือออกผลใน 14 วันนี้"/>:<p className="dash-empty">อ่านข้อมูล 14 วันไม่ได้</p>}</section>
+  </div></>}
  </div>;
-}
-const fmt=(v:string|null)=>v?new Date(v).toLocaleDateString('th-TH',{timeZone:'Asia/Bangkok',day:'numeric',month:'short',year:'2-digit'}):'ยังไม่มีหลักฐานรับ';
-/** Owner 2026-11-12: newest registration first by default; the "วันที่ส่งตรวจ" header cycles newest → oldest → back to registration order. */
-const nextSort=(s:Sort):Sort=>s===''?'sent_desc':s==='sent_desc'?'sent_asc':'';
-const SORT_HINT:Record<Sort,string>={'':'เรียงตามการลงทะเบียนล่าสุด · กดเพื่อเรียงวันที่ส่งตรวจ ใหม่ → เก่า',sent_desc:'วันที่ส่งตรวจ ใหม่ → เก่า · กดเพื่อเรียง เก่า → ใหม่',sent_asc:'วันที่ส่งตรวจ เก่า → ใหม่ · กดเพื่อกลับไปเรียงตามการลงทะเบียน'};
-function SortMark({sort}:{sort:Sort}){return <svg className={"anc-sort-mark"+(sort?" on":"")} viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">{sort==='sent_asc'?<path d="M8 13V3M4 7l4-4 4 4"/>:sort==='sent_desc'?<path d="M8 3v10M4 9l4 4 4-4"/>:<path d="M5 6l3-3 3 3M5 10l3 3 3-3"/>}</svg>;}
-const initial=(fy:number):Filters=>({fy,unitId:'',kpi:'',stage:'',flag:'',tab:'all',risk:'',q:'',sort:'',from:'',to:'',page:1,pageSize:20,after:'',asOf:''});
-const signature=(f:Filters)=>JSON.stringify([f.fy,f.unitId,f.kpi,f.stage,f.flag,f.tab,f.risk,f.q,f.sort,f.from,f.to,f.pageSize]);
-export function AncDashboard({operational=false}:{operational?:boolean}){const [filters,setFilters]=useState(()=>initial(FY())),[data,setData]=useState<Snapshot|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(true),[refresh,setRefresh]=useState(0),[forbidden,setForbidden]=useState(false);const focusAfterLoad=useRef<string|null>(null);const seq=useRef(0);const sentQuery=useRef('');const [term,setTerm]=useState('');const cursors=useRef<{sig:string;next:Record<number,string>}>({sig:'',next:{}});const load=useCallback(async(isActive:()=>boolean)=>{const id=++seq.current;setLoading(true);setError('');setForbidden(false);const q=new URLSearchParams();Object.entries(filters).forEach(([k,v])=>{if(v!==''&&v!==null)q.set(k,String(v))});try{const next=await api<Snapshot>('/api/anc/dashboard?'+q);if(id===seq.current&&isActive()){const sig=signature(filters);if(cursors.current.sig!==sig)cursors.current={sig,next:{}};if(next.queue.nextCursor)cursors.current.next[next.queue.page+1]=next.queue.nextCursor;setData(next)}}catch(e){if(id===seq.current&&isActive()){setError(message(e));setForbidden(e instanceof ApiFailure&&e.status===403);if(e instanceof ApiFailure&&[401,403].includes(e.status??0))setData(null)}}finally{if(id===seq.current&&isActive()){setLoading(false);}}},[filters]);useEffect(()=>{let active=true;const timer=setTimeout(()=>{void load(()=>active)},0);return()=>{active=false;clearTimeout(timer)}},[load,refresh]);
-useEffect(()=>{if((data||error)&&focusAfterLoad.current){const key=focusAfterLoad.current;focusAfterLoad.current=null;document.querySelector<HTMLElement>(error?'[data-anc-control="retry"]':'[data-anc-control="'+CSS.escape(key)+'"]')?.focus({preventScroll:true})}},[data,error]);
-const updateFilters:typeof setFilters=next=>{focusAfterLoad.current=(document.activeElement as HTMLElement)?.dataset.ancControl??null;setData(null);setLoading(true);setFilters(next)};
-const fresh={page:1,after:'',asOf:''};useEffect(()=>{const q=term.trim().slice(0,60);if(q===sentQuery.current)return;const timer=setTimeout(()=>{sentQuery.current=q;setFilters(f=>({...f,q,page:1,after:'',asOf:''}))},350);return()=>clearTimeout(timer)},[term]);useEffect(()=>{if(filters.q!==sentQuery.current){sentQuery.current=filters.q;setTerm(filters.q)}},[filters.q]);const patch=(v:Partial<Filters>)=>updateFilters(f=>({...f,...v,...fresh}));const choose=(kind:'kpi'|'stage',value:string)=>updateFilters(f=>({...initial(f.fy),unitId:f.unitId,pageSize:f.pageSize,risk:f.risk,sort:f.sort,from:f.from,to:f.to,[kind]:value}));
-// Next page follows the keyset cursor (no repeats if the queue changes meanwhile); a page already visited reuses its cursor; first/last/jump are plain page requests.
-const goPage=(n:number)=>updateFilters(f=>{const here=data?.queue.page??f.page,sig=signature(f),known=cursors.current.sig===sig?cursors.current.next[n]:undefined;return {...f,page:n,after:n===here+1&&data?.queue.nextCursor?data.queue.nextCursor:known??'',asOf:data?.asOf??f.asOf};});const stageName=(id:string)=>data?.stages.find(s=>s.id===id)?.label??'ตรวจสอบข้อมูล';const stale=!!data&&(loading||!!error);
-const unitScope=filters.unitId?data?.units.find(u=>u.id===filters.unitId)?.name??'ตามหน่วยงานที่เข้าถึงได้':data?.scope.allUnits?'ทุกหน่วยงาน':data?.units.length===1?data.units[0].name:'ตามหน่วยงานที่เข้าถึงได้';
-// HOLD / redraw / repeat are already said by the progress badge in people words; the remaining flags stay visible as before.
-const SAID_BY_PROGRESS=new Set(['hold','HOLD','redraw','REDRAW','repeat','REPEAT']);
-const attention=(c:Item,todo=''):React.ReactNode=>{const rest=c.flags.filter(f=>!SAID_BY_PROGRESS.has(f)&&!(f==='documents'&&todo.includes('เอกสาร')));return rest.length?<span className="anc-flags">{rest.map(f=>f==='identity_issue'?<IdentityIssueDetails key={f} caseId={c.id}/>:<span key={f} className="badge attention warning">{flagLabels[f]??f}</span>)}</span>:null;};
-// Owner 2026-11-08: five people-language groups over the unchanged seven stages; every stage count stays visible.
-const count=(id:string)=>data?.stages.find(s=>s.id===id)?.count??0;
-const tiles:{tab:string;icon:string;label:string;n:number;sub:string;need?:boolean}[]=data?[
- {tab:'all',icon:'all',label:'ทั้งหมด',n:data.queue.tabCounts?.all??0,sub:`ส่งตรวจแล้วในปีงบ ${data.fiscalYear}: ${data.metrics.sent}`},
- {tab:'awaiting',icon:'waiting',label:'รอ Lab รับตัวอย่าง',n:data.queue.tabCounts?.awaiting??0,sub:`${stageName('documents')} ${count('documents')} · ${stageName('expected')} ${count('expected')}`},
- {tab:'testing',icon:'testing',label:'กำลังตรวจ',n:data.queue.tabCounts?.testing??0,sub:`${stageName('received')} ${count('received')} · ${stageName('analysis')} ${count('analysis')} · ${stageName('review')} ${count('review')}`},
- {tab:'released',icon:'done',label:'มีผลตรวจแล้ว',n:data.queue.tabCounts?.released??0,sub:`${stageName('released')} ${count('released')}`},
- {tab:'followup',icon:'alert',label:'ต้องดำเนินการ',n:data.queue.tabCounts?.followup??0,sub:`${stageName('followup')} ${count('followup')}`,need:true},
-]:[];
-const pickTile=(tab:string)=>updateFilters(f=>({...initial(f.fy),unitId:f.unitId,pageSize:f.pageSize,q:f.q,risk:f.risk,sort:f.sort,from:f.from,to:f.to,tab}));
-const exceptionCount=count('exception');
-// Owner 2026-11-12: "วันที่ส่งตรวจ" — ANC registration date, or the PET collection date for a Lab registration (packages/anc/sent-date.ts).
-const received=(c:Item)=><><span className="num">{c.sentAt?fmt(c.sentAt):'—'}</span><span className="cell-sub">{c.daysWaiting===null?'ระยะเวลารอ: ไม่ทราบ':`รอ ${c.daysWaiting} วัน`}</span></>;
-return <div className="anc-dashboard" data-mode={operational?"operational":"synthetic"}><header className="page-header"><div><h1>ติดตามผลตรวจ NIPT</h1><p className="page-meta">{unitScope} · ยอดส่งตรวจ: ปี {filters.fy} · รับ ตัวอย่างเลือดครั้งแรก · ขั้นตอนและคิวติดตาม: รวมทุกปี</p></div><Link className="button" href="/cases?register=anc">ลงทะเบียนคุณแม่</Link></header>
-{!forbidden&&<AncFocusCards fy={filters.fy} unitId={filters.unitId}/>}
-{error&&<div className="error" role="alert">{error}{data&&<p>ข้อมูลด้านล่างเป็น Snapshot เดิม ยังยืนยันยอดล่าสุดไม่ได้</p>}<button data-anc-control="retry" className="button secondary" onClick={()=>setRefresh(n=>n+1)}>ลองใหม่</button></div>}
-{forbidden?<section className="panel"><h2>ไม่มีสิทธิ์เปิดภาพรวม ANC</h2><p>ไม่แสดงตัวเลขหรือเคสนอกขอบเขตสิทธิ์</p></section>:!data?<section className="panel" role="status">{loading?'กำลังโหลดภาพรวม — ยังไม่แสดงยอด 0 จนได้รับข้อมูล':'ยังไม่มี Snapshot กรุณาลองใหม่'}</section>:<>
- <div className="anc-tiles" role="group" aria-label="ดูตามความคืบหน้า">{tiles.map(t=><button type="button" data-anc-control={"tab-"+t.tab} key={t.tab} className={"anc-tile"+(t.need?" need":"")} aria-pressed={filters.tab===t.tab&&!filters.stage&&!filters.kpi} disabled={stale} onClick={()=>pickTile(t.tab)}><span className="anc-tile-label"><Icon name={t.icon}/>{t.label}</span><strong className="num">{t.n}</strong><small>{t.sub}</small></button>)}</div>
- {exceptionCount?<button className="anc-text" disabled={stale} onClick={()=>choose('stage','exception')}>{stageName('exception')} {exceptionCount} เคส · แยกจาก 7 ขั้นตอน</button>:null}
- <section className="anc-toolbar" aria-label="ตัวกรองภาพรวม"><form role="search" onSubmit={e=>e.preventDefault()}><label>ค้นหา HN / LN / ชื่อ-นามสกุล / Case<input name="query" value={term} onChange={e=>setTerm(e.target.value)} maxLength={60} type="search" autoComplete="off"/></label></form><label>หน่วยงาน<select data-anc-control="unit" value={filters.unitId} onChange={e=>patch({unitId:e.target.value})}><option value="">ทุกหน่วยงาน</option>{data.units.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></label><SentDateRange from={filters.from} to={filters.to} onChange={(from,to)=>patch({from,to})}/><label className="anc-sort-select">เรียงตาม<select data-anc-control="sort-select" value={filters.sort} onChange={e=>patch({sort:e.target.value as Sort})}><option value="">ลงทะเบียนล่าสุดก่อน</option><option value="sent_desc">วันที่ส่งตรวจ ใหม่ → เก่า</option><option value="sent_asc">วันที่ส่งตรวจ เก่า → ใหม่</option></select></label><button type="button" className="button secondary anc-risk-filter" data-anc-control="risk-high" aria-pressed={filters.risk==='high'} disabled={stale} onClick={()=>patch({risk:filters.risk==='high'?'':'high'})}><Icon name="alert"/>High Risk</button><button className="button secondary" disabled={loading} onClick={()=>{setFilters(f=>({...f,after:"",asOf:""}));setRefresh(n=>n+1);}}>รีเฟรช</button><p className="anc-updated" role="status"><Icon name="waiting"/> {stale?'ข้อมูลชุดเดิม ณ':'ข้อมูลล่าสุด ณ'} <time dateTime={data.generatedAt}>{new Date(data.generatedAt).toLocaleString('th-TH',{timeZone:'Asia/Bangkok',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'})} น.</time></p></section>
- <section className="anc-queue" aria-busy={loading} aria-label="คิวติดตามเคส">{(['kpi','stage','flag','q'] as const).some(k=>filters[k])&&<div className="anc-chips"><span>ตัวกรองที่ใช้อยู่:</span>{(['kpi','stage','flag','q'] as const).filter(k=>filters[k]).map(k=><button key={k} className="toggle-chip" aria-pressed="true" onClick={()=>patch({[k]:''})}>{k==='kpi'?titles[filters[k] as keyof typeof titles]:k==='stage'?stageName(filters[k]):k==='flag'?(flagLabels[filters[k]]??filters[k]):filters[k]} ×</button>)}<button className="anc-text" onClick={()=>updateFilters(f=>({...initial(f.fy),unitId:f.unitId}))}>ล้างตัวกรองทั้งหมด</button></div>}
- {!data.queue.items.length?<div className="anc-empty"><h2>ไม่พบเคสตามตัวกรองนี้</h2><p>เปลี่ยนมุมมองหรือล้างตัวกรอง · ไม่ได้หมายความว่าไม่มีเคสทั้งระบบ</p></div>:<TableScroll label="ตารางติดตามเคส" railLabel="แถบเลื่อนแนวนอนของตารางติดตามเคส"><table className="data-table anc-table"><caption className="sr-only">รายการตามตัวกรอง {data.queue.total} เคส</caption><thead><tr><th scope="col">คุณแม่</th><th scope="col" className="date-col" aria-sort={filters.sort==='sent_desc'?'descending':filters.sort==='sent_asc'?'ascending':'none'}><button type="button" className="anc-sort" data-anc-control="sort" disabled={stale} onClick={()=>patch({sort:nextSort(filters.sort)})} title={SORT_HINT[filters.sort]}>วันที่ส่งตรวจ<SortMark sort={filters.sort}/></button></th><th scope="col">ความคืบหน้า</th><th scope="col">สิ่งที่ต้องทำ</th><th scope="col"><span className="sr-only">การทำรายการ</span></th></tr></thead>
-  <tbody>{data.queue.items.map(c=>{const p=queueProgress(c);return <tr key={c.id}>
-   <td className="c-who"><strong className="who-name anc-patient-name">{patientDisplayName(c.patientName?.trim()||'ยังไม่มีข้อมูลชื่อ-นามสกุล')}</strong><span className="who-ids">HN {c.hn??'ยังไม่ยืนยัน'} · LN <Link className="registry-ln-link" href={'/cases/'+c.id} aria-label={'ดูเคส LN '+c.ln}><Ln value={c.ln}/></Link></span></td>
-   <td className="c-when">{received(c)}</td>
-   <td className="c-progress"><ProgressView progress={p} round={c.roundNumber} extra={<>{c.highRisk&&<span className="progress-badge tone-high-risk"><Icon name="alert"/>High Risk</span>}{attention(c,p.todo)}{isOtherFiscalYear(c.s1ReceivedAt,filters.fy)&&<span className="badge info">ข้ามปีงบประมาณ</span>}</>}/></td>
-   <td className="c-todo"><TodoSign todo={p.todo} caseId={c.id} ln={c.ln}/></td>
-   <td className="c-actions">{c.hasResult&&<ViewResultButton caseId={c.id} ln={c.ln} hn={c.hn} name={patientDisplayName(c.patientName?.trim()||'ยังไม่มีข้อมูลชื่อ-นามสกุล')} className="button secondary anc-case-action"/>}</td></tr>;})}</tbody></table></TableScroll>}
- <Pager label="คิวเคส ANC" sizes={SIZES} page={data.queue.page} pageSize={data.queue.pageSize} total={data.queue.total} totalPages={data.queue.totalPages} busy={stale||loading} onPage={goPage} onSize={n=>patch({pageSize:n})}/></section></>}
-</div>
 }

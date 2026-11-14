@@ -1,4 +1,6 @@
 import {currentPetPatientJoin} from './current-patient';
+import {highRiskSql} from './high-risk-sql';
+export {highRiskSql};
 import {sentAtSql,sentDayRangeSql} from './sent-date';
 import {z} from 'zod';
 import type {Queryable} from '../db/connection';
@@ -28,12 +30,6 @@ function decodeCursor(raw:string):Cursor{
  * Documents use the authoritative p2_clinical_source and document portion of the readiness predicate
  * (migration 088; Paper Consent marker 101; refusal-aware decision 102). Collection-date/clinical-review gates remain separate from document readiness. */
 // documentsReady is also true for a migrated Historical case whose result was already issued: its request/consent evidence is never created retroactively.
-/** Owner 2026-11-13: "High Risk" = ANY positive result (High Risk T21/T18/T13, or Detected for XO/XXX/XXY/XYY) in the case's active certified release or in a result
- * already reported by the previous system. One definition for the list filter and for the badge. `caseId` is the SQL expression of the case id. */
-const highRiskSql=(caseId:string)=>`EXISTS(SELECT 1 FROM result_report_version v WHERE v.case_id=${caseId} AND v.kind='RESULT'
-   AND (EXISTS(SELECT 1 FROM result_release r WHERE r.version_id=v.id AND r.state='Active') OR EXISTS(SELECT 1 FROM historical_reported_result h WHERE h.version_id=v.id))
-   AND (COALESCE((v.parsed->>'abnormal')::boolean,false) OR v.parsed->'results'->'t21'->>'value'='High Risk' OR v.parsed->'results'->'t18'->>'value'='High Risk' OR v.parsed->'results'->'t13'->>'value'='High Risk'
-    OR v.parsed->'results'->'xo'->>'value'='Detected' OR v.parsed->'results'->'xxx'->>'value'='Detected' OR v.parsed->'results'->'xxy'->>'value'='Detected' OR v.parsed->'results'->'xyy'->>'value'='Detected'))`;
 export const factsSql=`SELECT c.created_at "registeredAt",${sentAtSql('c')} "sentAt",c.id,l.ln,i.hn,CASE WHEN pet_patient.inbound_file_id IS NOT NULL THEN pet_patient.name ELSE COALESCE(NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),''),patient_history.name) END "patientName",
  ARRAY(SELECT s.unit_id::text FROM case_unit_scope s WHERE s.case_id=c.id AND s.unit_id=ANY($1::uuid[]) ORDER BY s.unit_id) "unitIds",
  c.current_round_id "currentRoundId",r.round_number "roundNumber",r.state "roundState",

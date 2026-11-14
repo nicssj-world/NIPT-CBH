@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import {useId,useState} from "react";
 import {monthLabel,monthLabelLong} from "./month-label";
 import "./dashboard-charts.css";
@@ -21,6 +22,16 @@ function Table({title,head,rows}:{title:string;head:string[];rows:(string|number
   <div className="table-wrap" role="region" aria-label={`ตาราง ${title}`} tabIndex={0}><table className="data-table"><thead><tr>{head.map((h,i)=><th scope="col" key={h} className={i?"num":undefined}>{h}</th>)}</tr></thead>
    <tbody>{rows.map((r,i)=><tr key={i}>{r.map((c,j)=>j?<td key={j} className="num">{typeof c==="number"?num(c):c??"—"}</td>:<td key={j}>{c}</td>)}</tr>)}</tbody></table></div>
  </details>;
+}
+
+/**
+ * One horizontal bar: parts side by side, drawn in SVG so the lengths are attributes, not inline styles (the app's Content-Security-Policy
+ * blocks style attributes, which left the earlier span bars with no length). 2 px gaps between parts, a rounded data end.
+ */
+function Track({values,parts,max}:{values:number[];parts:{tone:Tone}[];max:number}){
+ const widths=values.map(v=>v/max*100),segs=widths.map((w,i)=>({i,w,x:widths.slice(0,i).reduce((a,b)=>a+b,0)})).filter(s=>s.w>0);
+ return <svg className="dash-htrack" viewBox="0 0 100 16" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+  {segs.map((s,k)=><rect key={s.i} className={`dash-hseg t-${parts[s.i].tone}`} x={s.x} y={0} width={Math.max(0.6,s.w-(k<segs.length-1?0.4:0))} height={16}/>)}</svg>;
 }
 
 /** Columns stacked by part (for example risk level per month). The part order is fixed; the stack always starts at the baseline. */
@@ -81,7 +92,7 @@ export function HBars({title,note,parts,rows,unit}:{title:string;note?:string;pa
   <Legend parts={parts}/>
   {rows.length===0?<p className="dash-empty">ยังไม่มีข้อมูล</p>:<ul className="dash-hbars" aria-label={title}>{rows.map(r=>{const tot=r.values.reduce((a,b)=>a+b,0);
    return <li key={r.label}><span className="dash-hlabel">{r.label}{r.sub&&<small>{r.sub}</small>}</span>
-    <span className="dash-htrack" aria-hidden="true">{r.values.map((v,i)=>v>0&&<span key={i} className={`dash-hseg t-${parts[i].tone}`} style={{width:`${v/max*100}%`}}/>)}</span>
+    <Track values={r.values} parts={parts} max={max}/>
     <span className="dash-hnum num">{tot.toLocaleString("th-TH")}{unit?<small> {unit}</small>:null}</span></li>;})}</ul>}
   <Table title={title} head={["รายการ",...parts.map(p=>p.name)]} rows={rows.map(r=>[r.label,...r.values])}/>
  </figure>;
@@ -109,5 +120,59 @@ export function Histogram({title,note,buckets,limit,limitLabel,names}:{title:str
   </svg>
   <p className="dash-axis-note">แกนนอน = จำนวนวันทำการตั้งแต่ Lab รับตัวอย่างถึงออกผล</p>
   <Table title={title} head={["วันทำการ","จำนวน (ราย)"]} rows={buckets.map(b=>[b.label,b.n])}/>
+ </figure>;
+}
+
+/**
+ * Dashboard rows that open the filtered list (Owner 2026-11-14): one horizontal bar per row, several parts stacked on it, the whole row a
+ * 44 px link to the registry / worklist with the matching filter. The same numbers are in the table under "ดูเป็นตาราง".
+ */
+export function LinkBars({title,note,parts,rows,unit,empty}:{title:string;note?:string;parts:{name:string;tone:Tone}[];rows:{label:string;sub?:string;values:number[];href:string;tone?:"bad"|"warn"}[];unit?:string;empty?:string}){
+ const id=useId(),max=Math.max(1,...rows.map(r=>r.values.reduce((a,b)=>a+b,0)));
+ return <figure className="dash-chart dash-linkbars" aria-labelledby={`${id}-t`}>
+  <figcaption id={`${id}-t`}><strong>{title}</strong>{note&&<span className="dash-chart-note">{note}</span>}</figcaption>
+  <Legend parts={parts}/>
+  {rows.length===0?<p className="dash-empty">{empty??"ยังไม่มีข้อมูล"}</p>:<ul className="dash-hbars" aria-label={title}>{rows.map(r=>{const tot=r.values.reduce((a,b)=>a+b,0);
+   return <li key={r.label}><Link href={r.href} className={"dash-hrow"+(r.tone&&tot>0?" "+r.tone:"")} aria-label={`${r.label} ${tot.toLocaleString("th-TH")}${unit?" "+unit:""} · เปิดรายการ`}>
+    <span className="dash-hlabel">{r.label}{r.sub&&<small>{r.sub}</small>}</span>
+    <Track values={r.values} parts={parts} max={max}/>
+    <span className="dash-hnum num">{tot.toLocaleString("th-TH")}{unit?<small> {unit}</small>:null}</span>
+    <svg className="dash-hgo" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></Link></li>;})}</ul>}
+  <Table title={title} head={["รายการ",...parts.map(p=>p.name)]} rows={rows.map(r=>[r.label,...r.values])}/>
+ </figure>;
+}
+
+/**
+ * Columns for short buckets (days of the last two weeks, working days waited): parts stacked (`stack`) or side by side (`group`),
+ * an optional dashed limit after bucket `limit.at`, the hover / keyboard readout and the table. An all-zero chart says so instead of drawing empty axes.
+ */
+export function Columns({title,note,parts,items,mode,limit,axisNote,empty}:{title:string;note?:string;parts:{name:string;tone:Tone}[];items:{label:string;long:string;values:number[]}[];mode:"stack"|"group";limit?:{at:number;label:string};axisNote?:string;empty?:string}){
+ const id=useId(),[active,setActive]=useState<number|null>(null);
+ const top=Math.max(1,...items.map(m=>mode==="stack"?m.values.reduce((a,b)=>a+b,0):Math.max(0,...m.values))),max=nice(top),ticks=[0,max/2,max];
+ const plotW=W-PAD.left-PAD.right,plotH=H-PAD.top-PAD.bottom,band=plotW/Math.max(1,items.length);
+ const barW=mode==="stack"?Math.min(24,band*0.62):Math.min(12,(band*0.7-2*(parts.length-1))/parts.length);
+ const y=(v:number)=>PAD.top+plotH-(v/max)*plotH,shown=items[active??items.length-1];
+ const allZero=items.every(m=>m.values.every(v=>v===0));
+ return <figure className="dash-chart" aria-labelledby={`${id}-t`}>
+  <figcaption id={`${id}-t`}><strong>{title}</strong>{note&&<span className="dash-chart-note">{note}</span>}</figcaption>
+  <Legend parts={parts}/>
+  {allZero?<p className="dash-empty">{empty??"ยังไม่มีข้อมูลในช่วงนี้"}</p>:<>
+  <p className="dash-readout" aria-hidden="true">{shown?<><span>{shown.long}</span>{parts.map((p,i)=><span key={p.name}><strong className="num">{num(shown.values[i])}</strong> {p.name}</span>)}</>:" "}</p>
+  <svg viewBox={`0 0 ${W} ${H}`} className="dash-svg" role="img" aria-label={`${title} ดูตัวเลขได้ในตารางด้านล่าง`} onPointerLeave={()=>setActive(null)}>
+   {ticks.map(t=><g key={t} className="dash-grid"><line x1={PAD.left} x2={W-PAD.right} y1={y(t)} y2={y(t)}/><text x={PAD.left-6} y={y(t)} dy="0.35em" textAnchor="end">{t.toLocaleString("th-TH")}</text></g>)}
+   {items.map((m,i)=>{const x0=PAD.left+band*i;let acc=0;
+    const groupW=parts.length*barW+2*(parts.length-1),gx=x0+(band-groupW)/2,sx=x0+(band-barW)/2;
+    return <g key={m.label+i} className={"dash-col"+(active===i?" on":"")} tabIndex={0} aria-label={`${m.long}: ${parts.map((p,j)=>`${p.name} ${num(m.values[j])}`).join(" · ")}`} onPointerEnter={()=>setActive(i)} onFocus={()=>setActive(i)} onBlur={()=>setActive(null)}>
+     <rect className="dash-hit" x={x0} y={PAD.top} width={band} height={plotH}/>
+     {m.values.map((v,j)=>{if(v<=0)return null;
+      if(mode==="stack"){const y1=y(acc+v),y0=y(acc);acc+=v;return <rect key={j} className={`dash-seg t-${parts[j].tone}`} x={sx} y={y1} width={barW} height={Math.max(1,y0-y1)}/>;}
+      const top=y(v),h=PAD.top+plotH-top,r=Math.min(3,h,barW/2),bx=gx+j*(barW+2);
+      return <path key={j} className={`dash-seg t-${parts[j].tone}`} d={`M${bx},${PAD.top+plotH}V${top+r}Q${bx},${top} ${bx+r},${top}H${bx+barW-r}Q${bx+barW},${top} ${bx+barW},${top+r}V${PAD.top+plotH}Z`}/>;})}
+     <text className="dash-x" x={x0+band/2} y={H-8} textAnchor="middle">{m.label}</text></g>;})}
+   {limit&&(()=>{const lx=PAD.left+band*(limit.at+1);return <g><line className="dash-ref" x1={lx} x2={lx} y1={PAD.top-6} y2={PAD.top+plotH}/><text className="dash-ref-text" x={lx-5} y={PAD.top+4} textAnchor="end">{limit.label}</text></g>;})()}
+   <line className="dash-base" x1={PAD.left} x2={W-PAD.right} y1={PAD.top+plotH} y2={PAD.top+plotH}/>
+  </svg>
+  {axisNote&&<p className="dash-axis-note">{axisNote}</p>}</>}
+  <Table title={title} head={["ช่วง",...parts.map(p=>p.name)]} rows={items.map(m=>[m.long,...m.values])}/>
  </figure>;
 }

@@ -1,7 +1,7 @@
 import type {Queryable} from '../db/connection';
 import {assertSession,need,attemptFacts,caseVisible,gestationalAge,migrationImportedExclusion,type AttemptRow,type Staff} from './core';
 import {listUnifiedRunPage} from './historical-run';
-import {bangkokDay,businessDaysBetween,median,percentile,tatStatus,type TatState} from '../calendar/business-days';
+import {addDays,bangkokDay,businessDaysBetween,median,percentile,tatStatus,type TatState} from '../calendar/business-days';
 import {workingCalendar} from '../calendar/holiday-sync';
 import {recordPhiAccess} from '../db/phi-access';
 import {inOrder} from '../db/in-order';
@@ -25,7 +25,15 @@ export type GaRow=OpenSpecimen&{gaWeeks:number;gaDays:number};
 export type RunRow={id:string;runLabel:string;state:string;samples:number;createdAt:string|null;qc_saved:boolean;pool_exported:boolean;pooling_recorded:boolean;seq_files_exported:boolean;seq_recorded:boolean};
 /** `high` = High Risk results released in the month; `highTrisomy` / `highSca` split it into chromosomes 13/18/21 and the sex chromosomes (Owner 2026-11-14, a result with both counts in each). */
 export type QualityMonth={month:string;received:number;released:number;high:number;highTrisomy:number;highSca:number;timed:number;withinTat:number;medianDays:number|null;p90Days:number|null;qcFailed:Record<string,number>;repeats:{RE_LIBRARY:number;RE_EXTRACTION:number;RE_SAMPLING:number}};
-export type LabOverview={generatedAt:string;policy:{businessDays:number;warnDaysLeft:number};calendar:{missingYears:number[];lastSuccessAt:string|null};
+/**
+ * Dashboard (Owner 2026-11-14), current work only and no patient rows:
+ * - `recent`: the last 14 Bangkok days, specimens received and results released per day (the same rows as the monthly quality figures);
+ * - `aging`: open specimens by working days used since the Lab received them, split by TAT state; the last bucket is that many or more.
+ */
+export type LabRecentDay={day:string;received:number;released:number};
+export type LabAging={days:number;ok:number;dueSoon:number;overdue:number}[];
+export const RECENT_DAYS=14;
+export type LabOverview={generatedAt:string;recent:LabRecentDay[];aging:LabAging;policy:{businessDays:number;warnDaysLeft:number};calendar:{missingYears:number[];lastSuccessAt:string|null};
  tat:{open:number;overdue:number;dueSoon:number;rows:TatRow[]};gaOver18:{count:number;rows:GaRow[]};runs:{total:number;rows:RunRow[]};quality:QualityMonth[];stats:LabStats};
 /** TAT statistics for the Lab statistics tab. `distribution[i]` = results of the last 6 months released after i working days (the last bucket is that many or more). */
 export type LabStats={distribution:{days:number;n:number}[];timed:number;withinTat:number;median:number|null;p90:number|null;openByStage:{stage:LabStage;ok:number;dueSoon:number;overdue:number}[]};
@@ -63,7 +71,7 @@ const specimen=(r:AttemptRow):OpenSpecimen=>({caseId:r.case_id,ln:r.ln,hn:r.hn??
 const monthKey=(d:Date|string)=>bangkokDay(d).slice(0,7);
 export function lastMonths(now:Date,n=MONTHS){const [y,m]=bangkokDay(now).split('-').map(Number);return Array.from({length:n},(_,i)=>{const t=new Date(Date.UTC(y,m-1-(n-1-i),1));return t.toISOString().slice(0,7);});}
 
-async function quality(db:Queryable,now:Date,holidays:ReadonlySet<string>,businessDays:number):Promise<{months:QualityMonth[];used:number[]}>{
+async function quality(db:Queryable,now:Date,holidays:ReadonlySet<string>,businessDays:number):Promise<{months:QualityMonth[];used:number[];recent:LabRecentDay[]}>{
  const months=lastMonths(now),from=months[0]+'-01';
  const since=`(($1::date)::timestamp AT TIME ZONE 'Asia/Bangkok')`;
  const scope=`NOT EXISTS(SELECT 1 FROM eqa_case eq WHERE eq.round_id=r.id) AND c.registration_origin<>'HISTORICAL' AND NOT EXISTS(SELECT 1 FROM p2_registration_void v WHERE v.case_id=c.id)`;
@@ -80,13 +88,16 @@ async function quality(db:Queryable,now:Date,holidays:ReadonlySet<string>,busine
  );
  const out=new Map(months.map(m=>[m,{month:m,received:0,released:0,high:0,highTrisomy:0,highSca:0,timed:0,withinTat:0,medianDays:null as number|null,p90Days:null as number|null,qcFailed:{} as Record<string,number>,repeats:{RE_LIBRARY:0,RE_EXTRACTION:0,RE_SAMPLING:0}}]));
  const days=new Map<string,number[]>(),usedAll:number[]=[];
+ const recentFrom=addDays(bangkokDay(now),-(RECENT_DAYS-1)),recent=new Map(Array.from({length:RECENT_DAYS},(_,i)=>{const day=addDays(recentFrom,i);return [day,{day,received:0,released:0}];}));
+ for(const r of received.rows){const d=recent.get(bangkokDay(r.at));if(d)d.received++;}
+ for(const r of released.rows){const d=recent.get(bangkokDay(r.at));if(d)d.released++;}
  for(const r of received.rows){const m=out.get(monthKey(r.at));if(m)m.received++;}
  for(const r of released.rows){const m=out.get(monthKey(r.at));if(!m)continue;m.released++;if(r.risk==='HIGH'){m.high++;if(r.hi_t)m.highTrisomy++;if(r.hi_s)m.highSca++;}if(!r.received)continue;m.timed++;const used=businessDaysBetween(r.received,r.at,holidays);if(used<=businessDays)m.withinTat++;days.set(m.month,[...(days.get(m.month)??[]),used]);usedAll.push(used);}
  for(const r of qc.rows){const m=out.get(monthKey(r.at));if(!m)continue;const s=r.stage??'อื่น ๆ';m.qcFailed[s]=(m.qcFailed[s]??0)+1;}
  for(const r of repeats.rows){const m=out.get(monthKey(r.at));if(m&&(r.level==='RE_LIBRARY'||r.level==='RE_EXTRACTION'))m.repeats[r.level]++;}
  for(const r of resampling.rows){const m=out.get(monthKey(r.at));if(m)m.repeats.RE_SAMPLING++;}
  for(const m of out.values()){m.medianDays=median(days.get(m.month)??[]);m.p90Days=percentile(days.get(m.month)??[],90);}
- return {months:[...out.values()],used:usedAll};
+return {months:[...out.values()],used:usedAll,recent:[...recent.values()]};
 }
 
 function labStats(used:number[],open:{stage:LabStage;state:TatState}[],businessDays:number):LabStats{
@@ -97,7 +108,8 @@ function labStats(used:number[],open:{stage:LabStage;state:TatState}[],businessD
  return {distribution,timed:used.length,withinTat:used.filter(u=>u<=businessDays).length,median:median(used),p90:percentile(used,90),openByStage:[...by.values()].filter(x=>x.ok+x.dueSoon+x.overdue>0)};
 }
 
-export async function labOverview(db:Queryable,user:Staff,now=new Date()):Promise<LabOverview>{
+/** `rows:false` (the Dashboard): counts and charts only; the TAT and GA lists are left empty and no PHI access is recorded. */
+export async function labOverview(db:Queryable,user:Staff,now=new Date(),{rows=true}:{rows?:boolean}={}):Promise<LabOverview>{
  await assertSession(db,user);need(user,'worksheet.read','read');
  const cal=await workingCalendar(db,now);
  const open=await openSpecimens(db,user);
@@ -107,13 +119,15 @@ export async function labOverview(db:Queryable,user:Staff,now=new Date()):Promis
  const runs=(await listUnifiedRunPage(db,user,{pageSize:50})).rows.filter(r=>r.source==='CURRENT'&&r.id)
   .map(r=>({id:r.id!,runLabel:r.run_label,state:r.state,samples:r.samples,createdAt:r.created_at?new Date(r.created_at).toISOString():null,qc_saved:r.qc_saved,pool_exported:r.pool_exported,pooling_recorded:r.pooling_recorded,seq_files_exported:r.seq_files_exported,seq_recorded:r.seq_recorded}));
  const q=await quality(db,now,cal.holidays,cal.policy.businessDays);
- const tatRows=late.slice(0,LIST_LIMIT),gaRows=gaAll.slice(0,LIST_LIMIT);
+ const tatRows=rows?late.slice(0,LIST_LIMIT):[],gaRows=rows?gaAll.slice(0,LIST_LIMIT):[];
+ const top=cal.policy.businessDays+4,aging:LabAging=Array.from({length:top+1},(_,days)=>({days,ok:0,dueSoon:0,overdue:0}));
+ for(const r of tatAll){const b=aging[Math.min(Math.max(0,r.used),top)];if(r.state==='overdue')b.overdue++;else if(r.state==='due-soon')b.dueSoon++;else b.ok++;}
  // The rows show LN and HN: the same PHI-access record as the Lab worklist (identifiers only, never patient data in the audit).
  const shown=[...tatRows,...gaRows].map(r=>r.caseId);
  if(shown.length)await recordPhiAccess(db,user.id,shown,'REGISTRY_VIEW');
- return {generatedAt:now.toISOString(),policy:cal.policy,calendar:{missingYears:cal.missingYears,lastSuccessAt:cal.sync.lastSuccessAt},
+ return {generatedAt:now.toISOString(),recent:q.recent,aging,policy:cal.policy,calendar:{missingYears:cal.missingYears,lastSuccessAt:cal.sync.lastSuccessAt},
   tat:{open:tatAll.length,overdue:late.filter(r=>r.state==='overdue').length,dueSoon:late.filter(r=>r.state==='due-soon').length,rows:tatRows},
   gaOver18:{count:gaAll.length,rows:gaRows},
-  runs:{total:runs.length,rows:runs.sort((a,b)=>Number(a.seq_recorded)-Number(b.seq_recorded)).slice(0,12)},
+  runs:{total:runs.length,rows:runs.sort((a,b)=>Number(a.seq_recorded)-Number(b.seq_recorded))},
   quality:q.months,stats:labStats(q.used,tatAll,cal.policy.businessDays)};
 }

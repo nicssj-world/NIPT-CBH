@@ -10,7 +10,7 @@ import {LogoutButton} from "./navigation";
 import "./ui-backlog-polish.css";
 import "./shell.css";
 
-const routeNames:Record<string,string>={"/":"ภาพรวม","/cases":"ทะเบียนกลาง","/inbound":"รับตัวอย่างจาก HIS","/lab":"งาน Lab","/lab/batches":"Batch / Task List","/sample-storage":"จัดเก็บตัวอย่าง","/lab/photos":"ภาพประจำ Run","/results":"ผลตรวจ NIPT","/quality-control":"Quality Control","/nhso":"ลงผลสปสช.","/historical":"นำเข้าย้อนหลัง","/doctors":"ทะเบียนแพทย์","/anc-stats":"สถิติการส่งตรวจ","/settings":"ตั้งค่าระบบ","/health":"สถานะระบบ"};
+const routeNames:Record<string,string>={"/":"Dashboard","/cases":"ทะเบียนกลาง","/inbound":"รับตัวอย่างจาก HIS","/lab":"งาน Lab","/lab/batches":"Batch / Task List","/sample-storage":"จัดเก็บตัวอย่าง","/lab/photos":"ภาพประจำ Run","/results":"ผลตรวจ NIPT","/quality-control":"Quality Control","/nhso":"ลงผลสปสช.","/historical":"นำเข้าย้อนหลัง","/doctors":"ทะเบียนแพทย์","/anc-stats":"สถิติการส่งตรวจ","/settings":"ตั้งค่าระบบ","/health":"สถานะระบบ"};
 
 /** Same grouping as the sidebar (navigation.tsx): the top bar names where you are in the menu, the page title lives in the heading. */
 const routeGroup=(route:string)=>route==="/"||route==="/cases"||route==="/inbound"?"งานประจำ":route.startsWith("/lab")||route==="/sample-storage"?"ห้องปฏิบัติการ":route==="/results"||route==="/quality-control"||route==="/nhso"?"ผลตรวจ":"ระบบ";

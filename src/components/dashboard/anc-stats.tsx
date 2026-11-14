@@ -22,7 +22,8 @@ export function AncStatsPage(){
  const [state,setState]=useState<{data:Data|null;error:string;loading:boolean}>({data:null,error:"",loading:true});
  const [n,setN]=useState(0);
  useEffect(()=>{let live=true;const t=setTimeout(()=>{setState(s=>({...s,loading:true,error:""}));
-  const q=new URLSearchParams({fy:String(fy)});if(unitId)q.set("unitId",unitId);
+  // view=dashboard: the statistics never show names, so none are sent (Owner 2026-11-14).
+  const q=new URLSearchParams({fy:String(fy),view:"dashboard"});if(unitId)q.set("unitId",unitId);
   api<Data>("/api/anc/insights?"+q).then(d=>{if(live)setState({data:d,error:"",loading:false});},e=>{if(live)setState({data:null,error:message(e),loading:false});});},0);
   return()=>{live=false;clearTimeout(t);};},[fy,unitId,n]);
  const {data,error,loading}=state;

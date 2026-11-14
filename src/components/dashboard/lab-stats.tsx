@@ -1,17 +1,16 @@
 import {LabIcon} from "../shared/lab-icons";
-import type {LabOverview,LabStage} from "../../../packages/lab/overview";
+import type {LabOverview} from "../../../packages/lab/overview";
 import {Histogram,HBars,TrendLines} from "./stat-charts";
 import {monthLabelLong} from "./month-label";
 import {MonthBars} from "./month-bars";
 import "./dashboard.css";
 
-const STAGE:Record<LabStage,string>={READY:"รอเข้า Batch",IN_RUN:"อยู่ใน Run",QC_FAILED:"QC ไม่ผ่าน · รอตัดสินใจ",ANALYSIS_DONE:"วิเคราะห์เสร็จ · รอผลตรวจ",AWAITING_RESULT:"รอออกผล",HOLD:"HOLD",OTHER:"กำลังดำเนินการ"};
 const QC_STAGE:Record<string,string>={QC1:"QC1",QC2:"QC2",QC3:"QC3",QC4:"QC4",SEQUENCING:"Sequencing"};
 const pct=(n:number,d:number)=>d?`${(n/d*100).toLocaleString("th-TH",{maximumFractionDigits:1})}%`:"—";
 
 /**
  * Statistics tab of the Lab home (Owner 2026-11-12), centred on TAT: how long results take in working days, how much of the work is
- * on time, where open specimens wait, and what costs time (QC failures and repeats). Read-only. Counts exclude EQA; results imported from
+ * on time and what costs time (where open specimens wait now is on the Dashboard, Owner 2026-11-14) (QC failures and repeats). Read-only. Counts exclude EQA; results imported from
  * the previous system count as results but never in the TAT figures (this Lab did not receive those specimens).
  */
 export function LabStats({data}:{data:LabOverview}){
@@ -38,8 +37,6 @@ export function LabStats({data}:{data:LabOverview}){
     <TrendLines title="มัธยฐานและ 90% ของผลที่ออก" series={[{name:"มัธยฐาน"},{name:"90% ของผล"}]} unit="วัน" reference={{value:limit,label:`กำหนด ${limit} วัน`}} months={quality.map(m=>({month:m.month,values:[m.medianDays,m.p90Days]}))}/></section>
    <section className="panel dash-panel" aria-labelledby="ls-ontime"><header className="dash-panel-head"><h2 id="ls-ontime">ออกผลภายในกำหนดรายเดือน</h2><p className="dash-panel-note">ร้อยละของผลที่ออกในเดือนนั้นและออกภายใน {limit} วันทำการ</p></header>
     <TrendLines title="ร้อยละภายในกำหนด" series={[{name:"ภายในกำหนด"}]} unit="%" months={quality.map(m=>({month:m.month,values:[m.timed?Math.round(m.withinTat/m.timed*1000)/10:null]}))}/></section>
-   <section className="panel dash-panel" aria-labelledby="ls-open"><header className="dash-panel-head"><h2 id="ls-open">ตัวอย่างที่ยังไม่ออกผล รออยู่ที่ไหน</h2><p className="dash-panel-note">แยกตามขั้นตอน และสถานะเทียบกำหนด {limit} วันทำการ</p></header>
-    <HBars title="ตัวอย่างที่รออยู่ตามขั้น" parts={[{name:"ภายในกำหนด",tone:"good"},{name:`ใกล้ครบ (≤ ${policy.warnDaysLeft} วัน)`,tone:"warn"},{name:"เกินกำหนด",tone:"bad"}]} rows={stats.openByStage.map(r=>({label:STAGE[r.stage],values:[r.ok,r.dueSoon,r.overdue]}))} unit="ราย"/></section>
    <section className="panel dash-panel" aria-labelledby="ls-qc"><header className="dash-panel-head"><h2 id="ls-qc">อะไรทำให้เสียเวลา</h2><p className="dash-panel-note">รวม 6 เดือน · {range}</p></header>
     <div className="dash-charts">
      <HBars title="QC ไม่ผ่านแยกตามขั้น" parts={[{name:"QC ไม่ผ่าน",tone:"bad"}]} rows={[...qcTotals].sort((a,b)=>b[1]-a[1]).map(([k,v])=>({label:QC_STAGE[k]??k,values:[v]}))} unit="ครั้ง"/>
