@@ -4,9 +4,9 @@
  * QC4 = per-lane / per-sample quality after the run (F5-16), Sequencing = the run itself.
  */
 export const QC_STAGE_LABEL:Record<string,string>={
- QC1:"QC1 · หลังทำ Library (วัดความเข้มข้น Library)",
- QC2:"QC2 · หลัง Pooling (วัดความเข้มข้น Pool)",
- QC3:"QC3 · หลังทำ DNB (วัดความเข้มข้น DNB)",
- QC4:"QC4 · หลัง Sequencing (คุณภาพข้อมูลรายตัวอย่าง)",
+ QC1:"QC1 · หลังทำ Library",
+ QC2:"QC2 · หลัง Pooling",
+ QC3:"QC3 · หลังทำ DNB",
+ QC4:"QC4 · หลัง Sequencing",
  SEQUENCING:"Sequencing · ระหว่างเดินเครื่อง",
 };
