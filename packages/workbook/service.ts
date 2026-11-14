@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {latestHalosDnbId} from '../lab/halos-dnb';
 import type {Queryable} from '../db/connection';
 import {appendAudit} from '../db/audit';
 import {assertSession,need,uuid,LabError,type Staff} from '../lab/core';
@@ -95,6 +96,8 @@ export async function exportWorkbook(db:Queryable,user:Staff,input:unknown,deps:
   const current=await source(db,d.batchId);if(current.sha256!==draft.source_sha256||draft.master_sha256!==MASTER_SHA256)throw new LabError('TASK_SOURCE_CHANGED_REBIND_REQUIRED',409);
   // The six mutable metadata fields bind at render time; frozen clinical source changes still fail above.
   const renderValues=deriveDilutionC1({...withoutTaskMeta(draft.values),...current.values}); // drafts saved before the rule also print V1/EB from the entered concentration
+  // Seq Task-G50 DNB ID comes from the newest HALOS Task export (Owner 2026-11-14); a source value (old DNB record) still wins.
+  if(!renderValues['seq.dnbId']){const id=await latestHalosDnbId(db,d.batchId);if(id)renderValues['seq.dnbId']=id;}
   const placementSource=draft.source_snapshot as {placements?:{payload:PlacementPayload}[]};
   const urgent40=placementSource.placements?.some(p=>p.payload.slots.some(s=>s.slot===40&&s.control===null&&s.attemptId!==null))??false;
   const exceptionalSlots=placementSource.placements?.flatMap(p=>p.payload.slots.filter(s=>(s.overallOrdinal??0)>=5).map(s=>s.slot))??[];

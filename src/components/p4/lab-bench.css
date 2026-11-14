@@ -108,3 +108,10 @@ html[data-theme="dark"] .lab-bench {--row-pc:#3d2226;--row-nc:#1c3a2a;--row-blan
 @media (max-width:480px){.seq-fields {grid-template-columns:1fr;}.bench-totals {grid-template-columns:1fr 1fr;}}
 /* LEGACY-023: a focused field (Enter navigation, Tab) always scrolls clear of the sticky save bar. */
 .lab-bench :is(input,select,textarea,button) {scroll-margin-bottom:112px;}
+
+/* Seq Task-G50 (Owner 2026-11-14): DNB ID is filled by the system, grey and not typed; the operator picker lines up with the other inputs. */
+.seq-fields .seq-readonly{background:var(--raised);color:var(--color-muted);border-color:var(--color-line);cursor:default}
+.seq-fields .seq-readonly:focus{outline:none}
+.seq-fields .field{align-content:start}   /* a taller neighbour (hint line) must not push this field's input down */
+.seq-fields .operator-picker{margin:0}
+.seq-fields .operator-picker-trigger{min-height:var(--ui-control-height,52px);margin:0}

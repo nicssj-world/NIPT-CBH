@@ -63,6 +63,8 @@ it('LAB-13 bench persists per-slot QC and 9 standards, uses the saved revision f
 
   const key=crypto.randomUUID(),pair=await tx(f.db,db=>exportSeqPair(db,u.lab,{batchId:id,revision:2,idempotencyKey:key},deps));
   expect(pair.files).toHaveLength(2);expect(pair.halosPositions).toEqual([1,2,17,25,33]);
+  // Seq Task-G50 DNB ID (Owner 2026-11-14): the page shows the DNB ID written to this HALOS Task file.
+  expect(pair.dnbId).toMatch(/^DNBd{8}$/);expect((await tx(f.db,db=>benchWorkspace(db,u.lab,id,deps))).halosDnbId).toBe(pair.dnbId);
   const niftyXml=readArchive(await f.store.get(pair.files[0].sha256)).get('xl/worksheets/sheet1.xml')!.toString();
   expect(niftyXml).toContain('10/20/2026 11:00');expect(niftyXml).toContain('10/20/2026 12:00');
   const sample=initial.slots.find(s=>s.slot===2)!;

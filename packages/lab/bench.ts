@@ -1,4 +1,5 @@
 import {authorize} from '../security/policy';
+import {latestHalosDnbId} from './halos-dnb';
 import {readFile} from 'node:fs/promises';
 import {ownerTemplatePath} from './owner-templates';
 import {z} from 'zod';
@@ -37,6 +38,8 @@ export async function benchWorkspace(db:Queryable,user:Staff,batchId:string,deps
  const actualPooling=(await db.query<{id:string;members:{slot:number;pooled:boolean;actualVolume?:number;reason?:string}[];note:string;current:boolean}>(`SELECT id,members,note,lab_actual_pooling_current(id) current FROM lab_actual_pooling WHERE batch_id=$1 AND note<>'AUTO_RECORDED_FROM_SAVED_TASK_AT_EXPORT' ORDER BY recorded_at DESC,id DESC LIMIT 1`,[batchId])).rows[0]??null;
  return {canNoCall:authorize(user,'attempt.noCall'),canRepeat:authorize(user,'repeat.order'),canRedraw:authorize(user,'redraw.order'),batchId,runLabel:s.batch.batch.runLabel,version:s.workbook.version,revision:s.workbook.draft?.revision??0,values:s.workbook.values,automaticKeys:Object.keys(s.workbook.automaticValues),sourceStale:s.workbook.sourceStale,finalized:s.slots.length===48&&!s.reopened,reopened:s.reopened,
   actualPooling,
+  // Seq Task-G50 DNB ID (Owner 2026-11-14): read-only, from the newest HALOS Task export (null before the first export).
+  halosDnbId:await latestHalosDnbId(db,batchId),
   slots:s.batch.slots.map(slot=>({attemptId:slot.assignment?.attemptId??null,caseId:slot.assignment?.caseId??null,roundId:slot.assignment?.roundId??null,attemptState:slot.assignment?.attemptState??null,outcomeStatus:slot.assignment?.outcomeStatus??null,overallOrdinal:slot.assignment?.overallOrdinal??null,attemptNumber:slot.assignment?.attemptNumber??null,exceptional:slot.assignment?.exceptional??false,repeatBadge:slot.assignment?.repeatBadge??null,slot:slot.slot,sheet:slot.sheet,kind:slot.controlLabel??(slot.assignment?'PATIENT':'EMPTY'),sampleId:slot.assignment?.printedSampleId??slot.controlCode??'',hisLn:slot.assignment?.hisLn??null,hn:slot.assignment?.hn??null,roundNumber:slot.assignment?.roundNumber??null})),
   seqFields:s.workbook.matrix.bindings.filter(f=>f.sheet==='Seq Task-G50').map(f=>({key:f.key,type:f.dataType,label:s.workbook.matrix.cells.find(c=>c.sheet===f.sheet&&c.cell===f.cell)?.text.replaceAll('☐','').trim()||f.source})),
   exports:(await db.query<{id:string;kind:string;source_sha256:string}>('SELECT id,kind,source_sha256,file_sha256,created_at,workbook_revision_id FROM lab_bench_export WHERE batch_id=$1 ORDER BY created_at DESC',[batchId])).rows.map(e=>({...e,current:e.kind==='POOL_CSV'?e.source_sha256===qcSourceHash(s.slots,s.workbook.values)&&!s.workbook.sourceStale:null}))};

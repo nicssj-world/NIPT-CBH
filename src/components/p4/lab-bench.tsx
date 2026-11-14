@@ -26,9 +26,9 @@ const STAGE_PATH:Record<Stage,string>={QC:'bench',POOL:'pooling',SEQ:'sequencing
 /** OWNER-LAB-049: Seq Task-G50 groups exactly as the Owner Excel Master (rows 4, 15–23, 34–37, 39–42). The on-bench
  *  "Confirm (√)" cells (B26, F28–F31) stay blank on the printed worksheet for handwriting and are not entered here. */
 const SEQ_GROUPS:{title:string;icon:LabIconName;fields:{key:string;label:string;hint?:string;type:'text'|'number'|'signed'}[]}[]=[
- {title:'ข้อมูลการปฏิบัติงาน',icon:'clipboard',fields:[{key:'seq.date',label:'วันที่ปฏิบัติงาน',hint:'วว/ดด/ปปปป (พ.ศ.)',type:'text'},{key:'seq.operator',label:'ผู้ปฏิบัติงาน',type:'text'},{key:'seq.instrument',label:'DNBSEQ-G50 no.',type:'number'},{key:'seq.barcodeType',label:'Barcode type',type:'number'}]},
+ {title:'ข้อมูลการปฏิบัติงาน',icon:'clipboard',fields:[{key:'seq.date',label:'วันที่ปฏิบัติงาน',hint:'วว/ดด/ปปปป (พ.ศ.)',type:'text'},{key:'seq.operator',label:'ผู้ปฏิบัติงาน',type:'text'}]},
  {title:'QC3 measurements',icon:'flask',fields:[{key:'seq.standard1',label:'Standard 1',type:'number'},{key:'seq.standard2',label:'Standard 2',type:'number'},{key:'seq.standard2Concentration',label:'Standard 2 Conc. (ng/µL)',hint:'ref. 19.9 ng/µL',type:'number'},{key:'seq.dnbConcentration',label:'DNB concentration (ng/µL)',hint:'Ref. 8–40 ng/µL',type:'number'},{key:'seq.dilutedConcentration',label:'กรณี dilute conc. (ng/µL)',type:'number'}]},
- {title:'Sequencing',icon:'cpu',fields:[{key:'seq.dnbId',label:'DNB ID',hint:'DNBYYYYMMDD',type:'text'},{key:'seq.driveMemoryTb',label:'Hard Drive Memory (TB)',hint:'ควรมากกว่า 500 GB',type:'number'},{key:'seq.negativePressureKpa',label:'Negative Pressure (kPa)',type:'signed'}]},
+ {title:'Sequencing',icon:'cpu',fields:[{key:'seq.dnbId',label:'DNB ID',type:'text'},{key:'seq.driveMemoryTb',label:'Hard Drive Memory (TB)',hint:'ควรมากกว่า 500 GB',type:'number'},{key:'seq.negativePressureKpa',label:'Negative Pressure (kPa)',type:'signed'}]},
  {title:'First Cycle',icon:'activity',fields:[{key:'seq.loadedDnb',label:'Loaded DNB',type:'number'},{key:'seq.q30',label:'Q30%',type:'number'},{key:'seq.bic',label:'BIC',type:'number'},{key:'seq.fit',label:'Fit',type:'number'}]},
 ];
 /** OWNER-LAB-042 reference criteria: patient, PC and NC ≥ 2.0 ng/µL; Blank ≤ 0.6 ng/µL. Display only — never an action. */
@@ -96,7 +96,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
   const members:Transfer[]=actualPoolingMembers(pool!.calculation.rows,poolable);
   await labApi(api,{action:'recordActualPooling',revision,members,note:''});await reload();setSeqFiles(null);setNotice('บันทึก QC2 และ Pooling แล้ว');
  });
- const exportPair=()=>run(async()=>{const result=await labApi<SeqFiles>(api,{action:'exportSeqPair',revision:data!.revision,idempotencyKey:crypto.randomUUID()});if(result.files.length!==2)throw Error('สร้างไฟล์ไม่ครบสองไฟล์');setSeqFiles(result);setNotice('สร้างไฟล์ครบ 2 ไฟล์แล้ว');});
+ const exportPair=()=>run(async()=>{const result=await labApi<SeqFiles&{dnbId?:string}>(api,{action:'exportSeqPair',revision:data!.revision,idempotencyKey:crypto.randomUUID()});if(result.dnbId)setData(d=>d?{...d,halosDnbId:result.dnbId!}:d);if(result.files.length!==2)throw Error('สร้างไฟล์ไม่ครบสองไฟล์');setSeqFiles(result);setNotice('สร้างไฟล์ครบ 2 ไฟล์แล้ว');});
  async function fetchExport(kind:'POOL_CSV'|'NIFTY_XLSX'|'QC'|'POOL'|'SEQ'){
   const isWorkbook=kind!=='POOL_CSV'&&kind!=='NIFTY_XLSX',sheet=kind==='QC'?'QC measurements':kind==='POOL'?'Pooling Table':'Seq Task-G50';
   const response=await fetch(isWorkbook?workbookApi:api,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','x-csrf-token':csrf()},body:JSON.stringify(isWorkbook?{action:'export',revision:data!.revision,format:'PDF',sheet}:{action:'export',revision:data!.revision,kind})});
@@ -184,6 +184,9 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
      <button className="button" type="button" disabled={busy||!saved} onClick={()=>void exportPair()}><LabIcon name="download"/>ส่งออก XLSX 2 ไฟล์</button>
      <Link className="button secondary" href="/results"><LabIcon name="upload"/>นำเข้า PDF Result</Link></div></div>
    <div className="seq-groups">{SEQ_GROUPS.map(g=><fieldset key={g.title} className="seq-group"><legend><LabIcon name={g.icon}/>{g.title}</legend><div className="seq-fields">{g.fields.map(f=>{const id=`seq-${f.key}`;
+    // DNB ID (Owner 2026-11-14): never typed; the value of the newest HALOS Task export (or the source record), shown grey.
+    if(f.key==='seq.dnbId'){const dnb=data.automaticKeys.includes(f.key)?String(values[f.key]??''):data.halosDnbId??'';
+     return <div key={f.key} className="field"><label htmlFor={id}>{f.label}</label><input id={id} type="text" className="seq-readonly" readOnly aria-readonly="true" tabIndex={-1} value={dnb} placeholder="—" aria-describedby={`${id}-hint`}/><small id={`${id}-hint`} className="muted">{dnb?"จากไฟล์ HALOS Task ที่ส่งออกล่าสุด":"ระบบเติมให้เมื่อส่งออกไฟล์ HALOS Task"}</small></div>;}
     return <div key={f.key} className="field"><label htmlFor={id}>{f.label}</label>{f.key==='seq.operator'?<OperatorPicker id={id} value={String(values[f.key]??'')} disabled={!canWrite||busy||data.automaticKeys.includes(f.key)} onChange={v=>change(f.key,v)}/>:f.type==='text'?<input id={id} type="text" disabled={!canWrite||busy||data.automaticKeys.includes(f.key)} value={String(values[f.key]??'')} onChange={e=>change(f.key,e.target.value)} aria-describedby={f.hint?`${id}-hint`:undefined}/>
      :<NumberField id={id} label={f.label} signed={f.type==='signed'} value={values[f.key]} disabled={!canWrite||busy||data.automaticKeys.includes(f.key)} describedBy={f.hint?`${id}-hint`:undefined} onChange={v=>change(f.key,v)}/>}{f.hint&&<small id={`${id}-hint`} className="muted">{f.hint}</small>}</div>;})}</div></fieldset>)}</div>
    {data.slots.some(r=>r.kind==='PATIENT')&&<details className="bench-failures"><summary>ผลไม่สำเร็จ / ตรวจซ้ำหลัง Sequencing</summary><ul>{data.slots.filter(r=>r.kind==='PATIENT').map(row=><li key={row.slot}><span className="muted">ตำแหน่ง {row.slot}</span> {sampleCell(row)}</li>)}</ul></details>}

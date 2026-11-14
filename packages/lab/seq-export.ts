@@ -26,7 +26,7 @@ export async function recordActualPooling(db:Queryable,user:Staff,input:unknown,
  await audit(db,user,'LAB_ACTUAL_POOLING_RECORDED','lab_actual_pooling',row.id,{version:d.revision,outcome:'OPERATOR_RECORDED_ACTUAL_TRANSFER'});
  return {id:row.id,members,current:true};
 }
-type PairRow={id:string;batch_id:string;workbook_revision_id:string;actual_pooling_id:string;created_by:string;manifest:{halosPositions:number[];files:{id:string;kind:string;sha256:string;filename:string}[]}};
+type PairRow={id:string;batch_id:string;workbook_revision_id:string;actual_pooling_id:string;created_by:string;manifest:{dnbId?:string;halosPositions:number[];files:{id:string;kind:string;sha256:string;filename:string}[]}};
 export async function readSeqPair(db:Queryable,user:Staff,id:string,deps:WorkbookDeps){
  const row=(await db.query<PairRow>('SELECT * FROM lab_seq_export_pair WHERE id=$1',[uuid.parse(id)])).rows[0];if(!row)throw new LabError('SEQ_EXPORT_NOT_FOUND',404);
  await benchSource(db,user,row.batch_id,deps);need(user,'handoff.create');
@@ -65,7 +65,7 @@ export async function exportSeqPair(db:Queryable,user:Staff,input:unknown,deps:W
  // Both records and the pair manifest commit atomically. A failure cannot report two successful files.
  const nifty=await benchExport(db,user,{batchId:d.batchId,revision:d.revision,kind:'NIFTY_XLSX'},deps),halosHash=await deps.store.put(halos.bytes);
  const h=(await db.query<{id:string}>(`INSERT INTO lab_bench_export(batch_id,workbook_revision_id,kind,source_sha256,file_sha256,mapping,created_by) VALUES($1,$2,'HALOS_TASK_XLSX',$3,$4,$5,$6) RETURNING id`,[d.batchId,s.workbook.draft!.id,digest({pool:actual.id,revision:s.workbook.draft!.id,clickedAt:clickedAt.toISOString(),members}),halosHash,JSON.stringify(halos.mapping),user.id])).rows[0];
- const manifest={revision:d.revision,workbookRevisionId:s.workbook.draft!.id,actualPoolingId:actual.id,poolingSourceSha256:actual.qc_source_sha256,clickedAt:clickedAt.toISOString(),halosPositions:members.map(m=>m.slot),files:[{id:nifty.id,kind:'NIFTY_XLSX',sha256:nifty.sha256,filename:`NIFTY-${nifty.id}.xlsx`},{id:h.id,kind:'HALOS_TASK_XLSX',sha256:halosHash,filename:`HALOS-Task-Import-${h.id}.xlsx`}]};
+ const manifest={dnbId:halos.dnbId,revision:d.revision,workbookRevisionId:s.workbook.draft!.id,actualPoolingId:actual.id,poolingSourceSha256:actual.qc_source_sha256,clickedAt:clickedAt.toISOString(),halosPositions:members.map(m=>m.slot),files:[{id:nifty.id,kind:'NIFTY_XLSX',sha256:nifty.sha256,filename:`NIFTY-${nifty.id}.xlsx`},{id:h.id,kind:'HALOS_TASK_XLSX',sha256:halosHash,filename:`HALOS-Task-Import-${h.id}.xlsx`}]};
  const pair=(await db.query<{id:string}>(`INSERT INTO lab_seq_export_pair(batch_id,workbook_revision_id,actual_pooling_id,nifty_export_id,halos_export_id,idempotency_key,manifest,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,[d.batchId,s.workbook.draft!.id,actual.id,nifty.id,h.id,d.idempotencyKey,JSON.stringify(manifest),user.id])).rows[0];
  await audit(db,user,'LAB_SEQ_DUAL_EXPORTED','lab_seq_export_pair',pair.id,{version:d.revision,outcome:'TWO_XLSX_SAME_SOURCE'});return {id:pair.id,...manifest};
 }
@@ -73,3 +73,4 @@ export async function downloadSeqFile(db:Queryable,user:Staff,pairId:string,file
  const pair=await readSeqPair(db,user,pairId,deps),file=pair.files.find(f=>f.id===uuid.parse(fileId));if(!file)throw new LabError('SEQ_EXPORT_NOT_FOUND',404);
  const bytes=await deps.store.get(file.sha256);await audit(db,user,'LAB_SEQ_FILE_DOWNLOADED','lab_seq_export_pair',pairId,{outcome:file.kind});return {...file,bytes};
 }
+
