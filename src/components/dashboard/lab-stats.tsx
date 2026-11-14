@@ -20,6 +20,7 @@ export function LabStats({data}:{data:LabOverview}){
  const qcTotals=new Map<string,number>();for(const m of quality)for(const [k,v] of Object.entries(m.qcFailed))qcTotals.set(k,(qcTotals.get(k)??0)+v);
  const repeats=quality.reduce((a,m)=>({RE_LIBRARY:a.RE_LIBRARY+m.repeats.RE_LIBRARY,RE_EXTRACTION:a.RE_EXTRACTION+m.repeats.RE_EXTRACTION,RE_SAMPLING:a.RE_SAMPLING+m.repeats.RE_SAMPLING}),{RE_LIBRARY:0,RE_EXTRACTION:0,RE_SAMPLING:0});
  const range=quality.length?`${monthLabelLong(quality[0].month)} – ${monthLabelLong(quality.at(-1)!.month)}`:"";
+ const highT=quality.reduce((a,m)=>a+m.highTrisomy,0),highS=quality.reduce((a,m)=>a+m.highSca,0),high=quality.reduce((a,m)=>a+m.high,0),rel=quality.reduce((a,m)=>a+m.released,0);
  const buckets=stats.distribution.map((d,i,all)=>({label:i===all.length-1?`${d.days}+`:String(d.days),n:d.n}));
  return <div className="dash-stats">
   <ul className="dash-kpis" aria-label="สรุป TAT 6 เดือน">
@@ -44,15 +45,17 @@ export function LabStats({data}:{data:LabOverview}){
      <HBars title="QC ไม่ผ่านแยกตามขั้น" parts={[{name:"QC ไม่ผ่าน",tone:"bad"}]} rows={[...qcTotals].sort((a,b)=>b[1]-a[1]).map(([k,v])=>({label:QC_STAGE[k]??k,values:[v]}))} unit="ครั้ง"/>
      <HBars title="การตรวจซ้ำแยกตามชนิด" parts={[{name:"ตรวจซ้ำ",tone:"s2"}]} rows={[{label:"Re-Library",values:[repeats.RE_LIBRARY]},{label:"Re-Extraction",values:[repeats.RE_EXTRACTION]},{label:"Re-Sampling",values:[repeats.RE_SAMPLING]}]} unit="ครั้ง"/>
     </div></section>
+   <section className="panel dash-panel" aria-labelledby="ls-high"><header className="dash-panel-head"><h2 id="ls-high">ผลความเสี่ยงสูงแยกกลุ่ม</h2><p className="dash-panel-note">รวม 6 เดือน: เสี่ยงสูง {high} ราย ({pct(high,rel)} ของผลที่ออก) · โครโมโซม 13/18/21 {highT} · โครโมโซมเพศ {highS} · ผลที่เสี่ยงทั้งสองกลุ่มนับในแต่ละกลุ่ม</p></header>
+    <MonthBars title="ผลความเสี่ยงสูงตามกลุ่มโครโมโซม" note="แยกตามเดือนที่ออกผล · โครโมโซมเพศ = XO, XXX, XXY, XYY (ครรภ์เดี่ยว)" series={[{name:"โครโมโซม 13/18/21"},{name:"โครโมโซมเพศ"}]} months={quality.map(m=>({month:m.month,values:[m.highTrisomy,m.highSca]}))}/></section>
    <section className="panel dash-panel" aria-labelledby="ls-vol"><header className="dash-panel-head"><h2 id="ls-vol">ปริมาณงานรายเดือน</h2><p className="dash-panel-note">รับตัวอย่างและออกผลในเดือนนั้น · ไม่รวม EQA</p></header>
     <MonthBars title="รับตัวอย่างและออกผล" series={[{name:"รับตัวอย่าง"},{name:"ออกผล"}]} months={quality.map(m=>({month:m.month,values:[m.received,m.released]}))}/></section>
   </div>
 
   <section className="panel dash-panel" aria-labelledby="ls-table"><header className="dash-panel-head"><h2 id="ls-table">ตารางสรุปรายเดือน</h2></header>
    <div className="table-wrap" role="region" aria-label="ตารางสรุป TAT รายเดือน" tabIndex={0}><table className="data-table dash-quality-table">
-    <thead><tr><th scope="col">เดือน</th><th scope="col" className="num">ออกผล</th><th scope="col" className="num">ภายในกำหนด</th><th scope="col" className="num">มัธยฐาน (วันทำการ)</th><th scope="col" className="num">90% ภายใน (วันทำการ)</th><th scope="col" className="num">QC ไม่ผ่าน</th><th scope="col" className="num">ตรวจซ้ำ</th></tr></thead>
+    <thead><tr><th scope="col">เดือน</th><th scope="col" className="num">ออกผล</th><th scope="col" className="num">เสี่ยงสูง 13/18/21</th><th scope="col" className="num">เสี่ยงสูง โครโมโซมเพศ</th><th scope="col" className="num">ภายในกำหนด</th><th scope="col" className="num">มัธยฐาน (วันทำการ)</th><th scope="col" className="num">90% ภายใน (วันทำการ)</th><th scope="col" className="num">QC ไม่ผ่าน</th><th scope="col" className="num">ตรวจซ้ำ</th></tr></thead>
     <tbody>{[...quality].reverse().map(m=>{const qc=Object.values(m.qcFailed).reduce((a,b)=>a+b,0),rep=m.repeats.RE_LIBRARY+m.repeats.RE_EXTRACTION+m.repeats.RE_SAMPLING;
-     return <tr key={m.month}><th scope="row">{monthLabelLong(m.month)}</th><td className="num">{m.released}</td><td className="num">{m.timed?`${m.withinTat}/${m.timed} (${pct(m.withinTat,m.timed)})`:"—"}</td><td className="num">{m.medianDays??"—"}</td><td className="num">{m.p90Days??"—"}</td><td className="num">{qc}</td><td className="num">{rep}</td></tr>;})}</tbody></table></div>
+     return <tr key={m.month}><th scope="row">{monthLabelLong(m.month)}</th><td className="num">{m.released}</td><td className="num">{m.highTrisomy}</td><td className="num">{m.highSca}</td><td className="num">{m.timed?`${m.withinTat}/${m.timed} (${pct(m.withinTat,m.timed)})`:"—"}</td><td className="num">{m.medianDays??"—"}</td><td className="num">{m.p90Days??"—"}</td><td className="num">{qc}</td><td className="num">{rep}</td></tr>;})}</tbody></table></div>
   </section>
  </div>;
 }

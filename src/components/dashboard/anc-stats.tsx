@@ -42,13 +42,14 @@ export function AncStatsView({data,filters,loading}:{data:Data;filters:ReactNode
  const {monthly:m,stats}=data,t=stats.totals;
  const last=m.at(-1),prev=m.at(-2);
  const delta=(a?:number,b?:number)=>a===undefined||b===undefined?undefined:a-b;
- const dSent=delta(last?.sent,prev?.sent);
+ const dSent=delta(last?.sent,prev?.sent),age=stats.age;
+ const ageRows=[...age.groups.map(g=>({label:g.label,sub:`${pct(g.sent,age.known)} · เสี่ยงสูง ${g.high}${g.sent?` (${pct(g.high,g.sent)})`:""}`,values:[g.sent]})),...(age.unknown?[{label:"ไม่ทราบอายุ",sub:`ไม่มีวันเกิด · เสี่ยงสูง ${age.unknownHigh}`,values:[age.unknown]}]:[])];
  return <div className={"dash-stats"+(loading?" is-stale":"")}>
   {filters}
   <ul className="dash-kpis" aria-label="สรุปปีงบประมาณ">
    <li className="dash-kpi"><span className="k-label">ส่งตรวจ ปีงบ {data.fiscalYear}</span><span className="k-value num">{t.sent.toLocaleString("th-TH")}<small> ราย</small></span><span className="k-sub">{dSent===undefined||!prev?"รับตัวอย่างเลือดครั้งแรก":`เดือนล่าสุดเทียบเดือนก่อน ${dSent>=0?"+":""}${dSent}`}</span></li>
    <li className="dash-kpi"><span className="k-label">มีผลแล้ว</span><span className="k-value num">{t.released.toLocaleString("th-TH")}<small> ราย</small></span><span className="k-sub">คิดเป็น {pct(t.released,t.sent)} ของที่ส่งตรวจ</span></li>
-   <li className={"dash-kpi"+(t.high>0?" is-bad":"")}><span className="k-label">ผลความเสี่ยงสูง</span><span className="k-value num">{t.high.toLocaleString("th-TH")}<small> ราย</small></span><span className="k-sub">{t.high>0&&<Icon name="alert"/>} {pct(t.high,t.released)} ของผลที่ออก</span></li>
+   <li className={"dash-kpi"+(t.high>0?" is-bad":"")}><span className="k-label">ผลความเสี่ยงสูง</span><span className="k-value num">{t.high.toLocaleString("th-TH")}<small> ราย</small></span><span className="k-sub">{t.high>0&&<Icon name="alert"/>} {pct(t.high,t.released)} ของผลที่ออก · โครโมโซม 13/18/21 {t.highTrisomy} · โครโมโซมเพศ {t.highSca}</span></li>
    <li className="dash-kpi"><span className="k-label">เจาะเลือดซ้ำ</span><span className="k-value num">{t.redraw.toLocaleString("th-TH")}<small> ครั้ง</small></span><span className="k-sub">{pct(t.redraw,t.sent)} ของที่ส่งตรวจ</span></li>
    <li className="dash-kpi"><span className="k-label">รอผลเฉลี่ย (มัธยฐาน)</span><span className="k-value num">{t.medianDays??"—"}<small> วันทำการ</small></span><span className="k-sub">90% ของผลออกภายใน {t.p90Days??"—"} วันทำการ</span></li>
   </ul>
@@ -57,6 +58,8 @@ export function AncStatsView({data,filters,loading}:{data:Data;filters:ReactNode
     <MonthBars title="ส่งตรวจและมีผล" series={[{name:"ส่งตรวจ"},{name:"มีผล"}]} months={m.map(x=>({month:x.month,values:[x.sent,x.released]}))}/></section>
    <section className="panel dash-panel" aria-labelledby="as-risk"><header className="dash-panel-head"><h2 id="as-risk">ระดับความเสี่ยงของผลที่ออก</h2><p className="dash-panel-note">แยกตามเดือนที่ออกผล · “ดูในรายงานผล” คือผลที่ระบบสรุประดับให้ไม่ได้</p></header>
     <StackedMonthBars title="ผลที่ออกแยกตามระดับความเสี่ยง" parts={[{name:"ความเสี่ยงสูง",tone:"bad"},{name:"ความเสี่ยงต่ำ",tone:"good"},{name:"ดูในรายงานผล",tone:"neutral"}]} months={m.map(x=>({month:x.month,values:[x.high,x.low,x.unknown]}))}/></section>
+   <section className="panel dash-panel" aria-labelledby="as-group"><header className="dash-panel-head"><h2 id="as-group">ผลความเสี่ยงสูงแยกกลุ่ม</h2><p className="dash-panel-note">ปีงบ {data.fiscalYear}: โครโมโซม 13/18/21 {t.highTrisomy} ราย · โครโมโซมเพศ {t.highSca} ราย · ผลที่เสี่ยงทั้งสองกลุ่มนับในแต่ละกลุ่ม</p></header>
+    <MonthBars title="ผลความเสี่ยงสูงตามกลุ่มโครโมโซม" note="แยกตามเดือนที่ออกผล · โครโมโซมเพศ = XO, XXX, XXY, XYY (ครรภ์เดี่ยว)" series={[{name:"โครโมโซม 13/18/21"},{name:"โครโมโซมเพศ"}]} months={m.map(x=>({month:x.month,values:[x.highTrisomy,x.highSca]}))}/></section>
    <section className="panel dash-panel" aria-labelledby="as-high"><header className="dash-panel-head"><h2 id="as-high">สัดส่วนผลความเสี่ยงสูง</h2><p className="dash-panel-note">ร้อยละของผลที่ออกในแต่ละเดือน (เดือนที่ไม่มีผลออกไม่แสดงจุด)</p></header>
     <TrendLines title="ผลความเสี่ยงสูง (%)" series={[{name:"ความเสี่ยงสูง"}]} unit="%" months={m.map(x=>({month:x.month,values:[x.released?Math.round(x.high/x.released*1000)/10:null]}))}/></section>
    <section className="panel dash-panel dash-wide" aria-labelledby="as-wait"><header className="dash-panel-head"><h2 id="as-wait">ระยะรอผลและเจาะซ้ำ</h2><p className="dash-panel-note">ระยะรอผลนับเป็นวันทำการ ตั้งแต่ Lab รับตัวอย่างถึงออกผล</p></header>
@@ -66,13 +69,15 @@ export function AncStatsView({data,filters,loading}:{data:Data;filters:ReactNode
     </div></section>
    <section className="panel dash-panel" aria-labelledby="as-unit"><header className="dash-panel-head"><h2 id="as-unit">แยกตามหน่วยงาน</h2><p className="dash-panel-note">จำนวนที่ส่งตรวจในปีงบ · เคสที่อยู่หลายหน่วยนับในทุกหน่วยนั้น</p></header>
     <HBars title="ส่งตรวจตามหน่วยงาน" parts={[{name:"ส่งตรวจ",tone:"s1"}]} rows={stats.units.map(u=>({label:u.name,sub:`มีผล ${u.released} · เสี่ยงสูง ${u.high}`,values:[u.sent]}))} unit="ราย"/></section>
+   <section className="panel dash-panel" aria-labelledby="as-age"><header className="dash-panel-head"><h2 id="as-age">ช่วงอายุของคุณแม่</h2><p className="dash-panel-note">เคสที่ส่งตรวจในปีงบ · อายุเต็มปี ณ วันเจาะเลือดครั้งแรก · อายุมัธยฐาน {age.median??"—"} ปี · อายุ 35 ปีขึ้นไป {age.over35} ราย ({pct(age.over35,age.known)} ของที่ทราบอายุ)</p></header>
+    <HBars title="ส่งตรวจตามช่วงอายุ" note="ร้อยละคิดจากเคสที่ทราบอายุ · เสี่ยงสูง = ผลปัจจุบันของเคสเป็นความเสี่ยงสูง" parts={[{name:"ส่งตรวจ",tone:"s1"}]} rows={ageRows} unit="ราย"/></section>
    <section className="panel dash-panel" aria-labelledby="as-day"><header className="dash-panel-head"><h2 id="as-day">ส่งตรวจตามวันในสัปดาห์</h2><p className="dash-panel-note">วันที่ Lab รับตัวอย่างเลือดครั้งแรก ตามเวลาประเทศไทย</p></header>
     <HBars title="จำนวนตัวอย่างที่ส่งตรวจต่อวัน" parts={[{name:"ส่งตรวจ",tone:"s1"}]} rows={WEEKDAYS.map((d,i)=>({label:d,values:[stats.weekday[i]]}))} unit="ราย"/></section>
   </div>
   <section className="panel dash-panel" aria-labelledby="as-table"><header className="dash-panel-head"><h2 id="as-table">ตารางรายเดือน ปีงบประมาณ {data.fiscalYear}</h2></header>
    <div className="table-wrap" role="region" aria-label="ตารางสถิติรายเดือน" tabIndex={0}><table className="data-table dash-quality-table">
-    <thead><tr><th scope="col">เดือน</th><th scope="col" className="num">ส่งตรวจ</th><th scope="col" className="num">มีผล</th><th scope="col" className="num">ผลความเสี่ยงสูง</th><th scope="col" className="num">เจาะเลือดซ้ำ</th><th scope="col" className="num">มัธยฐานวันทำการรอผล</th></tr></thead>
-    <tbody>{[...m].reverse().map(x=><tr key={x.month}><th scope="row">{monthLabelLong(x.month)}</th><td className="num">{x.sent}</td><td className="num">{x.released}</td><td className="num">{x.high>0?<span className="dash-status bad"><Icon name="alert"/>{x.high}</span>:0}</td><td className="num">{x.redraw}</td><td className="num">{x.medianDays??"—"}</td></tr>)}</tbody></table></div>
+    <thead><tr><th scope="col">เดือน</th><th scope="col" className="num">ส่งตรวจ</th><th scope="col" className="num">มีผล</th><th scope="col" className="num">ผลความเสี่ยงสูง</th><th scope="col" className="num">เสี่ยงสูง 13/18/21</th><th scope="col" className="num">เสี่ยงสูง โครโมโซมเพศ</th><th scope="col" className="num">เจาะเลือดซ้ำ</th><th scope="col" className="num">มัธยฐานวันทำการรอผล</th></tr></thead>
+    <tbody>{[...m].reverse().map(x=><tr key={x.month}><th scope="row">{monthLabelLong(x.month)}</th><td className="num">{x.sent}</td><td className="num">{x.released}</td><td className="num">{x.high>0?<span className="dash-status bad"><Icon name="alert"/>{x.high}</span>:0}</td><td className="num">{x.highTrisomy}</td><td className="num">{x.highSca}</td><td className="num">{x.redraw}</td><td className="num">{x.medianDays??"—"}</td></tr>)}</tbody></table></div>
   </section>
  </div>;
 }

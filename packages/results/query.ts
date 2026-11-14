@@ -25,6 +25,13 @@ export const riskSql=`CASE WHEN v.template_kind NOT IN ('SINGLETON','TWIN') THEN
  WHEN (${trisomy.map(k=>`${val(k)}='High Risk'`).join(' OR ')}) OR (v.template_kind='SINGLETON' AND (${sca.map(k=>`${val(k)}='Detected'`).join(' OR ')})) THEN 'HIGH'
  WHEN coalesce(v.parsed->>'needsManualReview','true')='false' AND ${trisomy.map(k=>`${val(k)}='Low Risk' AND ${method(k)}='ANCHORED'`).join(' AND ')}
  AND (v.template_kind='TWIN' OR (${sca.map(k=>`${val(k)}='Not Detected' AND ${method(k)}='ANCHORED'`).join(' AND ')})) THEN 'LOW' ELSE 'UNKNOWN' END`;
+/**
+ * The two High Risk groups of the statistics (Owner 2026-11-14), the same evidence as riskSql 'HIGH' split in two (booleans):
+ * chromosomes 13/18/21 (trisomy 'High Risk'), and the sex chromosomes (XO/XXX/XXY/XYY 'Detected', SINGLETON only).
+ * A result with both counts in both groups; riskSql HIGH = either one.
+ */
+export const trisomyHighSql=`(v.template_kind IN ('SINGLETON','TWIN') AND (${trisomy.map(k=>`${val(k)}='High Risk'`).join(' OR ')}))`;
+export const scaHighSql=`(v.template_kind='SINGLETON' AND (${sca.map(k=>`${val(k)}='Detected'`).join(' OR ')}))`;
 /** The report date printed on the result PDF (parser ISO evidence), NULL when missing or not a real calendar day. */
 export const reportedDaySql=(()=>{const reported="v.parsed->'identifiers'->'reportedDate'->>'value'";
  return `CASE WHEN ${reported} ~ '^[1-9][0-9]{3}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$' THEN CASE WHEN substring(${reported},9,2)::int<=extract(day FROM (make_date(substring(${reported},1,4)::int,substring(${reported},6,2)::int,1)+interval '1 month - 1 day')) THEN ${reported} END END`;})();

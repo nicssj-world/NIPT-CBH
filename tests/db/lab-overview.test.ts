@@ -1,5 +1,6 @@
 import {afterAll,beforeAll,describe,expect,it} from 'vitest';
 import type {PGlite} from '@electric-sql/pglite';
+import {randomUUID} from 'node:crypto';
 import {testDatabase} from '../helpers/database';
 import {labUsers,syntheticCase,receiveS1,tx} from '../helpers/lab';
 import type {Queryable} from '../../packages/db/connection';
@@ -57,6 +58,19 @@ describe('Lab overview on the home page (Owner 2026-11-11)',()=>{
  });
  it('needs the worksheet permission',async()=>{
   await expect(labOverview(q(),u.anc as Principal,NOW)).rejects.toThrow();
+ });
+ it('counts High Risk results of the month by group, a result with both in each group (Owner 2026-11-14)',async()=>{
+  await tx(q(),async t=>{
+   // Fixture only (FKs off): a released SINGLETON result High Risk for T21 and with XXY detected.
+   await t.query('SET LOCAL session_replication_role=replica');
+   const id=randomUUID();
+   await t.query(`INSERT INTO result_report_version(id,intake_file_id,sha256,kind,template_kind,template_version,parser_version,parsed,state,case_id,round_id,attempt_id,link_mode,imported_by) VALUES($1,$2,$3,'RESULT','SINGLETON','SYNTHETIC-v1','SYNTHETIC-v1',$4,'CertifiedReleased',$5,$6,$7,'MANUAL_REVIEWED',$8)`,
+    [id,randomUUID(),id.replaceAll('-','').repeat(2),JSON.stringify({results:{t21:{value:'High Risk'},xxy:{value:'Detected'}}}),ids.fresh.caseId,ids.fresh.roundId,randomUUID(),u.staff.id]);
+   await t.query(`INSERT INTO result_release(version_id,case_id,round_id,kind,channel,state,certified_by,certified_at) VALUES($1,$2,$3,'RESULT','NIPT_ANC_VIEW','Active',$4,$5)`,[id,ids.fresh.caseId,ids.fresh.roundId,u.staff.id,'2026-11-11T03:00:00Z']);
+  });
+  const o=await labOverview(q(),u.staff,NOW);
+  expect(o.quality.at(-1)).toMatchObject({month:'2026-11',released:1,high:1,highTrisomy:1,highSca:1});
+  expect(o.quality.at(-2)).toMatchObject({high:0,highTrisomy:0,highSca:0});
  });
  it('stage words come from the attempt state',()=>{
   expect(labStage({attempt_state:'Assigned',hold:false,run_label:'Run001/2026'} as never)).toBe('IN_RUN');

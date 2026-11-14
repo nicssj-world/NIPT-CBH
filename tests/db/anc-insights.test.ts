@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {testDatabase} from '../helpers/database';
 import {labUsers,syntheticCase,receiveS1,tx} from '../helpers/lab';
 import type {Queryable} from '../../packages/db/connection';
-import {ancInsights,fiscalMonths} from '../../packages/anc/insights';
+import {ancInsights,fiscalMonths,ageGroups} from '../../packages/anc/insights';
 import type {Principal} from '../../packages/security/policy';
 
 let db:PGlite,u:Awaited<ReturnType<typeof labUsers>>,other:string;
@@ -75,6 +75,26 @@ describe('ANC overview panel (Owner 2026-11-11)',()=>{
   await expect(ancInsights(q(),u.anc,{unitId:other},NOW)).rejects.toThrow('FORBIDDEN');
   await expect(ancInsights(q(),u.staff as Principal,{},NOW)).rejects.toThrow('FORBIDDEN');
   await expect(ancInsights(q(),u.anc,{fy:'abc'},NOW)).rejects.toThrow();
+ });
+ it('splits High Risk into chromosomes 13/18/21 and the sex chromosomes (Owner 2026-11-14)',async()=>{
+  // Runs last among the monthly checks: adds a sex-chromosome High Risk result in November.
+  const sca=await tx(q(),async t=>{const x=await syntheticCase(t,{staff:u.staff,unit:u.unit});await receiveS1(t,x,new Date('2026-10-09T03:00:00Z'),'2026-10-05');return x;});
+  await tx(q(),t=>release(t,sca,'2026-11-10T03:00:00Z',{results:{xxy:{value:'Detected',method:'ANCHORED'}}}));
+  const d=await ancInsights(q(),u.anc,{},NOW);
+  expect(d.monthly[1]).toMatchObject({released:3,high:2,highTrisomy:1,highSca:1});
+  expect(d.stats.totals).toMatchObject({high:2,highTrisomy:1,highSca:1});
+ });
+ it('maternal age bands of the cases sent (Owner 2026-11-14)',async()=>{
+  // Birth date from the ANC request (no matched PET): born 20 Oct 1990, first draw 5 Oct 2026 -> 35 years; the other cases have no birth date.
+  await db.query("INSERT INTO p2_workspace(case_id,round_id,version,draft,request_mode,consent_mode,updated_by) VALUES($1,$2,0,$3,'Paper','Paper',$4)",[c.high.caseId,c.high.roundId,JSON.stringify({patient:{syntheticName:'SYNTHETIC-AGE',dob:'1990-10-20'}}),u.anc.id]);
+  const d=await ancInsights(q(),u.anc,{},NOW);
+  expect(d.stats.age.groups.find(g=>g.label==='35–39 ปี')).toMatchObject({sent:1,high:1});
+  expect(d.stats.age).toMatchObject({known:1,over35:1,median:35});
+  const sent=d.stats.age.groups.reduce((n,g)=>n+g.sent,0)+d.stats.age.unknown;
+  expect(sent).toBe(d.stats.totals.sent);
+  const g=ageGroups([{age:19,high:false},{age:20,high:false},{age:34,high:true},{age:35,high:true},{age:42,high:false},{age:null,high:true},{age:3,high:false}]);
+  expect(g.groups.map(x=>[x.sent,x.high])).toEqual([[1,0],[1,0],[0,0],[1,1],[1,1],[1,0]]);
+  expect(g).toMatchObject({known:5,unknown:2,unknownHigh:1,over35:2,median:34});
  });
  it('fiscal months run October to September and stop at the current month',()=>{
   expect(fiscalMonths(2570,new Date('2027-09-30T05:00:00Z'))).toHaveLength(12);
