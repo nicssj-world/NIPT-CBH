@@ -199,15 +199,15 @@ function ReportDialog({rows,pendingImport,onClose,onDone,onQueued}:{rows:Row[];p
    {single&&<div className="action-bar"><button type="button" className="button secondary" disabled={!!busy||!cand?.values} onClick={preview}>{busy==="preview"?"กำลังสร้างร่าง…":"ดูร่างรายงาน"}</button><span className="help">ร่างมีลายน้ำ “PREVIEW” และไม่ถูกบันทึกเป็นรายงาน</span></div>}
    {replaceOffered&&<fieldset className="stack t3-replace"><legend>ผลเดิมผิด</legend>
     <label className="check-label"><input type="checkbox" checked={replace} onChange={e=>setReplace(e.target.checked)}/> <strong>ออกผลใหม่แทนผลเดิม</strong></label>
-    <p className="help">รายการที่ส่งผลไปแล้ว: ผลเดิมจะถูกลบออกจากระบบทันทีที่ออกรายงานใหม่ แล้วผลใหม่ไปที่ “รอส่ง HIS” เพื่อส่งตามปกติ</p>
+    <p className="help">รายการที่ส่งผลไปแล้ว: ผลเดิมจะถูกลบออกจากระบบทันทีที่ออกรายงานใหม่ แล้วผลใหม่ไปที่ “รออนุมัติผลและส่ง HIS” เพื่อส่งตามปกติ</p>
    </fieldset>}
-   <fieldset className="stack"><legend>ยืนยันออกรายงานและนำเข้า “รอส่ง HIS”</legend>
+   <fieldset className="stack"><legend>ยืนยันออกรายงานและนำเข้า “รออนุมัติผลและส่ง HIS”</legend>
     <label className="check-label"><input type="checkbox" checked={confirm.content} onChange={e=>setConfirm(c=>({...c,content:e.target.checked}))}/> ตรวจผลแปล การจับคู่ผู้ป่วย รอบตัวอย่าง และข้อมูลที่เปิดเผยในรายงานของรายการที่เลือกแล้ว</label>
     {anyAbnormal&&<label className="check-label"><input type="checkbox" checked={confirm.abnormal} onChange={e=>setConfirm(c=>({...c,abnormal:e.target.checked}))}/> รับทราบผลผิดปกติของรายการที่เลือก (High Risk / Detected)</label>}
-    <p className="help">เมื่อยืนยัน ระบบสร้าง PDF ผูกผลกับผู้ป่วย แล้วนำรายการไปที่ “รอส่ง HIS” — ผลยังไม่ถูกส่ง HIS และ ANC ยังไม่เห็น จนกว่าจะกด “ส่ง HIS” ในรายการผลตรวจ รายการที่ยังไม่พร้อมจะถูกพักพร้อมเหตุผล</p>
+    <p className="help">เมื่อยืนยัน ระบบสร้าง PDF ผูกผลกับผู้ป่วย แล้วนำรายการไปที่ “รออนุมัติผลและส่ง HIS” — ผลยังไม่ถูกส่ง HIS และ ANC ยังไม่เห็น จนกว่าจะกด “ส่ง HIS” ในรายการผลตรวจ รายการที่ยังไม่พร้อมจะถูกพักพร้อมเหตุผล</p>
    </fieldset>
    <div className="action-bar"><button type="button" className="button secondary" onClick={onClose} disabled={!!busy}>ยกเลิก</button>
-    <button type="button" className="button" disabled={!!busy||!canSubmit} onClick={finalize}>{busy==="final"?"กำลังเข้าคิวออกรายงาน…":"ยืนยันและออกรายงาน (ไป รอส่ง HIS)"}</button></div>
+    <button type="button" className="button" disabled={!!busy||!canSubmit} onClick={finalize}>{busy==="final"?"กำลังเข้าคิวออกรายงาน…":"ยืนยันและออกรายงาน (ไป รออนุมัติผลและส่ง HIS)"}</button></div>
    {!canSubmit&&!busy&&<p className="help">{!reportedBy||!approvedBy?"เลือก Reported by และ Approved by ก่อน":single&&cand&&!candidateReady(cand)?"รายการนี้ถูกระงับ — แก้ที่ต้นเหตุตามรายการด้านบน":release&&!releaseReady?"ยืนยันการตรวจรายการที่เลือกก่อนออกรายงาน":""}</p>}
    </>
   </div>
@@ -234,7 +234,7 @@ export function NativeReports({canImport,scope="PATIENT",onReported}:{canImport:
  const toggle=(id:string,on:boolean)=>setSelected(s=>{const n=new Set(s);if(on)n.add(id);else n.delete(id);return n;});
  return <section className="panel" aria-labelledby="native-h">
   <h2 id="native-h">{scope==="EQA"?"รายงาน EQA จากผล HALOS":"รายงานจากผล HALOS"}</h2>
-  <p className="help t3-links">นำเข้าไฟล์ผลจาก HALOS แล้วออกรายงานตามแบบฟอร์มของโรงพยาบาล (FM-WI-T-BM-17-07 ครรภ์เดี่ยว / FM-WI-T-BM-17-08 ครรภ์แฝด) — หนึ่ง PDF ต่อผู้ป่วย ออกรายงานแล้วผลจะไป “รอส่ง HIS” ในรายการผลตรวจด้านล่าง ส่งผ่านขั้นตอนเดียวกับ PDF ภายนอก
+  <p className="help t3-links">นำเข้าไฟล์ผลจาก HALOS แล้วออกรายงานตามแบบฟอร์มของโรงพยาบาล (FM-WI-T-BM-17-07 ครรภ์เดี่ยว / FM-WI-T-BM-17-08 ครรภ์แฝด) — หนึ่ง PDF ต่อผู้ป่วย ออกรายงานแล้วผลจะไป “รออนุมัติผลและส่ง HIS” ในรายการผลตรวจด้านล่าง ส่งผ่านขั้นตอนเดียวกับ PDF ภายนอก
    {" "}· <Link href="/results/signers">ผู้ลงนามรายงาน</Link></p>
   {activeBatchId&&<ReportRunCard batchId={activeBatchId} onComplete={()=>{setTick(n=>n+1);void load();onReported?.();}} onClose={()=>setActiveBatchId('')} onViewResults={()=>{onReported?.();document.getElementById('board-h')?.scrollIntoView({block:'start',behavior:'smooth'});}}/>}
   {canImport&&scope==="PATIENT"&&<section className="halos-step" aria-labelledby="halos-import-h"><h3 id="halos-import-h">นำเข้าไฟล์ผล HALOS</h3>

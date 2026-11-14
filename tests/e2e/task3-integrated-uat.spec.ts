@@ -114,8 +114,8 @@ test('pathway A (LAB certifier): HALOS import preview/confirm, realtime search, 
   await page.goto(`/results/${v.id}`);const panel=page.getByRole('region',{name:'ที่มาของรายงาน'});
   await expect(panel.getByText('ออกรายงานในระบบ (INTERNAL_GENERATED)')).toBeVisible({timeout:30_000});
   if(k==='A2')await shot(page,'a-result-detail-internal');
-  // Result-release simplification: the internal report waits in "รอส่ง HIS"; the only certify step is "ส่งที่เลือก" on the results board.
-  await page.goto('/results');await page.getByRole('tab',{name:/รอส่ง HIS/}).click();
+  // Result-release simplification: the internal report waits in "รออนุมัติผลและส่ง HIS"; the only certify step is "ส่งที่เลือก" on the results board.
+  await page.goto('/results');await page.getByRole('tab',{name:/รออนุมัติผลและส่ง HIS/}).click();
   await page.getByLabel('ค้นหา LN / HN / LN Halos / รหัสตัวอย่าง').fill(c(k).ln);
   const boardRow=page.getByRole('row').filter({hasText:c(k).ln});await boardRow.getByRole('checkbox').check();
   const reviewed=page.getByLabel('ตรวจผลรายการที่เลือกแล้ว');if(await reviewed.count())await reviewed.check();

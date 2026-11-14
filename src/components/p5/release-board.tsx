@@ -16,7 +16,7 @@ import {BulkDiscardDialog,DiscardDialog,PickPatientDialog} from "./release-board
 // this component only lists, selects and calls the existing actions. A result is never shown as visible to ANC before "ส่ง HIS" succeeded.
 export type BoardRow={key:string;source:"HALOS"|"READYGEN";versionId:string|null;halosRowId:string|null;rowVersion:number|null;ln:string|null;hn:string|null;lnHalos:string|null;sampleId:string|null;template:string|null;abnormal:boolean;reviewed:boolean;reasons:{code:string;fixHref?:string}[];hisDelivery?:HisDeliveryStatus;pdfHref:string|null};
 type Board={rows:BoardRow[];counts:Record<BoardTab,number>;canRevise:boolean;truncated:boolean;page:{number:number;size:number;total:number;totalPages:number;hasNext:boolean}};
-const TABS:[BoardTab,string][]=[["ACTION","ต้องจัดการ"],["READY","รอส่ง HIS"],["SENT","ส่งแล้ว"]];
+const TABS:[BoardTab,string][]=[["ACTION","ต้องจัดการ"],["READY","รออนุมัติผลและส่ง HIS"],["SENT","ส่งแล้ว"]];
 const HELP:Record<BoardTab,string>={ACTION:"รายการที่ยังส่ง HIS ไม่ได้หรือส่งไฟล์ไม่สำเร็จ — แก้ตามเหตุผลที่แสดง เลือกผู้ป่วย ทิ้งรายการ หรือกดไอคอนส่ง HIS อีกครั้ง",READY:"ผลที่นำเข้าหรือออกรายงานแล้ว ยังไม่ถูกส่ง และผลที่กำลังเขียนไฟล์ไป HIS — ANC จะเห็นผลหลังกด “ส่ง HIS” สำเร็จเท่านั้น",SENT:"ผลที่เขียน PDF, .res และ .ok ลงโฟลเดอร์ HIS สำเร็จแล้ว เรียงใหม่สุดก่อน"};
 const TEMPLATE_TEXT:Record<string,string>={SINGLETON:"ครรภ์เดี่ยว",TWIN:"ครรภ์แฝด"};
 export const reasonLabel=(code:string)=>code.startsWith("HIS_SEND:")?hisSendErrorText(code.slice(9)):HOLD_TEXT[code]??BOARD_REASON_TEXT[code]??reasonText(code);
@@ -78,7 +78,7 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
   setShowing(false);await load();window.setTimeout(()=>document.getElementById("board-shown-result")?.scrollIntoView({block:"center",behavior:"smooth"}),50);};
  const done=async(message:string)=>{setDialog(null);setNotice(message);await load();};
 
- const empty=q?"ไม่พบรายการที่ตรงกับคำค้น":tab==="ACTION"?"ไม่มีรายการที่ต้องจัดการ":tab==="READY"?"ไม่มีผลที่รอส่ง HIS":"ยังไม่มีผลที่ส่งแล้ว";
+ const empty=q?"ไม่พบรายการที่ตรงกับคำค้น":tab==="ACTION"?"ไม่มีรายการที่ต้องจัดการ":tab==="READY"?"ไม่มีผลที่รออนุมัติและส่ง HIS":"ยังไม่มีผลที่ส่งแล้ว";
  const cols=tab==="READY"||tab==="ACTION"?7:6;
  return <section className="panel release-board" aria-labelledby="board-h">
   <h2 id="board-h">{scope==="EQA"?"รับรองรายงาน EQA":"ผลตรวจ NIPT"}</h2>
@@ -108,7 +108,7 @@ export function ReleaseBoard({tab,onTab,refreshKey=0,sentExtras,scope="PATIENT"}
       {(tab==="READY"||tab==="ACTION")&&<td>{(canShowOnPatient(r)||(tab==="ACTION"&&discardable(r)))&&<label className="table-check-target"><input type="checkbox" aria-label={`เลือก ${r.ln??r.hn??r.key}`} checked={selected.has(r.key)} onChange={e=>toggle(r.key,e.target.checked)}/></label>}</td>}
       <td>{who(r)}</td><td>{source(r)}</td>
       <td>{tab==="ACTION"?<ul className="help board-reasons">{r.reasons.map(x=><li key={x.code}>{reasonLabel(x.code)}{x.fixHref&&<> · <Link href={x.fixHref}>แก้ที่นี่</Link></>}</li>)}</ul>
-       :tab==="READY"?<span className="board-status">{r.hisDelivery?<HisDeliveryBadge status={r.hisDelivery}/>:<Status tone="warning">รอส่ง HIS</Status>}{r.abnormal&&<span className="badge danger">ผิดปกติ</span>}{!r.reviewed&&<span className="badge warning">ยังไม่ตรวจรับ</span>}</span>
+       :tab==="READY"?<span className="board-status">{r.hisDelivery?<HisDeliveryBadge status={r.hisDelivery}/>:<Status tone="warning">รออนุมัติผลและส่ง HIS</Status>}{r.abnormal&&<span className="badge danger">ผิดปกติ</span>}{!r.reviewed&&<span className="badge warning">ยังไม่ตรวจรับ</span>}</span>
        :<span className="board-status">{r.hisDelivery?<HisDeliveryBadge status={r.hisDelivery} showError/>:<Status tone="good">ส่งแล้ว</Status>}{r.abnormal&&<span className="badge danger">ผิดปกติ</span>}</span>}</td>
       <td>{r.pdfHref?<PdfPreviewButton src={r.pdfHref} title="เปิด PDF"/>:<span className="muted">—</span>}</td>
       <td><span className="action-bar">

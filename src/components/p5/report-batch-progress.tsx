@@ -69,10 +69,10 @@ export function ReportRunCard({batchId,onComplete,onClose,onViewResults}:{batchI
    {done&&<button type="button" className="button small secondary" onClick={onClose}>ปิด</button>}</div>
   {batch?<BatchProgressBar batch={batch}/>:<p className="help" role="status">กำลังโหลดงานออกรายงาน…</p>}
   {batch&&<p className="help" role="status">{done
-   ?`ออกรายงานแล้ว ${t.final} ราย${t.hold?` · ระงับ ${t.hold} ราย`:''}${t.error?` · ไม่สำเร็จ ${t.error} ราย`:''} — ผลที่ออกแล้วอยู่ที่ “รอส่ง HIS” ยังไม่ส่งให้ ANC จนกว่าจะกด “ส่ง HIS”`
+   ?`ออกรายงานแล้ว ${t.final} ราย${t.hold?` · ระงับ ${t.hold} ราย`:''}${t.error?` · ไม่สำเร็จ ${t.error} ราย`:''} — ผลที่ออกแล้วอยู่ที่ “รออนุมัติผลและส่ง HIS” ยังไม่ส่งให้ ANC จนกว่าจะกด “ส่ง HIS”`
    :`ดำเนินการแล้ว ${batch.completed} จาก ${batch.total} ราย — ปิดหน้านี้หรือทำงานอื่นต่อได้ ระบบทำต่อในคิว`}</p>}
   {error&&<p role="alert" className="notice">{error} <button type="button" className="button small secondary" onClick={retry}>ลองใหม่</button></p>}
-  {done&&<div className="action-bar"><button type="button" className="button small" onClick={onViewResults}>ดูในรายการ “รอส่ง HIS”</button></div>}
+  {done&&<div className="action-bar"><button type="button" className="button small" onClick={onViewResults}>ดูในรายการ “รออนุมัติผลและส่ง HIS”</button></div>}
   {batch&&<details><summary>รายละเอียดแต่ละรายการ ({batch.items.length})</summary><ReportBatchItems batch={batch}/></details>}
  </section>;
 }

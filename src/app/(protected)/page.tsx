@@ -39,7 +39,7 @@ export default async function Overview({searchParams}:{searchParams:Promise<{vie
  if(lab!==undefined)stages.push(
   {key:"ready",href:"/lab",label:"พร้อมเข้าตรวจ",n:lab?.counts.READY??null,parts:lab?[{label:"ยังเข้าตรวจไม่ได้",n:lab.counts.GATE_BLOCKED},{label:"รอรับเจาะซ้ำ (รอบที่ 2+)",n:lab.counts.REDRAW_EXPECTED}]:[],go:"ไปงาน Lab"},
   {key:"batch",href:"/lab/batches",label:"อยู่ใน Batch / กำลังทำ",n:lab?.counts.IN_BATCH??null,parts:lab?[{label:"ต้องตัดสินใจ (QC ไม่ผ่าน / หยุด)",n:lab.counts.DECISION}]:[],go:"ไป Batch / Task List",hot:!!lab?.counts.DECISION});
- if(board!==undefined)stages.push({key:"results",href:"/results",label:"ผลตรวจ: ต้องจัดการ",n:board?.counts.ACTION??null,parts:board?[{label:"รอส่ง HIS",n:board.counts.READY},{label:"ส่งแล้ว",n:board.counts.SENT}]:[],go:"ไปผลตรวจ NIPT"});
+ if(board!==undefined)stages.push({key:"results",href:"/results",label:"ผลตรวจ: ต้องจัดการ",n:board?.counts.ACTION??null,parts:board?[{label:"รออนุมัติผลและส่ง HIS",n:board.counts.READY},{label:"ส่งแล้ว",n:board.counts.SENT}]:[],go:"ไปผลตรวจ NIPT"});
  const alerts=lab?.counts.LN_HALOS_MISSING?[{text:`ไม่มี LN Halos ${lab.counts.LN_HALOS_MISSING} รายการ`,href:"/lab?tab=LN_HALOS_MISSING"}]:[];
  const labHome=<LabWorkload stages={stages} alerts={alerts} overview={overview} registry={registry??null} decisions={lab?.counts.DECISION??null} generatedAt={new Date().toISOString()}/>;
  return admin?<><AdminHomeSwitch view="lab"/>{labHome}</>:labHome;}

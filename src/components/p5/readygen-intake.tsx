@@ -7,7 +7,7 @@ import {csrf} from "../p2/shared";
 import './result-workflow.css';
 import {SCAN_TEXT,REJECT_TEXT,FOLDER_ERROR_TEXT,CHECK_TEXT,bytes} from "./labels";
 
-// ReadyGen intake, one button: scan (or upload) -> "นำเข้า" = read files, match patients, and put every matched PDF in "รอส่ง HIS".
+// ReadyGen intake, one button: scan (or upload) -> "นำเข้า" = read files, match patients, and put every matched PDF in "รออนุมัติผลและส่ง HIS".
 // PDFs that cannot be matched are imported to the queue so they show up in "ต้องจัดการ" with their reasons. Nothing here releases a result.
 type Job<T=Record<string,unknown>>={id:string;kind:string;state:string;result:T|null;intakes:Intake[]};
 type Check={code:string;passed:boolean};
@@ -44,7 +44,7 @@ export function ReadyGenIntake({canSettings,onImported}:{canSettings:boolean;onI
  const hidden=(scan?.files??[]).filter(f=>f.status==="IMPORTED"||f.status==="DUPLICATE_IN_SCAN").length;
  const problems=(scan?.files??[]).filter(f=>["TOO_LARGE","ZIP_NOT_ACCEPTED","EMPTY"].includes(f.status)).length;
 
- /** Read the files and decide, per PDF, whether it can go straight to "รอส่ง HIS" (server-side match) or has to wait in the queue. */
+ /** Read the files and decide, per PDF, whether it can go straight to "รออนุมัติผลและส่ง HIS" (server-side match) or has to wait in the queue. */
  const prepare=async(s:AbortSignal):Promise<Plan|null>=>{
   let jobId:string;
   if(tab==="folder"){const paths=newFiles.filter(f=>picked.has(f.path)&&f.sha256).map(f=>({path:f.path,sha256:f.sha256}));jobId=await startJob("preview",{paths});}
@@ -89,7 +89,7 @@ export function ReadyGenIntake({canSettings,onImported}:{canSettings:boolean;onI
  const abnormalBox=plan&&plan.abnormal>0&&<label className="check-label"><input type="checkbox" checked={ack} onChange={e=>setAck(e.target.checked)}/> รับทราบผลผิดปกติ {plan.abnormal} รายการ แล้วกด “นำเข้า” อีกครั้ง</label>;
  return <section className="panel result-intake" aria-labelledby="intake-h">
   <h2 id="intake-h">นำเข้า PDF ผลจาก ReadyGen</h2>
-  <p className="help">กด “นำเข้า” ครั้งเดียว: ระบบอ่านไฟล์ จับคู่ผู้ป่วย แล้วส่งผลที่ตรงกันไป “รอส่ง HIS” (ยังไม่ส่งให้ ANC) รายการที่จับคู่ไม่ได้จะอยู่ใน “ต้องจัดการ”</p>
+  <p className="help">กด “นำเข้า” ครั้งเดียว: ระบบอ่านไฟล์ จับคู่ผู้ป่วย แล้วส่งผลที่ตรงกันไป “รออนุมัติผลและส่ง HIS” (ยังไม่ส่งให้ ANC) รายการที่จับคู่ไม่ได้จะอยู่ใน “ต้องจัดการ”</p>
   <div aria-live="polite">{notice&&<p className="notice success" role="status">{notice}</p>}{error&&<p className="notice" role="alert">{error}</p>}</div>
   <div className="tabs p5-tabs" role="tablist" aria-label="ช่องทางนำเข้า">
    <button type="button" role="tab" className="tab" aria-selected={tab==="folder"} onClick={()=>{setTab("folder");setPlan(null);setAck(false);}}>จากโฟลเดอร์ผล (แนะนำ)</button>

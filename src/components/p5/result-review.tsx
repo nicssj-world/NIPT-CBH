@@ -150,7 +150,7 @@ export function ResultReview({id,canMaintain=false}:{id:string;canMaintain?:bool
     </section>}
 
     <Task3Panel d={d} versionId={v.id} reload={load}/>
-    {d.operational&&v.state!=="CertifiedReleased"&&<section className="panel" aria-labelledby="waiting-his-h" role="status"><h2 id="waiting-his-h">การส่งผลให้ ANC</h2><p>ANC จะเห็นผลหลังกด “ส่ง HIS” เท่านั้น — ส่งผ่านหน้า <Link href="/results">ผลตรวจ NIPT</Link> หรือ <Link href="/quality-control">Quality Control</Link> (รายงาน EQA) › รอส่ง HIS</p></section>}
+    {d.operational&&v.state!=="CertifiedReleased"&&<section className="panel" aria-labelledby="waiting-his-h" role="status"><h2 id="waiting-his-h">การส่งผลให้ ANC</h2><p>ANC จะเห็นผลหลังกด “ส่ง HIS” เท่านั้น — ส่งผ่านหน้า <Link href="/results">ผลตรวจ NIPT</Link> หรือ <Link href="/quality-control">Quality Control</Link> (รายงาน EQA) › รออนุมัติผลและส่ง HIS</p></section>}
     {d.can.review&&<section className="panel" aria-labelledby="review-h">
      <h2 id="review-h">ตรวจทานค่ากับ PDF</h2>
      <form className="stack" onSubmit={e=>{e.preventDefault();void act("review",{valuesMatchPdf:true,abnormalAcknowledged:ack,...(note?{note}:{})},"บันทึกการตรวจทานแล้ว").then(r=>{if(r){setValuesOk(false);setAck(false);setNote("");}});}}>

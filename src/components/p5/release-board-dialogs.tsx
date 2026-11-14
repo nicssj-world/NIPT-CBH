@@ -35,7 +35,7 @@ export function PickPatientDialog({row,onClose,onDone}:{row:BoardRow;onClose:()=
      :<p className="help">ไม่พบผู้ป่วยที่ตรงกับ HN / LN ใน PDF นี้ — ตรวจข้อมูลเคสก่อน หรือทิ้งรายการนี้</p>}
    </fieldset>}
    <label className="check-label"><input type="checkbox" checked={hisPresent} onChange={e=>setHisPresent(e.target.checked)}/> ผลนี้<strong> มีใน HIS แล้ว</strong> — แสดงผลในหน้าคนไข้อย่างเดียว ไม่ส่ง HIS</label>
-   <p className="help">{hisPresent?"หลังเลือก ผลจะแสดงในหน้าคนไข้ให้ ANC เห็นทันที และไม่ถูกส่ง HIS ซ้ำ":"หลังเลือก รายการจะไปที่ “รอส่ง HIS” ถ้าผ่านเงื่อนไข ผลยังไม่ถูกส่งให้ ANC จนกว่าจะกด “ส่ง HIS”"}</p>
+   <p className="help">{hisPresent?"หลังเลือก ผลจะแสดงในหน้าคนไข้ให้ ANC เห็นทันที และไม่ถูกส่ง HIS ซ้ำ":"หลังเลือก รายการจะไปที่ “รออนุมัติผลและส่ง HIS” ถ้าผ่านเงื่อนไข ผลยังไม่ถูกส่งให้ ANC จนกว่าจะกด “ส่ง HIS”"}</p>
    <div className="action-bar"><button type="button" className="button secondary" onClick={onClose} disabled={busy}>ยกเลิก</button><button type="button" className="button" disabled={busy||!ready} onClick={submit}>{busy?"กำลังบันทึก…":"เลือกผู้ป่วยนี้"}</button></div>
   </div>
  </Dialog>;
