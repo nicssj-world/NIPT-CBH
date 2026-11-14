@@ -83,7 +83,9 @@ export function CaseRequisition({data,doctors}:{data:CaseData;doctors:Doctor[]})
  // 2 · การตั้งครรภ์
  const pregnancy:Figure[]=[{label:"อายุครรภ์ (GA) ณ วันเจาะเลือด",value:gaDays===null?null:`${Math.floor(gaDays/7)}+${gaDays%7}`,unit:"สัปดาห์",tone:gaDays!==null&&gaDays>126?"warn":undefined},
   {label:"วันกำหนดคลอด",value:date(g.edd)},{label:"ประเภทครรภ์",value:g.type?PREGNANCY[g.type]??g.type:null}];
- const obstetric:Figure[]=[{label:"ตั้งครรภ์ (G)",value:text(g.gravida)},{label:"คลอด (P)",value:text(g.para)},{label:"แท้ง (A)",value:text(g.abortion)}];
+ // G: the request, else "ครรภ์ที่" of this round's newest verified paper request check (checks saved before 2026-11-14 did not copy it to the request).
+ const paperG=data.paper.filter(x=>x.kind==="REQUEST"&&x.status==="Verified"&&x.round_id===data.case.current_round_id).sort((x,y)=>y.created_at.localeCompare(x.created_at)).map(x=>(x.panel as {gravida?:number|null}).gravida).find(v=>typeof v==="number");
+ const obstetric:Figure[]=[{label:"ตั้งครรภ์ (G)",value:text(g.gravida)??(paperG===undefined?null:String(paperG))},{label:"คลอด (P)",value:text(g.para)},{label:"แท้ง (A)",value:text(g.abortion)}];
  const pregnancyFacts:Fact[]=[{label:"วันอัลตราซาวนด์",value:date(g.ultrasoundDate)},{label:"ใช้เทคโนโลยีช่วยเจริญพันธุ์",value:yesNo(g.art)},{label:"พบภาวะที่ตัวอ่อนฝ่อขณะตั้งครรภ์",value:yesNo(g.vanishingTwin)},
   ...(g.vanishingTwin==="Yes"?[{label:"วันที่ตัวอ่อนฝ่อ",value:date(g.vanishingDate)},{label:"อายุครรภ์เมื่อตัวอ่อนฝ่อ",value:g.vanishingGaDays===null?null:`${g.vanishingGaDays} วัน`},{label:"เจาะเลือดหลังตัวอ่อนฝ่ออย่างน้อย 8 สัปดาห์",value:yesNo(g.drawEightWeeksAfterLoss)}]:[])];
  // 3 · ประวัติทางการแพทย์ — items 1–5 answered "ใช่" stop the test (request form rule); 6–8 are information.
