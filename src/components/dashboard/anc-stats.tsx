@@ -76,7 +76,7 @@ export function AncStatsView({data,filters,loading}:{data:Data;filters:ReactNode
     <HBars title="ส่งตรวจตามหน่วยงาน" parts={[{name:"ส่งตรวจ",tone:"s1"}]} rows={stats.units.map(u=>({label:u.name,sub:`มีผล ${u.released} · เสี่ยงสูง ${u.high}`,values:[u.sent]}))} unit="ราย"/></section>
    <section className="panel dash-panel" aria-labelledby="as-age"><header className="dash-panel-head"><h2 id="as-age">ช่วงอายุของคุณแม่</h2><p className="dash-panel-note">เคสที่ส่งตรวจในปีงบ · อายุเต็มปี ณ วันเจาะเลือดครั้งแรก · อายุมัธยฐาน {age.median??"—"} ปี · อายุ 35 ปีขึ้นไป {age.over35} ราย ({pct(age.over35,age.known)} ของที่ทราบอายุ)</p></header>
     <HBars title="ส่งตรวจตามช่วงอายุ" note="ร้อยละคิดจากเคสที่ทราบอายุ · เสี่ยงสูง = ผลปัจจุบันของเคสเป็นความเสี่ยงสูง" parts={[{name:"ส่งตรวจ",tone:"s1"}]} rows={ageRows} unit="ราย"/></section>
-   <section className="panel dash-panel" aria-labelledby="as-day"><header className="dash-panel-head"><h2 id="as-day">ส่งตรวจตามวันในสัปดาห์</h2><p className="dash-panel-note">วันที่ Lab รับตัวอย่างเลือดครั้งแรก ตามเวลาประเทศไทย</p></header>
+   <section className="panel dash-panel" aria-labelledby="as-day"><header className="dash-panel-head"><h2 id="as-day">ส่งตรวจตามวันในสัปดาห์</h2><p className="dash-panel-note">วันที่ Lab รับตัวอย่างเลือดครั้งแรก</p></header>
     <HBars title="จำนวนตัวอย่างที่ส่งตรวจต่อวัน" parts={[{name:"ส่งตรวจ",tone:"s1"}]} rows={WEEKDAYS.map((d,i)=>({label:d,values:[stats.weekday[i]]}))} unit="ราย"/></section>
   </div>
   <section className="panel dash-panel" aria-labelledby="as-table"><header className="dash-panel-head"><h2 id="as-table">ตารางรายเดือน ปีงบประมาณ {data.fiscalYear}</h2></header>
