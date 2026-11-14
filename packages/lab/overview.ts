@@ -5,7 +5,7 @@ import {addDays,bangkokDay,businessDaysBetween,median,percentile,tatStatus,type 
 import {workingCalendar} from '../calendar/holiday-sync';
 import {recordPhiAccess} from '../db/phi-access';
 import {inOrder} from '../db/in-order';
-import {reportedDaySql,riskSql,trisomyHighSql,scaHighSql,type Risk} from '../results/query';
+import {reportedDaySql,riskSql,trisomyHighSql,scaHighSql,positiveKeysSql,emptyPositive,type PositiveKey,type Risk} from '../results/query';
 
 /**
  * Lab overview for the home page (Owner 2026-11-11). Read-only; every number comes from records the Lab pages already own.
@@ -24,7 +24,8 @@ export type TatRow=OpenSpecimen&{used:number;left:number;state:TatState;due:stri
 export type GaRow=OpenSpecimen&{gaWeeks:number;gaDays:number};
 export type RunRow={id:string;runLabel:string;state:string;samples:number;createdAt:string|null;qc_saved:boolean;pool_exported:boolean;pooling_recorded:boolean;seq_files_exported:boolean;seq_recorded:boolean};
 /** `high` = High Risk results released in the month; `highTrisomy` / `highSca` split it into chromosomes 13/18/21 and the sex chromosomes (Owner 2026-11-14, a result with both counts in each). */
-export type QualityMonth={month:string;received:number;released:number;high:number;highTrisomy:number;highSca:number;timed:number;withinTat:number;medianDays:number|null;p90Days:number|null;qcFailed:Record<string,number>;repeats:{RE_LIBRARY:number;RE_EXTRACTION:number;RE_SAMPLING:number}};
+export type QualityMonth={month:string;received:number;released:number;high:number;highTrisomy:number;highSca:number;
+ /** High Risk results of the month by finding (T13 / T18 / T21, XO / XXX / XXY / XYY singleton); several findings count in each (Owner 2026-11-14). */positive:Record<PositiveKey,number>;timed:number;withinTat:number;medianDays:number|null;p90Days:number|null;qcFailed:Record<string,number>;repeats:{RE_LIBRARY:number;RE_EXTRACTION:number;RE_SAMPLING:number}};
 /**
  * Dashboard (Owner 2026-11-14), current work only and no patient rows:
  * - `recent`: the last 14 Bangkok days, specimens received and results released per day (the same rows as the monthly quality figures);
@@ -77,22 +78,22 @@ async function quality(db:Queryable,now:Date,holidays:ReadonlySet<string>,busine
  const scope=`NOT EXISTS(SELECT 1 FROM eqa_case eq WHERE eq.round_id=r.id) AND c.registration_origin<>'HISTORICAL' AND NOT EXISTS(SELECT 1 FROM p2_registration_void v WHERE v.case_id=c.id)`;
  const [received,released,qc,repeats,resampling]=await inOrder(
   ()=>db.query<{at:Date}>(`SELECT r.received_at at FROM specimen_round r JOIN nipt_case c ON c.id=r.case_id WHERE r.received_at>=${since} AND r.state<>'Cancelled' AND ${scope}`,[from]),
-  ()=>db.query<{at:Date;received:Date|null;risk:Risk;hi_t:boolean;hi_s:boolean}>(`SELECT rr.certified_at at,r.received_at received,${riskSql} risk,${trisomyHighSql} hi_t,${scaHighSql} hi_s FROM result_release rr JOIN result_report_version v ON v.id=rr.version_id JOIN specimen_round r ON r.id=rr.round_id JOIN nipt_case c ON c.id=rr.case_id
+  ()=>db.query<{at:Date;received:Date|null;risk:Risk;hi_t:boolean;hi_s:boolean;pos:PositiveKey[]}>(`SELECT rr.certified_at at,r.received_at received,${riskSql} risk,${trisomyHighSql} hi_t,${scaHighSql} hi_s,${positiveKeysSql} pos FROM result_release rr JOIN result_report_version v ON v.id=rr.version_id JOIN specimen_round r ON r.id=rr.round_id JOIN nipt_case c ON c.id=rr.case_id
    WHERE rr.kind='RESULT' AND rr.state='Active' AND rr.certified_at>=${since} AND r.received_at IS NOT NULL AND ${scope}
-   UNION ALL SELECT x.at,NULL,x.risk,x.hi_t,x.hi_s FROM (SELECT COALESCE((${reportedDaySql})::date::timestamp AT TIME ZONE 'Asia/Bangkok',v.imported_at) at,h.round_id,${riskSql} risk,${trisomyHighSql} hi_t,${scaHighSql} hi_s FROM historical_reported_result h JOIN result_report_version v ON v.id=h.version_id) x
+   UNION ALL SELECT x.at,NULL,x.risk,x.hi_t,x.hi_s,x.pos FROM (SELECT COALESCE((${reportedDaySql})::date::timestamp AT TIME ZONE 'Asia/Bangkok',v.imported_at) at,h.round_id,${riskSql} risk,${trisomyHighSql} hi_t,${scaHighSql} hi_s,${positiveKeysSql} pos FROM historical_reported_result h JOIN result_report_version v ON v.id=h.version_id) x
    WHERE x.at>=${since}`,[from]),
   ()=>db.query<{at:Date;stage:string|null}>(`SELECT e.created_at at,COALESCE(e.stage,a.qc_failed_stage) stage FROM attempt_event e JOIN analytical_attempt a ON a.id=e.attempt_id
    WHERE e.event_type='STATE_CHANGED' AND e.to_state='QcFailed' AND e.created_at>=${since}`,[from]),
   ()=>db.query<{at:Date;level:string|null}>(`SELECT w.requested_at at,w.level FROM repeat_work_order w WHERE w.state<>'Cancelled' AND w.requested_at>=${since}`,[from]),
   ()=>db.query<{at:Date}>(`SELECT e.created_at at FROM attempt_event e WHERE e.to_state='Stopped' AND e.details->>'redrawRequestId' IS NOT NULL AND e.created_at>=${since}`,[from]),
  );
- const out=new Map(months.map(m=>[m,{month:m,received:0,released:0,high:0,highTrisomy:0,highSca:0,timed:0,withinTat:0,medianDays:null as number|null,p90Days:null as number|null,qcFailed:{} as Record<string,number>,repeats:{RE_LIBRARY:0,RE_EXTRACTION:0,RE_SAMPLING:0}}]));
+ const out=new Map(months.map(m=>[m,{month:m,received:0,released:0,high:0,highTrisomy:0,highSca:0,positive:emptyPositive(),timed:0,withinTat:0,medianDays:null as number|null,p90Days:null as number|null,qcFailed:{} as Record<string,number>,repeats:{RE_LIBRARY:0,RE_EXTRACTION:0,RE_SAMPLING:0}}]));
  const days=new Map<string,number[]>(),usedAll:number[]=[];
  const recentFrom=addDays(bangkokDay(now),-(RECENT_DAYS-1)),recent=new Map(Array.from({length:RECENT_DAYS},(_,i)=>{const day=addDays(recentFrom,i);return [day,{day,received:0,released:0}];}));
  for(const r of received.rows){const d=recent.get(bangkokDay(r.at));if(d)d.received++;}
  for(const r of released.rows){const d=recent.get(bangkokDay(r.at));if(d)d.released++;}
  for(const r of received.rows){const m=out.get(monthKey(r.at));if(m)m.received++;}
- for(const r of released.rows){const m=out.get(monthKey(r.at));if(!m)continue;m.released++;if(r.risk==='HIGH'){m.high++;if(r.hi_t)m.highTrisomy++;if(r.hi_s)m.highSca++;}if(!r.received)continue;m.timed++;const used=businessDaysBetween(r.received,r.at,holidays);if(used<=businessDays)m.withinTat++;days.set(m.month,[...(days.get(m.month)??[]),used]);usedAll.push(used);}
+ for(const r of released.rows){const m=out.get(monthKey(r.at));if(!m)continue;m.released++;if(r.risk==='HIGH'){m.high++;if(r.hi_t)m.highTrisomy++;if(r.hi_s)m.highSca++;for(const k of r.pos??[])m.positive[k]++;}if(!r.received)continue;m.timed++;const used=businessDaysBetween(r.received,r.at,holidays);if(used<=businessDays)m.withinTat++;days.set(m.month,[...(days.get(m.month)??[]),used]);usedAll.push(used);}
  for(const r of qc.rows){const m=out.get(monthKey(r.at));if(!m)continue;const s=r.stage??'อื่น ๆ';m.qcFailed[s]=(m.qcFailed[s]??0)+1;}
  for(const r of repeats.rows){const m=out.get(monthKey(r.at));if(m&&(r.level==='RE_LIBRARY'||r.level==='RE_EXTRACTION'))m.repeats[r.level]++;}
  for(const r of resampling.rows){const m=out.get(monthKey(r.at));if(m)m.repeats.RE_SAMPLING++;}

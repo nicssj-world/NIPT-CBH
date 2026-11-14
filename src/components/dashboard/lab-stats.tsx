@@ -20,6 +20,7 @@ export function LabStats({data}:{data:LabOverview}){
  const repeats=quality.reduce((a,m)=>({RE_LIBRARY:a.RE_LIBRARY+m.repeats.RE_LIBRARY,RE_EXTRACTION:a.RE_EXTRACTION+m.repeats.RE_EXTRACTION,RE_SAMPLING:a.RE_SAMPLING+m.repeats.RE_SAMPLING}),{RE_LIBRARY:0,RE_EXTRACTION:0,RE_SAMPLING:0});
  const range=quality.length?`${monthLabelLong(quality[0].month)} – ${monthLabelLong(quality.at(-1)!.month)}`:"";
  const highT=quality.reduce((a,m)=>a+m.highTrisomy,0),highS=quality.reduce((a,m)=>a+m.highSca,0),high=quality.reduce((a,m)=>a+m.high,0),rel=quality.reduce((a,m)=>a+m.released,0);
+ const positive=quality.reduce((a,m)=>({t13:a.t13+m.positive.t13,t18:a.t18+m.positive.t18,t21:a.t21+m.positive.t21,xo:a.xo+m.positive.xo,xxx:a.xxx+m.positive.xxx,xxy:a.xxy+m.positive.xxy,xyy:a.xyy+m.positive.xyy}),{t13:0,t18:0,t21:0,xo:0,xxx:0,xxy:0,xyy:0});
  const buckets=stats.distribution.map((d,i,all)=>({label:i===all.length-1?`${d.days}+`:String(d.days),n:d.n}));
  return <div className="dash-stats">
   <ul className="dash-kpis" aria-label="สรุป TAT 6 เดือน">
@@ -44,6 +45,10 @@ export function LabStats({data}:{data:LabOverview}){
     </div></section>
    <section className="panel dash-panel" aria-labelledby="ls-high"><header className="dash-panel-head"><h2 id="ls-high">ผลความเสี่ยงสูงแยกกลุ่ม</h2><p className="dash-panel-note">รวม 6 เดือน: เสี่ยงสูง {high} ราย ({pct(high,rel)} ของผลที่ออก) · โครโมโซม 13/18/21 {highT} · โครโมโซมเพศ {highS} · ผลที่เสี่ยงทั้งสองกลุ่มนับในแต่ละกลุ่ม</p></header>
     <MonthBars title="ผลความเสี่ยงสูงตามกลุ่มโครโมโซม" note="แยกตามเดือนที่ออกผล · โครโมโซมเพศ = XO, XXX, XXY, XYY (ครรภ์เดี่ยว)" series={[{name:"โครโมโซม 13/18/21"},{name:"โครโมโซมเพศ"}]} months={quality.map(m=>({month:m.month,values:[m.highTrisomy,m.highSca]}))}/></section>
+   <section className="panel dash-panel" aria-labelledby="ls-tri"><header className="dash-panel-head"><h2 id="ls-tri">ผลความเสี่ยงสูง โครโมโซม 13 / 18 / 21</h2><p className="dash-panel-note">รวม 6 เดือน · {range} · ผลที่เสี่ยงหลายโครโมโซมนับในแต่ละแถว</p></header>
+    <HBars title="จำนวนผลความเสี่ยงสูงรายโครโมโซม" parts={[{name:"ความเสี่ยงสูง",tone:"bad"}]} unit="ราย" rows={[{label:"Trisomy 13",values:[positive.t13]},{label:"Trisomy 18",values:[positive.t18]},{label:"Trisomy 21",values:[positive.t21]}]}/></section>
+   <section className="panel dash-panel" aria-labelledby="ls-sca"><header className="dash-panel-head"><h2 id="ls-sca">ผลที่พบ โครโมโซมเพศ (ครรภ์เดี่ยว)</h2><p className="dash-panel-note">รวม 6 เดือน · {range} · ตรวจเฉพาะครรภ์เดี่ยว · ผลที่พบหลายแบบนับในแต่ละแถว</p></header>
+    <HBars title="จำนวนผลที่พบความผิดปกติของโครโมโซมเพศ" parts={[{name:"พบ (Detected)",tone:"bad"}]} unit="ราย" rows={[{label:"XO",values:[positive.xo]},{label:"XXX",values:[positive.xxx]},{label:"XXY",values:[positive.xxy]},{label:"XYY",values:[positive.xyy]}]}/></section>
    <section className="panel dash-panel" aria-labelledby="ls-vol"><header className="dash-panel-head"><h2 id="ls-vol">ปริมาณงานรายเดือน</h2><p className="dash-panel-note">รับตัวอย่างและออกผลในเดือนนั้น · ไม่รวม EQA</p></header>
     <MonthBars title="รับตัวอย่างและออกผล" series={[{name:"รับตัวอย่าง"},{name:"ออกผล"}]} months={quality.map(m=>({month:m.month,values:[m.received,m.released]}))}/></section>
   </div>

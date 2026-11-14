@@ -82,6 +82,8 @@ describe('Lab overview on the home page (Owner 2026-11-11)',()=>{
   });
   const o=await labOverview(q(),u.staff,NOW);
   expect(o.quality.at(-1)).toMatchObject({month:'2026-11',released:1,high:1,highTrisomy:1,highSca:1});
+  // One result with two findings counts in each (Owner 2026-11-14).
+  expect(o.quality.at(-1)!.positive).toEqual({t13:0,t18:0,t21:1,xo:0,xxx:0,xxy:1,xyy:0});
   expect(o.quality.at(-2)).toMatchObject({high:0,highTrisomy:0,highSca:0});
  });
  it('stage words come from the attempt state',()=>{

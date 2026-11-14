@@ -32,6 +32,12 @@ export const riskSql=`CASE WHEN v.template_kind NOT IN ('SINGLETON','TWIN') THEN
  */
 export const trisomyHighSql=`(v.template_kind IN ('SINGLETON','TWIN') AND (${trisomy.map(k=>`${val(k)}='High Risk'`).join(' OR ')}))`;
 export const scaHighSql=`(v.template_kind='SINGLETON' AND (${sca.map(k=>`${val(k)}='Detected'`).join(' OR ')}))`;
+/** Each positive finding of a result, by chromosome (Owner 2026-11-14): t13 / t18 / t21 'High Risk' (singleton or twin), xo / xxx / xxy / xyy
+ * 'Detected' (singleton only), the same evidence as the two groups above. A result with several findings lists each. */
+export const POSITIVE_KEYS=['t13','t18','t21','xo','xxx','xxy','xyy'] as const;
+export type PositiveKey=typeof POSITIVE_KEYS[number];
+export const positiveKeysSql=`array_remove(ARRAY[${[...trisomy].reverse().map(k=>`CASE WHEN v.template_kind IN ('SINGLETON','TWIN') AND ${val(k)}='High Risk' THEN '${k}' END`).concat(sca.map(k=>`CASE WHEN v.template_kind='SINGLETON' AND ${val(k)}='Detected' THEN '${k}' END`)).join(',')}]::text[],NULL)`;
+export const emptyPositive=():Record<PositiveKey,number>=>({t13:0,t18:0,t21:0,xo:0,xxx:0,xxy:0,xyy:0});
 /** The report date printed on the result PDF (parser ISO evidence), NULL when missing or not a real calendar day. */
 export const reportedDaySql=(()=>{const reported="v.parsed->'identifiers'->'reportedDate'->>'value'";
  return `CASE WHEN ${reported} ~ '^[1-9][0-9]{3}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$' THEN CASE WHEN substring(${reported},9,2)::int<=extract(day FROM (make_date(substring(${reported},1,4)::int,substring(${reported},6,2)::int,1)+interval '1 month - 1 day')) THEN ${reported} END END`;})();

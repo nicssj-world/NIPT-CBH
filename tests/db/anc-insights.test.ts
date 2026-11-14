@@ -92,6 +92,8 @@ describe('ANC overview panel (Owner 2026-11-11)',()=>{
   const d=await ancInsights(q(),u.anc,{},NOW);
   expect(d.monthly[1]).toMatchObject({released:3,high:2,highTrisomy:1,highSca:1});
   expect(d.stats.totals).toMatchObject({high:2,highTrisomy:1,highSca:1});
+  // By finding (Owner 2026-11-14): the T21 result and the XXY result; nothing else.
+  expect(d.stats.positive).toEqual({t13:0,t18:0,t21:1,xo:0,xxx:0,xxy:1,xyy:0});
  });
  it('maternal age bands of the cases sent (Owner 2026-11-14)',async()=>{
   // Birth date from the ANC request (no matched PET): born 20 Oct 1990, first draw 5 Oct 2026 -> 35 years; the other cases have no birth date.
