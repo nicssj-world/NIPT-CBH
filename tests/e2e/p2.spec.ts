@@ -287,7 +287,9 @@ test("USB HID LN/HN scanner Enter moves focus without submitting an incomplete r
  const ln=page.getByTestId("scan-ln"),hn=page.getByTestId("scan-hn"),review=page.getByRole("button",{name:"ตรวจข้อมูลก่อนลงทะเบียน",exact:true});
  // Owner 2026-11-14: a scan right after the dialog opens lands in LN (no click first); the cursor does not start on "ปิด".
  await expect(ln).toBeFocused();await ln.fill("00");await ln.press("Enter");await expect(ln).toBeFocused();expect(registrations).toBe(0);
- await ln.fill("00990"+suffix().slice(-5));await ln.press("Enter");await expect(hn).toBeFocused();expect(registrations).toBe(0);
+ // Owner 2026-11-14: the tenth digit moves the cursor to HN by itself; the scanner's trailing Enter then lands on the empty HN and is ignored without a warning.
+ await ln.fill("00990"+suffix().slice(-5));await expect(hn).toBeFocused();await hn.press("Enter");await expect(hn).toBeFocused();await expect(page.getByText("กรุณาสแกนหรือกรอก HN ก่อนดำเนินการต่อ")).toHaveCount(0);expect(registrations).toBe(0);
+ await ln.press("Enter");await expect(hn).toBeFocused();expect(registrations).toBe(0);
  await expect(review).toBeEnabled();await hn.fill("00990"+suffix().slice(-5));await hn.press("Enter");await expect(review).toBeFocused();expect(registrations).toBe(0);
  await expect(page.getByLabel("หน่วยงานลงทะเบียน",{exact:false})).toHaveCount(0);
  await page.getByRole("button",{name:"ตรวจข้อมูลก่อนลงทะเบียน",exact:true}).click();await expect(page.getByRole("heading",{name:"ตรวจทานก่อนลงทะเบียน"})).toBeVisible();expect(registrations).toBe(0);
