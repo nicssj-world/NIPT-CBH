@@ -52,17 +52,17 @@ describe('ANC overview panel (Owner 2026-11-11)',()=>{
   const d=await ancInsights(q(),u.anc,{},NOW);
   expect(d.fiscalYear).toBe(2570);
   expect(d.highRisk).toMatchObject({count:1,runLabel:'Run002/2569'});
-  expect(d.highRisk.rows.map(r=>r.caseId)).toEqual([c.high.caseId]);
-  expect(d.highRisk.rows.some(r=>r.caseId===c.otherUnit.caseId)).toBe(false);
+  expect(d.highRisk!.rows.map(r=>r.caseId)).toEqual([c.high.caseId]);
+  expect(d.highRisk!.rows.some(r=>r.caseId===c.otherUnit.caseId)).toBe(false);
  });
  it('keeps a High Risk result of the latest Run however long ago it was released',async()=>{
   const d=await ancInsights(q(),u.anc,{},new Date('2026-11-21T05:00:00Z'));
-  expect(d.highRisk.rows.map(r=>r.caseId)).toEqual([c.high.caseId]);
+  expect(d.highRisk!.rows.map(r=>r.caseId)).toEqual([c.high.caseId]);
  });
  it('lists cases without a result whose GA at collection is over 18 weeks',async()=>{
   const d=await ancInsights(q(),u.anc,{},NOW);
-  expect(d.gaOver18.count).toBe(1);
-  expect(d.gaOver18.rows[0]).toMatchObject({caseId:c.pending.caseId,gaWeeks:23,gaDays:0,collectionDate:'2026-10-05',received:true});
+  expect(d.gaOver18!.count).toBe(1);
+  expect(d.gaOver18!.rows[0]).toMatchObject({caseId:c.pending.caseId,gaWeeks:23,gaDays:0,collectionDate:'2026-10-05',received:true});
  });
  it('monthly statistics of the fiscal year up to this month, in working days',async()=>{
   const d=await ancInsights(q(),u.anc,{},NOW);
@@ -71,18 +71,14 @@ describe('ANC overview panel (Owner 2026-11-11)',()=>{
   // Received Mon 5 Oct -> released Thu 5 Nov = 23 working days; Tue 6 Oct -> Mon 9 Nov = 24: median 23.5.
   expect(d.monthly[1]).toMatchObject({sent:0,released:2,high:1,medianDays:23.5});
  });
- it('Dashboard: TAT of the cases waiting, the last 14 days, and no names in view=dashboard (Owner 2026-11-14)',async()=>{
+ it('Dashboard: the last 14 days, and no names in view=dashboard (Owner 2026-11-14)',async()=>{
   const d=await ancInsights(q(),u.anc,{view:'dashboard'},NOW);
-  // The pending case (received Thu 8 Oct, no result) is far past 8 working days; the released ones are not waiting.
-  expect(d.tat).toMatchObject({open:1,overdue:1,dueSoon:0,policy:{businessDays:8,warnDaysLeft:2}});
-  expect(d.tat.aging.reduce((n,b)=>n+b.ok+b.dueSoon+b.overdue,0)).toBe(1);
   expect(d.recent.map(x=>x.day)).toHaveLength(14);
   expect(d.recent[0].day).toBe('2026-10-29');expect(d.recent.at(-1)!.day).toBe('2026-11-11');
   expect(d.recent.find(x=>x.day==='2026-11-05')).toMatchObject({released:1});
   expect(d.recent.find(x=>x.day==='2026-11-09')).toMatchObject({released:1});
   expect(d.recent.reduce((n,x)=>n+x.sent,0)).toBe(0);
-  expect(d.highRisk).toMatchObject({count:1,rows:[]});
-  expect(d.gaOver18).toMatchObject({count:1,rows:[]});
+  expect(d.highRisk).toBeNull();expect(d.gaOver18).toBeNull();
  });
  it('uses the same unit scope as the ANC queue',async()=>{
   await expect(ancInsights(q(),u.anc,{unitId:other},NOW)).rejects.toThrow('FORBIDDEN');

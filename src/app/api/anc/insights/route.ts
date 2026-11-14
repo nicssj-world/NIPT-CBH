@@ -11,7 +11,7 @@ export async function GET(request:NextRequest){
   await db.query('SET TRANSACTION READ ONLY');
   return ancInsights(db,user,Object.fromEntries(request.nextUrl.searchParams));
  });
- const shown=[...result.highRisk.rows,...result.gaOver18.rows].map(r=>r.caseId);
+ const shown=[...(result.highRisk?.rows??[]),...(result.gaOver18?.rows??[])].map(r=>r.caseId);
  if(shown.length)await withTransaction(db=>recordPhiAccess(db,user.id,shown,'REGISTRY_VIEW'));
  return NextResponse.json(result,{headers:noStore});}catch(error){return p4Error(error);}
 }

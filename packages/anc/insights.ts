@@ -3,7 +3,7 @@ import type {Queryable} from '../db/connection';
 import type {Staff} from '../lab/core';
 import {gestationalAge} from '../lab/core';
 import {riskSql,reportedDaySql,trisomyHighSql,scaHighSql,type Risk} from '../results/query';
-import {addDays,bangkokDay,businessDaysBetween,median,percentile,tatStatus,type TatPolicy} from '../calendar/business-days';
+import {addDays,bangkokDay,businessDaysBetween,median,percentile} from '../calendar/business-days';
 import {workingCalendar} from '../calendar/holiday-sync';
 import {ancUnitScope,factsSql} from './service';
 import {fiscalYear} from './model';
@@ -45,14 +45,11 @@ export function ageGroups(ages:{age:number|null;high:boolean}[]):AncAge{
 }
 /**
  * Dashboard (Owner 2026-11-14), current work only:
- * - `tat`: cases sent and received by the Lab that have no result yet, in working days since the Lab received the current round, against the
- *   Lab TAT policy and holiday calendar (the same tatStatus as the Lab overview). `aging[i]` = cases that have used i working days (last = that many or more).
  * - `recent`: the last 14 Bangkok days, cases sent (first blood sample received) and results released per day (same rows as the monthly figures).
  */
-export type AncTat={policy:TatPolicy;open:number;overdue:number;dueSoon:number;aging:{days:number;ok:number;dueSoon:number;overdue:number}[]};
 export type AncRecentDay={day:string;sent:number;released:number};
 export const RECENT_DAYS=14;
-export type AncInsights={fiscalYear:number;generatedAt:string;tat:AncTat;recent:AncRecentDay[];units:{id:string;name:string}[];highRisk:{count:number;runLabel:string|null;rows:CardCase[]};gaOver18:{count:number;rows:GaCase[]};monthly:AncMonth[];stats:AncStats};
+export type AncInsights={fiscalYear:number;generatedAt:string;recent:AncRecentDay[];units:{id:string;name:string}[];highRisk:{count:number;runLabel:string|null;rows:CardCase[]}|null;gaOver18:{count:number;rows:GaCase[]}|null;monthly:AncMonth[];stats:AncStats};
 
 /** The fiscal year's months (October to September, Bangkok) up to the current month. */
 export function fiscalMonths(fy:number,now:Date){
@@ -92,7 +89,10 @@ export async function ancInsights(db:Queryable,user:Staff,raw:unknown={},now=new
  const units=await ancUnitScope(db,user,f.unitId);
  const unitIds=f.unitId?[f.unitId]:units.map(u=>u.id);
  const fy=f.fy??fiscalYear(now.toISOString());
- const facts=`WITH facts AS MATERIALIZED (${factsSql})`;
+ // NOT MATERIALIZED (Owner 2026-11-14 benchmark): each query computes only the facts columns it reads instead of the whole queue projection.
+ const facts=`WITH facts AS NOT MATERIALIZED (${factsSql})`;
+ // view=dashboard (Dashboard and statistics): the card lists are not shown, so their two queries are not run.
+ const brief=f.view==='dashboard';
  // A result counts once: certified in this system, or reported by the previous system and imported (dated by the report date on its PDF).
  const released=`SELECT f.id,f.ln,f.hn,f."patientName",f."unitIds" unit_ids,rr.certified_at,r.received_at,${riskSql} risk,${trisomyHighSql} hi_t,${scaHighSql} hi_s
   FROM facts f JOIN result_release rr ON rr.case_id=f.id AND rr.kind='RESULT' AND rr.state='Active' AND rr.round_id=f."currentRoundId"
@@ -106,18 +106,15 @@ export async function ancInsights(db:Queryable,user:Staff,raw:unknown={},now=new
  const from=months[0]+'-01';
  // The last 14 days may begin before the fiscal year (early October): read from whichever is earlier; the monthly figures skip days outside their months.
  const today=bangkokDay(now),recentFrom=addDays(today,-(RECENT_DAYS-1)),readFrom=recentFrom<from?recentFrom:from;
- const [latest,ga,monthReleased,monthSent,monthRedraw,open]=await inOrder(
-  ()=>db.query<{id:string;ln:string;hn:string|null;patientName:string|null;run_label:string;risk:Risk;certified_at:Date}>(`${facts}${HIGH_RUN_SQL}`,[unitIds]),
-  ()=>db.query<GaRaw>(`${facts}${GA_SQL}`,[unitIds]),
+ const [latest,ga,monthReleased,monthSent,monthRedraw]=await inOrder(
+  ()=>brief?Promise.resolve({rows:[] as {id:string;ln:string;hn:string|null;patientName:string|null;run_label:string;risk:Risk;certified_at:Date}[]}):db.query<{id:string;ln:string;hn:string|null;patientName:string|null;run_label:string;risk:Risk;certified_at:Date}>(`${facts}${HIGH_RUN_SQL}`,[unitIds]),
+  ()=>brief?Promise.resolve({rows:[] as GaRaw[]}):db.query<GaRaw>(`${facts}${GA_SQL}`,[unitIds]),
   ()=>db.query<{certified_at:Date;received_at:Date|null;risk:Risk;hi_t:boolean;hi_s:boolean;unit_ids:string[]}>(`${facts} SELECT certified_at,received_at,risk,hi_t,hi_s,unit_ids FROM (${released}) x WHERE certified_at>=(($2::date)::timestamp AT TIME ZONE 'Asia/Bangkok')`,[unitIds,readFrom]),
   ()=>db.query<{at:Date;unit_ids:string[];dob:string|null;ref:string|null;high:boolean}>(`${facts} SELECT f."s1ReceivedAt" at,f."unitIds" unit_ids,${AGE_COLUMNS} FROM facts f ${AGE_JOINS} WHERE f."s1ReceivedAt">=(($2::date)::timestamp AT TIME ZONE 'Asia/Bangkok')`,[unitIds,readFrom]),
   ()=>db.query<{at:Date}>(`${facts} SELECT d.requested_at at FROM redraw_request d JOIN facts f ON f.id=d.case_id WHERE d.state<>'Cancelled' AND d.requested_at>=(($2::date)::timestamp AT TIME ZONE 'Asia/Bangkok')`,[unitIds,from]),
-  // Open work for the TAT figures: sent (S1 received), current round received by the Lab, no result in this system or the previous one.
-  ()=>db.query<{at:Date}>(`${facts} SELECT f."currentReceivedAt" at FROM facts f WHERE f."s1ReceivedAt" IS NOT NULL AND f."currentReceivedAt" IS NOT NULL AND f."certifiedReleaseCount"=0 AND f."activeReleaseCount"=0
-   AND NOT COALESCE(f."historicalResult",false) AND COALESCE(f."roundState",'') NOT IN ('Cancelled','Expected')`,[unitIds]),
  );
  // Working days to the result skip weekends and the synced holidays (same calendar as the Lab TAT).
- const cal=await workingCalendar(db,now,Number(readFrom.slice(0,4))-1),holidays=cal.holidays,policy=cal.policy;
+ const holidays=(await workingCalendar(db,now,Number(readFrom.slice(0,4))-1)).holidays;
  const byMonth=new Map(months.map(m=>[m,{month:m,sent:0,released:0,redraw:0,high:0,highTrisomy:0,highSca:0,low:0,unknown:0,medianDays:null as number|null}]));
  const days=new Map<string,number[]>();
  const key=(d:Date)=>bangkokDay(d).slice(0,7);
@@ -127,19 +124,16 @@ export async function ancInsights(db:Queryable,user:Staff,raw:unknown={},now=new
  const recent=new Map(Array.from({length:RECENT_DAYS},(_,i)=>{const day=addDays(recentFrom,i);return [day,{day,sent:0,released:0}];}));
  for(const r of monthSent.rows){const d=recent.get(bangkokDay(r.at));if(d)d.sent++;}
  for(const r of monthReleased.rows){const d=recent.get(bangkokDay(r.certified_at));if(d)d.released++;}
- const top=policy.businessDays+4,aging=Array.from({length:top+1},(_,days)=>({days,ok:0,dueSoon:0,overdue:0}));let overdue=0,dueSoon=0;
- for(const r of open.rows){const t=tatStatus(r.at,now,holidays,policy),b=aging[Math.min(Math.max(0,t.used),top)];if(t.state==='overdue'){b.overdue++;overdue++;}else if(t.state==='due-soon'){b.dueSoon++;dueSoon++;}else b.ok++;}
  for(const r of monthSent.rows){const m=byMonth.get(key(r.at));if(!m)continue;m.sent++;ages.push({age:ageOnDate(r.dob&&/^\d{4}-\d{2}-\d{2}$/.test(r.dob)?r.dob:null,r.ref),high:r.high});weekday[(new Date(bangkokDay(r.at)+'T00:00:00Z').getUTCDay()+6)%7]++;for(const u of unitsOf(r.unit_ids))u.sent++;}
  for(const r of monthRedraw.rows){const m=byMonth.get(key(r.at));if(m)m.redraw++;}
  for(const r of monthReleased.rows){const m=byMonth.get(key(r.certified_at));if(!m)continue;m.released++;if(r.risk==='HIGH'){m.high++;if(r.hi_t)m.highTrisomy++;if(r.hi_s)m.highSca++;}else if(r.risk==='LOW')m.low++;else m.unknown++;for(const u of unitsOf(r.unit_ids)){u.released++;if(r.risk==='HIGH')u.high++;}if(r.received_at){const d=businessDaysBetween(r.received_at,r.certified_at,holidays);allDays.push(d);days.set(m.month,[...(days.get(m.month)??[]),d]);}}
  for(const m of byMonth.values())m.medianDays=median(days.get(m.month)??[]);
  const high:CardCase[]=latest.rows.filter(r=>r.risk==='HIGH').sort((x,y)=>+new Date(y.certified_at)-+new Date(x.certified_at)).map(r=>({caseId:r.id,ln:r.ln,hn:r.hn,name:nameOf(r.patientName),releasedAt:new Date(r.certified_at).toISOString()}));
  const gaCases=gaCasesOf(ga.rows);
- const brief=f.view==='dashboard';
  return {fiscalYear:fy,generatedAt:now.toISOString(),units:units.map(u=>({id:u.id,name:u.name})),
-  tat:{policy,open:open.rows.length,overdue,dueSoon,aging},recent:[...recent.values()],
-  highRisk:{count:high.length,runLabel:latest.rows[0]?.run_label??null,rows:brief?[]:high},
-  gaOver18:{count:gaCases.length,rows:brief?[]:gaCases},
+  recent:[...recent.values()],
+  highRisk:brief?null:{count:high.length,runLabel:latest.rows[0]?.run_label??null,rows:high},
+  gaOver18:brief?null:{count:gaCases.length,rows:gaCases},
   monthly:[...byMonth.values()],
   stats:{totals:{sent:months.reduce((n,m)=>n+byMonth.get(m)!.sent,0),released:months.reduce((n,m)=>n+byMonth.get(m)!.released,0),high:months.reduce((n,m)=>n+byMonth.get(m)!.high,0),highTrisomy:months.reduce((n,m)=>n+byMonth.get(m)!.highTrisomy,0),highSca:months.reduce((n,m)=>n+byMonth.get(m)!.highSca,0),redraw:months.reduce((n,m)=>n+byMonth.get(m)!.redraw,0),medianDays:median(allDays),p90Days:percentile(allDays,90)},
    weekday,age:ageGroups(ages),units:[...unitStat.values()].filter(u=>u.sent+u.released>0).sort((a,b)=>b.sent-a.sent||a.name.localeCompare(b.name,'th'))}};

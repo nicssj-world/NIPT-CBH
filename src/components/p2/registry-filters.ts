@@ -4,7 +4,7 @@
  * The values mirror packages/p2/service.ts (REGISTRY_STATUSES / REGISTRY_FLAGS); anything else in the URL is ignored.
  */
 export const STATUSES=["awaiting","testing","released","followup","other"] as const;
-export const FLAGS=["high","high_run","ga18","hold","identity","attention"] as const;
+export const FLAGS=["high","high_run","ga18","hold","identity","attention","tat_open","tat_due","tat_overdue"] as const;
 export const SORTS=["registered","desc","asc","sent_desc","sent_asc"] as const;
 export type Status=typeof STATUSES[number];export type Flag=typeof FLAGS[number];export type Sort=typeof SORTS[number];
 export type RegistryFilters={status:Status|"";flag:Flag|"";unitId:string;from:string;to:string;sort:Sort;page:number;pageSize:number};
@@ -38,5 +38,5 @@ export const STATUS_LABEL:Record<"anc"|"lab",Record<Status,string>>={
  anc:{awaiting:"รอ Lab รับตัวอย่าง",testing:"กำลังตรวจ",released:"มีผลตรวจแล้ว",followup:"ต้องเจาะเลือดใหม่",other:"ตรวจสอบสถานะ"},
  lab:{awaiting:"ยังไม่รับตัวอย่าง",testing:"รับแล้ว · กำลังตรวจ",released:"ออกผลแล้ว",followup:"รอเจาะเลือดซ้ำ",other:"ตรวจสอบสถานะ"},
 };
-export const FLAG_LABEL:Record<Flag,string>={high:"High Risk",high_run:"High Risk · Run ล่าสุด",ga18:"GA เกิน 18 สัปดาห์",hold:"HOLD",identity:"ข้อมูลตัวตนรอตรวจสอบ",attention:"ต้องติดตาม"};
+export const FLAG_LABEL:Record<Flag,string>={high:"High Risk",high_run:"High Risk · Run ล่าสุด",ga18:"GA เกิน 18 สัปดาห์",hold:"HOLD",identity:"ข้อมูลตัวตนรอตรวจสอบ",attention:"ต้องติดตาม",tat_open:"รอผล (นับ TAT)",tat_due:"ใกล้ครบกำหนด TAT",tat_overdue:"เกินกำหนด TAT"};
 export const SORT_LABEL:Record<Sort,string>={registered:"ลงทะเบียนล่าสุดก่อน",desc:"รับสิ่งส่งตรวจ ใหม่ → เก่า",asc:"รับสิ่งส่งตรวจ เก่า → ใหม่",sent_desc:"วันที่ส่งตรวจ ใหม่ → เก่า",sent_asc:"วันที่ส่งตรวจ เก่า → ใหม่"};

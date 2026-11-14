@@ -96,3 +96,5 @@
 /* The panel h2 already names the chart: its caption title stays for screen readers only. */
 .dash-home .dash-panel .dash-chart>figcaption>strong{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .dash-home .dash-panel>.button{justify-self:start}
+/* Phones: a panel's button goes under its title instead of squeezing it. */
+@media(max-width:600px){.dash-panel-head{grid-template-columns:minmax(0,1fr)}.dash-panel-head .button{grid-column:1;grid-row:auto;justify-self:start}}

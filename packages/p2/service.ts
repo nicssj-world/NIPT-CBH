@@ -6,6 +6,8 @@ import {readCasePetEvidence} from '../inbound/case-pet-evidence';
 import {registryGa} from '../lab/registry-ga';
 import {gaSourceJoins,gaEddSql,gaCollectionSql,gaDaysSql} from '../lab/ga-sql';
 import {highRiskSql} from '../anc/high-risk-sql';
+import {workingCalendar} from '../calendar/holiday-sync';
+import {tatStatus} from '../calendar/business-days';
 import {DCC_CONSENT,isCurrentConsent} from '../forms/consent-content';
 import {z} from 'zod';
 import {operationalDataEnabled} from '../security/runtime';
@@ -22,7 +24,6 @@ import {digest,token,validateCsrf} from '../security/session';
 import {deriveSignature,vectorSchema} from './signature';
 import type {FileStore} from '../storage';
 import {IDENTIFIER_SOURCES,intakePresence,linkIntakeAtRegistration} from '../inbound/registration-link';
-import {receiveOrderSql} from '../lab/receive-sort';
 import {requestSchema,emptyRequest,requestIssues,requestProgressIssues,evaluateClinical,paperSchema,paperStatus,isShortPaperRequest,syntheticText,date,CONSENT_TEMPLATE,REQUEST_TEMPLATE,consentClauses,type RequestDraft} from './schema';
 
 const documentTemplate=(kind:'REQUEST'|'CONSENT')=>operationalDataEnabled()?(kind==='REQUEST'?'CBH-FM01-v1':'CBH-FM02-v1'):(kind==='REQUEST'?REQUEST_TEMPLATE:CONSENT_TEMPLATE);
@@ -404,7 +405,7 @@ export async function doctorAction(db:Queryable,user:Staff,input:unknown){
 export async function doctorUnits(db:Queryable,user:Staff){await assertStaff(db,user);if(!user.roles.some(r=>['ANC_NURSE','ANC_SUPERVISOR','LAB_STAFF','LAB_CERTIFIER','APP_ADMIN','CLINICAL_APPROVER'].includes(r)))throw new P2Error('FORBIDDEN',403);return (await db.query<{id:string;code:string;name:string}>('SELECT id,code,name FROM unit WHERE active ORDER BY code')).rows;}
 /** Registry filters (Owner 2026-11-14, one registry for ANC and Lab): the overview's status groups, High Risk and follow-up flags, and the unit. */
 export const REGISTRY_STATUSES=['awaiting','testing','released','followup','other'] as const;
-export const REGISTRY_FLAGS=['high','high_run','ga18','hold','identity','attention'] as const;
+export const REGISTRY_FLAGS=['high','high_run','ga18','hold','identity','attention','tat_open','tat_due','tat_overdue'] as const;
 export type RegistryStatus=typeof REGISTRY_STATUSES[number];export type RegistryFlag=typeof REGISTRY_FLAGS[number];
 const registryInput=z.strictObject({q:z.string().max(60).default(''),sort:z.enum(['registered','asc','desc','sent_desc','sent_asc']).default('registered'),from:z.iso.date().optional(),to:z.iso.date().optional(),
  status:z.enum(REGISTRY_STATUSES).optional(),flag:z.enum(REGISTRY_FLAGS).optional(),unitId:z.uuid().optional(),...pageFields(25)});
@@ -421,8 +422,10 @@ const LATEST_RUN=`(SELECT sa.batch_id FROM result_release rr JOIN nipt_case c2 O
  * HOLD is the latest HOLD event of the newest live attempt and identity = an open HIS intake issue (both as the ANC overview, anc/service.ts).
  * High Risk is the ANC badge definition (highRiskSql) and only for units where the user may read released results ($8).
  */
-const REGISTRY_FACTS=`CROSS JOIN LATERAL (SELECT ${HAS_RESULT} has_result,
-   COALESCE((SELECT e.event_type='HOLD_SET' FROM attempt_event e WHERE e.attempt_id=(SELECT x.id FROM analytical_attempt x WHERE x.round_id=r.id AND x.state<>'Cancelled' ORDER BY x.attempt_number DESC LIMIT 1) AND e.event_type IN ('HOLD_SET','HOLD_RELEASED') ORDER BY e.sequence DESC LIMIT 1),false) hold,
+const REGISTRY_FACTS=`LEFT JOIN LATERAL (SELECT x.id FROM analytical_attempt x WHERE x.round_id=r.id AND x.state<>'Cancelled' ORDER BY x.attempt_number DESC LIMIT 1) la ON true
+  CROSS JOIN LATERAL (SELECT ${HAS_RESULT} has_result,
+   COALESCE((SELECT e.event_type='HOLD_SET' FROM attempt_event e WHERE e.attempt_id=la.id AND e.event_type IN ('HOLD_SET','HOLD_RELEASED') ORDER BY e.sequence DESC LIMIT 1),false) hold,
+   COALESCE((SELECT e.event_type='URGENT_SET' FROM attempt_event e WHERE e.attempt_id=la.id AND e.event_type IN ('URGENT_SET','URGENT_CLEARED') ORDER BY e.sequence DESC LIMIT 1),false) urgent,
    EXISTS(SELECT 1 FROM his_intake_issue ii WHERE ii.case_id=c.id AND ii.state IN ('Open','Proposed')) identity_issue,
    ${gaDaysSql('r','w')} ga_days) k
   CROSS JOIN LATERAL (SELECT CASE WHEN k.has_result THEN 'released'
@@ -432,15 +435,26 @@ const REGISTRY_FACTS=`CROSS JOIN LATERAL (SELECT ${HAS_RESULT} has_result,
    ELSE 'other' END status,
    (k.has_result AND (s.unit_id::text||':'||c.registration_origin)=ANY($8::text[]) AND ${highRiskSql('c.id')}) high) k2
   CROSS JOIN LATERAL (SELECT (k2.high AND EXISTS(SELECT 1 FROM result_release rr JOIN result_report_version v ON v.id=rr.version_id AND v.state='CertifiedReleased' AND v.kind='RESULT' JOIN lab_slot_assignment sa ON sa.attempt_id=v.attempt_id
-    WHERE rr.case_id=c.id AND rr.round_id=c.current_round_id AND rr.kind='RESULT' AND rr.state='Active' AND sa.batch_id=${LATEST_RUN})) high_run,
-   (NOT k.has_result AND COALESCE(k.ga_days>126,false)) ga18,
-   (k2.status IN ('followup','other') OR k.hold OR k.identity_issue) attention) k3`;
-const FLAG_SQL=`($11::text IS NULL OR CASE $11::text WHEN 'high' THEN k2.high WHEN 'high_run' THEN k3.high_run WHEN 'ga18' THEN k3.ga18 WHEN 'hold' THEN k.hold WHEN 'identity' THEN k.identity_issue WHEN 'attention' THEN k3.attention ELSE false END)`;
-const STATUS_SQL=`($9::text IS NULL OR k2.status=$9::text)`;
-/** Registry page. Everything that decides what is on the page - scope, search, filters, sort, total - is evaluated by one SQL predicate, so the
- * total always matches the rows reachable by paging, and a page costs one bounded query plus one count (never the whole registry).
+    WHERE rr.case_id=c.id AND rr.round_id=c.current_round_id AND rr.kind='RESULT' AND rr.state='Active' AND sa.batch_id=$10::uuid)) high_run) k3`;
+// In readRegistry: GA over 18 = no result and GA over 18+0 (126 days); ต้องติดตาม = redraw, a stop / unknown status, HOLD or an identity issue.
+/** The joins every registry read shares: the case, its first LN, identity, the first readable unit (`scope` = the readable unit:origin list),
+ * the current patient (PET, else the ANC request), the current round and workspace, the GA sources and the patient-name history. */
+const joinsFor=(scope:string)=>`FROM nipt_case c JOIN case_ln l ON l.id=(SELECT cl.id FROM case_ln cl WHERE cl.case_id=c.id ORDER BY cl.id LIMIT 1) LEFT JOIN p2_case_identity i ON i.case_id=c.id
+  JOIN LATERAL(SELECT us.unit_id FROM case_unit_scope us WHERE us.case_id=c.id AND (us.unit_id::text||':'||c.registration_origin)=ANY(${scope}::text[]) ORDER BY us.unit_id LIMIT 1) s ON true
+  ${currentPetPatientJoin}
+  JOIN specimen_round_current r ON r.id=c.current_round_id LEFT JOIN p2_workspace w ON w.round_id=r.id
+  ${gaSourceJoins('r')}
+  LEFT JOIN LATERAL (
+   SELECT NULLIF(btrim(older.draft#>>'{patient,syntheticName}'),'') AS name
+   FROM p2_workspace older JOIN specimen_round_current older_round ON older_round.id=older.round_id
+   WHERE older.case_id=c.id AND NULLIF(btrim(older.draft#>>'{patient,syntheticName}'),'') IS NOT NULL
+   ORDER BY older_round.round_number DESC LIMIT 1
+  ) patient_history ON true`;
+/** Registry page. Scope and search are one SQL predicate; one scan of it returns each case's filter facts and sort keys, from which the counts,
+ * the filtered list, its order and the total are derived, so the total always matches the rows reachable by paging and every count matches its list.
+ * The display columns are then read for the rows of the requested page only.
  * `summary=1` (the dashboards) returns only the counts of the same predicate: no rows, no identifiers, no PHI-access record. */
-async function readRegistry(db:Queryable,user:Staff,input:unknown,summary:boolean){
+async function readRegistry(db:Queryable,user:Staff,input:unknown,summary:boolean,now:Date){
  const parsed=registryInput.safeParse(input);
  if(!parsed.success){const bad=new Set(parsed.error.issues.map(i=>String(i.path[0])));throw new P2Error(bad.has('sort')?'SORT_INVALID':bad.has('q')?'SEARCH_INVALID':bad.has('status')||bad.has('flag')||bad.has('unitId')?'FILTER_INVALID':'PAGE_INVALID');}
  const {q:search,sort,page:requested,pageSize,from,to,status,flag,unitId}=parsed.data;
@@ -455,43 +469,51 @@ async function readRegistry(db:Queryable,user:Staff,input:unknown,summary:boolea
  const halosTerm=search.replace(/[DR]{1,2}$/i,'');
  const canHalos=authorize(user,'worksheet.read',{},'read')&&halosTerm.length>=4;
  const scanLn=/^\d{2}-\d{3}-\d-\d{4}$/.test(search)?search.replaceAll('-',''):search;
- const values:unknown[]=[likeContains(search),readable,canHalos,likeContains(halosTerm),likeContains(scanLn),from??null,to??null,releasedReadable,status??null,unitId??null,flag??null];
+ // $1-$9 here; the scan adds $10, the latest Run.
+ const values:unknown[]=[likeContains(search),readable,canHalos,likeContains(halosTerm),likeContains(scanLn),from??null,to??null,releasedReadable,unitId??null];
  // LN Halos is Lab numbering: searchable only by roles that can already read the Lab worksheet. The printed code may carry a D/R suffix.
- const base=`FROM nipt_case c JOIN case_ln l ON l.id=(SELECT cl.id FROM case_ln cl WHERE cl.case_id=c.id ORDER BY cl.id LIMIT 1) LEFT JOIN p2_case_identity i ON i.case_id=c.id
-  JOIN LATERAL(SELECT us.unit_id FROM case_unit_scope us WHERE us.case_id=c.id AND (us.unit_id::text||':'||c.registration_origin)=ANY($2::text[]) ORDER BY us.unit_id LIMIT 1) s ON true
-  ${currentPetPatientJoin}
-  JOIN specimen_round_current r ON r.id=c.current_round_id LEFT JOIN p2_workspace w ON w.round_id=r.id
-  ${gaSourceJoins('r')}
-  LEFT JOIN LATERAL (
-   SELECT NULLIF(btrim(older.draft#>>'{patient,syntheticName}'),'') AS name
-   FROM p2_workspace older JOIN specimen_round_current older_round ON older_round.id=older.round_id
-   WHERE older.case_id=c.id AND NULLIF(btrim(older.draft#>>'{patient,syntheticName}'),'') IS NOT NULL
-   ORDER BY older_round.round_number DESC LIMIT 1
-  ) patient_history ON true
+ const base=`${joinsFor('$2')}
   ${REGISTRY_FACTS}
   WHERE c.registration_origin IN ('ANC','LAB_DIRECT') AND NOT EXISTS(SELECT 1 FROM p2_registration_void v WHERE v.case_id=c.id) AND NOT EXISTS(SELECT 1 FROM eqa_case eqa WHERE eqa.case_id=c.id) AND (l.ln LIKE $1 OR l.ln LIKE $5 OR i.hn LIKE $1 OR COALESCE(CASE WHEN pet_patient.inbound_file_id IS NOT NULL THEN pet_patient.name ELSE COALESCE(NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),''),patient_history.name) END,'') ILIKE $1
    OR ($3::boolean AND EXISTS(SELECT 1 FROM specimen_lab_number n WHERE n.case_id=c.id AND n.ln_halos ILIKE $4)))
   AND ${sentDayRangeSql(sentAtSql('c'),'$6','$7')}
-  AND ($10::uuid IS NULL OR EXISTS(SELECT 1 FROM case_unit_scope us2 WHERE us2.case_id=c.id AND us2.unit_id=$10::uuid AND (us2.unit_id::text||':'||c.registration_origin)=ANY($2::text[])))`;
- // One count query: the facet counts (search, date and unit applied; status and flag not, so every chip says how many it would show) and the filtered total.
- const n=(where:string)=>`count(*) FILTER (WHERE ${where})::int`;
- const counted=(await db.query<RegistryCounts&{total:number}>(`SELECT count(*)::int "all",${REGISTRY_STATUSES.map(x=>`${n(`k2.status='${x}'`)} "${x}"`).join(',')},
-   ${n('k2.high')} high,${n('k3.high_run')} high_run,${n('k3.ga18')} ga18,${n('k.hold')} hold,${n('k.identity_issue')} "identity",${n('k3.attention')} attention,${n(`${STATUS_SQL} AND ${FLAG_SQL}`)} total ${base}`,values)).rows[0];
- const {total,...counts}=counted;
- if(summary){
-  // The latest Run's label for the dashboard alert (no patient data): same subquery, same released-result scope.
-  const latestRun=counts.high_run?(await db.query<{run_label:string}>(`SELECT run_label FROM lab_batch WHERE id=${LATEST_RUN.replaceAll('$8','$1')}`,[releasedReadable])).rows[0]?.run_label??null:null;
-  return {counts,latestRun,scopeUnits};
- }
- const meta=clampPage(requested,total,pageSize);
- const order=sort==='registered'?"c.created_at DESC,(CASE WHEN c.registration_origin='HISTORICAL' THEN r.received_at END) DESC NULLS LAST,c.id"
-  :sort==='sent_desc'||sort==='sent_asc'?`${sentAtSql('c')} ${sort==='sent_asc'?'ASC':'DESC'} NULLS LAST,c.created_at DESC,c.id`:receiveOrderSql('r.received_at',sort,['l.ln','c.id']);
- const rows=(await db.query<CaseScope&{received_at:Date|null;received_source:string|null;draft:RequestDraft|null;patient_name:string|null;collection_date:string|null;sent_at:Date|null;version:number|null;request_mode:string|null;consent_mode:string|null;consent_decision:string|null;clinical_ready:boolean;released:boolean;reported_before:boolean;ga_edd:string|null;ga_collection:string|null;status:RegistryStatus;hold:boolean;identity_issue:boolean;high:boolean}>(
+  AND ($9::uuid IS NULL OR EXISTS(SELECT 1 FROM case_unit_scope us2 WHERE us2.case_id=c.id AND us2.unit_id=$9::uuid AND (us2.unit_id::text||':'||c.registration_origin)=ANY($2::text[])))`;
+ // ONE scan of the scope (Owner 2026-11-14 benchmark: three scans with the per-row facts dominated the cost): each case's filter facts and
+ // sort keys. The counts, the TAT sets, the filtered list and its order are derived from it below, so a count and its list are one set by construction.
+ // The latest Run is looked up once ($10), not inside the per-row lateral where it would run again for every row.
+ const run=(await db.query<{id:string;run_label:string}>(`SELECT id,run_label FROM lab_batch WHERE id=${LATEST_RUN.replaceAll('$8','$1')}`,[releasedReadable])).rows[0]??null;
+ const us=(x:string)=>`floor(extract(epoch FROM ${x})*1000000)::bigint`;
+ type Scan={id:string;ln:string;unit_id:string;registration_origin:string;created_us:string;sent_us:string|null;received_us:string|null;received_at:Date|null;status:RegistryStatus;high:boolean;high_run:boolean;ga_days:number|null;hold:boolean;urgent:boolean;identity_issue:boolean};
+ const scanned=(await db.query<Scan>(`SELECT c.id,l.ln,s.unit_id,c.registration_origin,${us('c.created_at')} created_us,${us(sentAtSql('c'))} sent_us,${us('r.received_at')} received_us,r.received_at,
+   k2.status,k2.high,k3.high_run,k.ga_days,k.hold,k.urgent,k.identity_issue ${base}`,[...values,run?.id??null])).rows
+  .filter(c=>authorize(user,'case.read',{unitId:c.unit_id,origin:c.registration_origin as 'ANC'},'read'));
+ // TAT: the cases in "กำลังตรวจ" whose current round the Lab received, by the same tatStatus() and calendar as the Lab overview.
+ const cal=await workingCalendar(db,now),top=cal.policy.businessDays+4,aging=Array.from({length:top+1},(_,days)=>({days,ok:0,dueSoon:0,overdue:0}));
+ const tatOf=new Map<string,'ok'|'due-soon'|'overdue'>();
+ for(const c of scanned)if(c.status==='testing'&&c.received_at){const t=tatStatus(c.received_at,now,cal.holidays,cal.policy),b=aging[Math.min(Math.max(0,t.used),top)];tatOf.set(c.id,t.state);if(t.state==='overdue')b.overdue++;else if(t.state==='due-soon')b.dueSoon++;else b.ok++;}
+ const tat={policy:cal.policy,aging,missingYears:cal.missingYears};
+ const has:Record<RegistryFlag,(c:Scan)=>boolean>={high:c=>c.high,high_run:c=>c.high_run,ga18:c=>c.status!=='released'&&c.ga_days!==null&&c.ga_days>126,hold:c=>c.hold,identity:c=>c.identity_issue,
+  attention:c=>c.status==='followup'||c.status==='other'||c.hold||c.identity_issue,
+  tat_open:c=>tatOf.has(c.id),tat_due:c=>tatOf.get(c.id)==='due-soon',tat_overdue:c=>tatOf.get(c.id)==='overdue'};
+ // Facet counts: search, date and unit applied; status and flag not, so every chip says how many it would show.
+ const counts=Object.fromEntries([['all',scanned.length],...REGISTRY_STATUSES.map(s=>[s,scanned.filter(c=>c.status===s).length]),...REGISTRY_FLAGS.map(f=>[f,scanned.filter(has[f]).length])]) as RegistryCounts;
+ if(summary)return {counts,latestRun:counts.high_run?run?.run_label??null:null,scopeUnits,tat};
+ const matching=scanned.filter(c=>(!status||c.status===status)&&(!flag||has[flag](c)));
+ // The same order the SQL used (microsecond keys, NULLS LAST, the same tie-breakers).
+ const big=(v:string|null)=>v===null?null:BigInt(v),cmp=(a:bigint|null,b:bigint|null,dir:1|-1)=>a===b?0:a===null?1:b===null?-1:(a<b?-dir:dir);
+ const tie=(a:Scan,b:Scan)=>a.id<b.id?-1:a.id>b.id?1:0;
+ const order:(a:Scan,b:Scan)=>number=sort==='registered'?(a,b)=>cmp(big(a.created_us),big(b.created_us),-1)||tie(a,b)
+  :sort==='sent_desc'||sort==='sent_asc'?(a,b)=>cmp(big(a.sent_us),big(b.sent_us),sort==='sent_asc'?1:-1)||cmp(big(a.created_us),big(b.created_us),-1)||tie(a,b)
+  :(a,b)=>cmp(big(a.received_us),big(b.received_us),sort==='asc'?1:-1)||(a.ln<b.ln?-1:a.ln>b.ln?1:0)||tie(a,b);
+ matching.sort(order);
+ const meta=clampPage(requested,matching.length,pageSize),pageScan=matching.slice(offsetOf(meta),offsetOf(meta)+pageSize),fact=new Map(pageScan.map(c=>[c.id,c]));
+ // Display columns for the rows of this page only.
+ const detail=(await db.query<CaseScope&{received_at:Date|null;received_source:string|null;draft:RequestDraft|null;patient_name:string|null;collection_date:string|null;sent_at:Date|null;version:number|null;request_mode:string|null;consent_mode:string|null;consent_decision:string|null;clinical_ready:boolean;released:boolean;reported_before:boolean;ga_edd:string|null;ga_collection:string|null}>(
   `SELECT c.id,l.ln,i.hn,c.registration_origin,c.current_round_id,${sentAtSql('c')} sent_at,s.unit_id,r.state,r.analysis_started,r.round_number,r.received_at,r.received_source,r.collection_date::text,w.draft,CASE WHEN pet_patient.inbound_file_id IS NOT NULL THEN pet_patient.name ELSE COALESCE(NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),''),patient_history.name) END patient_name,w.version,w.request_mode,w.consent_mode,p2_clinical_ready(r.id) clinical_ready,EXISTS(SELECT 1 FROM result_release rr JOIN result_report_version rv ON rv.id=rr.version_id WHERE rr.case_id=c.id AND rr.round_id=r.id AND rr.kind='RESULT' AND rr.state='Active' AND rv.case_id=c.id AND rv.round_id=r.id AND rv.kind='RESULT' AND rv.state='CertifiedReleased') released,EXISTS(SELECT 1 FROM historical_reported_result hr WHERE hr.case_id=c.id AND hr.round_id=r.id) reported_before,(CASE WHEN w.round_id IS NULL THEN NULL ELSE p2_consent_latest_decision(w.round_id) END) consent_decision,
-   ${gaEddSql('w')} ga_edd,${gaCollectionSql('r','w')} ga_collection,k2.status,k.hold,k.identity_issue,k2.high ${base} AND ${STATUS_SQL} AND ${FLAG_SQL}
-   ORDER BY ${order} LIMIT ${pageSize} OFFSET ${offsetOf(meta)}`,values)).rows;
+   ${gaEddSql('w')} ga_edd,${gaCollectionSql('r','w')} ga_collection ${joinsFor('$2')} WHERE c.id=ANY($1::uuid[])`,[pageScan.map(c=>c.id),readable])).rows;
+ const byId=new Map(detail.map(d=>[d.id,d]));
  // A paper request is checked on the paper review, so the electronic draft's missing fields say nothing about it.
- const seen=new Set<string>();const cases=rows.filter(c=>{if(seen.has(c.id)||!authorize(user,'case.read',{unitId:c.unit_id,origin:c.registration_origin},'read'))return false;seen.add(c.id);return true;}).map(({draft,ga_edd,ga_collection,high,...c})=>({...c,highRisk:high,hasResult:c.released||c.reported_before,patient_name:c.patient_name?.trim()||null,ga:registryGa(ga_edd,ga_collection),identityVerified:c.hn!==null,progress:draft&&c.request_mode!=='Paper'?{missing:requestProgressIssues(draft),savedVersion:c.version}:null}));
+ const cases=pageScan.map(p=>byId.get(p.id)).filter((c):c is NonNullable<typeof c>=>!!c).map(({draft,ga_edd,ga_collection,...c})=>{const f=fact.get(c.id)!;return {...c,status:f.status,hold:f.hold,urgent:f.urgent,identity_issue:f.identity_issue,highRisk:f.high,hasResult:c.released||c.reported_before,patient_name:c.patient_name?.trim()||null,ga:registryGa(ga_edd,ga_collection),identityVerified:c.hn!==null,progress:draft&&c.request_mode!=='Paper'?{missing:requestProgressIssues(draft),savedVersion:c.version}:null};});
  const units=allUnits.filter(u=>authorize(user,'case.register.anc',{unitId:u.id,origin:'ANC'})||authorize(user,'case.register.lab',{unitId:u.id,origin:'LAB_DIRECT'}));
  if(cases.length)await recordPhiAccess(db,user.id,cases.map(c=>c.id),'REGISTRY_VIEW');
  // How far the Lab Run has got, for the rows on this page only (ANC progress bar).
@@ -499,9 +521,9 @@ async function readRegistry(db:Queryable,user:Staff,input:unknown,summary:boolea
  return {cases:cases.map(c=>({...c,labSteps:c.analysis_started?steps.get(c.current_round_id)??null:null})),units,scopeUnits,counts,page:meta};
 }
 type RegistryRead=Awaited<ReturnType<typeof readRegistry>>;
-export async function listP2Cases(db:Queryable,user:Staff,input:unknown={}){return await readRegistry(db,user,input,false) as Extract<RegistryRead,{cases:unknown}>;}
+export async function listP2Cases(db:Queryable,user:Staff,input:unknown={},now=new Date()){return await readRegistry(db,user,input,false,now) as Extract<RegistryRead,{cases:unknown}>;}
 /** Counts only (dashboards): the registry's own predicate and scope, so a dashboard number is exactly what the filtered registry lists. */
-export async function registrySummary(db:Queryable,user:Staff,input:unknown={}){return await readRegistry(db,user,input,true) as Extract<RegistryRead,{latestRun:unknown}>;}
+export async function registrySummary(db:Queryable,user:Staff,input:unknown={},now=new Date()){return await readRegistry(db,user,input,true,now) as Extract<RegistryRead,{latestRun:unknown}>;}
 
 /** Human clinical assessment bound to the exact current round and all document/receipt evidence. */
 export async function approveClinicalP2(db:Queryable,user:Staff,id:string,input:unknown){

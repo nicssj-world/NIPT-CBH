@@ -4,12 +4,15 @@ import {randomUUID} from 'node:crypto';
 import {testDatabase} from '../helpers/database';
 import {labUsers,syntheticCase,receiveS1,tx} from '../helpers/lab';
 import type {Queryable} from '../../packages/db/connection';
-import {listP2Cases,registrySummary} from '../../packages/p2/service';
+import {listP2Cases,registrySummary,REGISTRY_FLAGS,REGISTRY_STATUSES} from '../../packages/p2/service';
+import {tatStatus} from '../../packages/calendar/business-days';
 
 let db:PGlite,u:Awaited<ReturnType<typeof labUsers>>,other:string;
 const q=()=>db as unknown as Queryable;
 type C={caseId:string;roundId:string};
-const c:Record<'waiting'|'testing'|'high'|'low'|'otherUnit',C>={} as never;
+const c:Record<'waiting'|'testing'|'high'|'low'|'otherUnit'|'soon'|'fresh',C>={} as never;
+// Wednesday 2026-11-11, 12:00 Bangkok (no holidays in the fixture: weekends only).
+const NOW=new Date('2026-11-11T05:00:00Z');
 
 /** Released result fixture (FKs off), as tests/db/anc-insights.test.ts. Returns the attempt id. */
 async function release(t:Queryable,x:C,at:string,parsed:unknown){
@@ -36,6 +39,8 @@ beforeAll(async()=>{
  c.high=await make(u.unit,'2026-10-07T03:00:00Z');
  c.low=await make(u.unit,'2026-10-08T03:00:00Z');
  c.otherUnit=await make(other,'2026-10-09T03:00:00Z');
+ c.soon=await make(u.unit,'2026-10-30T03:00:00Z');   // Fri 30 Oct: 8 working days used on 11 Nov -> due today (due soon)
+ c.fresh=await make(u.unit,'2026-11-10T03:00:00Z');  // Tue 10 Nov: 1 working day used -> within the TAT
  // GA at the 5 Oct draw with EDD 1 Feb 2027 = 23+0 (over 18 weeks), recorded by the Lab paper registration.
  await db.query(`INSERT INTO lab_operational_registration(round_id,case_id,ga_weeks,ga_days,edd,pregnancy,paper_request,paper_consent,input_sha256,actor_id) VALUES($1,$2,0,0,'2027-02-01','Singleton',true,true,$3,$4)`,[c.testing.roundId,c.testing.caseId,'c'.repeat(64),u.staff.id]);
  // The High Risk result sits in the newest Run; an older Run holds the other unit's High Risk result.
@@ -51,9 +56,9 @@ const sorted=(...x:C[])=>x.map(y=>y.caseId).sort();
 describe('central registry filters (Owner 2026-11-14)',()=>{
  it('counts every status and flag over the same scope, and the status filter lists exactly those rows',async()=>{
   const all=await listP2Cases(q(),u.staff,{});
-  expect(all.counts).toMatchObject({all:5,awaiting:1,testing:1,released:3,followup:0,high:2,high_run:1,ga18:1});
+  expect(all.counts).toMatchObject({all:7,awaiting:1,testing:3,released:3,followup:0,high:2,high_run:1,ga18:1});
   expect((await listP2Cases(q(),u.staff,{status:'awaiting'})).cases.map(x=>x.id)).toEqual([c.waiting.caseId]);
-  expect((await listP2Cases(q(),u.staff,{status:'testing'})).cases.map(x=>x.id)).toEqual([c.testing.caseId]);
+  expect(ids(await listP2Cases(q(),u.staff,{status:'testing'}))).toEqual(sorted(c.testing,c.soon,c.fresh));
   const released=await listP2Cases(q(),u.staff,{status:'released'});
   expect(ids(released)).toEqual(sorted(c.high,c.low,c.otherUnit));
   expect(released.page.total).toBe(3);
@@ -86,7 +91,39 @@ describe('central registry filters (Owner 2026-11-14)',()=>{
   expect(s.latestRun).toBe('Run009/2569');
   const after=(await db.query<{n:number}>('SELECT count(*)::int n FROM phi_access_log WHERE actor_id=$1',[u.staff.id])).rows[0].n;
   // listP2Cases above records its own page; the summary adds nothing.
-  expect(after-before).toBe(5);
+  expect(after-before).toBe(7);
+ });
+ it('TAT flags: the same tatStatus() as the Lab, and each count is exactly its list (Owner 2026-11-14)',async()=>{
+  const s=await registrySummary(q(),u.staff,{},NOW);
+  expect(s.counts).toMatchObject({tat_open:3,tat_overdue:1,tat_due:1});
+  expect(s.tat.policy).toEqual({businessDays:8,warnDaysLeft:2});
+  expect(s.tat.aging.reduce((n,b)=>n+b.ok+b.dueSoon+b.overdue,0)).toBe(3);
+  // Independent check with the Lab's own function over the received rows.
+  const rows=(await db.query<{case_id:string;received_at:Date}>('SELECT case_id,received_at FROM specimen_round WHERE case_id=ANY($1)',[[c.testing.caseId,c.soon.caseId,c.fresh.caseId]])).rows;
+  const state=new Map(rows.map(r=>[r.case_id,tatStatus(r.received_at,NOW,new Set(),{businessDays:8,warnDaysLeft:2}).state]));
+  expect(state.get(c.testing.caseId)).toBe('overdue');expect(state.get(c.soon.caseId)).toBe('due-soon');expect(state.get(c.fresh.caseId)).toBe('ok');
+  expect((await listP2Cases(q(),u.staff,{flag:'tat_overdue'},NOW)).cases.map(x=>x.id)).toEqual([c.testing.caseId]);
+  expect((await listP2Cases(q(),u.staff,{flag:'tat_due'},NOW)).cases.map(x=>x.id)).toEqual([c.soon.caseId]);
+  expect(ids(await listP2Cases(q(),u.staff,{flag:'tat_open'},NOW))).toEqual(sorted(c.testing,c.soon,c.fresh));
+ });
+ it('count / list parity: every status and flag count equals the total of its filtered list, for every role scope',async()=>{
+  for(const who of [u.staff,u.anc,u.approver]){
+   const s=await registrySummary(q(),who,{},NOW);
+   for(const status of REGISTRY_STATUSES)expect([status,(await listP2Cases(q(),who,{status},NOW)).page.total]).toEqual([status,s.counts[status]]);
+   for(const flag of REGISTRY_FLAGS)expect([flag,(await listP2Cases(q(),who,{flag},NOW)).page.total]).toEqual([flag,s.counts[flag]]);
+   expect((await listP2Cases(q(),who,{},NOW)).page.total).toBe(s.counts.all);
+  }
+ });
+ it('permissions: ANC sees only its units; High Risk only for roles that may read released results',async()=>{
+  const anc=await registrySummary(q(),u.anc,{},NOW);
+  expect(anc.counts.all).toBe(6);                      // the other unit's case is out of scope
+  expect(anc.counts).toMatchObject({high:1,high_run:1});
+  await expect(listP2Cases(q(),u.anc,{unitId:other})).rejects.toThrow('FORBIDDEN');
+  // The clinical approver may read cases but not released results: no High Risk count, filter or mark.
+  const approver=await listP2Cases(q(),u.approver,{status:'released'},NOW);
+  expect(approver.cases.length).toBeGreaterThan(0);
+  expect(approver.cases.every(x=>x.highRisk===false)).toBe(true);
+  expect((await registrySummary(q(),u.approver,{},NOW)).counts).toMatchObject({high:0,high_run:0});
  });
  it('sorts by the send date both ways',async()=>{
   const desc=(await listP2Cases(q(),u.staff,{sort:'sent_desc'})).cases.map(x=>x.sent_at?new Date(x.sent_at).getTime():-1);

@@ -41,5 +41,5 @@ export default async function Overview({searchParams}:{searchParams:Promise<{vie
   {key:"batch",href:"/lab/batches",label:"อยู่ใน Batch / กำลังทำ",n:lab?.counts.IN_BATCH??null,parts:lab?[{label:"ต้องตัดสินใจ (QC ไม่ผ่าน / หยุด)",n:lab.counts.DECISION}]:[],go:"ไป Batch / Task List",hot:!!lab?.counts.DECISION});
  if(board!==undefined)stages.push({key:"results",href:"/results",label:"ผลตรวจ: ต้องจัดการ",n:board?.counts.ACTION??null,parts:board?[{label:"รอส่ง HIS",n:board.counts.READY},{label:"ส่งแล้ว",n:board.counts.SENT}]:[],go:"ไปผลตรวจ NIPT"});
  const alerts=lab?.counts.LN_HALOS_MISSING?[{text:`ไม่มี LN Halos ${lab.counts.LN_HALOS_MISSING} รายการ`,href:"/lab?tab=LN_HALOS_MISSING"}]:[];
- const labHome=<LabWorkload stages={stages} alerts={alerts} overview={overview} registry={registry?.counts??null} decisions={lab?.counts.DECISION??null} generatedAt={new Date().toISOString()}/>;
+ const labHome=<LabWorkload stages={stages} alerts={alerts} overview={overview} registry={registry??null} decisions={lab?.counts.DECISION??null} generatedAt={new Date().toISOString()}/>;
  return admin?<><AdminHomeSwitch view="lab"/>{labHome}</>:labHome;}

@@ -63,3 +63,22 @@ describe('percentile (nearest rank)',()=>{
   expect(percentile([10,1,2],50)).toBe(2);
  });
 });
+
+describe('businessDaysBetween keeps the day-walk result (Owner 2026-11-14: O(weeks) instead of O(days))',()=>{
+ // The original implementation, kept as the reference.
+ const walk=(from:string,to:string,h:ReadonlySet<string>)=>{const a=bangkokDay(from),b=bangkokDay(to);if(b<=a)return 0;let n=0;for(let d=addDays(a,1),i=0;d<=b&&i<3660;d=addDays(d,1),i++)if(isBusinessDay(d,h))n++;return n;};
+ it('agrees on 2,000 random spans with random holidays, across weekends, years and the ten-year cap',()=>{
+  let seed=20261114;const rnd=()=>{seed=(seed*1103515245+12345)%2147483648;return seed/2147483648;};
+  const day=(n:number)=>addDays('2015-01-01',n);
+  for(let i=0;i<2000;i++){
+   const a=Math.floor(rnd()*4000),len=Math.floor(rnd()*(i%10===0?4500:60))-5;
+   const h=new Set(Array.from({length:Math.floor(rnd()*12)},()=>day(a+Math.floor(rnd()*Math.max(1,len+10)))));
+   if(i%7===0)h.add('not-a-day');
+   expect([day(a),day(a+len),businessDaysBetween(day(a),day(a+len),h)]).toEqual([day(a),day(a+len),walk(day(a),day(a+len),h)]);
+  }
+ });
+ it('agrees for instants (Bangkok days) and holidays outside the span',()=>{
+  const h=new Set(['2026-11-10','2025-01-01','2030-01-01']);
+  expect(businessDaysBetween('2026-11-06T16:59:59Z','2026-11-16T17:00:00Z',h)).toBe(walk('2026-11-06T16:59:59Z','2026-11-16T17:00:00Z',h));
+ });
+});

@@ -11,8 +11,9 @@ import "../shared/console.css";
 import "../dashboard/dashboard.css";
 import "../p2/registry.css";
 
-type Counts=Record<"all"|"awaiting"|"testing"|"released"|"followup"|"other"|"high"|"high_run"|"ga18"|"hold"|"identity"|"attention",number>;
-type Summary={counts:Counts;latestRun:string|null;scopeUnits:{id:string;name:string}[]};
+type Counts=Record<"all"|"awaiting"|"testing"|"released"|"followup"|"other"|"high"|"high_run"|"ga18"|"hold"|"identity"|"attention"|"tat_open"|"tat_due"|"tat_overdue",number>;
+/** The registry summary: counts of the registry's own filters, and the TAT aging of the same cases (tatStatus, Lab policy and holidays). */
+type Summary={counts:Counts;latestRun:string|null;scopeUnits:{id:string;name:string}[];tat:{policy:{businessDays:number;warnDaysLeft:number};aging:{days:number;ok:number;dueSoon:number;overdue:number}[]}};
 type Source<T>={data:T|null;error:string;forbidden:boolean};
 const W=STATUS_LABEL.anc;
 const n=(v:number|undefined|null)=>v===undefined||v===null?"—":v.toLocaleString("th-TH");
@@ -31,7 +32,9 @@ export function AncDashboard({operational=false}:{operational?:boolean}){
  useEffect(()=>{let live=true;const t=setTimeout(()=>{setState(s=>({...s,loading:true}));const u=unitId?"&unitId="+encodeURIComponent(unitId):"";
   void Promise.all([load<Summary>("/api/p2/cases?summary=1"+u),load<AncInsights>("/api/anc/insights?view=dashboard"+u)]).then(([summary,insights])=>{if(live)setState({summary,insights,loading:false});});},0);
   return()=>{live=false;clearTimeout(t);};},[unitId,tick]);
- const {summary,insights,loading}=state,c=summary.data?.counts,ins=insights.data,tat=ins?.tat;
+ const {summary,insights,loading}=state,c=summary.data?.counts,ins=insights.data,tat=summary.data?.tat;
+ // TAT lists: exactly the cases counted (registry flags built from the same tatStatus).
+ const over=registryHref({flag:"tat_overdue",sort:"asc"}),soon=registryHref({flag:"tat_due",sort:"asc"}),waiting=registryHref({flag:"tat_open",sort:"asc"});
  const units=ins?.units??[],scope=unitId?units.find(u=>u.id===unitId)?.name??"หน่วยงานที่เลือก":units.length===1?units[0].name:"ทุกหน่วยงานในสิทธิ์";
  const forbidden=summary.forbidden&&insights.forbidden;
  const head=<header className="page-header"><div><h1>Dashboard</h1><p className="page-meta">ANC · {scope}{!operational&&" · ข้อมูลจำลอง"}{ins&&<> · ข้อมูล ณ <time dateTime={ins.generatedAt}>{new Date(ins.generatedAt).toLocaleString("th-TH",{timeZone:"Asia/Bangkok",dateStyle:"medium",timeStyle:"short"})} น.</time></>}</p></div>
@@ -42,13 +45,13 @@ export function AncDashboard({operational=false}:{operational?:boolean}){
   {units.length>1&&<label className="registry-filter">หน่วยงาน<select value={unitId} onChange={e=>setUnitId(e.target.value)}><option value="">ทุกหน่วยงานในสิทธิ์</option>{units.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></label>}
   </section>;
  // A source the user may not read (403) is said too, so "—" is never left unexplained.
- const failed=[summary.error&&(summary.forbidden?"ตัวเลขสถานะเคส (ไม่มีสิทธิ์ในหน่วยงานนี้)":"ตัวเลขสถานะเคส"),insights.error&&(insights.forbidden?"TAT และ 14 วันล่าสุด (ไม่มีสิทธิ์ในหน่วยงานนี้)":"TAT และ 14 วันล่าสุด")].filter(Boolean);
+ const failed=[summary.error&&(summary.forbidden?"ตัวเลขสถานะเคสและ TAT (ไม่มีสิทธิ์ในหน่วยงานนี้)":"ตัวเลขสถานะเคสและ TAT"),insights.error&&(insights.forbidden?"ยอดปีงบและ 14 วันล่าสุด (ไม่มีสิทธิ์ในหน่วยงานนี้)":"ยอดปีงบและ 14 วันล่าสุด")].filter(Boolean);
  // Alerts = what needs a person today: results and time. Workflow follow-ups are the chart below, so nothing is said twice.
  const alerts=[
   {key:"high",text:`ผลความเสี่ยงสูง · ${summary.data?.latestRun??"Run ล่าสุด"}`,v:c?.high_run,href:registryHref({flag:"high_run"}),tone:"bad"},
   {key:"ga",text:"GA เกิน 18 สัปดาห์ (ยังไม่มีผล)",v:c?.ga18,href:registryHref({flag:"ga18"}),tone:"bad"},
-  {key:"over",text:"เกินกำหนด TAT",v:tat?.overdue,href:registryHref({status:"testing",sort:"asc"}),tone:"bad"},
-  {key:"soon",text:`ใกล้ครบกำหนด TAT (เหลือ ≤ ${tat?.policy.warnDaysLeft??2} วันทำการ)`,v:tat?.dueSoon,href:registryHref({status:"testing",sort:"asc"}),tone:"warn"},
+  {key:"over",text:"เกินกำหนด TAT",v:c?.tat_overdue,href:over,tone:"bad"},
+  {key:"soon",text:`ใกล้ครบกำหนด TAT (เหลือ ≤ ${tat?.policy.warnDaysLeft??2} วันทำการ)`,v:c?.tat_due,href:soon,tone:"warn"},
  ].filter(a=>(a.v??0)>0);
  return <div className={"dash-home"+(loading&&!first?" is-stale":"")} aria-busy={loading}>
   {head}{units.length>1&&toolbar}
@@ -56,14 +59,14 @@ export function AncDashboard({operational=false}:{operational?:boolean}){
   {first?<section className="dash-skeleton" aria-label="กำลังโหลด Dashboard" role="status"><span/><span/><span/></section>:<>
   <section className="dash-alerts" aria-labelledby="ad-alerts"><h2 id="ad-alerts">ต้องดูตอนนี้</h2>
    {alerts.length?<ul className="dash-attention">{alerts.map(a=><li key={a.key}><Link href={a.href} className={a.tone}><Icon name="alert"/>{a.text} <span className="n">{n(a.v)}</span></Link></li>)}</ul>
-   :c&&tat?<p className="dash-calm"><Icon name="done"/>ไม่มีผลความเสี่ยงสูงใน Run ล่าสุด, GA เกิน 18 สัปดาห์ หรือเคสเกินกำหนด TAT</p>:<p className="dash-empty">ยังอ่านรายการเตือนไม่ได้</p>}</section>
+   :c?<p className="dash-calm"><Icon name="done"/>ไม่มีผลความเสี่ยงสูงใน Run ล่าสุด, GA เกิน 18 สัปดาห์ หรือเคสเกินกำหนด TAT</p>:<p className="dash-empty">ยังอ่านรายการเตือนไม่ได้</p>}</section>
   <ul className="dash-kpis" aria-label="ตัวเลขสำคัญ">
    <Kpi label={`ส่งตรวจ ปีงบ ${ins?.fiscalYear??""}`} value={ins?.stats.totals.sent} sub="Lab รับตัวอย่างครั้งแรก · ดูสถิติ" href="/anc-stats"/>
    <Kpi label={W.awaiting} value={c?.awaiting} sub="ลงทะเบียนแล้ว ตัวอย่างยังไม่ถึง Lab" href={registryHref({status:"awaiting"})}/>
    <Kpi label={W.testing} value={c?.testing} sub="Lab รับแล้ว ยังไม่มีผล" href={registryHref({status:"testing"})}/>
    <Kpi label={W.released} value={c?.released} sub="รวมทุกปีในสิทธิ์" href={registryHref({status:"released"})} tone="good"/>
    <Kpi label="ต้องติดตาม" value={c?.attention} sub="เจาะซ้ำ · HOLD · ข้อมูลตัวตน · ตรวจสอบสถานะ" href={registryHref({flag:"attention"})} tone="warn"/>
-   <Kpi label="ใกล้ / เกินกำหนด TAT" value={tat?tat.overdue+tat.dueSoon:null} sub={tat?`เกิน ${tat.overdue} · ใกล้ครบ ${tat.dueSoon} จากที่รอผล ${tat.open} ราย`:"กำหนดตามวันทำการของ Lab"} href={registryHref({status:"testing",sort:"asc"})} tone={tat?.overdue?"bad":"warn"}/>
+   <Kpi label="เกินกำหนด TAT" value={c?.tat_overdue} sub={c?`ใกล้ครบอีก ${c.tat_due} · จากที่รอผล ${c.tat_open} ราย`:"กำหนดตามวันทำการของ Lab"} href={over} tone="bad"/>
   </ul>
   <div className="dash-stat-grid">
    <section className="panel dash-panel" aria-labelledby="ad-status"><header className="dash-panel-head"><h2 id="ad-status">สถานะเคสตอนนี้</h2><p className="dash-panel-note">ทุกปีในสิทธิ์ · กดแถวเพื่อเปิดรายการในทะเบียนกลาง</p></header>
@@ -77,7 +80,7 @@ export function AncDashboard({operational=false}:{operational?:boolean}){
     {tat?<Columns title="เคสที่รอผล แยกตามวันทำการที่ใช้ไป" mode="stack" parts={[{name:"ภายในกำหนด",tone:"good"},{name:`ใกล้ครบ (≤ ${tat.policy.warnDaysLeft} วัน)`,tone:"warn"},{name:"เกินกำหนด",tone:"bad"}]}
      items={tat.aging.map((b,i,all)=>({label:i===all.length-1?`${b.days}+`:String(b.days),long:`ใช้ไป ${b.days}${i===all.length-1?" วันทำการขึ้นไป":" วันทำการ"}`,values:[b.ok,b.dueSoon,b.overdue]}))}
      limit={{at:tat.policy.businessDays,label:`กำหนด ${tat.policy.businessDays} วัน`}} axisNote="แกนนอน = วันทำการตั้งแต่ Lab รับตัวอย่าง (ไม่นับเสาร์-อาทิตย์และวันหยุด)" empty="ไม่มีเคสที่รอผลอยู่"/>:<p className="dash-empty">อ่านข้อมูล TAT ไม่ได้</p>}
-    {tat&&tat.overdue+tat.dueSoon>0&&<Link className="button secondary" href={registryHref({status:"testing",sort:"asc"})}>เปิดเคสที่รอผล เรียงจากรอนานที่สุด</Link>}</section>
+    {c&&c.tat_open>0&&<Link className="button secondary" href={waiting}>เปิดเคสที่รอผล เรียงจากรอนานที่สุด</Link>}</section>
    <section className="panel dash-panel" aria-labelledby="ad-follow"><header className="dash-panel-head"><h2 id="ad-follow">เคสที่ต้องติดตาม</h2><p className="dash-panel-note">ปัญหาค้างตามขั้นตอนจริง · เคสหนึ่งอาจอยู่หลายแถว</p></header>
     {c?<LinkBars title="ติดตามตามเรื่อง" parts={[{name:"เคส",tone:"s2"}]} unit="ราย" rows={[
      {label:W.followup,sub:"ตัวอย่างเดิมตรวจไม่ได้",values:[c.followup],href:registryHref({status:"followup"}),tone:"warn" as const},

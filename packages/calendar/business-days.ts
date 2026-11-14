@@ -28,8 +28,18 @@ export function isBusinessDay(day:string,holidays:HolidaySet){const w=new Date(d
 export function businessDaysBetween(from:Date|string,to:Date|string,holidays:HolidaySet):number{
  const a=bangkokDay(from),b=bangkokDay(to);
  if(b<=a)return 0;
- let n=0;
- for(let d=addDays(a,1),i=0;d<=b&&i<MAX_SPAN_DAYS;d=addDays(d,1),i++)if(isBusinessDay(d,holidays))n++;
+ // Same count as walking the days one by one (capped at MAX_SPAN_DAYS), in O(weeks + holidays) instead of O(days) (Owner 2026-11-14
+ // benchmark: a long-waiting specimen made the day walk dominate the Dashboard). Day numbers count from 1970-01-01, a Thursday.
+ const first=dayNumber(a)+1,last=Math.min(dayNumber(b),dayNumber(a)+MAX_SPAN_DAYS);
+ return weekdaysBetween(first,last)-[...holidays].filter(h=>{if(!ISO_DAY.test(h))return false;const n=dayNumber(h);return n>=first&&n<=last&&!weekend(n);}).length;
+}
+const dayNumber=(day:string)=>Math.round(Date.parse(day+'T00:00:00Z')/DAY);
+const weekend=(n:number)=>{const w=((n+4)%7+7)%7;return w===0||w===6;};
+/** Monday-to-Friday days in [first, last] (day numbers, inclusive). */
+function weekdaysBetween(first:number,last:number){
+ if(last<first)return 0;
+ const span=last-first+1,weeks=Math.floor(span/7);let n=weeks*5;
+ for(let d=first+weeks*7;d<=last;d++)if(!weekend(d))n++;
  return n;
 }
 
