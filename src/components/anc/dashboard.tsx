@@ -10,7 +10,6 @@ import {registryHref,STATUS_LABEL} from "../p2/registry-filters";
 import type {AncInsights} from "../../../packages/anc/insights";
 import "../shared/console.css";
 import "../dashboard/dashboard.css";
-import "../p2/registry.css";
 
 type Counts=Record<"all"|"awaiting"|"testing"|"released"|"followup"|"other"|"high"|"high_run"|"ga18"|"hold"|"identity"|"attention"|"tat_open"|"tat_due"|"tat_overdue",number>;
 /** The registry summary: counts of the registry's own filters, and the TAT aging of the same cases (tatStatus, Lab policy and holidays). */
@@ -28,23 +27,20 @@ async function load<T>(url:string):Promise<Source<T>>{try{return {data:await api
  * alert and chart row opens /cases with the matching filter; the statistics of the year stay on "สถิติการส่งตรวจ".
  */
 export function AncDashboard({operational=false}:{operational?:boolean}){
- const [unitId,setUnitId]=useState(""),[tick,setTick]=useState(0);
+ // No unit filter here (Owner 2026-11-14): the Dashboard is the overview of every unit the user may read; by unit is the registry and the statistics.
+ const [tick,setTick]=useState(0);
  const [state,setState]=useState<{summary:Source<Summary>;insights:Source<AncInsights>;loading:boolean}>({summary:{data:null,error:"",forbidden:false},insights:{data:null,error:"",forbidden:false},loading:true});
- useEffect(()=>{let live=true;const t=setTimeout(()=>{setState(s=>({...s,loading:true}));const u=unitId?"&unitId="+encodeURIComponent(unitId):"";
-  void Promise.all([load<Summary>("/api/p2/cases?summary=1"+u),load<AncInsights>("/api/anc/insights?view=dashboard"+u)]).then(([summary,insights])=>{if(live)setState({summary,insights,loading:false});});},0);
-  return()=>{live=false;clearTimeout(t);};},[unitId,tick]);
+ useEffect(()=>{let live=true;const t=setTimeout(()=>{setState(s=>({...s,loading:true}));void Promise.all([load<Summary>("/api/p2/cases?summary=1"),load<AncInsights>("/api/anc/insights?view=dashboard")]).then(([summary,insights])=>{if(live)setState({summary,insights,loading:false});});},0);
+  return()=>{live=false;clearTimeout(t);};},[tick]);
  const {summary,insights,loading}=state,c=summary.data?.counts,ins=insights.data,tat=summary.data?.tat;
  // TAT lists: exactly the cases counted (registry flags built from the same tatStatus).
  const over=registryHref({flag:"tat_overdue",sort:"asc"}),soon=registryHref({flag:"tat_due",sort:"asc"}),waiting=registryHref({flag:"tat_open",sort:"asc"});
- const units=ins?.units??[],scope=unitId?units.find(u=>u.id===unitId)?.name??"หน่วยงานที่เลือก":units.length===1?units[0].name:"ทุกหน่วยงานในสิทธิ์";
+ const units=ins?.units??[],scope=units.length===1?units[0].name:"ทุกหน่วยงานในสิทธิ์";
  const forbidden=summary.forbidden&&insights.forbidden;
  const head=<header className="page-header"><div><h1>Dashboard</h1><p className="page-meta">ANC · {scope}{!operational&&" · ข้อมูลจำลอง"}{ins&&<> · ข้อมูล ณ <time dateTime={ins.generatedAt}>{new Date(ins.generatedAt).toLocaleString("th-TH",{timeZone:"Asia/Bangkok",dateStyle:"medium",timeStyle:"short"})} น.</time></>}</p></div>
   <div className="action-bar"><button type="button" className="icon-btn dash-refresh" disabled={loading} onClick={()=>setTick(x=>x+1)} aria-label={loading?"กำลังอัปเดตตัวเลข":"อัปเดตตัวเลขล่าสุด"} title={loading?"กำลังอัปเดตตัวเลข":"อัปเดตตัวเลขล่าสุด"}><LabIcon name="refresh" size={20}/></button><Link className="button secondary" href="/cases">เปิดทะเบียนกลาง</Link><Link className="button" href="/cases?register=anc">ลงทะเบียนคุณแม่</Link></div></header>;
  if(forbidden)return <div className="dash-home">{head}<section className="panel"><h2>ไม่มีสิทธิ์เปิด Dashboard ANC</h2><p>ไม่แสดงตัวเลขหรือเคสนอกขอบเขตสิทธิ์</p></section></div>;
  const first=loading&&!c&&!ins;
- const toolbar=<section className="dash-toolbar" aria-label="ตัวกรอง Dashboard">
-  {units.length>1&&<label className="registry-filter">หน่วยงาน<select value={unitId} onChange={e=>setUnitId(e.target.value)}><option value="">ทุกหน่วยงานในสิทธิ์</option>{units.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></label>}
-  </section>;
  // A source the user may not read (403) is said too, so "—" is never left unexplained.
  const failed=[summary.error&&(summary.forbidden?"ตัวเลขสถานะและระยะรอผล (ไม่มีสิทธิ์ดูหน่วยงานนี้)":"ตัวเลขสถานะและระยะรอผล"),insights.error&&(insights.forbidden?"ยอดปีงบและ 14 วันล่าสุด (ไม่มีสิทธิ์ดูหน่วยงานนี้)":"ยอดปีงบและ 14 วันล่าสุด")].filter(Boolean);
  // Alerts = what needs a person today: results and time. Workflow follow-ups are the chart below, so nothing is said twice.
@@ -55,7 +51,7 @@ export function AncDashboard({operational=false}:{operational?:boolean}){
   {key:"soon",text:`ใกล้ครบกำหนดรอผล (เหลือไม่เกิน ${tat?.policy.warnDaysLeft??2} วันทำการ)`,v:c?.tat_due,href:soon,tone:"warn"},
  ].filter(a=>(a.v??0)>0);
  return <div className={"dash-home"+(loading&&!first?" is-stale":"")} aria-busy={loading}>
-  {head}{units.length>1&&toolbar}
+  {head}
   {failed.length>0&&<div className="error" role="alert">โหลด{failed.join(" และ ")}ไม่สำเร็จ ช่องที่อ่านไม่ได้แสดง “—” <button type="button" className="button secondary" onClick={()=>setTick(x=>x+1)}>ลองใหม่</button></div>}
   {first?<section className="dash-skeleton" aria-label="กำลังโหลด Dashboard" role="status"><span/><span/><span/></section>:<>
   <section className="dash-alerts" aria-labelledby="ad-alerts"><h2 id="ad-alerts">ต้องดูตอนนี้</h2>
