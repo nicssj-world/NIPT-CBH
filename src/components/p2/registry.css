@@ -65,7 +65,7 @@
    whose numbers are the server's facet counts, and one line saying what is filtered with a clear-all. */
 .registry-filter{display:grid;gap:var(--ui-field-gap,8px);font-weight:600;font-size:.875rem;margin:0}
 .registry-filter select{min-height:var(--ui-control-height);min-width:12rem}
-.registry-refresh{display:inline-flex;align-items:center;gap:8px;align-self:flex-end;min-height:var(--ui-control-height)}
+.registry-refresh{flex:none;width:var(--ui-control-height);height:var(--ui-control-height);margin-top:calc(27px + var(--ui-field-gap,8px))}
 .registry-facets{display:grid;gap:8px;margin-bottom:var(--space-3)}
 .registry-facet-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
 .registry-facet-label{min-width:3.5rem;font-size:.8125rem;font-weight:600;color:var(--color-muted)}
@@ -78,7 +78,7 @@
 .registry-active{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin:0;font-size:.875rem;color:var(--color-muted)}
 .registry-clear{appearance:none;display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:0 4px;border:0;background:none;font:inherit;font-weight:600;color:var(--color-brand);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
 .registry-clear:focus-visible{outline:3px solid var(--color-focus);outline-offset:2px;border-radius:6px}
-@media(max-width:600px){.registry-filter,.registry-filter select{width:100%;min-width:0}.registry-refresh{width:100%;justify-content:center}.registry-facet-label{flex-basis:100%}}
+@media(max-width:600px){.registry-filter,.registry-filter select{width:100%;min-width:0}.registry-refresh{margin-top:0}.registry-facet-label{flex-basis:100%}}
 /* Search + sort chip on one line. The chip drops by exactly the field label block (globals: label min-height 27px + --ui-field-gap),
    so its box lines up with the input; both use --ui-control-height. */
 .registry-toolbar>.toggle-chip{margin-top:calc(27px + var(--ui-field-gap,8px));min-height:var(--ui-control-height)}

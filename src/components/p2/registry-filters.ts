@@ -38,5 +38,5 @@ export const STATUS_LABEL:Record<"anc"|"lab",Record<Status,string>>={
  anc:{awaiting:"รอ Lab รับตัวอย่าง",testing:"กำลังตรวจ",released:"มีผลตรวจแล้ว",followup:"ต้องเจาะเลือดใหม่",other:"ตรวจสอบสถานะ"},
  lab:{awaiting:"ยังไม่รับตัวอย่าง",testing:"รับแล้ว · กำลังตรวจ",released:"ออกผลแล้ว",followup:"รอเจาะเลือดซ้ำ",other:"ตรวจสอบสถานะ"},
 };
-export const FLAG_LABEL:Record<Flag,string>={high:"High Risk",high_run:"High Risk · Run ล่าสุด",ga18:"GA เกิน 18 สัปดาห์",hold:"HOLD",identity:"ข้อมูลตัวตนรอตรวจสอบ",attention:"ต้องติดตาม",tat_open:"รอผล (นับ TAT)",tat_due:"ใกล้ครบกำหนด TAT",tat_overdue:"เกินกำหนด TAT"};
+export const FLAG_LABEL:Record<Flag,string>={high:"High Risk",high_run:"High Risk ชุดผลล่าสุด",ga18:"อายุครรภ์เกิน 18 สัปดาห์",hold:"HOLD",identity:"ข้อมูลไม่ตรงกัน",attention:"ต้องติดตาม",tat_open:"รอผลอยู่",tat_due:"ใกล้ครบกำหนดรอผล",tat_overdue:"รอผลเกินกำหนด"};
 export const SORT_LABEL:Record<Sort,string>={registered:"ลงทะเบียนล่าสุดก่อน",desc:"รับสิ่งส่งตรวจ ใหม่ → เก่า",asc:"รับสิ่งส่งตรวจ เก่า → ใหม่",sent_desc:"วันที่ส่งตรวจ ใหม่ → เก่า",sent_asc:"วันที่ส่งตรวจ เก่า → ใหม่"};

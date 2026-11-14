@@ -3,6 +3,7 @@ import Link from "next/link";
 import {useEffect,useState} from "react";
 import {api,ApiFailure,message} from "../p2/shared";
 import {Icon} from "../p2/anc-progress-view";
+import {LabIcon} from "../shared/lab-icons";
 import {Columns,LinkBars} from "../dashboard/stat-charts";
 import {Kpi} from "../dashboard/kpi";
 import {registryHref,STATUS_LABEL} from "../p2/registry-filters";
@@ -38,20 +39,20 @@ export function AncDashboard({operational=false}:{operational?:boolean}){
  const units=ins?.units??[],scope=unitId?units.find(u=>u.id===unitId)?.name??"หน่วยงานที่เลือก":units.length===1?units[0].name:"ทุกหน่วยงานในสิทธิ์";
  const forbidden=summary.forbidden&&insights.forbidden;
  const head=<header className="page-header"><div><h1>Dashboard</h1><p className="page-meta">ANC · {scope}{!operational&&" · ข้อมูลจำลอง"}{ins&&<> · ข้อมูล ณ <time dateTime={ins.generatedAt}>{new Date(ins.generatedAt).toLocaleString("th-TH",{timeZone:"Asia/Bangkok",dateStyle:"medium",timeStyle:"short"})} น.</time></>}</p></div>
-  <div className="action-bar"><button type="button" className="button secondary" disabled={loading} onClick={()=>setTick(x=>x+1)}>{loading?"กำลังอัปเดต…":"รีเฟรช"}</button><Link className="button secondary" href="/cases">เปิดทะเบียนกลาง</Link><Link className="button" href="/cases?register=anc">ลงทะเบียนคุณแม่</Link></div></header>;
+  <div className="action-bar"><button type="button" className="icon-btn dash-refresh" disabled={loading} onClick={()=>setTick(x=>x+1)} aria-label={loading?"กำลังอัปเดตตัวเลข":"อัปเดตตัวเลขล่าสุด"} title={loading?"กำลังอัปเดตตัวเลข":"อัปเดตตัวเลขล่าสุด"}><LabIcon name="refresh" size={20}/></button><Link className="button secondary" href="/cases">เปิดทะเบียนกลาง</Link><Link className="button" href="/cases?register=anc">ลงทะเบียนคุณแม่</Link></div></header>;
  if(forbidden)return <div className="dash-home">{head}<section className="panel"><h2>ไม่มีสิทธิ์เปิด Dashboard ANC</h2><p>ไม่แสดงตัวเลขหรือเคสนอกขอบเขตสิทธิ์</p></section></div>;
  const first=loading&&!c&&!ins;
  const toolbar=<section className="dash-toolbar" aria-label="ตัวกรอง Dashboard">
   {units.length>1&&<label className="registry-filter">หน่วยงาน<select value={unitId} onChange={e=>setUnitId(e.target.value)}><option value="">ทุกหน่วยงานในสิทธิ์</option>{units.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select></label>}
   </section>;
  // A source the user may not read (403) is said too, so "—" is never left unexplained.
- const failed=[summary.error&&(summary.forbidden?"ตัวเลขสถานะเคสและ TAT (ไม่มีสิทธิ์ในหน่วยงานนี้)":"ตัวเลขสถานะเคสและ TAT"),insights.error&&(insights.forbidden?"ยอดปีงบและ 14 วันล่าสุด (ไม่มีสิทธิ์ในหน่วยงานนี้)":"ยอดปีงบและ 14 วันล่าสุด")].filter(Boolean);
+ const failed=[summary.error&&(summary.forbidden?"ตัวเลขสถานะและระยะรอผล (ไม่มีสิทธิ์ดูหน่วยงานนี้)":"ตัวเลขสถานะและระยะรอผล"),insights.error&&(insights.forbidden?"ยอดปีงบและ 14 วันล่าสุด (ไม่มีสิทธิ์ดูหน่วยงานนี้)":"ยอดปีงบและ 14 วันล่าสุด")].filter(Boolean);
  // Alerts = what needs a person today: results and time. Workflow follow-ups are the chart below, so nothing is said twice.
  const alerts=[
-  {key:"high",text:`ผลความเสี่ยงสูง · ${summary.data?.latestRun??"Run ล่าสุด"}`,v:c?.high_run,href:registryHref({flag:"high_run"}),tone:"bad"},
-  {key:"ga",text:"GA เกิน 18 สัปดาห์ (ยังไม่มีผล)",v:c?.ga18,href:registryHref({flag:"ga18"}),tone:"bad"},
-  {key:"over",text:"เกินกำหนด TAT",v:c?.tat_overdue,href:over,tone:"bad"},
-  {key:"soon",text:`ใกล้ครบกำหนด TAT (เหลือ ≤ ${tat?.policy.warnDaysLeft??2} วันทำการ)`,v:c?.tat_due,href:soon,tone:"warn"},
+  {key:"high",text:`ผลความเสี่ยงสูงในชุดผลล่าสุด${summary.data?.latestRun?` (${summary.data.latestRun})`:""}`,v:c?.high_run,href:registryHref({flag:"high_run"}),tone:"bad"},
+  {key:"ga",text:"อายุครรภ์เกิน 18 สัปดาห์ และยังไม่มีผล",v:c?.ga18,href:registryHref({flag:"ga18"}),tone:"bad"},
+  {key:"over",text:"รอผลเกินกำหนด",v:c?.tat_overdue,href:over,tone:"bad"},
+  {key:"soon",text:`ใกล้ครบกำหนดรอผล (เหลือไม่เกิน ${tat?.policy.warnDaysLeft??2} วันทำการ)`,v:c?.tat_due,href:soon,tone:"warn"},
  ].filter(a=>(a.v??0)>0);
  return <div className={"dash-home"+(loading&&!first?" is-stale":"")} aria-busy={loading}>
   {head}{units.length>1&&toolbar}
@@ -59,36 +60,35 @@ export function AncDashboard({operational=false}:{operational?:boolean}){
   {first?<section className="dash-skeleton" aria-label="กำลังโหลด Dashboard" role="status"><span/><span/><span/></section>:<>
   <section className="dash-alerts" aria-labelledby="ad-alerts"><h2 id="ad-alerts">ต้องดูตอนนี้</h2>
    {alerts.length?<ul className="dash-attention">{alerts.map(a=><li key={a.key}><Link href={a.href} className={a.tone}><Icon name="alert"/>{a.text} <span className="n">{n(a.v)}</span></Link></li>)}</ul>
-   :c?<p className="dash-calm"><Icon name="done"/>ไม่มีผลความเสี่ยงสูงใน Run ล่าสุด, GA เกิน 18 สัปดาห์ หรือเคสเกินกำหนด TAT</p>:<p className="dash-empty">ยังอ่านรายการเตือนไม่ได้</p>}</section>
+   :c?<p className="dash-calm"><Icon name="done"/>ไม่มีผลความเสี่ยงสูงในชุดผลล่าสุด ไม่มีคุณแม่อายุครรภ์เกิน 18 สัปดาห์ที่ยังไม่มีผล และไม่มีใครรอผลเกินกำหนด</p>:<p className="dash-empty">ยังโหลดรายการเตือนไม่ได้</p>}</section>
   <ul className="dash-kpis" aria-label="ตัวเลขสำคัญ">
-   <Kpi label={`ส่งตรวจ ปีงบ ${ins?.fiscalYear??""}`} value={ins?.stats.totals.sent} sub="Lab รับตัวอย่างครั้งแรก · ดูสถิติ" href="/anc-stats"/>
-   <Kpi label={W.awaiting} value={c?.awaiting} sub="ลงทะเบียนแล้ว ตัวอย่างยังไม่ถึง Lab" href={registryHref({status:"awaiting"})}/>
-   <Kpi label={W.testing} value={c?.testing} sub="Lab รับแล้ว ยังไม่มีผล" href={registryHref({status:"testing"})}/>
-   <Kpi label={W.released} value={c?.released} sub="รวมทุกปีในสิทธิ์" href={registryHref({status:"released"})} tone="good"/>
-   <Kpi label="ต้องติดตาม" value={c?.attention} sub="เจาะซ้ำ · HOLD · ข้อมูลตัวตน · ตรวจสอบสถานะ" href={registryHref({flag:"attention"})} tone="warn"/>
-   <Kpi label="เกินกำหนด TAT" value={c?.tat_overdue} sub={c?`ใกล้ครบอีก ${c.tat_due} · จากที่รอผล ${c.tat_open} ราย`:"กำหนดตามวันทำการของ Lab"} href={over} tone="bad"/>
+   <Kpi label={`ส่งตรวจในปีงบประมาณ ${ins?.fiscalYear??""}`} value={ins?.stats.totals.sent} sub="นับจากวันที่ห้อง Lab ได้รับเลือดครั้งแรก" href="/anc-stats"/>
+   <Kpi label={W.awaiting} value={c?.awaiting} sub="ลงทะเบียนแล้ว แต่เลือดยังไม่ถึงห้อง Lab" href={registryHref({status:"awaiting"})}/>
+   <Kpi label={W.testing} value={c?.testing} sub="ห้อง Lab ได้รับเลือดแล้ว กำลังรอผล" href={registryHref({status:"testing"})}/>
+   <Kpi label={W.released} value={c?.released} sub="นับรวมทุกปี" href={registryHref({status:"released"})} tone="good"/>
+   <Kpi label="ต้องติดตาม" value={c?.attention} sub="ต้องเจาะเลือดใหม่ ข้อมูลไม่ตรงกัน หรือห้อง Lab ขอข้อมูลเพิ่ม" href={registryHref({flag:"attention"})} tone="warn"/>
+   <Kpi label="รอผลเกินกำหนด" value={c?.tat_overdue} sub={c?`ใกล้ครบกำหนดอีก ${c.tat_due} ราย จากที่รอผลทั้งหมด ${c.tat_open} ราย`:"ควรได้ผลภายใน 8 วันทำการ"} href={over} tone="bad"/>
   </ul>
   <div className="dash-stat-grid">
-   <section className="panel dash-panel" aria-labelledby="ad-status"><header className="dash-panel-head"><h2 id="ad-status">สถานะเคสตอนนี้</h2><p className="dash-panel-note">ทุกปีในสิทธิ์ · กดแถวเพื่อเปิดรายการในทะเบียนกลาง</p></header>
-    {c?<LinkBars title="จำนวนเคสตามสถานะ" parts={[{name:"เคส",tone:"s1"}]} unit="ราย" rows={[
+   <section className="panel dash-panel" aria-labelledby="ad-status"><header className="dash-panel-head"><h2 id="ad-status">สถานะคุณแม่ตอนนี้</h2><p className="dash-panel-note">นับรวมทุกปี · กดที่แถวเพื่อดูรายชื่อ</p></header>
+    {c?<LinkBars title="จำนวนคุณแม่ตามสถานะ" parts={[{name:"คุณแม่",tone:"s1"}]} unit="ราย" rows={[
      {label:W.awaiting,values:[c.awaiting],href:registryHref({status:"awaiting"})},
      {label:W.testing,values:[c.testing],href:registryHref({status:"testing"})},
      {label:W.followup,values:[c.followup],href:registryHref({status:"followup"}),tone:"warn" as const},
-     ...(c.other?[{label:W.other,sub:"ไม่ยินยอม · ถอนความยินยอม · ตัวตนยังไม่ยืนยัน",values:[c.other],href:registryHref({status:"other"}),tone:"warn" as const}]:[]),
+     ...(c.other?[{label:W.other,sub:"ไม่ยินยอม ถอนความยินยอม หรือยังยืนยันตัวตนไม่ได้",values:[c.other],href:registryHref({status:"other"}),tone:"warn" as const}]:[]),
      {label:W.released,values:[c.released],href:registryHref({status:"released"})}]}/>:<p className="dash-empty">อ่านตัวเลขสถานะไม่ได้</p>}</section>
-   <section className="panel dash-panel" aria-labelledby="ad-tat"><header className="dash-panel-head"><h2 id="ad-tat">ระยะรอผลเทียบกำหนด TAT</h2><p className="dash-panel-note">เคสที่ Lab รับแล้วและยังไม่มีผล · กำหนด {tat?.policy.businessDays??"—"} วันทำการ</p></header>
-    {tat?<Columns title="เคสที่รอผล แยกตามวันทำการที่ใช้ไป" mode="stack" parts={[{name:"ภายในกำหนด",tone:"good"},{name:`ใกล้ครบ (≤ ${tat.policy.warnDaysLeft} วัน)`,tone:"warn"},{name:"เกินกำหนด",tone:"bad"}]}
+   <section className="panel dash-panel" aria-labelledby="ad-tat"><header className="dash-panel-head"><h2 id="ad-tat">รอผลมานานแค่ไหน</h2><p className="dash-panel-note">คุณแม่ที่ห้อง Lab ได้รับเลือดแล้วและยังรอผล · ควรได้ผลภายใน {tat?.policy.businessDays??"—"} วันทำการ</p></header>
+    {tat?<Columns title="รอผลมาแล้วกี่วันทำการ" mode="stack" parts={[{name:"ภายในกำหนด",tone:"good"},{name:`ใกล้ครบ (≤ ${tat.policy.warnDaysLeft} วัน)`,tone:"warn"},{name:"เกินกำหนด",tone:"bad"}]}
      items={tat.aging.map((b,i,all)=>({label:i===all.length-1?`${b.days}+`:String(b.days),long:`ใช้ไป ${b.days}${i===all.length-1?" วันทำการขึ้นไป":" วันทำการ"}`,values:[b.ok,b.dueSoon,b.overdue]}))}
-     limit={{at:tat.policy.businessDays,label:`กำหนด ${tat.policy.businessDays} วัน`}} axisNote="แกนนอน = วันทำการตั้งแต่ Lab รับตัวอย่าง (ไม่นับเสาร์-อาทิตย์และวันหยุด)" empty="ไม่มีเคสที่รอผลอยู่"/>:<p className="dash-empty">อ่านข้อมูล TAT ไม่ได้</p>}
-    {c&&c.tat_open>0&&<Link className="button secondary" href={waiting}>เปิดเคสที่รอผล เรียงจากรอนานที่สุด</Link>}</section>
-   <section className="panel dash-panel" aria-labelledby="ad-follow"><header className="dash-panel-head"><h2 id="ad-follow">เคสที่ต้องติดตาม</h2><p className="dash-panel-note">ปัญหาค้างตามขั้นตอนจริง · เคสหนึ่งอาจอยู่หลายแถว</p></header>
-    {c?<LinkBars title="ติดตามตามเรื่อง" parts={[{name:"เคส",tone:"s2"}]} unit="ราย" rows={[
-     {label:W.followup,sub:"ตัวอย่างเดิมตรวจไม่ได้",values:[c.followup],href:registryHref({status:"followup"}),tone:"warn" as const},
-     {label:"HOLD · ห้อง Lab พักการตรวจ",values:[c.hold],href:registryHref({flag:"hold"}),tone:"warn" as const},
-     {label:"ข้อมูลตัวตนรอตรวจสอบ",sub:"ข้อมูลจาก HIS ไม่ตรงหรือยังยืนยันไม่ครบ",values:[c.identity],href:registryHref({flag:"identity"}),tone:"warn" as const},
-     {label:"High Risk ทั้งหมด",sub:"ทุกผลที่ออกแล้วในสิทธิ์",values:[c.high],href:registryHref({flag:"high"}),tone:"bad" as const}]}/>:<p className="dash-empty">อ่านตัวเลขติดตามไม่ได้</p>}</section>
-   <section className="panel dash-panel" aria-labelledby="ad-recent"><header className="dash-panel-head"><h2 id="ad-recent">14 วันล่าสุด</h2><p className="dash-panel-note">ส่งตรวจ = Lab รับตัวอย่างครั้งแรก · ออกผล = ผลที่ออกในวันนั้น · ภาพรายเดือนอยู่ในสถิติการส่งตรวจ</p></header>
-    {ins?<Columns title="ส่งตรวจและออกผลรายวัน" mode="group" parts={[{name:"ส่งตรวจ",tone:"s1"},{name:"ออกผล",tone:"s2"}]} items={ins.recent.map(d=>({label:dayShort(d.day),long:dayLong(d.day),values:[d.sent,d.released]}))} axisNote="แกนนอน = วันที่ของเดือน" empty="ไม่มีการส่งตรวจหรือออกผลใน 14 วันนี้"/>:<p className="dash-empty">อ่านข้อมูล 14 วันไม่ได้</p>}</section>
+     limit={{at:tat.policy.businessDays,label:`กำหนด ${tat.policy.businessDays} วัน`}} axisNote="แกนนอน = จำนวนวันทำการที่รอมาแล้ว นับจากวันที่ห้อง Lab ได้รับเลือด (ไม่นับเสาร์-อาทิตย์และวันหยุด)" empty="ตอนนี้ไม่มีคุณแม่ที่กำลังรอผล"/>:<p className="dash-empty">อ่านข้อมูล TAT ไม่ได้</p>}
+    {c&&c.tat_open>0&&<Link className="button secondary" href={waiting}>ดูรายชื่อคุณแม่ที่รอผล เรียงจากรอนานที่สุด</Link>}</section>
+   <section className="panel dash-panel" aria-labelledby="ad-follow"><header className="dash-panel-head"><h2 id="ad-follow">คุณแม่ที่ต้องติดตาม</h2><p className="dash-panel-note">เรื่องที่ยังต้องจัดการต่อ · คุณแม่หนึ่งคนอาจอยู่ได้มากกว่าหนึ่งแถว</p></header>
+    {c?<LinkBars title="เรื่องที่ต้องติดตาม" parts={[{name:"คุณแม่",tone:"s2"}]} unit="ราย" rows={[
+     {label:W.followup,sub:"เลือดชุดเดิมตรวจไม่ได้",values:[c.followup],href:registryHref({status:"followup"}),tone:"warn" as const},
+     {label:"ข้อมูลคุณแม่ไม่ตรงกัน",sub:"ข้อมูลจากระบบโรงพยาบาลไม่ตรงกับที่ลงทะเบียน หรือยังยืนยันไม่ครบ",values:[c.identity],href:registryHref({flag:"identity"}),tone:"warn" as const},
+     {label:"ผลความเสี่ยงสูง",sub:"คุณแม่ที่ผลตรวจพบความเสี่ยงสูง นับรวมทุกปี",values:[c.high],href:registryHref({flag:"high"}),tone:"bad" as const}]}/>:<p className="dash-empty">อ่านตัวเลขติดตามไม่ได้</p>}</section>
+   <section className="panel dash-panel" aria-labelledby="ad-recent"><header className="dash-panel-head"><h2 id="ad-recent">14 วันล่าสุด</h2><p className="dash-panel-note">ส่งตรวจ = วันที่ห้อง Lab ได้รับเลือดครั้งแรก · ออกผล = วันที่ผลออก · ดูรายเดือนได้ที่หน้าสถิติการส่งตรวจ</p></header>
+    {ins?<Columns title="ส่งตรวจและออกผลรายวัน" mode="group" parts={[{name:"ส่งตรวจ",tone:"s1"},{name:"ออกผล",tone:"s2"}]} items={ins.recent.map(d=>({label:dayShort(d.day),long:dayLong(d.day),values:[d.sent,d.released]}))} axisNote="แกนนอน = วันที่ของเดือน" empty="14 วันที่ผ่านมาไม่มีการส่งตรวจหรือผลออก"/>:<p className="dash-empty">อ่านข้อมูล 14 วันไม่ได้</p>}</section>
   </div></>}
  </div>;
 }
