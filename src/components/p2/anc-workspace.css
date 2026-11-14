@@ -161,3 +161,7 @@
 .case-his-wait{color:var(--color-muted);font-weight:500;font-style:italic;}
 @media(max-width:900px){.case-his-facts{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 0;}.case-his-facts>div:nth-child(odd){padding-left:0;border-left:0;}}
 @media(max-width:600px){.case-his-head{flex-wrap:wrap;}.case-his-edit{width:100%;justify-content:center;margin-left:0;}.case-his-times{grid-template-columns:1fr;}.case-his-identity{padding:12px;}}
+
+/* Paper request check (Owner 2026-11-14): who recorded or last edited it, and when, under the status. */
+.paper-stamp{display:block;margin:6px 0 0;font-size:.8125rem;line-height:1.55;color:var(--color-muted)}
+.case-request .case-section-header>.row{display:flex;flex-wrap:wrap;gap:var(--space-2);justify-content:flex-end}

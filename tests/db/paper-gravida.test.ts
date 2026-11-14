@@ -28,6 +28,10 @@ it('the verified short paper check copies ครรภ์ที่ to the reques
  expect(first).toMatchObject({status:'Verified'});
  expect(await gOf(id)).toBe(3);
  const previous=(await getCase(db,lab,id)).paper.find(p=>p.kind==='REQUEST')!;
- await tx(()=>paperReview(db,lab,id,{kind:'REQUEST',templateVersion:REQUEST_TEMPLATE,panel:shortPanel(null),operation:'Amend',previousId:previous.id,reason:'SYNTHETIC amend',documentReference:'SYNTHETIC-REF',location:'SYNTHETIC-LOC'}));
+ await tx(()=>paperReview(db,lab,id,{kind:'REQUEST',templateVersion:REQUEST_TEMPLATE,panel:shortPanel(null),operation:'Amend',previousId:previous.id}));   // as the form sends an edit: no reason (Owner 2026-11-14)
  expect(await gOf(id)).toBe(3);
+ // The edit is a new record after the first ("แก้ไขโดย"); the first stays as history.
+ const checks=((await getCase(db,lab,id)).paper as {kind:string;status:string}[]).filter(p=>p.kind==='REQUEST');
+ expect(checks.filter(p=>!['Amended','Replaced'].includes(String(p.status)))).toHaveLength(2);
+ expect(checks.some(p=>String(p.status)==='Amended')).toBe(true);
 });
