@@ -2,7 +2,8 @@ import type {RegistrationPet} from '../../../packages/p2/pet-registration';
 
 /** One typed or scanned LN/HN in a Lab registration sitting. Nothing is registered until the whole list is confirmed. */
 export type EntryState='matching'|'choose'|'matched'|'failed'|'registering'|'registered';
-export type Entry={id:string;ln:string;hn:string;state:EntryState;failedAt?:'match'|'register';reason?:string;pet?:RegistrationPet;candidates?:RegistrationPet[];caseId?:string;key:string};
+/** `unitId`: the sending unit chosen when the entry was scanned (Owner 2026-11-14); a later change of the unit does not move it. */
+export type Entry={id:string;ln:string;hn:string;state:EntryState;failedAt?:'match'|'register';reason?:string;pet?:RegistrationPet;candidates?:RegistrationPet[];caseId?:string;key:string;unitId?:string};
 
 /** What the person typed (never the matched record), so a failed entry can still be checked against the paper form. */
 export const entryLabel=(e:Pick<Entry,'ln'|'hn'>)=>e.ln?e.ln:e.hn?`HN ${e.hn}`:'';

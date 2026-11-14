@@ -17,7 +17,9 @@ const values={ln:ln(1),hn:hn(1),multi:[ln(2),ln(3)],multiHn:hn(2),noOk:ln(4),con
 const day=new Date(Date.now()+7*3600000).toISOString().slice(0,10).replaceAll('-',''),receivedAt=day+'080910';let unit='';
 const query=async(sql:string,params:unknown[]=[])=>{const db=new Pool({connectionString:browserFixtureDatabaseUrl()});try{return await db.query(sql,params);}finally{await db.end();}};
 async function post(page:Page,body:unknown){const me=await page.request.get('/api/me'),profile=await me.json();return page.request.post('/api/p2/pet-registration',{headers:{origin:new URL(process.env.E2E_BASE_URL??'http://127.0.0.1:3000').origin,'x-csrf-token':profile.csrf},data:body});}
-async function open(page:Page){if(new URL(page.url()).pathname!=='/cases')await page.goto('/cases');await page.getByRole('button',{name:'ลงทะเบียนโดย Lab',exact:true}).click();await page.getByRole('button',{name:'ลงทะเบียนตัวอย่างเพื่อตรวจตามระบบ',exact:true}).click();}
+async function open(page:Page){if(new URL(page.url()).pathname!=='/cases')await page.goto('/cases');await page.getByRole('button',{name:'ลงทะเบียนโดย Lab',exact:true}).click();await page.getByRole('button',{name:'ลงทะเบียนตัวอย่างเพื่อตรวจตามระบบ',exact:true}).click();
+ // Owner 2026-11-14: the sending unit is chosen once before scanning (pre-selected when there is only one).
+ const unit=page.getByLabel('หน่วยงานที่ส่งตรวจ',{exact:false});if(!(await unit.inputValue()))await unit.selectOption({index:1});}
 async function lookup(page:Page,kind:'LN HIS'|'HN',value:string){await open(page);await page.getByLabel(kind,{exact:true}).fill(value);await page.getByRole('button',{name:'เพิ่มเข้ารายการและจับคู่ PET',exact:true}).click();}
 const entries=(page:Page)=>page.getByRole('region',{name:'รายการในรอบนี้'});
 const summaryOf=(page:Page)=>page.getByRole('status',{name:'สรุปผลการลงทะเบียน'});

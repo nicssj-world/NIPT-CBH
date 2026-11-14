@@ -20,18 +20,21 @@ const numberOf=(e:Entry)=>/^\d{10}$/.test(e.ln)?<Ln value={e.ln}/>:<span classNa
  */
 export function LabRegistration({units,onClose,onRegistered}:{units:Unit[];onClose:()=>void;onRegistered?:()=>void}){
  const lnInput=useRef<HTMLInputElement>(null),summaryBox=useRef<HTMLElement>(null),timer=useRef<ReturnType<typeof setTimeout>>(undefined);
+ // The sending unit (Owner 2026-11-14): chosen once, before scanning, and used for every entry scanned after it; one unit is pre-selected.
+ const [unitId,setUnitId]=useState(()=>units.length===1?units[0].id:''),unitName=(id?:string)=>units.find(u=>u.id===id)?.name??'—';
  const [mode,setMode]=useState<'CHOOSE'|'OPERATIONAL'>('CHOOSE'),[ln,setLn]=useState(''),[hn,setHn]=useState(''),[items,setItems]=useState<Entry[]>([]),[confirming,setConfirming]=useState(false),[finished,setFinished]=useState(false),[error,setError]=useState('');
  useEffect(()=>{if(finished)summaryBox.current?.focus();},[finished]);
  const patch=(id:string,change:Partial<Entry>)=>setItems(list=>list.map(i=>i.id===id?{...i,...change}:i));
  const waiting=items.filter(i=>i.state==='matching').length,matched=toRegister(items).length,summary=summarize(items);
 
- function typed(nextLn:string,nextHn:string){clearTimeout(timer.current);setError('');if(looksComplete(nextLn,nextHn))timer.current=setTimeout(()=>void add(nextLn,nextHn),LOOKUP_DELAY_MS);}
+ function typed(nextLn:string,nextHn:string){clearTimeout(timer.current);setError('');if(unitId&&looksComplete(nextLn,nextHn))timer.current=setTimeout(()=>void add(nextLn,nextHn),LOOKUP_DELAY_MS);}
  /** Adds the entry at once (so list order follows entry order) and matches it in the background; the fields are free for the next one. */
  async function add(lnValue=ln,hnValue=hn){
   clearTimeout(timer.current);
   const lnClean=lnValue.trim().replaceAll('-',''),hnClean=hnValue.trim();
+  if(!unitId){setError('เลือกหน่วยงานที่ส่งตรวจก่อน');return;}
   if(!lnClean&&!hnClean){setError('กรอก LN หรือ HN อย่างใดอย่างหนึ่งก่อนค้นหา');return;}
-  const entry:Entry={id:crypto.randomUUID(),key:crypto.randomUUID(),ln:lnClean,hn:lnClean?'':hnClean,state:'matching'};
+  const entry:Entry={id:crypto.randomUUID(),key:crypto.randomUUID(),ln:lnClean,hn:lnClean?'':hnClean,state:'matching',unitId};
   setItems(list=>[entry,...list]);setFinished(false);setLn('');setHn('');setError('');lnInput.current?.focus();
   try{
    const result=await api<{candidates:RegistrationPet[]}>('/api/p2/pet-registration',{action:'lookup',...(lnClean?{ln:lnClean}:{hn:hnClean})});
@@ -49,7 +52,7 @@ export function LabRegistration({units,onClose,onRegistered}:{units:Unit[];onClo
   setItems(list=>list.map(i=>i.state==='choose'?{...i,state:'failed',reason:CHOOSE_UNRESOLVED}:i));
   for(const entry of todo){
    patch(entry.id,{state:'registering'});
-   try{const result=await api<{caseId:string}>('/api/p2/pet-registration',{action:'register',...(entry.ln?{ln:entry.ln}:{hn:entry.hn}),fileId:entry.pet!.fileId,...(units[0]?{unitId:units[0].id}:{}),consentMode:'Paper',idempotencyKey:entry.key});patch(entry.id,{state:'registered',caseId:result.caseId});}
+   try{const result=await api<{caseId:string}>('/api/p2/pet-registration',{action:'register',...(entry.ln?{ln:entry.ln}:{hn:entry.hn}),fileId:entry.pet!.fileId,unitId:entry.unitId??unitId,consentMode:'Paper',idempotencyKey:entry.key});patch(entry.id,{state:'registered',caseId:result.caseId});}
    catch(e){patch(entry.id,{state:'failed',failedAt:'register',reason:message(e)});}
   }
   setConfirming(false);setFinished(true);onRegistered?.();
@@ -59,17 +62,18 @@ export function LabRegistration({units,onClose,onRegistered}:{units:Unit[];onClo
   {mode==='CHOOSE'?<div className="stack"><p>เลือกตามงานที่เกิดขึ้นจริง ข้อมูลผู้ป่วยใช้ทะเบียนกลางร่วมกัน</p><Link className="button secondary" href="/historical">ตรวจ Manual เสร็จแล้ว มี PDF</Link><button className="button" type="button" onClick={()=>setMode('OPERATIONAL')}>ลงทะเบียนตัวอย่างเพื่อตรวจตามระบบ</button></div>:<div className="stack">
    <p>กรอกหรือยิงบาร์โค้ด LN หรือ HN ทีละราย ระบบจับคู่กับข้อมูล PET จาก HIS ให้ทันที แล้วกดยืนยันเมื่อครบ</p>
    <p className="paper-note"><LabIcon name="file" size={18}/> ใบขอส่งตรวจและใบ Consent เป็นกระดาษ (ช่องทาง Lab) ระบบบันทึกเป็น Paper Consent ให้อัตโนมัติ</p>
+   <Field label="หน่วยงานที่ส่งตรวจ" required help={unitId?'ใช้กับทุกรายการที่ยิงหลังจากนี้ เปลี่ยนได้ รายการที่อยู่ในรายการแล้วไม่เปลี่ยนตาม':'เลือกครั้งเดียวก่อนเริ่มยิงบาร์โค้ด'}>{id=><select id={id} value={unitId} disabled={confirming} onChange={e=>{setUnitId(e.target.value);setError('');if(e.target.value)setTimeout(()=>lnInput.current?.focus(),0);}}><option value="">เลือกหน่วยงาน</option>{units.map(u=><option key={u.id} value={u.id}>{u.name}</option>)}</select>}</Field>
    <form className="stack" onSubmit={e=>{e.preventDefault();void add();}}><div className="form-grid">
-    <Field label="LN HIS" help="กรอก LN หรือ HN อย่างใดอย่างหนึ่ง">{id=><input id={id} ref={lnInput} autoFocus autoComplete="off" inputMode="numeric" value={ln} disabled={confirming} onChange={e=>{const v=latinDigits(e.target.value);setLn(v);typed(v,hn);}}/>}</Field>
-    <Field label="HN">{id=><input id={id} autoComplete="off" value={hn} disabled={confirming} onChange={e=>{setHn(e.target.value);typed(ln,e.target.value);}}/>}</Field>
-   </div><button className="button secondary" disabled={confirming||(!ln.trim()&&!hn.trim())}>เพิ่มเข้ารายการและจับคู่ PET</button></form>
+    <Field label="LN HIS" help="กรอก LN หรือ HN อย่างใดอย่างหนึ่ง">{id=><input id={id} ref={lnInput} autoFocus={!!unitId} autoComplete="off" inputMode="numeric" value={ln} disabled={confirming||!unitId} onChange={e=>{const v=latinDigits(e.target.value);setLn(v);typed(v,hn);}}/>}</Field>
+    <Field label="HN">{id=><input id={id} autoComplete="off" value={hn} disabled={confirming||!unitId} onChange={e=>{setHn(e.target.value);typed(ln,e.target.value);}}/>}</Field>
+   </div><button className="button secondary" disabled={confirming||!unitId||(!ln.trim()&&!hn.trim())}>เพิ่มเข้ารายการและจับคู่ PET</button></form>
    <ErrorNotice error={error}/>
    {finished&&<section className="registration-summary" aria-label="สรุปผลการลงทะเบียน" role="status" tabIndex={-1} ref={summaryBox}><h3>สรุปผลการลงทะเบียน</h3>
     <p className="summary-counts"><span><LabIcon name="check" size={18}/> ลงทะเบียนสำเร็จ <strong>{summary.registered}</strong> ราย</span><span><LabIcon name={summary.failed?'x':'check'} size={18}/> ไม่สำเร็จ <strong>{summary.failed}</strong> ราย</span></p>
     {summary.failed>0&&<><p>เลขที่ต้องตรวจสอบ (ไม่ได้นำเข้า):</p><ul>{summary.failedEntries.map((f,idx)=><li key={idx}><strong>{f.label}</strong> — {f.reason}</li>)}</ul></>}
     <button className="button secondary" type="button" onClick={()=>{setItems([]);setFinished(false);lnInput.current?.focus();}}>เริ่มรอบใหม่</button></section>}
    {items.length>0&&<section aria-label="รายการในรอบนี้"><h3>รายการในรอบนี้ ({items.length} ราย)</h3><ul className="registered-list">{items.map(i=><li key={i.id} data-state={i.state}>
-    <div className="registered-main"><strong>{numberOf(i)}</strong>{i.pet&&<> · HN {i.pet.hn||'—'} · {patientDisplayName(i.pet.name)}</>}
+    <div className="registered-main"><strong>{numberOf(i)}</strong>{i.pet&&<> · HN {i.pet.hn||'—'} · {patientDisplayName(i.pet.name)}</>}{units.length>1&&<span className="muted"> · {unitName(i.unitId)}</span>}
      {i.state==='matching'&&<span className="match-status pending"><LabIcon name="clock" size={16}/> กำลังจับคู่ PET…</span>}
      {i.state==='matched'&&<span className="match-status"><LabIcon name="check" size={16}/> จับคู่ PET สำเร็จ · รอยืนยัน</span>}
      {i.state==='registering'&&<span className="match-status pending"><LabIcon name="clock" size={16}/> กำลังลงทะเบียน…</span>}
