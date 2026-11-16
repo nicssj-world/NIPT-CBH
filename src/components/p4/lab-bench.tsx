@@ -16,6 +16,8 @@ import {QC_STANDARDS,benchSteps,qcMissingCount,type StepKey,type StepStatus} fro
 import {SampleActionCenter,type ActionCenterSubject} from './action-center';
 import './lab-bench.css';
 import {OperatorPicker} from './operator-picker';
+import {ThaiDateInput} from '../shared/thai-date-input';
+import {parseBeInput,formatBe} from '../../../packages/domain/thai-date';
 type Data=Awaited<ReturnType<typeof benchWorkspace>>;
 type Pool=Awaited<ReturnType<typeof benchPooling>>;
 type Slot=Data['slots'][number];
@@ -187,6 +189,9 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
     // DNB ID (Owner 2026-11-14): never typed; the value of the newest HALOS Task export (or the source record), shown grey.
     if(f.key==='seq.dnbId'){const dnb=data.automaticKeys.includes(f.key)?String(values[f.key]??''):data.halosDnbId??'';
      return <div key={f.key} className="field"><label htmlFor={id}>{f.label}</label><input id={id} type="text" className="seq-readonly" readOnly aria-readonly="true" tabIndex={-1} value={dnb} placeholder="—" aria-describedby={`${id}-hint`}/><small id={`${id}-hint`} className="muted">{dnb?"จากไฟล์ HALOS Task ที่ส่งออกล่าสุด":"ระบบเติมให้เมื่อส่งออกไฟล์ HALOS Task"}</small></div>;}
+    // Operating date (Owner 2026-11-16): same BE calendar picker as the other pages; stored as the paper-style "วว/ดด/ปปปป" (BE) text.
+    if(f.key==='seq.date'){const stored=String(values[f.key]??''),parsed=parseBeInput(stored);
+     return <div key={f.key} className="field"><label htmlFor={id}>{f.label}</label><ThaiDateInput id={id} value={parsed.ok?parsed.iso:''} disabled={!canWrite||busy||data.automaticKeys.includes(f.key)} onChange={iso=>change(f.key,iso?formatBe(iso):'')}/></div>;}
     return <div key={f.key} className="field"><label htmlFor={id}>{f.label}</label>{f.key==='seq.operator'?<OperatorPicker id={id} value={String(values[f.key]??'')} disabled={!canWrite||busy||data.automaticKeys.includes(f.key)} onChange={v=>change(f.key,v)}/>:f.type==='text'?<input id={id} type="text" disabled={!canWrite||busy||data.automaticKeys.includes(f.key)} value={String(values[f.key]??'')} onChange={e=>change(f.key,e.target.value)} aria-describedby={f.hint?`${id}-hint`:undefined}/>
      :<NumberField id={id} label={f.label} signed={f.type==='signed'} value={values[f.key]} disabled={!canWrite||busy||data.automaticKeys.includes(f.key)} describedBy={f.hint?`${id}-hint`:undefined} onChange={v=>change(f.key,v)}/>}{f.hint&&<small id={`${id}-hint`} className="muted">{f.hint}</small>}</div>;})}</div></fieldset>)}</div>
    {data.slots.some(r=>r.kind==='PATIENT')&&<details className="bench-failures"><summary>ผลไม่สำเร็จ / ตรวจซ้ำหลัง Sequencing</summary><ul>{data.slots.filter(r=>r.kind==='PATIENT').map(row=><li key={row.slot}><span className="muted">ตำแหน่ง {row.slot}</span> {sampleCell(row)}</li>)}</ul></details>}
