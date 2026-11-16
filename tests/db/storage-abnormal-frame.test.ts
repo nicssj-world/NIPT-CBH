@@ -37,6 +37,9 @@ it('frames only the samples whose newest result that is not superseded or voided
   expect(flag(abnormal)).toBe(true);
   for(const c of [normal,corrected,voided,none])expect(flag(c)).toBe(false);
   expect(open.activeBox!.grid.filter(g=>g.abnormal)).toHaveLength(1);
+  // Owner 2026-11-16: the box that holds the abnormal sample is framed in the box list too; the other box is not.
+  expect(open.boxes.find(b=>b.id===pair.boxes[0].id)?.hasAbnormal).toBe(true);
+  expect(open.boxes.filter(b=>b.hasAbnormal)).toHaveLength(1);
   expect(open.activeBox!.grid.filter(g=>!g.occupied).every(g=>g.abnormal===false)).toBe(true);
  }finally{await f.close();}
 },90000);

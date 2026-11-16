@@ -142,7 +142,14 @@ export async function storageSearch(db:Queryable,user:Staff,raw:unknown){
  const page=Math.min(d.page,Math.max(1,Math.ceil(total/25))),limitParam=values.length+1,offsetParam=values.length+2;
  const rows=(await db.query<StorageRow>(`${cte} SELECT result.* FROM sample_rows result WHERE ${where}
   ORDER BY result.waiting DESC,result.received_at ASC NULLS LAST,result.storage_type,result.round_id LIMIT $${limitParam} OFFSET $${offsetParam}`,[...values,25,(page-1)*25])).rows;
- const boxPage=await visibleBoxes(db,d.boxType,d.boxQuery,d.boxPage),boxes=boxPage.rows;
+ const boxPage=await visibleBoxes(db,d.boxType,d.boxQuery,d.boxPage);
+ // Owner 2026-11-16: a box that holds a sample with an abnormal current result gets the same red frame in the box list (same rule and same permission as the slot frame).
+ const abnormalBoxes=new Set<string>();
+ if(boxPage.rows.length&&authorize(user,'result.review',{},'read')){
+  const boxValues:unknown[]=[],boxScope=accessScope(user,boxValues),idsParam=boxValues.length+1;boxValues.push(boxPage.rows.map(b=>b.id));
+  for(const r of (await db.query<{box_uuid:string}>(`${sampleRowsCte(boxScope)} SELECT DISTINCT result.box_uuid FROM sample_rows result WHERE result.box_uuid=ANY($${idsParam}::uuid[]) AND COALESCE((SELECT (v.parsed->>'abnormal')::boolean FROM result_report_version v WHERE v.round_id=result.round_id AND v.kind='RESULT' AND v.state NOT IN ('Superseded','Voided') ORDER BY v.state_changed_at DESC,v.id DESC LIMIT 1),false)`,boxValues)).rows)abnormalBoxes.add(r.box_uuid);
+ }
+ const boxes=boxPage.rows.map(b=>({...b,hasAbnormal:abnormalBoxes.has(b.id)}));
  const summary=await summaryCounts(db,user);
  let activeBox:null|{id:string;boxId:string;boxType:StorageBoxType;typeNumber:number|null;used:number;available:number;nextSlot:number|null;status:string;deletable:boolean;partner:null|{id:string;boxId:string;boxType:StorageBoxType;used:number};grid:GridCell[]}=null;
  if(d.activeBoxId){
