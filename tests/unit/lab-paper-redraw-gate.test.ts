@@ -7,3 +7,12 @@ it('recorded LAB paper consent covers S2 without a fabricated digital consent or
  expect(commonPredicates({...facts,consentRevoked:true}).find(p=>p.code==='BG-04')?.status).toBe('FAIL');
  expect(commonPredicates({...facts,labOperationalRoute:false}).find(p=>p.code==='BG-04')?.status).toBe('PENDING');
 });
+it('a Lab paper-route case whose paper request check left PendingClinicalReview still passes BG-06, but a real clinical block does not',()=>{
+ const bg06=(clinicalState:string|null)=>commonPredicates({...facts,clinicalState}).find(p=>p.code==='BG-06');
+ expect(bg06(null)?.status).toBe('PASS');
+ expect(bg06('PendingClinicalReview')).toMatchObject({status:'PASS',reason:'OWNER_LAB_DIRECT_PAPER_ROUTE'});
+ expect(bg06('ClinicalDataConflict')?.status).toBe('FAIL');
+ expect(bg06('BlockedWithReason')?.status).toBe('FAIL');
+ expect(bg06('NotEvaluable')?.status).toBe('FAIL');
+ expect(commonPredicates({...facts,labOperationalRoute:false,clinicalState:'PendingClinicalReview'}).find(p=>p.code==='BG-06')?.status).toBe('PENDING');
+});
