@@ -21,7 +21,9 @@ export const reasonText=z.string().trim().max(500).refine(v=>!/\d{13}/.test(v)&&
  .transform(v=>!v?DEFAULT_REASON:v.length>=8?v:`${DEFAULT_REASON}: ${v}`);
 // Synthetic reason vocabularies — final wording/codes remain OD-11 / OD-34 decisions.
 export const REDRAW_REASONS=['QC1_FAILED','QC_SAMPLE_FAILED','FETAL_FRACTION_LOW','SPECIMEN_PROBLEM','OTHER'] as const;
-export const REPEAT_REASONS=['QC1_LOW','LIBRARY_FAILURE','BATCH_CANCELLED','STOPPED_BY_LAB','OTHER'] as const;
+export const REPEAT_REASONS=['QC1_LOW','LIBRARY_FAILURE','BATCH_CANCELLED','STOPPED_BY_LAB','ABNORMAL_RESULT','OTHER'] as const;
+/** Where a live attempt failed (Sample Action Center). ABNORMAL_RESULT (Owner 2026-11-17, migration 229): the run succeeded but the result is abnormal and is repeated before it is sent; it is not a QC failure. */
+export const FAILURE_STAGES=['QC1','QC2','QC3','QC4','SEQUENCING','ABNORMAL_RESULT'] as const;
 export const DISPOSITION_REASONS=['INSUFFICIENT_SAMPLE','TUBE_BROKEN','INSTRUMENT_FAILURE','CONSENT_WITHDRAWN','REDRAW_ORDERED','OTHER'] as const;
 /** Which re-test marker a sample carries (shown as a badge on every page of its Batch): Re-Sampling wins (the round itself is replaced), then the level of the repeat order that superseded it, then its own level when it is the repeat. */
 export type RepeatBadge='RE_LIBRARY'|'RE_EXTRACTION'|'RE_SAMPLING';

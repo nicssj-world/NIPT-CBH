@@ -181,6 +181,8 @@ GRANT SELECT,INSERT,UPDATE ON pdf_archive_job TO worker_rw;
 GRANT SELECT(id,version_id,case_id,round_id,certified_at) ON result_release TO worker_rw;
 -- Deleting a wrong released result before its replacement is generated (migration 226).
 GRANT EXECUTE ON FUNCTION result_purge_released(uuid) TO worker_rw,app_rw;
+-- Removing a repeat order made by mistake before its new attempt is on a Task List (migration 230).
+GRANT EXECUTE ON FUNCTION lab_repeat_undo(uuid) TO app_rw;
 GRANT SELECT(id,case_id,round_id,sha256) ON result_report_version TO worker_rw;
 GRANT SELECT(id,registration_origin) ON nipt_case TO worker_rw;
 GRANT SELECT(sha256,byte_size,media_type) ON file_asset TO worker_rw;

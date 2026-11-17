@@ -83,7 +83,8 @@ async function quality(db:Queryable,now:Date,holidays:ReadonlySet<string>,busine
    UNION ALL SELECT x.at,NULL,x.risk,x.hi_t,x.hi_s,x.pos FROM (SELECT ${historicalReportedAtSql} at,h.round_id,${riskSql} risk,${trisomyHighSql} hi_t,${scaHighSql} hi_s,${positiveKeysSql} pos FROM historical_reported_result h JOIN result_report_version v ON v.id=h.version_id) x
    WHERE x.at>=${since}`,[from]),
   ()=>db.query<{at:Date;stage:string|null}>(`SELECT e.created_at at,COALESCE(e.stage,a.qc_failed_stage) stage FROM attempt_event e JOIN analytical_attempt a ON a.id=e.attempt_id
-   WHERE e.event_type='STATE_CHANGED' AND e.to_state='QcFailed' AND e.created_at>=${since}`,[from]),
+   WHERE e.event_type='STATE_CHANGED' AND e.to_state='QcFailed' AND e.created_at>=${since}
+   AND COALESCE(e.stage,a.qc_failed_stage) IS DISTINCT FROM 'ABNORMAL_RESULT'`,[from]),/* Owner 2026-11-17: an abnormal-result repeat is not a QC failure (it still counts as a repeat) */
   ()=>db.query<{at:Date;level:string|null}>(`SELECT w.requested_at at,w.level FROM repeat_work_order w WHERE w.state<>'Cancelled' AND w.requested_at>=${since}`,[from]),
   ()=>db.query<{at:Date}>(`SELECT e.created_at at FROM attempt_event e WHERE e.to_state='Stopped' AND e.details->>'redrawRequestId' IS NOT NULL AND e.created_at>=${since}`,[from]),
  );

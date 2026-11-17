@@ -14,6 +14,7 @@ import {gaBadge,type Ga} from "./ga-badge";
 import {ThaiDateInput} from "../shared/thai-date-input";
 import "./worklist.css";
 import {Pager} from "../shared/pager";
+import {QC_STAGE_LABEL} from "../shared/qc-stages";
 
 /** OWNER-LAB-016: the left accent of a specimen row follows its state (the status text beside it always says the same thing). */
 const specimenTone=(a:{urgent:boolean;hold:unknown;resumeDecisionRequired:boolean;category:string;attemptState:string;gate:{eligible:boolean}|null})=>
@@ -94,7 +95,7 @@ export function LabWorklist({initial,can}:{initial:WorklistData;can:Can}){
       <td><span className="mono strong">{a.labelCode??"—"}</span>{a.printedSampleId&&<div className={`mono small${a.exceptional?" task-exceptional":""}`}>{a.printedSampleId}</div>}{a.pregnancy==="Twins"&&<span className="badge">ครรภ์แฝด (D)</span>}</td>
       <td className="ln-hn-cell"><button type="button" className="ln-button" aria-haspopup="dialog" aria-label={`จัดการตัวอย่าง LN ${formatHisLn(a.hisLn)}`} onClick={()=>setDialog({type:"center",row:a})}><Ln value={a.hisLn}/></button><div className="small muted">HN {a.hn??"—"}</div></td>
       <td className="receive-time">{a.receivedAt?bkk(a.receivedAt):"— / ยังไม่รับ"}<div className="small muted">{SOURCE[a.receivedSource??""]??""}</div></td><td>รอบที่ {a.roundNumber}{a.roundNumber>1&&<span className="badge warning">เจาะซ้ำ</span>}{a.repeat&&<span className="badge warning">ตรวจซ้ำ #{a.attemptNumber} {a.repeat.level==="RE_LIBRARY"?"Re-Library":a.repeat.level==="RE_EXTRACTION"?"Re-extraction":""}</span>}</td>
-      <td><span className={`status ${a.gate?.eligible?"good":a.category==="GATE_BLOCKED"||a.category==="QC_FAILED"?"bad":"warning"}`}>{a.outcomeStatus??STATE[a.attemptState]??a.attemptState}{a.qcFailedStage?` (${a.qcFailedStage})`:""}</span>
+      <td><span className={`status ${a.gate?.eligible?"good":a.category==="GATE_BLOCKED"||a.category==="QC_FAILED"?"bad":"warning"}`}>{a.outcomeStatus??STATE[a.attemptState]??a.attemptState}{a.qcFailedStage?` (${QC_STAGE_LABEL[a.qcFailedStage]??a.qcFailedStage})`:""}</span>
        {a.urgent&&<span className="badge danger" title={a.urgentReason??undefined}>ด่วน</span>}{gaBadge(a.ga)}{a.hold&&<span className="badge danger">Hold{a.hold.stage?` ${a.hold.stage}`:""}</span>}{a.resumeDecisionRequired&&<span className="badge danger">รอตัดสินใจทำต่อ</span>}
        {a.gate&&!a.gate.eligible&&<ul className="reasons">{[...a.gate.failed,...(data.policy==="HOLD"?a.gate.pending:[])].map(r=><li key={r}>{gateText(r)}</li>)}</ul>}
        {a.gate?.syntheticPendingAccepted&&<p className="small muted">ผ่านด้วยนโยบายจำลอง: {a.gate.pending.map(gateText).join(", ")}</p>}</td>

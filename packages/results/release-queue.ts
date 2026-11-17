@@ -46,7 +46,7 @@ export function isSendResolvable(g:{failed:string[];pending:string[]}):boolean{
  return items.length>0&&items.every(i=>EVIDENCE_RECORDED_BY_SEND.has(i));
 }
 
-type V={id:string;state:string;row_version:number;case_id:string|null;origin:string;template_kind:string;abnormal:boolean;changed:Date;ln:string|null;ln_halos:string|null;hn:string|null;sample_id:string|null;unit_id:string|null;registration_origin:string|null;is_eqa:boolean};
+type V={id:string;state:string;row_version:number;case_id:string|null;origin:string;template_kind:string;abnormal:boolean;changed:Date;ln:string|null;ln_halos:string|null;hn:string|null;sample_id:string|null;unit_id:string|null;registration_origin:string|null;is_eqa:boolean;attempt_state:string|null};
 
 /** Upper bounds of what one board call reads. `truncated` in the response says a bound cut rows off. Not part of the API input; tests pass smaller ones. */
 export const BOARD_CAPS={halos:500,versions:1000};
@@ -58,7 +58,7 @@ export async function releaseQueue(db:Queryable,user:Staff,deps:ReportDeps,input
   `SELECT v.id,v.state,v.row_version,v.case_id,v.origin,v.template_kind,COALESCE((v.parsed->>'abnormal')::boolean,false) abnormal,v.state_changed_at changed,
     COALESCE(l.ln,v.parsed->'identifiers'->'labNumber'->>'value') ln,n.ln_halos,COALESCE(ci.hn,v.parsed->'identifiers'->'hn'->>'value') hn,a.printed_sample_id sample_id,
     (SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=v.case_id ORDER BY s.unit_id LIMIT 1) unit_id,c.registration_origin,
-    (v.case_id IS NOT NULL AND EXISTS(SELECT 1 FROM eqa_case e WHERE e.case_id=v.case_id)) is_eqa
+    (v.case_id IS NOT NULL AND EXISTS(SELECT 1 FROM eqa_case e WHERE e.case_id=v.case_id)) is_eqa,a.state attempt_state
    FROM result_report_version v LEFT JOIN specimen_round r ON r.id=v.round_id LEFT JOIN case_ln l ON l.id=r.case_ln_id LEFT JOIN specimen_lab_number n ON n.round_id=v.round_id
    LEFT JOIN p2_case_identity ci ON ci.case_id=v.case_id LEFT JOIN nipt_case c ON c.id=v.case_id LEFT JOIN analytical_attempt a ON a.id=v.attempt_id
    WHERE v.kind='RESULT' AND v.state=ANY($1::text[]) AND NOT EXISTS(SELECT 1 FROM historical_reported_result h WHERE h.version_id=v.id) AND (c.id IS NULL OR c.registration_origin<>'HISTORICAL')
@@ -75,7 +75,10 @@ export async function releaseQueue(db:Queryable,user:Staff,deps:ReportDeps,input
  for(const v of vs)if(v.state==='ValidationBlocked'||v.state==='Linked')gates.set(v.id,await validationGateIssues(db,v.id).catch(()=>({failed:[] as string[],pending:[] as string[]})));
  // Certified results: the tab follows the latest "ส่ง HIS" job (one read for every certified version in view).
  const delivery=await readHisDeliveryStatuses(db,vs.filter(v=>v.state==='CertifiedReleased').map(v=>v.id));
- const tabOf=(v:V):BoardTab=>{if(v.state==='CertifiedReleased'){const s=delivery.get(v.id);return s?deliveryTab(s.code):'SENT';}const g=gates.get(v.id);return g&&isSendResolvable(g)?'READY':TAB_OF[v.state];};
+ // Owner 2026-11-17 (no dead ends): an unsent report whose attempt was repeated (Superseded) can never be sent; it waits under ACTION,
+ // where the discard button is, with the reason ATTEMPT_REPEATED.
+ const repeated=(v:V)=>v.state!=='CertifiedReleased'&&v.attempt_state==='Superseded';
+ const tabOf=(v:V):BoardTab=>{if(v.state==='CertifiedReleased'){const s=delivery.get(v.id);return s?deliveryTab(s.code):'SENT';}if(repeated(v))return 'ACTION';const g=gates.get(v.id);return g&&isSendResolvable(g)?'READY':TAB_OF[v.state];};
  const byTab=(t:BoardTab)=>vs.filter(v=>tabOf(v)===t);
  const counts={ACTION:halos.length+byTab('ACTION').length,READY:byTab('READY').length,SENT:byTab('SENT').length};
 
@@ -95,8 +98,8 @@ export async function releaseQueue(db:Queryable,user:Staff,deps:ReportDeps,input
    const code='HIS_SEND:'+(sent.error??sent.code);
    reasons=[{code,...(sent.error&&SETTINGS_SEND_ERROR.test(sent.error)?{fixHref:'/settings?key=his_outbound'}:{})}];
   }else if(d.tab==='ACTION'){
-   const codes:string[]=[STATE_REASON[v.state]];
-   if(v.state==='ValidationBlocked'||v.state==='Linked'){
+   const codes:string[]=[repeated(v)?'ATTEMPT_REPEATED':STATE_REASON[v.state]];
+   if(!repeated(v)&&(v.state==='ValidationBlocked'||v.state==='Linked')){
     const g=gates.get(v.id)!;
     // failed = 'RG-nn:REASON', pending = 'RG-nn:GOVERNANCE:REASON'; the reason is what a person can act on.
     const gate=[...g.failed.map(x=>x.split(':')[1]),...g.pending.map(x=>x.split(':')[2])].filter(Boolean);

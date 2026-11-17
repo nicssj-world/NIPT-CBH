@@ -5,7 +5,7 @@ import {lockLn} from '../db/registration';
 import {buildTubeLabelsHtml} from './labels';
 import {specimenDisplayCode} from './rules';
 import {LabError,uuid,reasonText,need,assertSession,audit,caseEvent,attemptEvent,setAttemptState,attemptFacts,candidatePrintedId,caseVisible,bangkokToday,
- REDRAW_REASONS,REPEAT_REASONS,REPEAT_LEVELS,type Staff} from './core';
+ REDRAW_REASONS,REPEAT_REASONS,REPEAT_LEVELS,FAILURE_STAGES,type Staff} from './core';
 import {isoDate} from '../domain/thai-date';
 import {migrationOriginalIdentifiers} from '../migration/original-identifiers';
 import {migrationRerunAttempts} from '../migration/rerun';
@@ -119,19 +119,25 @@ async function lockedAttempt(db:Queryable,user:Staff,attemptId:string){
 /** Deliberate operator failure disposition; values alone never create a failure. */
 export async function confirmFailure(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);
- const d=z.strictObject({attemptId:uuid,stage:z.enum(['QC1','QC2','QC3','QC4','SEQUENCING']),confirmed:z.literal(true),note:reasonText}).parse(input);
+ const d=z.strictObject({attemptId:uuid,stage:z.enum(FAILURE_STAGES),confirmed:z.literal(true),note:reasonText}).parse(input);
  const a=await lockedAttempt(db,user,d.attemptId);need(user,'qc.record');
  if(a.no_call_selected||a.current_round_id!==a.round_id||!a.previously_finalized||!a.slot_batch_id||!['Assigned','InProgress'].includes(a.attempt_state))throw new LabError('FAILURE_REQUIRES_LOCKED_EXECUTED_ATTEMPT',409);
  const revision=(await db.query<{id:string;source_sha256:string;values:Record<string,unknown>}>('SELECT id,source_sha256,values FROM task_workbook_revision WHERE batch_id=$1 ORDER BY revision DESC LIMIT 1',[a.slot_batch_id])).rows[0];
  const values=revision?.values??{};
  const keys=d.stage==='QC1'?[`slot.${a.slot_number}.libraryQc`]:d.stage==='QC2'?['pool.concentration']:d.stage==='QC3'?['seq.dnbConcentration']:d.stage==='QC4'?['seq.q30','seq.loadedDnb','seq.bic','seq.fit']:['seq.date','seq.operator'];
  const present=(k:string)=>values[k]!==undefined&&values[k]!==null&&values[k]!=='';
- if(!revision||!(d.stage==='QC4'?keys.some(present):keys.every(present)))throw new LabError('FAILED_STAGE_EVIDENCE_REQUIRED',409);
- if(a.attempt_state==='Assigned')await setAttemptState(db,user,{id:a.attempt_id,case_id:a.case_id,state:'Assigned'},'InProgress',{batchId:a.slot_batch_id,revisionId:revision.id});
- await setAttemptState(db,user,{id:a.attempt_id,case_id:a.case_id,state:'InProgress'},'QcFailed',{stage:d.stage,reason:d.note,revisionId:revision.id},{qcFailedStage:d.stage});
+ const recorded=!!revision&&(d.stage==='QC4'?keys.some(present):keys.every(present));
+ // ABNORMAL_RESULT (Owner 2026-11-17: the run succeeded, the result is abnormal): the recorded run, or this attempt's result in a confirmed
+ // HALOS file. The HALOS file is the completed analysis output and the run date/operator are often not typed in (Owner 2026-11-11).
+ const halos=d.stage==='ABNORMAL_RESULT'?(await db.query<{id:string}>(`SELECT h.id FROM halos_import_row h JOIN halos_import i ON i.id=h.import_id
+   WHERE h.attempt_id=$1 AND h.sheet='result' AND h.classification='PATIENT' AND i.state='Confirmed' ORDER BY i.uploaded_at DESC LIMIT 1`,[a.attempt_id])).rows[0]??null:null;
+ if(!recorded&&!halos)throw new LabError(d.stage==='ABNORMAL_RESULT'?'ABNORMAL_RESULT_EVIDENCE_REQUIRED':'FAILED_STAGE_EVIDENCE_REQUIRED',409);
+ const source={revisionId:revision?.id??null,...(halos?{halosRowId:halos.id}:{})};
+ if(a.attempt_state==='Assigned')await setAttemptState(db,user,{id:a.attempt_id,case_id:a.case_id,state:'Assigned'},'InProgress',{batchId:a.slot_batch_id,...source});
+ await setAttemptState(db,user,{id:a.attempt_id,case_id:a.case_id,state:'InProgress'},'QcFailed',{stage:d.stage,reason:d.note,...source},{qcFailedStage:d.stage});
  // The failed child closes its repeat order, as the QC1 record path does; an open order would otherwise block No Call and a next repeat.
  if(a.repeat_order_id)await db.query("UPDATE repeat_work_order SET state='RepeatFailed',closed_by=$2,closed_at=now(),close_reason=$3 WHERE id=$1 AND state='RepeatInProgress'",[a.repeat_order_id,user.id,`CHILD_${d.stage}_FAILED`]);
- await attemptEvent(db,user,{attemptId:a.attempt_id,caseId:a.case_id,type:'FAILURE_CONFIRMED',stage:d.stage,reason:d.note,details:{batchId:a.slot_batch_id,slot:a.slot_number,roundId:a.round_id,revisionId:revision.id,sourceSha256:revision.source_sha256}});
+ await attemptEvent(db,user,{attemptId:a.attempt_id,caseId:a.case_id,type:'FAILURE_CONFIRMED',stage:d.stage,reason:d.note,details:{batchId:a.slot_batch_id,slot:a.slot_number,roundId:a.round_id,...source,sourceSha256:revision?.source_sha256??null}});
  await audit(db,user,'LAB_FAILURE_CONFIRMED','analytical_attempt',a.attempt_id,{outcome:d.stage});
  return {attemptId:a.attempt_id,status:a.overall_ordinal>=4?'รอพิจารณาหลังครบ 4 ครั้ง':'QcFailed'};
 }
@@ -151,13 +157,15 @@ export async function noCall(db:Queryable,user:Staff,input:unknown){
 }
 
 /** Repeat (LD-06, §4.3, §12.6.1): same specimen round; a child attempt with lineage, no new specimen, no HIS action. */
-export async function orderRepeat(db:Queryable,user:Staff,input:unknown){
+export async function orderRepeat(db:Queryable,user:Staff,input:unknown,internal:{abnormalAnalysed?:true}={}){
  await assertSession(db,user);const d=z.strictObject({attemptId:uuid,level:z.enum(REPEAT_LEVELS),reasonCode:z.enum(REPEAT_REASONS),note:reasonText}).parse(input);
  const a=await lockedAttempt(db,user,d.attemptId);need(user,'repeat.order','write',{unitId:a.unit_id??undefined,origin:a.registration_origin});
  if(a.no_call_selected)throw new LabError('NO_CALL_AWAITING_EXTERNAL_PDF',409);
  const historicalRerun=a.attempt_state==='Ready'&&(await migrationRerunAttempts(db,[a.attempt_id])).has(a.attempt_id);
- if(!historicalRerun&&!['QcFailed','Stopped','BatchCancelled'].includes(a.attempt_state))throw new LabError('REPEAT_REQUIRES_FAILED_OR_STOPPED_ATTEMPT',409);
- if(a.overall_ordinal===4&&a.attempt_state!=='QcFailed')throw new LabError('FOURTH_ATTEMPT_FAILURE_NOT_CONFIRMED',409);
+ // An analysed attempt (FinalQcAccepted) comes here only through actionCenter's abnormal-result path, which has checked that nothing was sent.
+ const abnormalAnalysed=internal.abnormalAnalysed===true&&a.attempt_state==='FinalQcAccepted';
+ if(!historicalRerun&&!abnormalAnalysed&&!['QcFailed','Stopped','BatchCancelled'].includes(a.attempt_state))throw new LabError('REPEAT_REQUIRES_FAILED_OR_STOPPED_ATTEMPT',409);
+ if(a.overall_ordinal===4&&a.attempt_state!=='QcFailed'&&!abnormalAnalysed)throw new LabError('FOURTH_ATTEMPT_FAILURE_NOT_CONFIRMED',409);
  // Owner 2026-11-13: the first round may be repeated up to attempt -3 (Re-Library/Re-Extraction twice); after that only Re-Sampling.
  if(a.round_number===1&&a.attempt_number>=3)throw new LabError('RESAMPLING_REQUIRED_AFTER_S1_REPEAT',409);
  if(a.current_round_id!==a.round_id||!['ReceivedInHIS','ReceivedInNIPT'].includes(a.round_state))throw new LabError('REPEAT_REQUIRES_CURRENT_RECEIVED_ROUND',409);
@@ -165,12 +173,24 @@ export async function orderRepeat(db:Queryable,user:Staff,input:unknown){
  const order=(await db.query<{id:string}>("INSERT INTO repeat_work_order(case_id,round_id,reason_code,state,parent_attempt_id,level,note,requested_by) VALUES($1,$2,$3,'RepeatPendingBatch',$4,$5,$6,$7) RETURNING id",[a.case_id,a.round_id,d.reasonCode,a.attempt_id,d.level,d.note,user.id])).rows[0].id;
  const n=(await db.query<{n:number}>('SELECT max(attempt_number)+1 n FROM analytical_attempt WHERE round_id=$1',[a.round_id])).rows[0].n;
  const child=(await db.query<{id:string}>("INSERT INTO analytical_attempt(case_id,round_id,attempt_number,repeat_order_id,state) VALUES($1,$2,$3,$4,'Ready') RETURNING id",[a.case_id,a.round_id,n,order])).rows[0].id;
- await setAttemptState(db,user,{id:a.attempt_id,case_id:a.case_id,state:a.attempt_state},'Superseded',{repeatOrderId:order,childAttemptId:child});
+ await setAttemptState(db,user,{id:a.attempt_id,case_id:a.case_id,state:a.attempt_state},'Superseded',{repeatOrderId:order,childAttemptId:child},abnormalAnalysed?{qcFailedStage:'ABNORMAL_RESULT'}:{});
  await attemptEvent(db,user,{attemptId:child,caseId:a.case_id,type:'REPEAT_ORDERED',reason:d.note,details:{parentAttemptId:a.attempt_id,level:d.level,reasonCode:d.reasonCode}});
  await caseEvent(db,user,a.case_id,'LAB_REPEAT_ORDERED',{roundNumber:a.round_number,level:d.level,reasonCode:d.reasonCode,attemptNumber:n});
  await audit(db,user,'LAB_REPEAT_ORDERED','repeat_work_order',order,{reasonCode:d.reasonCode,outcome:d.level});
  const fresh=(await attemptFacts(db,'a.id=$1',[child]))[0];
  return {repeatOrderId:order,attemptId:child,attemptNumber:n,printedSampleId:candidatePrintedId(fresh).id,printedIdStatus:candidatePrintedId(fresh).status};
+}
+
+/** "ยกเลิกคำสั่งตรวจซ้ำ" (Owner 2026-11-17): a repeat ordered by mistake is removed as if never ordered, while its new attempt is not on a
+ *  Task List yet; the earlier attempt goes back to the state it had before that action (migration 230 decides and refuses everything else). */
+export async function cancelRepeat(db:Queryable,user:Staff,input:unknown){
+ await assertSession(db,user);const d=z.strictObject({attemptId:uuid,note:z.string().trim().max(500).optional()}).parse(input);
+ const a=await lockedAttempt(db,user,d.attemptId);need(user,'repeat.order','write',{unitId:a.unit_id??undefined,origin:a.registration_origin});
+ if(!a.repeat_order_id)throw new LabError('REPEAT_UNDO_NOT_A_REPEAT',409);
+ const r=(await db.query<{r:{parentAttemptId:string;restoredState:string;level:string;reasonCode:string;attemptNumber:number}}>('SELECT lab_repeat_undo($1) r',[a.attempt_id])).rows[0].r;
+ await caseEvent(db,user,a.case_id,'LAB_REPEAT_CANCELLED',{roundNumber:a.round_number,attemptNumber:r.attemptNumber,level:r.level,reasonCode:r.reasonCode,restoredState:r.restoredState,...(d.note?{note:d.note}:{})});
+ await audit(db,user,'LAB_REPEAT_CANCELLED','analytical_attempt',r.parentAttemptId,{outcome:r.level,reasonCode:r.reasonCode,previousState:'Superseded',resultingState:r.restoredState,count:r.attemptNumber});
+ return {parentAttemptId:r.parentAttemptId,restoredState:r.restoredState};
 }
 
 /** Redraw (LD-01..05, §4.2 R1): new specimen round under the same case and HIS LN; nothing is written to HIS. */
@@ -273,7 +293,7 @@ export async function printLabels(db:Queryable,user:Staff,input:unknown){
  return {jobId:job,kind:reprint?'REPRINT':'PRINT',html};
 }
 
-const ACTION_REASON_TEXT:Record<string,string>={QC1_LOW:'QC1 ต่ำกว่าเกณฑ์',LIBRARY_FAILURE:'Library ล้มเหลว',BATCH_CANCELLED:'Batch ถูกยกเลิก',STOPPED_BY_LAB:'Lab หยุดงาน',
+const ACTION_REASON_TEXT:Record<string,string>={QC1_LOW:'QC1 ต่ำกว่าเกณฑ์',LIBRARY_FAILURE:'Library ล้มเหลว',BATCH_CANCELLED:'Batch ถูกยกเลิก',STOPPED_BY_LAB:'Lab หยุดงาน',ABNORMAL_RESULT:'ผลผิดปกติ — ตรวจยืนยัน',
  QC1_FAILED:'QC1 ไม่ผ่าน',QC_SAMPLE_FAILED:'QC ระดับตัวอย่างไม่ผ่าน',FETAL_FRACTION_LOW:'FF ต่ำ',SPECIMEN_PROBLEM:'ปัญหาสิ่งส่งตรวจ',OTHER:'อื่น ๆ'};
 /** OWNER-LAB-012/028 Sample Action Center: one popup action replaces the separate inline "ยืนยันผลไม่สำเร็จ" step.
  *  An attempt still Assigned/InProgress first gets the existing failure confirmation for the chosen stage (same evidence
@@ -281,7 +301,7 @@ const ACTION_REASON_TEXT:Record<string,string>={QC1_LOW:'QC1 ต่ำกว่�
  *  Free text is mandatory only for an override that creates a 5th or later attempt; otherwise the selected reason is the note. */
 export async function actionCenter(db:Queryable,user:Staff,input:unknown){
  await assertSession(db,user);
- const d=z.strictObject({attemptId:uuid,kind:z.enum(['RE_LIBRARY','RE_EXTRACTION','RE_SAMPLING','NO_CALL']),stage:z.enum(['QC1','QC2','QC3','QC4','SEQUENCING']).optional(),
+ const d=z.strictObject({attemptId:uuid,kind:z.enum(['RE_LIBRARY','RE_EXTRACTION','RE_SAMPLING','NO_CALL']),stage:z.enum(FAILURE_STAGES).optional(),
   reasonCode:z.string().max(40).optional(),note:z.string().trim().max(500).optional()}).parse(input);
  const a=await lockedAttempt(db,user,d.attemptId);
  const reasonLabel=d.reasonCode?ACTION_REASON_TEXT[d.reasonCode]:undefined;
@@ -294,11 +314,25 @@ export async function actionCenter(db:Queryable,user:Staff,input:unknown){
   if(!d.stage)throw new LabError('FAILURE_STAGE_REQUIRED',422);
   await confirmFailure(db,user,{attemptId:a.attempt_id,stage:d.stage,confirmed:true,note});
  }
+ // Owner 2026-11-17: issuing a report already moves the attempt to FinalQcAccepted (QC5), so an abnormal result whose report was issued but
+ // NOT sent is repeated from here too. Nothing sent may be repeated (Owner's choice). The unsent report stays and is listed under
+ // "ต้องจัดการ" as ATTEMPT_REPEATED with the discard button (release-queue), so no step is left without a way on.
+ let abnormalAnalysed=false;
+ if(['AnalysisComplete','FinalQcAccepted'].includes(a.attempt_state)&&(d.kind==='RE_LIBRARY'||d.kind==='RE_EXTRACTION')){
+  if(d.stage!=='ABNORMAL_RESULT')throw new LabError('ABNORMAL_RESULT_STAGE_REQUIRED',422);
+  need(user,'qc.record');
+  if((await db.query("SELECT 1 FROM result_release r JOIN result_report_version v ON v.id=r.version_id WHERE v.attempt_id=$1 AND r.state='Active'",[a.attempt_id])).rows.length)throw new LabError('ABNORMAL_RESULT_ALREADY_SENT',409);
+  await attemptEvent(db,user,{attemptId:a.attempt_id,caseId:a.case_id,type:'FAILURE_CONFIRMED',stage:'ABNORMAL_RESULT',reason:note,details:{batchId:a.slot_batch_id,slot:a.slot_number,roundId:a.round_id,analysed:true}});
+  await audit(db,user,'LAB_FAILURE_CONFIRMED','analytical_attempt',a.attempt_id,{outcome:'ABNORMAL_RESULT'});
+  // AnalysisComplete may still fail (transition guard); FinalQcAccepted is superseded directly by the repeat below.
+  if(a.attempt_state==='AnalysisComplete')await setAttemptState(db,user,{id:a.attempt_id,case_id:a.case_id,state:'AnalysisComplete'},'QcFailed',{stage:'ABNORMAL_RESULT',reason:note},{qcFailedStage:'ABNORMAL_RESULT'});
+  else abnormalAnalysed=true;
+ }
  if(d.kind==='NO_CALL')return {kind:d.kind,...await noCall(db,user,{attemptId:a.attempt_id,note})};
  if(d.kind==='RE_SAMPLING'){
   if(!d.reasonCode||!(REDRAW_REASONS as readonly string[]).includes(d.reasonCode))throw new LabError('REASON_CODE_INVALID',422);
   return {kind:d.kind,...await orderRedraw(db,user,{caseId:a.case_id,reasonCode:d.reasonCode,note})};
  }
  if(!d.reasonCode||!(REPEAT_REASONS as readonly string[]).includes(d.reasonCode))throw new LabError('REASON_CODE_INVALID',422);
- return {kind:d.kind,override,...await orderRepeat(db,user,{attemptId:a.attempt_id,level:d.kind==='RE_LIBRARY'?'RE_LIBRARY':'RE_EXTRACTION',reasonCode:d.reasonCode,note})};
+ return {kind:d.kind,override,...await orderRepeat(db,user,{attemptId:a.attempt_id,level:d.kind==='RE_LIBRARY'?'RE_LIBRARY':'RE_EXTRACTION',reasonCode:d.reasonCode,note},abnormalAnalysed?{abnormalAnalysed:true}:{})};
 }

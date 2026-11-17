@@ -9,4 +9,6 @@ export const QC_STAGE_LABEL:Record<string,string>={
  QC3:"QC3 · หลังทำ DNB",
  QC4:"QC4 · หลัง Sequencing",
  SEQUENCING:"Sequencing · ระหว่างเดินเครื่อง",
+ /** Owner 2026-11-17: the run succeeded but the result is abnormal; repeated before the result is sent (not a QC failure). */
+ ABNORMAL_RESULT:"ผลวิเคราะห์ผิดปกติ · หลัง Sequencing",
 };
