@@ -4,16 +4,13 @@ import {labUsers,syntheticCase,receiveS1,attemptOf,tx,setPendingPolicy,version} 
 import {actionCenter} from '../../packages/lab/intake';
 import {attemptFacts} from '../../packages/lab/core';
 import {createBatch,assignToBatch,updateSheetPlan,planCheck,finalizeSheet} from '../../packages/lab/batch';
-import {readFileSync} from 'node:fs';
-import {FileStore} from '../../packages/storage';
-import {saveWorkbookDraft} from '../../packages/workbook/service';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 
 // Owner 2026-11-17: Sequencing succeeded but the result is abnormal -> repeat exactly like any Re-Library / Re-Extraction
 // (new attempt -2 / -3 that goes back to the Task List); only the recorded stage differs, for the statistics.
-it('an abnormal result after a recorded run is repeated like any Re-xx: stage ABNORMAL_RESULT, new attempt -2, back on a Task List, not a QC failure',async()=>{
+it('an abnormal result is repeated like any Re-xx with no evidence to show: stage ABNORMAL_RESULT, new attempt -2, back on a Task List, not a QC failure',async()=>{
  const db=await testDatabase(),root=await mkdtemp(path.join(tmpdir(),'abnormal-repeat-'));try{
  const u=await labUsers(db);await setPendingPolicy(db,u,'PROCEED_SYNTHETIC_LABELLED');
  const c=await tx(db,t=>syntheticCase(t,u));await tx(db,t=>receiveS1(t,c));const a=await attemptOf(db,c.roundId);
@@ -26,11 +23,8 @@ it('an abnormal result after a recorded run is repeated like any Re-xx: stage AB
  };
  await place(b.batchId,a.id,V);
  const order={attemptId:a.id,kind:'RE_LIBRARY',stage:'ABNORMAL_RESULT',reasonCode:'ABNORMAL_RESULT',note:'SYNTHETIC abnormal result, repeat to confirm'};
- // No recorded run and no confirmed HALOS result yet: refused, with a message that names the way on (import HALOS or record the run).
- await expect(tx(db,t=>actionCenter(t,u.staff,order))).rejects.toThrow('ABNORMAL_RESULT_EVIDENCE_REQUIRED');
- expect((await attemptFacts(db,'a.id=$1',[a.id]))[0].attempt_state).toBe('Assigned');
- const deps={master:readFileSync('.local/lab-owner-evidence/lab-combined-master.xlsx'),store:new FileStore(root),render:async()=>{throw Error('NOT_REQUESTED');}};
- await tx(db,async t=>saveWorkbookDraft(t,u.staff,{batchId:b.batchId,expectedVersion:await V(),expectedRevision:0,values:{'slot.2.libraryQc':1,'pool.concentration':3.2,'seq.dnbConcentration':2,'seq.q30':95,'seq.date':'17/11/2569','seq.operator':'SYNTHETIC'}},deps));
+ // Owner 2026-11-17 ("ทำเหมือน Re-xxx"): no evidence is needed — nothing typed in the Task and no HALOS row (the abnormal row is cut from
+ // the HALOS file before import). The sample is simply on a finalized Task List, like any Re-xx.
 
  const r=await tx(db,t=>actionCenter(t,u.staff,order)) as {attemptId:string;attemptNumber:number;printedSampleId:string|null};
  const parent=(await attemptFacts(db,'a.id=$1',[a.id]))[0];

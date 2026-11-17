@@ -127,12 +127,10 @@ export async function confirmFailure(db:Queryable,user:Staff,input:unknown){
  const keys=d.stage==='QC1'?[`slot.${a.slot_number}.libraryQc`]:d.stage==='QC2'?['pool.concentration']:d.stage==='QC3'?['seq.dnbConcentration']:d.stage==='QC4'?['seq.q30','seq.loadedDnb','seq.bic','seq.fit']:['seq.date','seq.operator'];
  const present=(k:string)=>values[k]!==undefined&&values[k]!==null&&values[k]!=='';
  const recorded=!!revision&&(d.stage==='QC4'?keys.some(present):keys.every(present));
- // ABNORMAL_RESULT (Owner 2026-11-17: the run succeeded, the result is abnormal): the recorded run, or this attempt's result in a confirmed
- // HALOS file. The HALOS file is the completed analysis output and the run date/operator are often not typed in (Owner 2026-11-11).
- const halos=d.stage==='ABNORMAL_RESULT'?(await db.query<{id:string}>(`SELECT h.id FROM halos_import_row h JOIN halos_import i ON i.id=h.import_id
-   WHERE h.attempt_id=$1 AND h.sheet='result' AND h.classification='PATIENT' AND i.state='Confirmed' ORDER BY i.uploaded_at DESC LIMIT 1`,[a.attempt_id])).rows[0]??null:null;
- if(!recorded&&!halos)throw new LabError(d.stage==='ABNORMAL_RESULT'?'ABNORMAL_RESULT_EVIDENCE_REQUIRED':'FAILED_STAGE_EVIDENCE_REQUIRED',409);
- const source={revisionId:revision?.id??null,...(halos?{halosRowId:halos.id}:{})};
+ // ABNORMAL_RESULT (Owner 2026-11-17: "ทำเหมือน Re-xxx"): no evidence check. The abnormal row is cut from the HALOS file before import and
+ // no report is made until the repeat, so there is nothing to look for; the person's choice in the Action Center is the record.
+ if(d.stage!=='ABNORMAL_RESULT'&&!recorded)throw new LabError('FAILED_STAGE_EVIDENCE_REQUIRED',409);
+ const source={revisionId:revision?.id??null};
  if(a.attempt_state==='Assigned')await setAttemptState(db,user,{id:a.attempt_id,case_id:a.case_id,state:'Assigned'},'InProgress',{batchId:a.slot_batch_id,...source});
  await setAttemptState(db,user,{id:a.attempt_id,case_id:a.case_id,state:'InProgress'},'QcFailed',{stage:d.stage,reason:d.note,...source},{qcFailedStage:d.stage});
  // The failed child closes its repeat order, as the QC1 record path does; an open order would otherwise block No Call and a next repeat.
