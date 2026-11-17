@@ -19,7 +19,7 @@ it('splits and joins the operator text as "SJ / SC", keeping an old free-text va
  expect(splitOperators(null)).toEqual([]);
  expect(joinOperators(['SJ','SC','SJ'])).toBe('SJ / SC');
 });
-it('lists only active LAB_STAFF / LAB_CERTIFIER people with their Initial Name, and only to Lab users',async()=>{
+it('lists only active LAB_STAFF / LAB_CERTIFIER / APP_ADMIN people with their Initial Name, and only to Lab users',async()=>{
  const db=await testDatabase();
  try{
   const u=await labUsers(db);
@@ -32,5 +32,11 @@ it('lists only active LAB_STAFF / LAB_CERTIFIER people with their Initial Name, 
   expect(list.find(o=>o.id===u.staff.id)).toEqual({id:u.staff.id,firstName:'สมใจ',initialName:'SJ'});
   expect(list.find(o=>o.id===u.certifier.id)?.initialName).toBeNull();
   await expect(listLabOperators(db,u.anc)).rejects.toThrow();
+  // an administrator with only APP_ADMIN is choosable too, but a disabled one is not
+  const admin=(await db.query<{id:string}>("INSERT INTO app_user(username,display_name,initial_name,password_hash) VALUES('synthetic.admin.op','ศิริวัฒน์ จำปีรัตน์','SJA','$argon2id$v=19$synthetic') RETURNING id")).rows[0].id;
+  await db.query("INSERT INTO role_assignment(user_id,role) VALUES($1,'APP_ADMIN')",[admin]);
+  expect((await listLabOperators(db,u.staff)).find(o=>o.id===admin)).toEqual({id:admin,firstName:'ศิริวัฒน์',initialName:'SJA'});
+  await db.query('UPDATE app_user SET enabled=false WHERE id=$1',[admin]);
+  expect((await listLabOperators(db,u.staff)).map(o=>o.id)).not.toContain(admin);
  }finally{await db.close();}
 });

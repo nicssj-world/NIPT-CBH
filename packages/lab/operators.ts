@@ -3,7 +3,8 @@ import {assertSession,need,type Staff} from './core';
 
 /** Owner 2026-11-11: the Lab operator fields offer the active Lab people (LAB_STAFF / LAB_CERTIFIER) by first name only; the field keeps their
  *  Initial Names joined by " / " (e.g. "SJ / SC"), which is what the worksheet and its PDF print. A person without an Initial Name is listed but cannot be chosen. */
-export const LAB_OPERATOR_ROLES=['LAB_STAFF','LAB_CERTIFIER'] as const;
+/** APP_ADMIN (Owner 2026-11-17): the administrator also works at the bench and must be choosable as an operator, without being given a Lab role. */
+export const LAB_OPERATOR_ROLES=['LAB_STAFF','LAB_CERTIFIER','APP_ADMIN'] as const;
 export const OPERATOR_SEPARATOR=' / ';
 const TITLES=['นางสาว','น.ส.','นาง','นาย','ดร.','ด.ร.','ภก.','ภญ.','ทนพ.','ทนพญ.','Dr.','Mr.','Mrs.','Ms.','Miss'];
 /** First name without a title or surname: "นางสาว สมใจ ใจดี" → "สมใจ". */
