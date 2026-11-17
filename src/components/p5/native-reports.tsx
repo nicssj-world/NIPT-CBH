@@ -32,7 +32,7 @@ const CLASS_TONE:Record<string,string>={PATIENT:"good",CONTROL:"",UNMATCHED:"bad
 const REASON_TEXT:Record<string,string>={FROZEN_EXPORT_MEMBER:"ตรงกับสมาชิกในไฟล์ HALOS ที่ส่งออกจากระบบ",NOT_IN_ANY_FROZEN_EXPORT:"ไม่มีในไฟล์ส่งออกใดของระบบ — ตรวจว่าเป็นตัวอย่างจาก Run อื่นหรือพิมพ์รหัสผิด",
  CONTROL_ID_NOT_IN_FROZEN_EXPORT:"รหัสแบบ Control ที่ไม่มีในไฟล์ส่งออก",EXPORT_CONTROL_POSITION:"ตำแหน่ง Control ในไฟล์ส่งออก",SAMPLE_ID_MAPS_TO_DIFFERENT_MEMBERS:"รหัสเดียวกันชี้ไปหลาย Attempt — ต้องตรวจไฟล์ส่งออก",
  EXPORT_POOLING_NO_LONGER_CURRENT:"บันทึก Pooling เปลี่ยนหลังส่งออก — ส่งออกใหม่แล้วรอผลชุดใหม่",LATER_ATTEMPT_EXISTS:"มี Attempt ใหม่กว่า",ROUND_NOT_CURRENT:"ไม่ใช่รอบปัจจุบัน",ATTEMPT_REMOVED_FROM_BATCH:"ถูกนำออกจาก Batch",
- DUPLICATE_SAMPLE_IN_RESULT_SHEET:"รหัสซ้ำในชีต result",RESULT_AND_REPEAT_VALUES_DIFFER:"ค่าในชีต result และ repeat ไม่ตรงกัน",SAME_AS_RESULT_SHEET_ROW:"เหมือนแถวในชีต result",REPEAT_SHEET_ONLY:"มีเฉพาะในชีต repeat",
+ DUPLICATE_SAMPLE_IN_RESULT_SHEET:"รหัสซ้ำในชีต result",RESULT_AND_REPEAT_VALUES_DIFFER:"ค่าในชีต result และ repeat ไม่ตรงกัน",SAME_AS_RESULT_SHEET_ROW:"เหมือนแถวในชีต result",REPEAT_SHEET_ONLY:"มีเฉพาะในชีต repeat",REPEAT_SHEET_ONLY_ATTEMPT_SUPERSEDED:"รอบก่อนหน้า (มีผลตรวจซ้ำที่ใหม่กว่าแล้ว)",
  SAMPLE_ID_MISSING:"ไม่มีรหัสตัวอย่าง",SAMPLE_ID_FORMAT_INVALID:"รูปแบบรหัสตัวอย่างไม่ถูกต้อง",EXPORT_MEMBER_LINEAGE_MISMATCH:"ข้อมูล Attempt ไม่ตรงกับไฟล์ส่งออก"};
 const ISSUE_TEXT:Record<string,string>={MIXED_CHIP_IN_RESULT_SHEET:"ชีต result มีหลาย Chip",NAME_COLLISION_DIFFERENT_CONTENT:"ชื่อไฟล์ซ้ำกับไฟล์ที่นำเข้าแล้ว แต่เนื้อหาต่างกัน",REPEAT_SHEET_ABSENT:"ไม่มีชีต repeat",UNKNOWN_SHEET_IGNORED:"มีชีตอื่นที่ระบบไม่ได้ใช้",CHIP_ID_MISSING:"ไม่มี Chip ID",SAMPLE_ID_MISSING:"แถวไม่มีรหัสตัวอย่าง",SAMPLE_ID_FORMAT_INVALID:"รหัสตัวอย่างผิดรูปแบบ"};
 export const HOLD_TEXT:Record<string,string>={
@@ -97,12 +97,24 @@ function HalosImport({onConfirmed,onPrepare,refreshKey,confirmedImportId}:{onCon
     <div><dt>Chip</dt><dd className="mono">{preview.chipIds.join(", ")||"—"}</dd></div>
    </dl>
    {warnings.length>0&&<fieldset className="stack t3-warnings"><legend>คำเตือนที่ต้องรับทราบก่อนยืนยัน</legend>{warnings.map(w=><label key={w} className="check-label"><input type="checkbox" checked={acks.has(w)} onChange={e=>setAcks(s=>{const n=new Set(s);if(e.target.checked)n.add(w);else n.delete(w);return n;})}/> {ISSUE_TEXT[w]??w}</label>)}</fieldset>}
+   {/* Owner 2026-11-17: repeat-sheet history (earlier attempts, copies of result-sheet rows) is never selectable or reported — fold it away; a repeat row that needs attention stays in the main table. */}
+   {(()=>{const quiet=(r:ImportRow)=>r.sheet==='repeat'&&(r.classification==='REPEAT_HISTORY'||r.classification==='DUPLICATE_ENTRY')&&r.reason!=='RESULT_AND_REPEAT_VALUES_DIFFER';
+    const main=result.filter(r=>!quiet(r)),history=result.filter(quiet);
+    const head=(sel:boolean)=><thead><tr>{sel&&<th scope="col">เลือก</th>}<th scope="col">ชีต · แถว</th><th scope="col">รหัสตัวอย่าง (ตามไฟล์)</th><th scope="col">LN · LN Halos</th><th scope="col">QC / คำแนะนำ</th><th scope="col">T21</th><th scope="col">การจับคู่</th></tr></thead>;
+    const cells=(r:ImportRow)=><><td>{r.sheet} · {r.row}</td><td className="mono">{r.sampleKey}{r.sample!==r.sampleKey&&<span className="badge warning">มีช่องว่าง/แท็บในไฟล์</span>}</td><td className="mono">{r.ln??"—"}<br/>{r.lnHalos??""}</td>
+      <td>{r.qc??"—"} / {r.advice??"—"}</td><td>{r.t21??"—"}</td><td><Status tone={CLASS_TONE[r.classification]}>{CLASS_TEXT[r.classification]??r.classification}</Status><div className="help">{REASON_TEXT[r.reason]??r.reason}</div></td></>;
+    return <>
    <div className="table-wrap" role="region" aria-label="แถวผล HALOS และการจับคู่" tabIndex={0}>
-    <table className="data-table t3-rows"><caption>แถวผลทั้งหมด {result.length} — แถวที่ไม่ใช่ผู้ป่วยจะไม่ถูกออกรายงาน</caption>
-      <thead><tr><th scope="col">เลือก</th><th scope="col">ชีต · แถว</th><th scope="col">รหัสตัวอย่าง (ตามไฟล์)</th><th scope="col">LN · LN Halos</th><th scope="col">QC / คำแนะนำ</th><th scope="col">T21</th><th scope="col">การจับคู่</th></tr></thead>
-      <tbody>{result.map(r=><tr key={r.id}><td>{r.sheet==='result'&&r.classification==='PATIENT'&&<input type="checkbox" aria-label={`เลือกผล ${r.sampleKey}`} checked={chosen.has(r.id)} onChange={e=>setChosen(s=>{const n=new Set(s);if(e.target.checked)n.add(r.id);else n.delete(r.id);return n;})}/>}</td><td>{r.sheet} · {r.row}</td><td className="mono">{r.sampleKey}{r.sample!==r.sampleKey&&<span className="badge warning">มีช่องว่าง/แท็บในไฟล์</span>}</td><td className="mono">{r.ln??"—"}<br/>{r.lnHalos??""}</td>
-      <td>{r.qc??"—"} / {r.advice??"—"}</td><td>{r.t21??"—"}</td><td><Status tone={CLASS_TONE[r.classification]}>{CLASS_TEXT[r.classification]??r.classification}</Status><div className="help">{REASON_TEXT[r.reason]??r.reason}</div></td></tr>)}</tbody></table>
+    <table className="data-table t3-rows"><caption>แถวผล {main.length} — แถวที่ไม่ใช่ผู้ป่วยจะไม่ถูกออกรายงาน</caption>
+      {head(true)}
+      <tbody>{main.map(r=><tr key={r.id}><td>{r.sheet==='result'&&r.classification==='PATIENT'&&<input type="checkbox" aria-label={`เลือกผล ${r.sampleKey}`} checked={chosen.has(r.id)} onChange={e=>setChosen(s=>{const n=new Set(s);if(e.target.checked)n.add(r.id);else n.delete(r.id);return n;})}/>}</td>{cells(r)}</tr>)}</tbody></table>
    </div>
+   {history.length>0&&<Fold id="halos-repeat-h" title="ประวัติตรวจซ้ำ (ชีต repeat) — ไม่ออกรายงาน" count={history.length}>
+    <div className="table-wrap" role="region" aria-label="ประวัติตรวจซ้ำจากชีต repeat" tabIndex={0}>
+     <table className="data-table t3-rows"><caption>แถวจากชีต repeat ที่เป็นประวัติรอบก่อน หรือซ้ำกับแถวในชีต result</caption>
+      {head(false)}<tbody>{history.map(r=><tr key={r.id}>{cells(r)}</tr>)}</tbody></table>
+    </div></Fold>}
+   </>;})()}
    <div className="bulk-bar"><span>ยืนยันแล้วไฟล์และการจับคู่นี้จะแก้ไขไม่ได้</span>
     <button type="button" className="button secondary" disabled={!!busy} onClick={()=>decide("CANCEL")}>ยกเลิก</button>
      <button type="button" className="button" disabled={!!busy||preview.state!=="Previewed"||warnings.some(w=>!acks.has(w))||!chosen.size} onClick={()=>onPrepare(preview.rows.filter(r=>chosen.has(r.id)).map(r=>({rowId:r.id,sampleId:r.sampleKey,classification:r.classification,reason:r.reason,status:'READY',holds:[],template:null,ln:r.ln,lnHalos:r.lnHalos,hn:null,importName:preview.name,importedAt:preview.uploadedAt,internalReportId:null,versionId:null,versionState:null,releaseId:null,hisAttested:false})),{id:preview.id,rowVersion:preview.rowVersion,acks:[...acks]})}>ตรวจผลแปลและเลือกผู้ลงนาม ({chosen.size})</button></div>
