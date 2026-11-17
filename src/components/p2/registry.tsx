@@ -18,7 +18,7 @@ import {api,Dialog,ErrorNotice,Field,Ln,message,type Unit} from "./shared";
 import {Pager} from "../shared/pager";
 import {SentDateRange} from "../shared/sent-date-range";
 import {displayBe} from "../../../packages/domain/thai-date";
-import {DEFAULT_FILTERS,FLAGS,FLAG_LABEL,SORTS,SORT_LABEL,STATUSES,STATUS_LABEL,filtersQuery,hasFilters,type Flag,type RegistryFilters,type Sort,type Status as RegistryStatus} from "./registry-filters";
+import {DEFAULT_FILTERS,FLAGS,FLAG_LABEL,LAB_RECEIVED_LABEL,LAB_TESTING_LABEL,SORTS,SORT_LABEL,STATUSES,STATUS_LABEL,filtersQuery,hasFilters,type Flag,type RegistryFilters,type Sort,type Status as RegistryStatus} from "./registry-filters";
 type Row={id:string;ln:string;hn:string|null;patient_name:string|null;ga?:{weeks:number;days:number;over18:boolean}|null;registration_origin:string;round_number:number;state:string;analysis_started:boolean;received_at:string|null;received_source:string|null;sent_at?:string|null;request_mode:string;consent_mode:string;consent_decision?:string|null;identityVerified:boolean;clinical_ready?:boolean;released?:boolean;hasResult?:boolean;progress:{missing:string[];savedVersion:number}|null;
  /** Owner 2026-11-14 (moved from the ANC overview): High Risk is set only where the user may read released results. */highRisk?:boolean;hold?:boolean;urgent?:boolean;identity_issue?:boolean;status?:RegistryStatus};
 type Counts=Record<"all"|RegistryStatus|Flag,number>;
@@ -106,7 +106,8 @@ export function Registry({canAnc,canLab,overview=false,initialAncRegistration=fa
   :<><thead><tr><th scope="col">LN / ชื่อ-นามสกุล / HN</th><th scope="col" className="date-col" aria-sort={ariaSort("sent_desc","sent_asc")}>{sortHeader("วันที่ส่งตรวจ","sent_desc","sent_asc")}</th><th scope="col" aria-sort={ariaSort("desc","asc")}>{sortHeader("วันที่/เวลารับสิ่งส่งตรวจ","desc","asc")}</th><th scope="col">สถานะ</th><th scope="col"><span className="sr-only">การทำรายการ</span></th></tr></thead>
    {/* Owner 2026-11-14: the Lab registry has the ANC layout (GA column, progress track with the Lab step) in Lab words, LN first; the
        request / consent mode line is gone (not a status). The status word is the registry's own status, the one its filter uses. */}
-   <tbody>{data.cases.map(c=>{const p=registryProgress(c),lab=c.status&&c.status!=="other"?{...p,label:words[c.status]}:p;return <tr className="registry-row" key={c.id}>
+   {/* Owner 2026-11-17: "กำลังตรวจ" only once the sample is on a finalized Task List (analysis started); received but not yet placed reads as waiting for the Task List. */}
+   <tbody>{data.cases.map(c=>{const p=registryProgress(c),lab=c.status&&c.status!=="other"?{...p,label:c.status==="testing"?(p.tone==="received"?LAB_RECEIVED_LABEL:LAB_TESTING_LABEL):words[c.status]}:p;return <tr className="registry-row" key={c.id}>
     <td className="c-id"><strong>{lnLink(c)}</strong><span className="who-name">{name(c)}</span><span className="cell-sub num">HN {c.hn??"ยังไม่ยืนยัน"}</span></td>
     <td className="c-sent date-col">{sentDate(c)}</td>
     <td className="c-when">{received(c)}<span className="cell-sub">{c.registration_origin==="ANC"?"ลงทะเบียนโดย ANC":"ลงทะเบียนโดย Lab"}{c.received_source==="NIPT_LOCAL_RECEIPT"?" · รับใน NIPT":""}</span></td>
