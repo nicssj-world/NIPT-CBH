@@ -120,7 +120,7 @@ test('pathway A (LAB certifier): HALOS import preview/confirm, realtime search, 
   const boardRow=page.getByRole('row').filter({hasText:c(k).ln});await boardRow.getByRole('checkbox').check();
   const reviewed=page.getByLabel('ตรวจผลรายการที่เลือกแล้ว');if(await reviewed.count())await reviewed.check();
   const ab=page.getByLabel('รับทราบผลผิดปกติ',{exact:false});if(await ab.count())await ab.check();
-  await page.getByRole('button',{name:/ส่งที่เลือก/}).click();await expect(page.getByText('ส่ง HIS สำเร็จ 1 จาก 1 รายการ')).toBeVisible({timeout:60_000});
+  await page.getByRole('button',{name:/ส่งที่เลือก/}).click();await expect(page.getByText('อนุมัติและเข้าคิวส่ง HIS 1 จาก 1 รายการ')).toBeVisible({timeout:60_000});
  }
  await axe(page,'result-detail-internal');
  await logout(page);

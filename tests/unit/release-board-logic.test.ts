@@ -13,7 +13,7 @@ describe('release board send rules',()=>{
 });
 describe('outcome text',()=>{
  const label=(c:string)=>`<${c}>`;
- it('certified',()=>expect(outcomeText({versionId:'a',outcome:'CertifiedReleased'},label)).toContain('ส่ง HIS สำเร็จ'));
+ it('certified',()=>expect(outcomeText({versionId:'a',outcome:'CertifiedReleased'},label)).toContain('เข้าคิวส่ง HIS'));
  it('blocked lists reasons',()=>expect(outcomeText({versionId:'a',outcome:'BLOCKED',failed:['X'],pending:['Y']},label)).toContain('<X> · <Y>'));
  it('error maps known codes and falls back to the code',()=>{expect(outcomeText({versionId:'a',outcome:'ERROR',code:'VERSION_CONFLICT'},label)).toContain('โหลดใหม่');expect(outcomeText({versionId:'a',outcome:'ERROR',code:'ZZZ'},label)).toContain('ZZZ');});
 });

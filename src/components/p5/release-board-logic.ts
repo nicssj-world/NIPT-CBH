@@ -30,7 +30,8 @@ export const OUTCOME_ERROR_TEXT:Record<string,string>={
 
 /** Thai text for one send outcome; `label` resolves a gate/state reason code. */
 export function outcomeText(o:SendOutcome,label:(code:string)=>string):string{
- if(o.outcome==="CertifiedReleased")return "ส่ง HIS สำเร็จ — ผลพร้อมให้ ANC เห็นแล้ว";
+ // Owner 2026-11-17: CertifiedReleased = approved and queued; the Worker writes the HIS files afterwards (progress bar above), so this must not claim "sent".
+ if(o.outcome==="CertifiedReleased")return "อนุมัติแล้ว — เข้าคิวส่ง HIS (ดูความคืบหน้าที่แถบด้านบน)";
  if(o.outcome==="BLOCKED"){const rs=[...(o.failed??[]),...(o.pending??[])].map(label);return `ส่งไม่ได้ — ไม่ผ่านการตรวจก่อนส่ง${rs.length?`: ${rs.join(" · ")}`:""}`;}
  return `ส่งไม่สำเร็จ: ${OUTCOME_ERROR_TEXT[o.code??""]??o.code??"เกิดข้อผิดพลาด"}`;
 }
