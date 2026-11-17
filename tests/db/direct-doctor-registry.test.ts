@@ -51,3 +51,13 @@ it('saves a doctor without a signature; the doctor is active and usable, and a l
  const signed=await tx(()=>doctorAction(db,anc,{action:'save',id:saved.id,doctorKey:'SYNTHETIC-NO-SIGNATURE',name:'SYNTHETIC Doctor Unsigned',unitId:unit,image:{mime:'image/png',data:fixture.png}}));
  expect(signed.version).toBe(2);expect(await activeDoctor(db,String(signed.id),unit)).toMatchObject({signature_png:fixture.png});
 });
+it('lists doctors alphabetically by name (Thai collation), keeping each doctor\'s versions together, newest first (Owner 2026-11-17)',async()=>{
+ // Codes are deliberately in the opposite order to the names, and one doctor is renamed so the newest version's name decides the position.
+ await tx(()=>doctorAction(db,anc,{action:'save',doctorKey:'SYNTHETIC-SORT-A',name:'จำลอง ฮอร์น',unitId:unit}));
+ await tx(()=>doctorAction(db,anc,{action:'save',doctorKey:'SYNTHETIC-SORT-B',name:'จำลอง กมล',unitId:unit}));
+ const c=await tx(()=>doctorAction(db,anc,{action:'save',doctorKey:'SYNTHETIC-SORT-C',name:'จำลอง ขวัญ',unitId:unit}));
+ await tx(()=>doctorAction(db,anc,{action:'save',id:c.id,doctorKey:'SYNTHETIC-SORT-C',name:'จำลอง งามตา',unitId:unit}));
+ const rows=(await listDoctors(db,anc)).filter(d=>'doctor_key' in d&&d.doctor_key.startsWith('SYNTHETIC-SORT-')) as {doctor_key:string;version:number;name:string}[];
+ expect(rows.map(d=>`${d.doctor_key}:${d.version}`)).toEqual(['SYNTHETIC-SORT-B:1','SYNTHETIC-SORT-C:2','SYNTHETIC-SORT-C:1','SYNTHETIC-SORT-A:1']);
+ expect(rows[1].name).toBe('จำลอง งามตา');
+});

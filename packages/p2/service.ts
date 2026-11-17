@@ -388,7 +388,13 @@ export async function withdraw(db:Queryable,user:Staff,id:string,input:unknown){
  const stage=c.state==='Expected'?'W0':'W1';const r=(await db.query<{id:string}>('INSERT INTO p2_revocation(case_id,round_id,stage,reason,actor_id) VALUES($1,$2,$3,$4,$5) RETURNING id',[id,c.current_round_id,stage,d.reason,user.id])).rows[0];
  await db.query("INSERT INTO p2_disposition(revocation_id,state,reason,actor_id) VALUES($1,'PendingGovernance',$2,$3)",[r.id,d.reason,user.id]);await invalidate(db,id);await event(db,user,id,'P2_CONSENT_REVOKED',{stage,reason:d.reason});return {id:r.id,stage,state:'RevokedHold',disposition:'PendingGovernance'};
 }
-export async function listDoctors(db:Queryable,user:Staff){await assertStaff(db,user);if(!user.roles.some(r=>['ANC_NURSE','ANC_SUPERVISOR','LAB_STAFF','LAB_CERTIFIER','APP_ADMIN','CLINICAL_APPROVER'].includes(r)))throw new P2Error('FORBIDDEN',403);const r=await db.query<{unit_id:string;doctor_key:string;version:number;status:string|null;effective_from:Date;has_signature:boolean}>('SELECT v.id,v.doctor_key,v.version,v.name,v.unit_id,v.effective_from,v.created_by,v.authorization_evidence AS authorization,(v.signature_png IS NOT NULL) has_signature,(SELECT e.event_type FROM p2_doctor_event e WHERE e.doctor_version_id=v.id ORDER BY e.created_at DESC,e.id DESC LIMIT 1) status FROM p2_doctor_version v ORDER BY doctor_key,version DESC');return r.rows.map(x=>({...x,active:x.status!=='Suspended'&&new Date(x.effective_from)<=new Date()&&!r.rows.some(n=>n.doctor_key===x.doctor_key&&n.version>x.version&&new Date(n.effective_from)<=new Date())}));}
+export async function listDoctors(db:Queryable,user:Staff){await assertStaff(db,user);if(!user.roles.some(r=>['ANC_NURSE','ANC_SUPERVISOR','LAB_STAFF','LAB_CERTIFIER','APP_ADMIN','CLINICAL_APPROVER'].includes(r)))throw new P2Error('FORBIDDEN',403);const r=await db.query<{unit_id:string;doctor_key:string;name:string|null;version:number;status:string|null;effective_from:Date;has_signature:boolean}>('SELECT v.id,v.doctor_key,v.version,v.name,v.unit_id,v.effective_from,v.created_by,v.authorization_evidence AS authorization,(v.signature_png IS NOT NULL) has_signature,(SELECT e.event_type FROM p2_doctor_event e WHERE e.doctor_version_id=v.id ORDER BY e.created_at DESC,e.id DESC LIMIT 1) status FROM p2_doctor_version v ORDER BY doctor_key,version DESC');
+ // Owner 2026-11-17: the doctor list is alphabetical (Thai collation) by the doctor's current name. Versions of one doctor stay together, newest first
+ // (the registry page takes the first row of each key as the current one), and the position follows the newest version's name.
+ const collator=new Intl.Collator('th'),currentName=new Map<string,string>();
+ for(const x of r.rows)if(!currentName.has(x.doctor_key))currentName.set(x.doctor_key,x.name??'');
+ const sorted=[...r.rows].sort((a,b)=>a.doctor_key===b.doctor_key?b.version-a.version:collator.compare(currentName.get(a.doctor_key)!,currentName.get(b.doctor_key)!)||(a.doctor_key<b.doctor_key?-1:1));
+ return sorted.map(x=>({...x,active:x.status!=='Suspended'&&new Date(x.effective_from)<=new Date()&&!r.rows.some(n=>n.doctor_key===x.doctor_key&&n.version>x.version&&new Date(n.effective_from)<=new Date())}));}
 export async function doctorAction(db:Queryable,user:Staff,input:unknown){
  if(input&&typeof input==='object'&&'action' in input&&input.action==='save')return (await import('./doctor-registry')).saveDoctor(db,user,input);
  if(input&&typeof input==='object'&&'action' in input&&input.action==='status')return (await import('./doctor-registry')).setDoctorStatus(db,user,input);
@@ -427,6 +433,7 @@ const REGISTRY_FACTS=`LEFT JOIN LATERAL (SELECT x.id FROM analytical_attempt x W
    COALESCE((SELECT e.event_type='HOLD_SET' FROM attempt_event e WHERE e.attempt_id=la.id AND e.event_type IN ('HOLD_SET','HOLD_RELEASED') ORDER BY e.sequence DESC LIMIT 1),false) hold,
    COALESCE((SELECT e.event_type='URGENT_SET' FROM attempt_event e WHERE e.attempt_id=la.id AND e.event_type IN ('URGENT_SET','URGENT_CLEARED') ORDER BY e.sequence DESC LIMIT 1),false) urgent,
    EXISTS(SELECT 1 FROM his_intake_issue ii WHERE ii.case_id=c.id AND ii.state IN ('Open','Proposed')) identity_issue,
+   EXISTS(SELECT 1 FROM repeat_work_order rw WHERE rw.case_id=c.id AND rw.round_id=r.id AND rw.state IN ('RepeatRequested','RepeatPendingBatch','RepeatInProgress')) repeat,
    ${gaDaysSql('r','w')} ga_days) k
   CROSS JOIN LATERAL (SELECT CASE WHEN k.has_result THEN 'released'
    WHEN r.state='RevokedHold' OR i.hn IS NULL OR (w.round_id IS NOT NULL AND p2_consent_latest_decision(w.round_id)='Declined') THEN 'other'
@@ -483,9 +490,9 @@ async function readRegistry(db:Queryable,user:Staff,input:unknown,summary:boolea
  // The latest Run is looked up once ($10), not inside the per-row lateral where it would run again for every row.
  const run=(await db.query<{id:string;run_label:string}>(`SELECT id,run_label FROM lab_batch WHERE id=${LATEST_RUN.replaceAll('$8','$1')}`,[releasedReadable])).rows[0]??null;
  const us=(x:string)=>`floor(extract(epoch FROM ${x})*1000000)::bigint`;
- type Scan={id:string;ln:string;unit_id:string;registration_origin:string;created_us:string;sent_us:string|null;received_us:string|null;received_at:Date|null;status:RegistryStatus;high:boolean;high_run:boolean;ga_days:number|null;hold:boolean;urgent:boolean;identity_issue:boolean};
+ type Scan={id:string;ln:string;unit_id:string;registration_origin:string;created_us:string;sent_us:string|null;received_us:string|null;received_at:Date|null;status:RegistryStatus;high:boolean;high_run:boolean;ga_days:number|null;hold:boolean;urgent:boolean;identity_issue:boolean;repeat:boolean};
  const scanned=(await db.query<Scan>(`SELECT c.id,l.ln,s.unit_id,c.registration_origin,${us('c.created_at')} created_us,${us(sentAtSql('c'))} sent_us,${us('r.received_at')} received_us,r.received_at,
-   k2.status,k2.high,k3.high_run,k.ga_days,k.hold,k.urgent,k.identity_issue ${base}`,[...values,run?.id??null])).rows
+   k2.status,k2.high,k3.high_run,k.ga_days,k.hold,k.urgent,k.identity_issue,k.repeat ${base}`,[...values,run?.id??null])).rows
   .filter(c=>authorize(user,'case.read',{unitId:c.unit_id,origin:c.registration_origin as 'ANC'},'read'));
  // TAT: the cases in "กำลังตรวจ" whose current round the Lab received, by the same tatStatus() and calendar as the Lab overview.
  const cal=await workingCalendar(db,now),top=cal.policy.businessDays+4,aging=Array.from({length:top+1},(_,days)=>({days,ok:0,dueSoon:0,overdue:0}));
@@ -513,7 +520,7 @@ async function readRegistry(db:Queryable,user:Staff,input:unknown,summary:boolea
    ${gaEddSql('w')} ga_edd,${gaCollectionSql('r','w')} ga_collection ${joinsFor('$2')} WHERE c.id=ANY($1::uuid[])`,[pageScan.map(c=>c.id),readable])).rows;
  const byId=new Map(detail.map(d=>[d.id,d]));
  // A paper request is checked on the paper review, so the electronic draft's missing fields say nothing about it.
- const cases=pageScan.map(p=>byId.get(p.id)).filter((c):c is NonNullable<typeof c>=>!!c).map(({draft,ga_edd,ga_collection,...c})=>{const f=fact.get(c.id)!;return {...c,status:f.status,hold:f.hold,urgent:f.urgent,identity_issue:f.identity_issue,highRisk:f.high,hasResult:c.released||c.reported_before,patient_name:c.patient_name?.trim()||null,ga:registryGa(ga_edd,ga_collection),identityVerified:c.hn!==null,progress:draft&&c.request_mode!=='Paper'?{missing:requestProgressIssues(draft),savedVersion:c.version}:null};});
+ const cases=pageScan.map(p=>byId.get(p.id)).filter((c):c is NonNullable<typeof c>=>!!c).map(({draft,ga_edd,ga_collection,...c})=>{const f=fact.get(c.id)!;return {...c,status:f.status,hold:f.hold,urgent:f.urgent,identity_issue:f.identity_issue,repeat:f.repeat,highRisk:f.high,hasResult:c.released||c.reported_before,patient_name:c.patient_name?.trim()||null,ga:registryGa(ga_edd,ga_collection),identityVerified:c.hn!==null,progress:draft&&c.request_mode!=='Paper'?{missing:requestProgressIssues(draft),savedVersion:c.version}:null};});
  const units=allUnits.filter(u=>authorize(user,'case.register.anc',{unitId:u.id,origin:'ANC'})||authorize(user,'case.register.lab',{unitId:u.id,origin:'LAB_DIRECT'}));
  if(cases.length)await recordPhiAccess(db,user.id,cases.map(c=>c.id),'REGISTRY_VIEW');
  // How far the Lab Run has got, for the rows on this page only (ANC progress bar).
