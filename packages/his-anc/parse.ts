@@ -13,7 +13,7 @@ export function splitGa(text:string):{weeks:number;days:number}|null{
  const total=Number(m[1])*7+Number(m[2]);return {weeks:Math.floor(total/7),days:total%7};
 }
 /** Only a provider titled พญ. or นพ. is a doctor (Owner 2026-11-18). */
-export const isDoctorName=(provider:string)=>/^(พญ|นพ)\./.test(provider.trim());
+export const isDoctorName=(provider:string)=>/^(พญ|นพ)\.\s*\S/.test(provider.trim());
 
 /** DD/MM/YYYY (ค.ศ.) → YYYY-MM-DD; anything else (an Excel serial, ISO text, an impossible day) is null. */
 function hisDate(text:string):string|null{

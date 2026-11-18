@@ -4,9 +4,9 @@ import {inboundFixture,registrar,writePet,cycle,registerP2Case,type InboundFixtu
 import {tx} from '../helpers/lab';
 import {addUser} from '../helpers/database';
 import {lookupRegistrationPet,registerFromPet} from '../../packages/p2/pet-registration';
-import {doctorAction,paperReview,getCase,listDoctors,type Staff} from '../../packages/p2/service';
+import {doctorAction,paperReview,getCase,listDoctors,saveLabClinicalMetadata,type Staff} from '../../packages/p2/service';
 import {paperSchema,REQUEST_TEMPLATE,type RequestDraft} from '../../packages/p2/schema';
-import {previewHisAnc,applyHisAnc} from '../../packages/his-anc/import';
+import {previewHisAnc,applyHisAnc,applyItem} from '../../packages/his-anc/import';
 import {hisAncWorkbook,hisAncRow,type HisAncFixtureRow} from '../helpers/his-anc-workbook';
 
 // Owner 2026-11-18: the HIS ANC export fills blanks on cases already waiting; preview first.
@@ -18,8 +18,8 @@ afterEach(async()=>{await f.close();});
 const iso=(d:Date)=>d.toISOString().slice(0,10),dmy=(isoDate:string)=>isoDate.split('-').reverse().join('/');
 const shift=(isoDate:string,days:number)=>iso(new Date(Date.parse(isoDate+'T00:00:00Z')+days*86400000));
 /** A Lab paper-route case from its PET (the import runs after PET matching). */
-async function labCase(n:number){
- const ln=`99000123${4560+n}`,hn=`99000${12340+n}`,identity=`SYNTHETIC-ID-ANC${n}`;
+async function labCase(n:number,patient?:{hn:string;cid:string}){
+ const ln=`99000123${4560+n}`,hn=patient?.hn??`99000${12340+n}`,identity=patient?.cid??`SYNTHETIC-ID-ANC${n}`;
  await writePet(f.root,'20261020',{ln,hn,identity,receivedAt:'20261020101112',specimenAt:'20261020090000'});await cycle(f,{now:new Date('2026-10-20T05:00:00Z')});
  const deps={store:f.store,lookupKey:f.lookupKey},p=(await tx(f.db,db=>lookupRegistrationPet(db,u.lab,{ln},deps))).candidates[0];
  const r=await tx(f.db,db=>registerFromPet(db,u.lab,{ln,fileId:p.fileId,unitId:u.unit,consentMode:'Paper',idempotencyKey:randomUUID()},deps));
@@ -38,10 +38,28 @@ describe('preview',()=>{
   expect(plan.counts.FILL).toBe(1);
   expect(plan.items[0]).toMatchObject({outcome:'FILL',caseId:c.caseId,ln:c.ln,fills:{doctor:{name:'พญ.SYNTHETIC ใหม่ หนึ่ง',versionId:null},gaWeeks:16,gaDays:5,gravida:2,pregnancyType:'Singleton',weightKg:99.6,heightCm:160}});
  });
- it('a provider one letter off a registry doctor uses that doctor',async()=>{
+ it('a registry doctor written with a different title, dots or spacing is the same doctor',async()=>{
   const c=await labCase(2),id=await registryDoctor('SYNTHETIC ทดสอบ สมชาย');
-  const plan=await preview([row(c,{provider:'พญ.SYNTHETIC ทดสอบ สมชัย'})]);
+  const plan=await preview([row(c,{provider:'พญ. SYNTHETIC  ทดสอบสมชาย'})]);
   expect(plan.items[0].fills.doctor).toEqual({name:'SYNTHETIC ทดสอบ สมชาย',versionId:id});
+ });
+ it('a name one letter off is a different doctor, never merged (review 2026-11-18: สมชาย ≠ สมชัย)',async()=>{
+  const c=await labCase(21);await registryDoctor('SYNTHETIC ทดสอบ สมชาย');
+  expect((await preview([row(c,{provider:'พญ.SYNTHETIC ทดสอบ สมชัย'})])).items[0].fills.doctor).toEqual({name:'พญ.SYNTHETIC ทดสอบ สมชัย',versionId:null});
+ });
+ it('a provider that is only a title is not a doctor',async()=>{
+  const c=await labCase(22);expect((await preview([row(c,{provider:'พญ.'})])).items[0]).toMatchObject({outcome:'NOT_A_DOCTOR',fills:{}});
+ });
+ it('one patient matching two cases is reported as ambiguous, not as missing',async()=>{
+  const a=await labCase(23);await labCase(24,{hn:a.hn,cid:a.cid});
+  expect((await preview([row(a)])).items[0]).toMatchObject({outcome:'NOT_MATCHED',reason:'AMBIGUOUS',fills:{}});
+ });
+ it('type, EDD and doctor already on the request are kept; GA follows the existing EDD',async()=>{
+  const c=await labCase(25),doctor=await registryDoctor('SYNTHETIC แพทย์ ลงทะเบียน'),edd=shift(c.collected,280-(17*7+1));
+  const v=(await tx(f.db,db=>getCase(db,u.lab,c.caseId))).workspace.version;
+  await tx(f.db,db=>saveLabClinicalMetadata(db,u.lab,c.caseId,{expectedVersion:v,edd,pregnancy:'Twins'}));
+  await f.db.query("UPDATE p2_workspace SET draft=jsonb_set(draft,'{ordering,doctorVersionId}',to_jsonb($2::text)),version=version+1 WHERE case_id=$1",[c.caseId,doctor]);
+  expect((await preview([row(c)])).items[0].fills).toMatchObject({doctor:{name:'SYNTHETIC แพทย์ ลงทะเบียน',versionId:doctor},gaWeeks:17,gaDays:1,pregnancyType:'Twins'});
  });
  it('CID right but HN wrong is not matched',async()=>{
   const c=await labCase(3);expect((await preview([row(c,{hn:'9900099999'})])).items[0]).toMatchObject({outcome:'NOT_MATCHED',caseId:null,fills:{}});
@@ -141,5 +159,18 @@ describe('apply',()=>{
    const bytes=hisAncWorkbook([row(a),row(b)]);return applyHisAnc(db,u.lab,bytes,f.lookupKey,createHash('sha256').update(bytes).digest('hex'));});
   expect(r.applied).toBe(1);expect(r.failed.map(x=>x.rowNo)).toEqual([2]);
   expect(await checksOf(a.caseId)).toHaveLength(0);expect(await checksOf(b.caseId)).toHaveLength(1);
+ });
+ it('weight and height go through the request save (recorded as a draft save)',async()=>{
+  const c=await labCase(26);await apply([row(c)]);
+  const events=(await f.db.query<{event_type:string}>('SELECT event_type FROM case_event WHERE case_id=$1',[c.caseId])).rows.map(e=>e.event_type);
+  expect(events).toContain('P2_REQUEST_DRAFT_SAVED');
+ });
+ it('a check saved after planning (e.g. by a colleague while the import runs) is found under the case lock and skipped',async()=>{
+  const c=await labCase(27),plan=await preview([row(c)]),item=plan.items[0];expect(item.outcome).toBe('FILL');
+  const doctor=await registryDoctor('SYNTHETIC แพทย์ ระหว่าง');
+  const panel={...paperSchema.parse(Object.fromEntries(Object.keys(paperSchema.shape).map(k=>[k,null]))),doctorVersionId:doctor,gaWeeks:16,gaDays:2,pregnancyType:'Singleton' as const};
+  await tx(f.db,db=>paperReview(db,u.lab,c.caseId,{kind:'REQUEST',templateVersion:REQUEST_TEMPLATE,panel,operation:'Review',previousId:null}));
+  expect(await tx(f.db,db=>applyItem(db,u.lab,item,new Map()))).toBe('ALREADY_CHECKED');
+  expect(await checksOf(c.caseId)).toHaveLength(1);
  });
 });

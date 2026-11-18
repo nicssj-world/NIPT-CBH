@@ -21,6 +21,7 @@ describe('HIS ANC export: who is a doctor (Owner 2026-11-18: only พญ./นพ
   expect(isDoctorName('นพ. ก ข')).toBe(true);
   expect(isDoctorName('น.ส.สุภาวรรณ ใจดี')).toBe(false);
   expect(isDoctorName('ภญ.ก')).toBe(false);
+  expect(isDoctorName('พญ.')).toBe(false);expect(isDoctorName('นพ.  ')).toBe(false);   // a title with no name
   expect(isDoctorName('')).toBe(false);
  });
 });
