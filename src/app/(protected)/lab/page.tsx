@@ -7,6 +7,7 @@ import {WORKLIST_TABS} from "../../../../packages/lab/worklist";
 import {LabWorklist,type WorklistData} from "../../../components/p4/worklist";
 import {MigrationWorklist} from '../../../components/p4/migration-worklist';
 import {LnHalosImport} from '../../../components/p4/ln-halos-import';
+import {HisAncImport} from '../../../components/lab/his-anc-import';
 
 /** `?tab=` opens one queue tab directly (Dashboard alerts, Owner 2026-11-14); an unknown value falls back to the default tab. */
 export default async function LabPage({searchParams}:{searchParams:Promise<{tab?:string}>}){
@@ -18,6 +19,7 @@ export default async function LabPage({searchParams}:{searchParams:Promise<{tab?
  return <>
   <header className="page-header"><div><h1>งาน Lab — คิวตัวอย่าง</h1></div><Link className="button secondary" href="/lab/batches">Batch / Task List</Link></header>
   <LabWorklist initial={data} can={can}/>
+  {authorize(user,'paper.verify',{origin:'LAB_DIRECT'})&&<HisAncImport/>}
   {user.roles.includes('APP_ADMIN')&&<LnHalosImport/>}
   <MigrationWorklist/>
  </>;
