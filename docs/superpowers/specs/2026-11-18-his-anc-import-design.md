@@ -50,9 +50,8 @@ It is only data filling: keep it simple, no new gates, no clinical blocks (Owner
   round whose status is not Replaced/Amended.
 - Cases whose request is electronic (ANC-entered) have no "ตรวจใบขอส่งตรวจ" button: skipped and listed
   (ANC already enters weight/height there).
-- Provider not "พญ."/"นพ.": the check is **not** saved for that case (a check without a doctor would
-  record NotEvaluable, which stops the sample at BG-06); only empty weight/height are filled and the
-  preview tells staff to do the check by hand.
+- Provider not "พญ."/"นพ.": **the row is skipped, nothing is filled** (Owner 2026-11-18); the preview
+  lists it so staff do the check by hand.
 - Each case is applied in its own savepoint: one case that fails is reported and the others still fill.
 - Doctor name matching ignores title/spacing (reuse `doctorSkeleton`/one-letter tolerance).
 - Weight/height 0 → treated as empty (not filled).

@@ -69,7 +69,7 @@
 **Interfaces:**
 - Consumes: Task 1 `parseHisAncWorkbook`, `isDoctorName`.
 - Produces:
-  - `type HisAncOutcome='FILL'|'FILL_BODY_ONLY'|'NOT_MATCHED'|'ALREADY_CHECKED'|'ELECTRONIC_REQUEST'|'HIS_INCOMPLETE'|'DUPLICATE_IN_FILE'`
+  - `type HisAncOutcome='FILL'|'NOT_A_DOCTOR'|'NOT_MATCHED'|'ALREADY_CHECKED'|'ELECTRONIC_REQUEST'|'HIS_INCOMPLETE'|'DUPLICATE_IN_FILE'`
   - `type HisAncItem={rowNo:number;hn:string;outcome:HisAncOutcome;reason:string|null;caseId:string|null;ln:string|null;fills:{doctor?:{name:string;versionId:string|null /*null = will be added*/};gaWeeks?:number;gaDays?:number;gravida?:number;pregnancyType?:'Singleton';weightKg?:number;heightCm?:number}}`
   - `type HisAncPlan={fileSha256:string;counts:Record<HisAncOutcome,number>;items:HisAncItem[]}`
   - `previewHisAnc(db:Queryable,user:Staff,bytes:Buffer,lookupKey:Buffer):Promise<HisAncPlan>` — requires `paper.verify`; read-only.
@@ -80,7 +80,7 @@ Rules (in order, per row):
 3. Match: `identityLookup(cid,lookupKey)` = `his_inbound_file.parsed->>'identityKey'` AND `ltrim(parsed->>'hn','0')=ltrim(hn,'0')`, joined `his_order_current.inbound_file_id` → round = the case's `current_round_id`, case not voided. None → `NOT_MATCHED`.
 4. `p2_workspace.request_mode<>'Paper'` → `ELECTRONIC_REQUEST`.
 5. Any `p2_paper_review` REQUEST on the current round with status not in (`Replaced`,`Amended`) → `ALREADY_CHECKED`.
-6. Provider not a doctor → `FILL_BODY_ONLY` (reason `NOT_A_DOCTOR`), fills = empty weight/height only.
+6. Provider not a doctor → `NOT_A_DOCTOR`: skipped, nothing filled (Owner 2026-11-18).
 7. Else `FILL`: doctor resolved against current registry versions by `doctorSkeleton` equality or one-letter tolerance (export `within1` from `packages/migration/doctors.ts`), title stripped; GA = HIS GA + (collection date − visitDate) days, collection date read as `paperReview` reads it (`p2_collection_fact` then `specimen_round_current`); gravida; Singleton; weight/height only where the workspace draft value is null.
 
 - [ ] **Step 1: Write failing db tests** (fixtures: PET-registered cases as in `tests/db/task15-registration.test.ts`; collection date set as in `tests/db/paper-gravida.test.ts`)
@@ -88,7 +88,7 @@ Rules (in order, per row):
   - registry doctor differing by one letter → `versionId` of that doctor.
   - CID right but HN wrong → `NOT_MATCHED`.
   - case already checked → `ALREADY_CHECKED`; electronic request → `ELECTRONIC_REQUEST`.
-  - `น.ส.` provider → `FILL_BODY_ONLY` with reason `NOT_A_DOCTOR`, no doctor in fills.
+  - `น.ส.` provider → `NOT_A_DOCTOR`, `fills` empty.
   - draft weight already set → no `weightKg` in fills.
   - two rows same patient → newest kept, other `DUPLICATE_IN_FILE`.
   - preview writes nothing (row counts of `p2_paper_review`, `p2_doctor_version` unchanged).
@@ -108,7 +108,7 @@ Rules (in order, per row):
 - Consumes: Task 2 `previewHisAnc`, `HisAncPlan`; existing `paperReview`, `REQUEST_TEMPLATE`/operational template choice as `paper-form.tsx` sends it.
 - Produces: `applyHisAnc(db:Queryable,user:Staff,bytes:Buffer,lookupKey:Buffer,expectedSha256:string):Promise<HisAncPlan & {applied:number;failed:{rowNo:number;code:string}[]}>`
 
-Behaviour: refuse when sha differs (`HIS_ANC_FILE_CHANGED`); re-plan (never trust the preview); for each `FILL`/`FILL_BODY_ONLY` item inside `SAVEPOINT` per case:
+Behaviour: refuse when sha differs (`HIS_ANC_FILE_CHANGED`); re-plan (never trust the preview); for each `FILL` item inside `SAVEPOINT` per case:
 - new doctor: insert like `registerHistoricalDoctors` (version 1, no unit, no signature, `Approved` event, `p2_doctor_registration`), key `HIS-` + 16 random hex (`SYNTHETIC-HIS-…` and `SYNTHETIC` name prefix when `!operationalDataEnabled()`), `authorization_evidence 'IMPORTED_FROM_HIS_ANC_EXPORT'`; a second row with the same new name in the same run reuses it.
 - `FILL`: `paperReview(db,user,caseId,{kind:'REQUEST',templateVersion,panel:{all paperSchema keys null,doctorVersionId,gaWeeks,gaDays,gravida,pregnancyType:'Singleton'},operation:'Review',previousId:null})`.
 - weight/height: `UPDATE p2_workspace SET draft=…, version=version+1, updated_by, updated_at=clock_timestamp()` setting only keys still null (re-read the draft inside the savepoint).
@@ -117,7 +117,7 @@ Behaviour: refuse when sha differs (`HIS_ANC_FILE_CHANGED`); re-plan (never trus
 - [ ] **Step 1: Write failing tests**
   - after apply, `getCase(...).paper` has one REQUEST check `Verified`; workspace draft has `gravida`, `type 'Singleton'`, `edd` from the check, `weightKg`/`heightCm` filled; existing non-null weight untouched.
   - unknown `พญ.` doctor now in registry and selectable (`listDoctors` includes it); same name on two rows → one registry entry.
-  - `FILL_BODY_ONLY` case: no paper check created, weight/height filled.
+  - `NOT_A_DOCTOR` case: nothing written (no check, draft unchanged).
   - case checked by hand between preview and apply → `ALREADY_CHECKED`, still one check.
   - running apply twice → second `applied:0`, doctor count unchanged.
   - wrong `expectedSha256` → `HIS_ANC_FILE_CHANGED`, nothing written.
