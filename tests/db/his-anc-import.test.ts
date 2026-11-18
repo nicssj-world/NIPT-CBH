@@ -1,12 +1,12 @@
 import {beforeEach,afterEach,describe,it,expect} from 'vitest';
-import {randomUUID} from 'node:crypto';
+import {randomUUID,createHash} from 'node:crypto';
 import {inboundFixture,registrar,writePet,cycle,registerP2Case,type InboundFixture} from '../helpers/inbound';
 import {tx} from '../helpers/lab';
 import {addUser} from '../helpers/database';
 import {lookupRegistrationPet,registerFromPet} from '../../packages/p2/pet-registration';
-import {doctorAction,paperReview,type Staff} from '../../packages/p2/service';
-import {paperSchema,REQUEST_TEMPLATE} from '../../packages/p2/schema';
-import {previewHisAnc} from '../../packages/his-anc/import';
+import {doctorAction,paperReview,getCase,listDoctors,type Staff} from '../../packages/p2/service';
+import {paperSchema,REQUEST_TEMPLATE,type RequestDraft} from '../../packages/p2/schema';
+import {previewHisAnc,applyHisAnc} from '../../packages/his-anc/import';
 import {hisAncWorkbook,hisAncRow,type HisAncFixtureRow} from '../helpers/his-anc-workbook';
 
 // Owner 2026-11-18: the HIS ANC export fills blanks on cases already waiting; preview first.
@@ -79,5 +79,67 @@ describe('preview',()=>{
  });
  it('a user without paper.verify is refused',async()=>{
   const c=await labCase(10);await expect(preview([row(c)],u.anc)).rejects.toThrow('FORBIDDEN');
+ });
+});
+
+describe('apply',()=>{
+ const apply=(rows:HisAncFixtureRow[],sha?:string)=>{const bytes=hisAncWorkbook(rows);return tx(f.db,db=>applyHisAnc(db,u.lab,bytes,f.lookupKey,sha??createHash('sha256').update(bytes).digest('hex')));};
+ const draftOf=async(caseId:string)=>(await f.db.query<{draft:RequestDraft}>('SELECT w.draft FROM p2_workspace w JOIN nipt_case c ON c.current_round_id=w.round_id WHERE c.id=$1',[caseId])).rows[0]?.draft;
+ const checksOf=async(caseId:string)=>((await tx(f.db,db=>getCase(db,u.lab,caseId))).paper as {kind:string;status:string;panel:{gaWeeks:number;gaDays:number;gravida:number|null;pregnancyType:string;doctorVersionId:string}}[]).filter(p=>p.kind==='REQUEST'&&!['Replaced','Amended'].includes(p.status));
+ it('saves the request check as the form does and fills G, EDD, Singleton, weight and height',async()=>{
+  const c=await labCase(11),r=await apply([row(c)]);
+  expect(r.applied).toBe(1);expect(r.failed).toEqual([]);
+  const checks=await checksOf(c.caseId);expect(checks).toHaveLength(1);
+  expect(checks[0]).toMatchObject({status:'Verified',panel:{gaWeeks:16,gaDays:5,gravida:2,pregnancyType:'Singleton'}});
+  const d=await draftOf(c.caseId);
+  expect(d.pregnancy).toMatchObject({gravida:2,type:'Singleton',weightKg:99.6,heightCm:160,edd:shift(c.collected,280-(16*7+5))});
+ });
+ it('an unknown พญ. doctor is added to the registry once, and is selectable',async()=>{
+  const a=await labCase(12),b=await labCase(13),before=await count('p2_doctor_version');
+  await apply([row(a),row(b)]);
+  expect(await count('p2_doctor_version')).toBe(before+1);
+  const names=((await tx(f.db,db=>listDoctors(db,u.lab))) as {name:string;active?:boolean}[]).map(d=>d.name);
+  expect(names.some(n=>n.includes('ใหม่ หนึ่ง'))).toBe(true);
+  expect((await checksOf(a.caseId))[0].panel.doctorVersionId).toBe((await checksOf(b.caseId))[0].panel.doctorVersionId);
+ });
+ it('weight already on the request is kept',async()=>{
+  const c=await labCase(14);
+  await tx(f.db,db=>getCase(db,u.lab,c.caseId));   // creates the workspace
+  await f.db.query("UPDATE p2_workspace SET draft=jsonb_set(draft,'{pregnancy,weightKg}','61'),version=version+1 WHERE case_id=$1",[c.caseId]);
+  await apply([row(c)]);const d=await draftOf(c.caseId);expect(d.pregnancy.weightKg).toBe(61);expect(d.pregnancy.heightCm).toBe(160);
+ });
+ it('a NOT_A_DOCTOR row writes nothing',async()=>{
+  const c=await labCase(15),r=await apply([row(c,{provider:'น.ส.SYNTHETIC พยาบาล'})]);
+  expect(r.applied).toBe(0);expect(await checksOf(c.caseId)).toHaveLength(0);
+  const d=await draftOf(c.caseId);expect(d?.pregnancy?.weightKg??null).toBeNull();
+ });
+ it('a case checked by hand after the preview is skipped at confirm',async()=>{
+  const c=await labCase(16),bytes=hisAncWorkbook([row(c)]),plan=await tx(f.db,db=>previewHisAnc(db,u.lab,bytes,f.lookupKey));
+  expect(plan.items[0].outcome).toBe('FILL');
+  const doctor=await registryDoctor('SYNTHETIC แพทย์ มือ');
+  const panel={...paperSchema.parse(Object.fromEntries(Object.keys(paperSchema.shape).map(k=>[k,null]))),doctorVersionId:doctor,gaWeeks:16,gaDays:2,pregnancyType:'Singleton' as const};
+  await tx(f.db,db=>paperReview(db,u.lab,c.caseId,{kind:'REQUEST',templateVersion:REQUEST_TEMPLATE,panel,operation:'Review',previousId:null}));
+  const r=await tx(f.db,db=>applyHisAnc(db,u.lab,bytes,f.lookupKey,plan.fileSha256));
+  expect(r.items[0].outcome).toBe('ALREADY_CHECKED');expect(r.applied).toBe(0);expect(await checksOf(c.caseId)).toHaveLength(1);
+ });
+ it('confirming the same file twice fills nothing the second time',async()=>{
+  const c=await labCase(17);await apply([row(c)]);const doctors=await count('p2_doctor_version');
+  const second=await apply([row(c)]);
+  expect(second.applied).toBe(0);expect(second.counts.ALREADY_CHECKED).toBe(1);expect(await count('p2_doctor_version')).toBe(doctors);expect(await checksOf(c.caseId)).toHaveLength(1);
+ });
+ it('a changed file is refused and nothing is written',async()=>{
+  const c=await labCase(18),before=await count('p2_paper_review');
+  await expect(apply([row(c)],'0'.repeat(64))).rejects.toMatchObject({code:'HIS_ANC_FILE_CHANGED'});
+  expect(await count('p2_paper_review')).toBe(before);
+ });
+ it('one case that fails is reported and the others still fill',async()=>{
+  const a=await labCase(19),b=await labCase(20);
+  // Make a's check fail inside the service: its round loses the blood-draw date after planning reads it.
+  const r=await tx(f.db,async db=>{const plan=await previewHisAnc(db,u.lab,hisAncWorkbook([row(a),row(b)]),f.lookupKey);expect(plan.counts.FILL).toBe(2);
+   await db.query("CREATE FUNCTION his_anc_test_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.case_id='"+a.caseId+"' THEN RAISE EXCEPTION 'SYNTHETIC_FAIL'; END IF; RETURN NEW; END $$");
+   await db.query('CREATE TRIGGER his_anc_test_fail BEFORE INSERT ON p2_paper_review FOR EACH ROW EXECUTE FUNCTION his_anc_test_fail()');
+   const bytes=hisAncWorkbook([row(a),row(b)]);return applyHisAnc(db,u.lab,bytes,f.lookupKey,createHash('sha256').update(bytes).digest('hex'));});
+  expect(r.applied).toBe(1);expect(r.failed.map(x=>x.rowNo)).toEqual([2]);
+  expect(await checksOf(a.caseId)).toHaveLength(0);expect(await checksOf(b.caseId)).toHaveLength(1);
  });
 });

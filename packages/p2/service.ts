@@ -26,7 +26,7 @@ import type {FileStore} from '../storage';
 import {IDENTIFIER_SOURCES,intakePresence,linkIntakeAtRegistration} from '../inbound/registration-link';
 import {requestSchema,emptyRequest,requestIssues,requestProgressIssues,evaluateClinical,paperSchema,paperStatus,isShortPaperRequest,syntheticText,date,CONSENT_TEMPLATE,REQUEST_TEMPLATE,consentClauses,type RequestDraft} from './schema';
 
-const documentTemplate=(kind:'REQUEST'|'CONSENT')=>operationalDataEnabled()?(kind==='REQUEST'?'CBH-FM01-v1':'CBH-FM02-v1'):(kind==='REQUEST'?REQUEST_TEMPLATE:CONSENT_TEMPLATE);
+export const documentTemplate=(kind:'REQUEST'|'CONSENT')=>operationalDataEnabled()?(kind==='REQUEST'?'CBH-FM01-v1':'CBH-FM02-v1'):(kind==='REQUEST'?REQUEST_TEMPLATE:CONSENT_TEMPLATE);
 export type Staff=Principal&{sessionId?:string};
 export class P2Error extends Error{constructor(public code:string,public status=400,public details?:unknown){super(code);}}
 export const canonical=(value:unknown):string=>{const encode=(v:unknown):string=>{if(v===null||typeof v!=='object')return JSON.stringify(v);if(Array.isArray(v))return '['+v.map(encode).join(',')+']';return '{'+Object.entries(v).sort(([a],[b])=>a.localeCompare(b)).map(([k,x])=>JSON.stringify(k)+':'+encode(x)).join(',')+'}';};return encode(JSON.parse(JSON.stringify(value)));};

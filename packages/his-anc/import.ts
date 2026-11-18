@@ -1,10 +1,13 @@
-import {createHash} from 'node:crypto';
+import {createHash,randomBytes} from 'node:crypto';
 import type {Queryable} from '../db/connection';
 import {authorize} from '../security/policy';
 import {identityLookup} from '../security/envelope';
-import {assertStaff,type Staff} from '../p2/service';
+import {assertStaff,paperReview,documentTemplate,type Staff} from '../p2/service';
+import {paperSchema,type RequestDraft} from '../p2/schema';
+import {appendAudit} from '../db/audit';
+import {operationalDataEnabled} from '../security/runtime';
 import {doctorSkeleton,within1} from '../migration/doctors';
-import {parseHisAncWorkbook,isDoctorName,type HisAncRow} from './parse';
+import {parseHisAncWorkbook,isDoctorName,HisAncError,type HisAncRow} from './parse';
 
 // Owner 2026-11-18: the HIS ANC export only fills blanks on cases already in the system, after PET matching.
 // The plan is read-only; applying it saves "ตรวจใบขอส่งตรวจ" through the same service as the form.
@@ -72,4 +75,47 @@ export async function previewHisAnc(db:Queryable,user:Staff,bytes:Buffer,lookupK
  }
  const counts=Object.fromEntries(HIS_ANC_OUTCOMES.map(o=>[o,items.filter(i=>i.outcome===o).length])) as Record<HisAncOutcome,number>;
  return {fileSha256:createHash('sha256').update(bytes).digest('hex'),counts,items};
+}
+
+/** A doctor named on the HIS row but not in the registry: added like the historical registration (no unit, no signature, Approved). */
+async function addDoctor(db:Queryable,user:Staff,provider:string):Promise<string>{
+ const real=operationalDataEnabled(),hex=randomBytes(8).toString('hex').toUpperCase();
+ const name=real||/^(SYNTHETIC|จำลอง)/.test(provider)?provider:'SYNTHETIC '+provider;
+ const v=(await db.query<{id:string}>('INSERT INTO p2_doctor_version(doctor_key,version,name,unit_id,effective_from,authorization_evidence,signature,signature_png,signature_hash,created_by) VALUES($1,1,$2,NULL,now(),$3,NULL,NULL,NULL,$4) RETURNING id',   /* now(): selectable by paperReview in this same transaction */
+  [(real?'HIS-':'SYNTHETIC-HIS-')+hex,name,(real?'':'SYNTHETIC_')+'IMPORTED_FROM_HIS_ANC_EXPORT',user.id])).rows[0];
+ await db.query('INSERT INTO p2_doctor_registration(doctor_version_id,actor_id,authorized) VALUES($1,$2,true)',[v.id,user.id]);
+ await db.query("INSERT INTO p2_doctor_event(doctor_version_id,event_type,actor_id,reason) VALUES($1,'Approved',$2,'IMPORTED_FROM_HIS_ANC_EXPORT')",[v.id,user.id]);
+ return v.id;
+}
+
+/** Re-plans the same file (never trusts the preview) and fills each FILL case in its own savepoint. */
+export async function applyHisAnc(db:Queryable,user:Staff,bytes:Buffer,lookupKey:Buffer,expectedSha256:string):Promise<HisAncPlan&{applied:number;failed:{rowNo:number;code:string}[]}>{
+ const plan=await previewHisAnc(db,user,bytes,lookupKey);
+ if(plan.fileSha256!==expectedSha256)throw new HisAncError('HIS_ANC_FILE_CHANGED');
+ const added=new Map<string,string>(),failed:{rowNo:number;code:string}[]=[];let applied=0;
+ for(const item of plan.items){
+  if(item.outcome!=='FILL'||!item.caseId)continue;
+  const x=item.fills,sk=doctorSkeleton(x.doctor!.name);
+  await db.query('SAVEPOINT his_anc_case');
+  try{
+   const doctorVersionId=x.doctor!.versionId??added.get(sk)??await addDoctor(db,user,x.doctor!.name);
+   const panel={...Object.fromEntries(Object.keys(paperSchema.shape).map(k=>[k,null])),doctorVersionId,gaWeeks:x.gaWeeks!,gaDays:x.gaDays!,gravida:x.gravida??null,pregnancyType:'Singleton'};
+   await paperReview(db,user,item.caseId,{kind:'REQUEST',templateVersion:documentTemplate('REQUEST'),panel,operation:'Review',previousId:null});
+   if(x.weightKg!==undefined||x.heightCm!==undefined){
+    const w=(await db.query<{round_id:string;draft:RequestDraft}>('SELECT w.round_id,w.draft FROM p2_workspace w JOIN nipt_case c ON c.current_round_id=w.round_id WHERE c.id=$1 FOR UPDATE OF w',[item.caseId])).rows[0];
+    const draft=structuredClone(w.draft);let changed=false;
+    if(x.weightKg!==undefined&&draft.pregnancy.weightKg==null){draft.pregnancy.weightKg=x.weightKg;changed=true;}
+    if(x.heightCm!==undefined&&draft.pregnancy.heightCm==null){draft.pregnancy.heightCm=x.heightCm;changed=true;}
+    if(changed)await db.query('UPDATE p2_workspace SET draft=$2,version=version+1,updated_by=$3,updated_at=clock_timestamp() WHERE round_id=$1',[w.round_id,draft,user.id]);
+   }
+   await db.query('RELEASE SAVEPOINT his_anc_case');
+   if(!x.doctor!.versionId&&!added.has(sk))added.set(sk,doctorVersionId);
+   applied++;
+  }catch(e){
+   await db.query('ROLLBACK TO SAVEPOINT his_anc_case');await db.query('RELEASE SAVEPOINT his_anc_case');
+   failed.push({rowNo:item.rowNo,code:(e as {code?:string}).code??(e instanceof Error?e.message:'FAILED')});
+  }
+ }
+ await appendAudit(db,{actorId:user.id,action:'HIS_ANC_IMPORT_APPLIED',resourceType:'his_anc_import',details:{count:applied,outcome:failed.length?'PARTIAL':'APPLIED',origin:'HIS_ANC_EXPORT'}});
+ return {...plan,applied,failed};
 }
