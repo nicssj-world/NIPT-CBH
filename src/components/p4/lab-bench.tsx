@@ -111,7 +111,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
   setPreview({title,url:null,retry:load});load();
  }
  /** Owner 2026-11-11: the QC and Pooling steps also offer the same worksheet PDF as a file download (the preview/print button stays). */
- const downloadPdf=(kind:'QC'|'POOL',name:string)=>run(async()=>{const url=URL.createObjectURL(await fetchExport(kind));const a=document.createElement('a');a.href=url;a.download=`${data!.runLabel.replace('/','-')}-${name}.pdf`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);});
+ const downloadPdf=(kind:'QC'|'POOL'|'SEQ',name:string)=>run(async()=>{const url=URL.createObjectURL(await fetchExport(kind));const a=document.createElement('a');a.href=url;a.download=`${data!.runLabel.replace('/','-')}-${name}.pdf`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);});
  const downloadCsv=()=>run(async()=>{const url=URL.createObjectURL(await fetchExport('POOL_CSV'));const a=document.createElement('a');a.href=url;a.download=`${data!.runLabel.replace('/','-')}-POOL_CSV.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);});
  /** Sample-info (NIFTY Test Request) file: needs only the saved task, not finalized QC or recorded actual pooling. Owner 2026-11-09: the button lives only on the Sequencing step, where the vendor file is made. The HALOS file stays in the two-file pair because it lists the positions actually pooled. */
  const downloadNifty=()=>run(async()=>{const url=URL.createObjectURL(await fetchExport('NIFTY_XLSX'));const a=document.createElement('a');a.href=url;a.download=`${data!.runLabel.replace('/','-')}-NIFTY-Test-Request.xlsx`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);setNotice('สร้างไฟล์ข้อมูลตัวอย่าง (NIFTY) แล้ว');});
@@ -181,7 +181,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
   </section>}
   {data&&tab==='SEQ'&&<section aria-labelledby="seq-title" className="bench-section">
    <div className="bench-section-head"><h2 id="seq-title"><LabIcon name="dna"/>Seq Task-G50</h2>
-    <div className="bench-actions"><button className="button secondary" type="button" disabled={busy||!saved} onClick={()=>openPdf('SEQ','Seq Task-G50')}><LabIcon name="printer"/>ดูตัวอย่าง / พิมพ์</button>
+    <div className="bench-actions"><button className="button secondary" type="button" disabled={busy||!saved} onClick={()=>openPdf('SEQ','Seq Task-G50')}><LabIcon name="printer"/>ดูตัวอย่าง / พิมพ์</button><button className="button secondary" type="button" disabled={busy||!saved} onClick={()=>void downloadPdf('SEQ','Seq Task-G50')}><LabIcon name="download"/>ดาวน์โหลด PDF</button>
      <button className="button secondary" type="button" disabled={busy||!saved} onClick={()=>void downloadNifty()}><LabIcon name="download"/>ส่งออกไฟล์ข้อมูล (NIFTY)</button>
      <button className="button" type="button" disabled={busy||!saved} onClick={()=>void exportPair()}><LabIcon name="download"/>ส่งออก XLSX 2 ไฟล์</button>
      <Link className="button secondary" href="/results"><LabIcon name="upload"/>นำเข้า PDF Result</Link></div></div>
