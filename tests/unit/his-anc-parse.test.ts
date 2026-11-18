@@ -1,4 +1,4 @@
-import {describe,it,expect} from 'vitest';
+import {describe,it,expect,vi} from 'vitest';
 import {parseHisAncWorkbook,splitGa,isDoctorName,HisAncError} from '../../packages/his-anc/parse';
 import {hisAncWorkbook,hisAncRow,HIS_ANC_HEADER} from '../helpers/his-anc-workbook';
 
@@ -50,6 +50,10 @@ describe('HIS ANC export workbook',()=>{
  it('missing EDC is allowed; missing or bad GA is not',()=>{
   expect(one({edc:''})).toMatchObject({edc:null,incomplete:null});
   expect(one({ga:''}).incomplete).toBe('BAD_GA');
+ });
+ it('a synthetic PET identity stands in for the CID only while operational data is off',()=>{
+  expect(one({cid:'SYNTHETIC-ID-P3'}).incomplete).toBeNull();
+  vi.stubEnv('NIPT_MODE','operational');vi.stubEnv('APP_ORIGIN','https://nipt.test');try{expect(one({cid:'SYNTHETIC-ID-P3'}).incomplete).toBe('BAD_IDENTIFIER');}finally{vi.unstubAllEnvs();}
  });
  it('numeric-looking cells (a re-saved file) never pass as an identifier or date',()=>{
   expect(one({cid:'1.20900000814E+12'}).incomplete).toBe('BAD_IDENTIFIER');

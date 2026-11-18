@@ -1,4 +1,5 @@
 import {readXlsx,normalizeHeader,XlsxError} from '../readygen/xlsx';
+import {operationalDataEnabled} from '../security/runtime';
 
 // HIS ANC export (.xlsx, every cell stored as text). Owner 2026-11-18: it only fills blanks on waiting cases.
 export const HIS_ANC_COLUMNS=['hospcode','hn','cid','brthdate','pttype','age','seq','date_serv','gravida','ancno','ga','ancresult','ancplace','provider','weight','height','bmi','edc','nipt_date','nipt'] as const;
@@ -35,7 +36,8 @@ export function parseHisAncWorkbook(bytes:Buffer):HisAncRow[]{
   const hn=v('hn'),cid=v('cid'),visitDate=hisDate(v('date_serv')),edcText=v('edc'),edc=edcText===''?null:hisDate(edcText),ga=splitGa(v('ga'));
   const g=v('gravida'),gravida=/^\d{1,2}$/.test(g)?Number(g):null;
   let incomplete:HisAncIncomplete|null=null;
-  if(!/^\d{13}$/.test(cid)||!/^[A-Za-z0-9]{1,32}$/.test(hn))incomplete='BAD_IDENTIFIER';
+  // A synthetic PET carries SYNTHETIC-ID-… in place of the CID; it never passes once operational data is on.
+  if(!(/^\d{13}$/.test(cid)||!operationalDataEnabled()&&/^SYNTHETIC-ID-[A-Za-z0-9_-]+$/.test(cid))||!/^[A-Za-z0-9]{1,32}$/.test(hn))incomplete='BAD_IDENTIFIER';
   else if(!visitDate||(edcText!==''&&!edc))incomplete='BAD_DATE';
   else if(!ga)incomplete='BAD_GA';
   else if(gravida===0)incomplete='G_ZERO';
