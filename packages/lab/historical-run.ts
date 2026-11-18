@@ -53,6 +53,16 @@ export async function historicalRunDetail(db:Queryable,user:Staff,runLabel:strin
  * Sequencing result recorded (Owner 2026-11-09): the newest saved task workbook holds all four first-cycle values of Seq Task-G50 as numbers.
  * A missing value counts as not recorded (bool_and alone would ignore NULLs).
  */
+/**
+ * "บันทึก QC แล้ว" (Owner 2026-11-18): the newest saved Task workbook covers all three Task Lists and every occupied slot has its library concentration.
+ * Saving a draft alone (e.g. only locking Task List 1) is not QC. A patient whose attempt failed/stopped is not pooled, so it needs no value (same rule as lab_bench_measurements_ready).
+ */
+export const qcSavedSql=(batchId:string)=>`COALESCE((SELECT CASE WHEN jsonb_typeof(r.source_snapshot->'placements')='array' AND jsonb_array_length(r.source_snapshot->'placements')=3 THEN NOT EXISTS(
+  SELECT 1 FROM jsonb_array_elements(r.source_snapshot->'placements') pl CROSS JOIN LATERAL jsonb_array_elements(pl->'payload'->'slots') sl
+  WHERE (sl->>'control' IS NOT NULL OR sl->>'attemptId' IS NOT NULL)
+   AND jsonb_typeof(r.values->('slot.'||(sl->>'slot')||'.libraryQc')) IS DISTINCT FROM 'number'
+   AND NOT (sl->>'control' IS NULL AND EXISTS(SELECT 1 FROM lab_slot_assignment a JOIN analytical_attempt x ON x.id=a.attempt_id WHERE a.batch_id=${batchId} AND a.attempt_id::text=sl->>'attemptId' AND x.state IN ('QcFailed','Superseded','Stopped','BatchCancelled')))) ELSE false END
+  FROM (SELECT source_snapshot,values FROM task_workbook_revision WHERE batch_id=${batchId} ORDER BY revision DESC LIMIT 1) r),false)`;
 export const seqRecordedSql=(batchId:string)=>`COALESCE((SELECT bool_and(COALESCE(jsonb_typeof(r.values->k)='number',false)) FROM (SELECT values FROM task_workbook_revision WHERE batch_id=${batchId} ORDER BY revision DESC LIMIT 1) r CROSS JOIN unnest(ARRAY['seq.loadedDnb','seq.q30','seq.bic','seq.fit']) k),false)`;
 export async function listUnifiedRunPage(db:Queryable,user:Staff,input:{q?:string;page?:string|number;pageSize?:string|number}={}){
  await assertSession(db,user);need(user,'worksheet.read','read');
@@ -70,7 +80,7 @@ export async function listUnifiedRunPage(db:Queryable,user:Staff,input:{q?:strin
     -- The bench (QC / Pooling / Sequencing) records on its own worksheet and never moves lab_batch.state, so the list reads it directly.
     COALESCE((SELECT lab_actual_pooling_current(p.id) FROM lab_actual_pooling p WHERE p.batch_id=b.id AND p.note<>'AUTO_RECORDED_FROM_SAVED_TASK_AT_EXPORT' ORDER BY p.recorded_at DESC,p.id DESC LIMIT 1),false) pooling_recorded,
     EXISTS(SELECT 1 FROM lab_bench_export e WHERE e.batch_id=b.id AND e.kind='HALOS_TASK_XLSX') seq_files_exported,
-    EXISTS(SELECT 1 FROM task_workbook_revision r WHERE r.batch_id=b.id) qc_saved,
+    ${qcSavedSql('b.id')} qc_saved,
     ${seqRecordedSql('b.id')} seq_recorded,
     EXISTS(SELECT 1 FROM lab_bench_export e WHERE e.batch_id=b.id AND e.kind='POOL_CSV') pool_exported
   FROM lab_batch b WHERE b.state<>'Cancelled' AND NOT EXISTS (SELECT 1 FROM lab_batch_removal d WHERE d.batch_id=b.id) ${releaseColumn?"AND b.run_released_at IS NULL":""}
