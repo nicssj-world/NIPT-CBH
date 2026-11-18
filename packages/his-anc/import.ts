@@ -2,7 +2,7 @@ import {createHash,randomBytes} from 'node:crypto';
 import type {Queryable} from '../db/connection';
 import {authorize} from '../security/policy';
 import {identityLookup} from '../security/envelope';
-import {assertStaff,paperReview,saveRequest,documentTemplate,type Staff} from '../p2/service';
+import {assertStaff,paperReview,saveRequest,documentTemplate,P2Error,type Staff} from '../p2/service';
 import {paperSchema,type RequestDraft} from '../p2/schema';
 import {appendAudit} from '../db/audit';
 import {operationalDataEnabled} from '../security/runtime';
@@ -71,6 +71,8 @@ export async function previewHisAnc(db:Queryable,user:Staff,bytes:Buffer,lookupK
   const p=t.draft?.pregnancy??{},own=doctors.find(d=>d.id===t.draft?.ordering?.doctorVersionId)??null,hit=own??matchDoctor(doctors,r.provider);
   const fromEdd=p.edd?280-Math.round((Date.parse(p.edd)-Date.parse(t.collected))/DAY):null;
   const total=fromEdd!==null&&fromEdd>=0?fromEdd:r.ga!.weeks*7+r.ga!.days+Math.round((Date.parse(t.collected)-Date.parse(r.visitDate))/DAY);
+  // The check accepts 8+0 to 45+6 on the blood-draw date; outside it the check would not be Verified.
+  if(total<8*7||total>45*7+6){items.push(item('HIS_INCOMPLETE','GA_OUT_OF_RANGE',t));continue;}
   const fills:HisAncFills={doctor:{name:hit?.name??r.provider,versionId:hit?.id??null},gaWeeks:Math.floor(total/7),gaDays:total%7,pregnancyType:p.type==='Twins'?'Twins':'Singleton'};
   if(r.gravida!==null&&p.gravida==null)fills.gravida=r.gravida;
   if(r.weightKg!==null&&p.weightKg==null)fills.weightKg=r.weightKg;
@@ -82,8 +84,12 @@ export async function previewHisAnc(db:Queryable,user:Staff,bytes:Buffer,lookupK
 
 /** A doctor named on the HIS row but not in the registry: added like the historical registration (no unit, no signature, Approved). */
 async function addDoctor(db:Queryable,user:Staff,provider:string):Promise<string>{
- const real=operationalDataEnabled(),hex=randomBytes(8).toString('hex').toUpperCase();
- const name=real||/^(SYNTHETIC|จำลอง)/.test(provider)?provider:'SYNTHETIC '+provider;
+ // One import at a time per name: whoever comes second finds the doctor the first one added.
+ const key=doctorKey(provider);await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,75432803))',['HIS-ANC-DOCTOR:'+key]);
+ const existing=matchDoctor(await registry(db),provider);if(existing)return existing.id;
+ const real=operationalDataEnabled(),hex=randomBytes(8).toString('hex').toUpperCase(),bare=provider.replace(/^(พญ|นพ)\.\s*/,'');
+ // Synthetic names must start with SYNTHETIC (data contract); dropping the title keeps the same doctorKey as the HIS spelling.
+ const name=real?provider:/^(SYNTHETIC|จำลอง)/.test(bare)?bare:'SYNTHETIC '+bare;
  const v=(await db.query<{id:string}>('INSERT INTO p2_doctor_version(doctor_key,version,name,unit_id,effective_from,authorization_evidence,signature,signature_png,signature_hash,created_by) VALUES($1,1,$2,NULL,now(),$3,NULL,NULL,NULL,$4) RETURNING id',   /* now(): selectable by paperReview in this same transaction */
   [(real?'HIS-':'SYNTHETIC-HIS-')+hex,name,(real?'':'SYNTHETIC_')+'IMPORTED_FROM_HIS_ANC_EXPORT',user.id])).rows[0];
  await db.query('INSERT INTO p2_doctor_registration(doctor_version_id,actor_id,authorized) VALUES($1,$2,true)',[v.id,user.id]);
@@ -99,7 +105,9 @@ export async function applyItem(db:Queryable,user:Staff,item:HisAncItem,added:Ma
  const doctorVersionId=x.doctor!.versionId??added.get(key)??await addDoctor(db,user,x.doctor!.name);
  if(!x.doctor!.versionId)added.set(key,doctorVersionId);
  const panel={...Object.fromEntries(Object.keys(paperSchema.shape).map(k=>[k,null])),doctorVersionId,gaWeeks:x.gaWeeks!,gaDays:x.gaDays!,gravida:x.gravida??null,pregnancyType:x.pregnancyType??'Singleton'};
- await paperReview(db,user,item.caseId!,{kind:'REQUEST',templateVersion:documentTemplate('REQUEST'),panel,operation:'Review',previousId:null});
+ const review=await paperReview(db,user,item.caseId!,{kind:'REQUEST',templateVersion:documentTemplate('REQUEST'),panel,operation:'Review',previousId:null});
+ // Only a Verified check is kept; anything else rolls this case back so staff check it by hand.
+ if(review.status!=='Verified')throw new HisAncError('CHECK_NOT_VERIFIED');
  if(x.weightKg!==undefined||x.heightCm!==undefined){
   const w=(await db.query<{version:number;draft:RequestDraft}>('SELECT w.version,w.draft FROM p2_workspace w JOIN nipt_case c ON c.current_round_id=w.round_id WHERE c.id=$1',[item.caseId])).rows[0];
   const draft=structuredClone(w.draft);
@@ -125,7 +133,8 @@ export async function applyHisAnc(db:Queryable,user:Staff,bytes:Buffer,lookupKey
   }catch(e){
    await db.query('ROLLBACK TO SAVEPOINT his_anc_case');await db.query('RELEASE SAVEPOINT his_anc_case');
    added.clear();for(const [k,v] of before)added.set(k,v);   // a doctor added inside the rolled-back case is gone with it
-   failed.push({rowNo:item.rowNo,code:(e as {code?:string}).code??(e instanceof Error?e.message:'FAILED')});
+   // Known codes are shown as they are; anything else (database or validation text) never reaches the screen.
+   failed.push({rowNo:item.rowNo,code:e instanceof HisAncError||e instanceof P2Error?e.code:'SAVE_FAILED'});
   }
  }
  await appendAudit(db,{actorId:user.id,action:'HIS_ANC_IMPORT_APPLIED',resourceType:'his_anc_import',details:{count:applied,outcome:failed.length?'PARTIAL':'APPLIED',origin:'HIS_ANC_EXPORT'}});

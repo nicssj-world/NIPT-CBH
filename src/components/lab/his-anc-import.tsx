@@ -8,7 +8,8 @@ import type {HisAncItem,HisAncOutcome,HisAncPlan,HisAncFills} from '../../../pac
 type Result=HisAncPlan&{applied:number;failed:{rowNo:number;code:string}[]};
 const OUTCOME:Record<HisAncOutcome,string>={FILL:'จะเติมข้อมูล',NOT_MATCHED:'ไม่พบเคสในระบบ',ALREADY_CHECKED:'ตรวจใบขอส่งตรวจแล้ว — ข้าม',ELECTRONIC_REQUEST:'ใบขอส่งตรวจอิเล็กทรอนิกส์ (ANC) — ข้าม',NOT_A_DOCTOR:'ผู้ให้บริการไม่ใช่แพทย์ (พญ./นพ.) — ข้าม',HIS_INCOMPLETE:'ข้อมูล HIS ไม่ครบ — ข้าม',DUPLICATE_IN_FILE:'แถวซ้ำ (ใช้วันฝากครรภ์ล่าสุด) — ข้าม'};
 const ORDER:HisAncOutcome[]=['FILL','NOT_MATCHED','ALREADY_CHECKED','ELECTRONIC_REQUEST','NOT_A_DOCTOR','HIS_INCOMPLETE','DUPLICATE_IN_FILE'];
-const REASON:Record<string,string>={G_ZERO:'G = 0',EDC_GA_MISMATCH:'EDC ไม่ตรงกับ GA',BAD_GA:'GA ไม่ถูกต้อง',BAD_DATE:'วันที่ไม่ถูกต้อง',BAD_IDENTIFIER:'CID หรือ HN ไม่ถูกต้อง',NO_COLLECTION_DATE:'ยังไม่มีวันเจาะเลือด',AMBIGUOUS:'พบหลายเคสของผู้รับบริการคนนี้ — ตรวจใบขอส่งตรวจเอง'};
+const REASON:Record<string,string>={G_ZERO:'G = 0',EDC_GA_MISMATCH:'EDC ไม่ตรงกับ GA',BAD_GA:'GA ไม่ถูกต้อง',BAD_DATE:'วันที่ไม่ถูกต้อง',BAD_IDENTIFIER:'CID หรือ HN ไม่ถูกต้อง',NO_COLLECTION_DATE:'ยังไม่มีวันเจาะเลือด',AMBIGUOUS:'พบหลายเคสของผู้รับบริการคนนี้ — ตรวจใบขอส่งตรวจเอง',GA_OUT_OF_RANGE:'GA วันเจาะเลือดไม่อยู่ในช่วง 8–45 สัปดาห์ — ตรวจใบขอส่งตรวจเอง'};
+const FAILED:Record<string,string>={CHECK_NOT_VERIFIED:'ข้อมูลไม่ผ่านการตรวจใบขอส่งตรวจ — ตรวจเอง',SAVE_FAILED:'บันทึกไม่สำเร็จ — ตรวจใบขอส่งตรวจเอง'};
 const ERRORS:Record<string,string>={FILE_TOO_LARGE:'ไฟล์ใหญ่เกิน 8 MB',FILE_REQUIRED:'กรุณาเลือกไฟล์'};
 function fillText(x:HisAncFills){
  return [x.doctor&&`แพทย์ ${x.doctor.name}${x.doctor.versionId?'':' (เพิ่มเข้าทะเบียนแพทย์)'}`,x.gaWeeks!==undefined&&`GA ${x.gaWeeks}+${x.gaDays}`,x.gravida!==undefined&&`ครรภ์ที่ ${x.gravida}`,x.pregnancyType&&'Singleton',
@@ -16,7 +17,7 @@ function fillText(x:HisAncFills){
 }
 function Row({item,failed}:{item:HisAncItem;failed?:string}){
  return <tr><td>{item.rowNo}</td><td>{item.hn}</td><td>{item.caseId&&item.ln?<Link href={`/cases/${item.caseId}`}>{item.ln}</Link>:'—'}</td>
-  <td>{failed?`บันทึกไม่สำเร็จ (${failed})`:OUTCOME[item.outcome]}{item.reason?` · ${REASON[item.reason]??item.reason}`:''}</td><td>{item.outcome==='FILL'?fillText(item.fills):''}</td></tr>;
+  <td>{failed?FAILED[failed]??`บันทึกไม่สำเร็จ (${failed})`:OUTCOME[item.outcome]}{item.reason?` · ${REASON[item.reason]??item.reason}`:''}</td><td>{item.outcome==='FILL'?fillText(item.fills):''}</td></tr>;
 }
 
 export function HisAncImport(){

@@ -157,7 +157,7 @@ describe('apply',()=>{
    await db.query("CREATE FUNCTION his_anc_test_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.case_id='"+a.caseId+"' THEN RAISE EXCEPTION 'SYNTHETIC_FAIL'; END IF; RETURN NEW; END $$");
    await db.query('CREATE TRIGGER his_anc_test_fail BEFORE INSERT ON p2_paper_review FOR EACH ROW EXECUTE FUNCTION his_anc_test_fail()');
    const bytes=hisAncWorkbook([row(a),row(b)]);return applyHisAnc(db,u.lab,bytes,f.lookupKey,createHash('sha256').update(bytes).digest('hex'));});
-  expect(r.applied).toBe(1);expect(r.failed.map(x=>x.rowNo)).toEqual([2]);
+  expect(r.applied).toBe(1);expect(r.failed).toEqual([{rowNo:2,code:"SAVE_FAILED"}]);
   expect(await checksOf(a.caseId)).toHaveLength(0);expect(await checksOf(b.caseId)).toHaveLength(1);
  });
  it('weight and height go through the request save (recorded as a draft save)',async()=>{
@@ -172,5 +172,25 @@ describe('apply',()=>{
   await tx(f.db,db=>paperReview(db,u.lab,c.caseId,{kind:'REQUEST',templateVersion:REQUEST_TEMPLATE,panel,operation:'Review',previousId:null}));
   expect(await tx(f.db,db=>applyItem(db,u.lab,item,new Map()))).toBe('ALREADY_CHECKED');
   expect(await checksOf(c.caseId)).toHaveLength(1);
+ });
+ it('a GA outside 8–45 weeks on the blood-draw date is skipped in the preview',async()=>{
+  const c=await labCase(28),d=await labCase(29);
+  const early=row(c,{ga:'5+0',edc:dmy(shift(c.collected,-3+280-35))}),late=row(d,{ga:'45+6',edc:dmy(shift(d.collected,-3+280-321))});
+  expect((await preview([early,late])).items.map(i=>[i.outcome,i.reason])).toEqual([['HIS_INCOMPLETE','GA_OUT_OF_RANGE'],['HIS_INCOMPLETE','GA_OUT_OF_RANGE']]);
+ });
+ it('a check that would not be Verified is not kept: the case is rolled back and reported',async()=>{
+  const c=await labCase(30),item=(await preview([row(c)])).items[0];
+  await expect(tx(f.db,db=>applyItem(db,u.lab,{...item,fills:{...item.fills,gaWeeks:5,gaDays:0}},new Map()))).rejects.toMatchObject({code:'CHECK_NOT_VERIFIED'});
+  expect(await checksOf(c.caseId)).toHaveLength(0);
+ });
+ it('a doctor registered after the preview is reused, not added twice',async()=>{
+  const c=await labCase(31),item=(await preview([row(c,{provider:'พญ.SYNTHETIC ใหม่ สาม'})])).items[0];expect(item.fills.doctor?.versionId).toBeNull();
+  const id=await registryDoctor('SYNTHETIC ใหม่ สาม'),before=await count('p2_doctor_version');
+  await tx(f.db,db=>applyItem(db,u.lab,item,new Map()));
+  expect(await count('p2_doctor_version')).toBe(before);expect((await checksOf(c.caseId))[0].panel.doctorVersionId).toBe(id);
+ });
+ it('a doctor added by one import is found by the next import',async()=>{
+  const a=await labCase(32),b=await labCase(33);await apply([row(a)]);const after=await count('p2_doctor_version');
+  await apply([row(b)]);expect(await count('p2_doctor_version')).toBe(after);
  });
 });

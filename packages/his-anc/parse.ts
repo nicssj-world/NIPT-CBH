@@ -26,7 +26,7 @@ const positive=(text:string)=>{const n=Number(text.trim());return text.trim()!==
 
 export function parseHisAncWorkbook(bytes:Buffer):HisAncRow[]{
  let sheets;
- try{sheets=readXlsx(bytes);}catch(e){throw new HisAncError(e instanceof XlsxError&&e.message==='EMPTY_FILE'?'EMPTY_FILE':'NOT_XLSX');}
+ try{sheets=readXlsx(bytes);}catch(e){const m=e instanceof XlsxError?e.message:'';throw new HisAncError(m==='EMPTY_FILE'?'EMPTY_FILE':m==='XLSX_TOO_MANY_ROWS'?'TOO_MANY_ROWS':m==='FILE_TOO_LARGE'?'FILE_TOO_LARGE':'NOT_XLSX');}
  const [head,...rows]=sheets[0]?.rows??[];if(!head)throw new HisAncError('EMPTY_FILE');
  const index=new Map<string,number>();for(const c of head.cells.values())index.set(normalizeHeader(c.text),c.column);
  if(index.size!==HIS_ANC_COLUMNS.length||HIS_ANC_COLUMNS.some(k=>!index.has(k)))throw new HisAncError('HEADER_MISMATCH');

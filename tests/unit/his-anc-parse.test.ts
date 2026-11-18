@@ -35,6 +35,7 @@ describe('HIS ANC export workbook',()=>{
   expect(code(()=>parseHisAncWorkbook(hisAncWorkbook([hisAncRow()],HIS_ANC_HEADER.map(h=>h==='edc'?'edd':h))))).toBe('HEADER_MISMATCH');
  });
  it('header case and spaces do not matter',()=>{expect(parseHisAncWorkbook(hisAncWorkbook([hisAncRow()],HIS_ANC_HEADER.map(h=>' '+h.toUpperCase()))).length).toBe(1);});
+ it('a file over the 2000-row limit says so, not "not an xlsx"',()=>{expect(code(()=>parseHisAncWorkbook(hisAncWorkbook(Array.from({length:2000},()=>hisAncRow()))))).toBe('TOO_MANY_ROWS');});
  it('a file with no data rows, or not an xlsx, is refused',()=>{
   expect(code(()=>parseHisAncWorkbook(hisAncWorkbook([])))).toBe('EMPTY_FILE');
   expect(code(()=>parseHisAncWorkbook(Buffer.from('hn\tcid\n')))).toBe('NOT_XLSX');

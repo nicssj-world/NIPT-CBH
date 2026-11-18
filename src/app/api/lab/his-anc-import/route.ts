@@ -9,6 +9,7 @@ import {noStore} from '../../../../server/p5';
 // Owner 2026-11-18: every Lab staff member uploads the HIS ANC export; preview first, then confirm.
 const MESSAGES:Record<string,string>={
  NOT_XLSX:'ไฟล์นี้ไม่ใช่ .xlsx ที่ export จาก HIS',EMPTY_FILE:'ไฟล์ไม่มีข้อมูล',
+ TOO_MANY_ROWS:'ไฟล์มีเกิน 2,000 แถว กรุณา export จาก HIS เป็นช่วงวันที่สั้นลง',FILE_TOO_LARGE:'ไฟล์ใหญ่เกิน 8 MB',
  HEADER_MISMATCH:'คอลัมน์ในไฟล์ไม่ตรงกับไฟล์ export จาก HIS (ต้องมี 20 คอลัมน์ hospcode … nipt)',
  HIS_ANC_FILE_CHANGED:'ไฟล์ที่ยืนยันไม่ใช่ไฟล์เดียวกับที่ดูตัวอย่าง กรุณาเลือกไฟล์และดูตัวอย่างใหม่',
 };
