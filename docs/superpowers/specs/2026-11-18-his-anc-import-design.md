@@ -16,7 +16,9 @@ It is only data filling: keep it simple, no new gates, no clinical blocks (Owner
   exactly as if staff pressed save (same service, `paperReview` short REQUEST check), so the button
   becomes "แก้ไข" and moves, and can be edited later as usual:
   - doctor ← `provider`; a name not in the registry is added to the registry with a random doctor
-    key (no signature, Approved — like the historical-doctor registration);
+    key (no signature, Approved — like the historical-doctor registration). **Only a provider whose
+    name starts with "พญ." or "นพ." is a doctor** (Owner 2026-11-18); any other provider (e.g. "น.ส.")
+    is never added to the registry and the preview says so for that row;
   - GA ← `ga` written `xx+xx` split into weeks + days (days > 6 carry into weeks), counted forward
     from `date_serv` to the round's blood-draw date; EDD then follows as the check already computes;
   - ครรภ์ที่ ← `gravida` (G);
@@ -44,7 +46,14 @@ It is only data filling: keep it simple, no new gates, no clinical blocks (Owner
 
 ## Builder's calls (mine, Owner can override)
 - Matching key: CID (13 digits) + HN against PET-matched current rounds; either mismatching → not matched.
-- Cases whose request is electronic (ANC-entered) get no paper check; only empty weight/height/G filled.
+- "Already checked" = the same rule as the case page button: any REQUEST paper check on the current
+  round whose status is not Replaced/Amended.
+- Cases whose request is electronic (ANC-entered) have no "ตรวจใบขอส่งตรวจ" button: skipped and listed
+  (ANC already enters weight/height there).
+- Provider not "พญ."/"นพ.": the check is **not** saved for that case (a check without a doctor would
+  record NotEvaluable, which stops the sample at BG-06); only empty weight/height are filled and the
+  preview tells staff to do the check by hand.
+- Each case is applied in its own savepoint: one case that fails is reported and the others still fill.
 - Doctor name matching ignores title/spacing (reuse `doctorSkeleton`/one-letter tolerance).
 - Weight/height 0 → treated as empty (not filled).
 - Placement: an "Import HIS" action on the Lab side; wording of buttons/labels to be proposed to the
