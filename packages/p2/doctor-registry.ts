@@ -5,6 +5,7 @@ import type {Queryable} from '../db/connection';
 import {appendAudit} from '../db/audit';
 import {requirePermission} from '../security/policy';
 import {operationalDataEnabled} from '../security/runtime';
+import {doctorKey} from '../migration/doctors';
 import {syntheticText} from './schema';
 import {deriveSignature,vectorSchema} from './signature';
 import {assertStaff,P2Error,type Staff} from './service';
@@ -27,6 +28,12 @@ export async function saveDoctor(db:Queryable,user:Staff,input:unknown){
  await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,75432803))',[d.doctorKey]);
  const prior=(await db.query<{id:string;doctor_key:string;unit_id:string;signature:unknown;signature_png:string|null;signature_hash:string|null;version:number}>('SELECT * FROM p2_doctor_version WHERE doctor_key=$1 ORDER BY version DESC LIMIT 1',[d.doctorKey])).rows[0];
  if(d.id?(!prior||prior.id!==d.id):!!prior)throw new P2Error('DOCTOR_RECORD_CHANGED',409);
+ // One doctor, one entry (2026-11-18: the same name was registered twice under two codes). Another active entry whose name reads the same
+ // (title, dots and spacing ignored, like the HIS import) blocks the save; a deactivated one does not, so the kept entry can still be edited.
+ const nameKey=doctorKey(d.name);
+ const same=(await db.query<{name:string}>(`SELECT v.name FROM (SELECT DISTINCT ON(doctor_key) id,doctor_key,name FROM p2_doctor_version WHERE doctor_key<>$1 ORDER BY doctor_key,version DESC) v
+  WHERE COALESCE((SELECT e.event_type FROM p2_doctor_event e WHERE e.doctor_version_id=v.id ORDER BY e.created_at DESC,e.id DESC LIMIT 1),'Approved')<>'Suspended'`,[d.doctorKey])).rows;
+ if(nameKey&&same.some(r=>doctorKey(r.name)===nameKey))throw new P2Error('DOCTOR_NAME_EXISTS',409);
  const priorStatus=prior?(await db.query<{event_type:string}>('SELECT event_type FROM p2_doctor_event WHERE doctor_version_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1',[prior.id])).rows[0]?.event_type:null;
  const statusToCarry=priorStatus==='Suspended'?'Suspended':'Approved';
  if(d.image&&d.vector)throw new P2Error('SIGNATURE_IMAGE_INVALID',422);
