@@ -1,6 +1,7 @@
 'use client';
-import {useState} from 'react';
+import {useState,useTransition} from 'react';
 import Link from 'next/link';
+import {useRouter} from 'next/navigation';
 import {csrf} from '../p2/shared';
 import type {HisAncItem,HisAncOutcome,HisAncPlan,HisAncFills} from '../../../packages/his-anc/import';
 
@@ -15,26 +16,35 @@ function fillText(x:HisAncFills){
  return [x.doctor&&`แพทย์ ${x.doctor.name}${x.doctor.versionId?'':' (เพิ่มเข้าทะเบียนแพทย์)'}`,x.gaWeeks!==undefined&&`GA ${x.gaWeeks}+${x.gaDays}`,x.gravida!==undefined&&`ครรภ์ที่ ${x.gravida}`,x.pregnancyType&&'Singleton',
   x.weightKg!==undefined&&`น้ำหนัก ${x.weightKg} กก.`,x.heightCm!==undefined&&`ส่วนสูง ${x.heightCm} ซม.`].filter(Boolean).join(' · ');
 }
+/** Owner 2026-11-18: like the "กำลังส่ง HIS" strip; it stands where the confirm button was while filling and after. */
+export function HisAncProgress({total,result,onDismiss}:{total:number;result:{applied:number;failed:number}|null;onDismiss?:()=>void}){
+ return <div className={`his-progress${result&&!result.failed?' done':''}`} role="status" aria-live="polite">
+  <div className="his-progress-text"><strong>{!result?`กำลังเติมข้อมูล ${total} ราย…`:result.failed?`เติมข้อมูลแล้ว ${result.applied} ราย · บันทึกไม่สำเร็จ ${result.failed} ราย`:`เติมข้อมูลเสร็จแล้ว ${result.applied} ราย`}</strong>
+   <span className="help">{!result?'อย่าปิดหน้านี้จนกว่าจะเสร็จ':result.failed?'ดูรายละเอียดในตารางด้านล่าง':'รายการเคสในหน้านี้อัปเดตแล้ว — ปุ่มเปลี่ยนเป็น "แก้ไข"'}</span></div>
+  {result?<progress max={1} value={1} aria-label="ความคืบหน้าการเติมข้อมูล"/>:<div className="his-indeterminate" role="progressbar" aria-label="ความคืบหน้าการเติมข้อมูล"/>}
+  {result&&onDismiss&&<button type="button" className="button small secondary" onClick={onDismiss}>ปิด</button>}
+ </div>;
+}
 function Row({item,failed}:{item:HisAncItem;failed?:string}){
  return <tr><td>{item.rowNo}</td><td>{item.hn}</td><td>{item.caseId&&item.ln?<Link href={`/cases/${item.caseId}`}>{item.ln}</Link>:'—'}</td>
   <td>{failed?FAILED[failed]??`บันทึกไม่สำเร็จ (${failed})`:OUTCOME[item.outcome]}{item.reason?` · ${REASON[item.reason]??item.reason}`:''}</td><td>{item.outcome==='FILL'?fillText(item.fills):''}</td></tr>;
 }
 
 export function HisAncImport(){
- const [file,setFile]=useState<File|null>(null),[plan,setPlan]=useState<HisAncPlan|null>(null),[result,setResult]=useState<Result|null>(null),[busy,setBusy]=useState<'preview'|'apply'|null>(null),[error,setError]=useState('');
+ const [file,setFile]=useState<File|null>(null),[plan,setPlan]=useState<HisAncPlan|null>(null),[result,setResult]=useState<Result|null>(null),[busy,setBusy]=useState<'preview'|'apply'|null>(null),[error,setError]=useState(''),[inputKey,setInputKey]=useState(0),router=useRouter(),[,startTransition]=useTransition();
  const send=async(action:'preview'|'apply')=>{
   if(!file)return;setBusy(action);setError('');
   try{
    const form=new FormData();form.set('file',file);form.set('action',action);if(action==='apply'&&plan)form.set('sha256',plan.fileSha256);
    const response=await fetch('/api/lab/his-anc-import',{method:'POST',headers:{'x-csrf-token':csrf()},body:form,cache:'no-store'});
    const data=await response.json();if(!response.ok)throw Object.assign(Error(data.code??'IMPORT_FAILED'),{text:data.error});
-   if(action==='apply')setResult(data as Result);else{setPlan(data as HisAncPlan);setResult(null);}
+   if(action==='apply'){setResult(data as Result);startTransition(()=>router.refresh());}else{setPlan(data as HisAncPlan);setResult(null);}
   }catch(e){const code=e instanceof Error?e.message:'IMPORT_FAILED';setError((e as {text?:string}).text??ERRORS[code]??`ทำรายการไม่สำเร็จ (${code})`);}finally{setBusy(null);}
  };
  const shown=result??plan,failed=new Map(result?.failed.map(f=>[f.rowNo,f.code])??[]);
  return <details className="panel stack"><summary>นำเข้าข้อมูลฝากครรภ์จาก HIS</summary>
   <p>เลือกไฟล์ .xlsx ที่ export จาก HIS ระบบจะเติมข้อมูลเฉพาะเคสที่มีในระบบและยังไม่ได้ตรวจใบขอส่งตรวจ เติมเฉพาะช่องที่ว่าง และแก้ไขภายหลังได้ตามปกติ</p>
-  <label>ไฟล์ Excel <input type="file" accept=".xlsx" onChange={e=>{setFile(e.target.files?.[0]??null);setPlan(null);setResult(null);setError('');}}/></label>
+  <label>ไฟล์ Excel <input key={inputKey} type="file" accept=".xlsx" disabled={!!busy} onChange={e=>{setFile(e.target.files?.[0]??null);setPlan(null);setResult(null);setError('');}}/></label>
   <button className="button" type="button" disabled={!file||!!busy} onClick={()=>void send('preview')}>{busy==='preview'?'กำลังตรวจไฟล์…':'ดูตัวอย่าง'}</button>
   {error&&<p role="alert">{error}</p>}
   {shown&&<div className="stack">
@@ -42,7 +52,8 @@ export function HisAncImport(){
     :<p>ทั้งหมด {shown.items.length} แถว · {ORDER.filter(o=>shown.counts[o]).map(o=>`${OUTCOME[o].replace(/ — ข้าม$/,'')} ${shown.counts[o]}`).join(' · ')}</p>}
    <div className="table-wrap"><table className="data-table"><thead><tr><th>แถว</th><th>HN</th><th>LN</th><th>สถานะ</th><th>ข้อมูลที่จะเติม</th></tr></thead>
     <tbody>{[...shown.items].sort((a,b)=>ORDER.indexOf(a.outcome)-ORDER.indexOf(b.outcome)||a.rowNo-b.rowNo).map(i=><Row key={i.rowNo} item={i} failed={failed.get(i.rowNo)}/>)}</tbody></table></div>
-   {!result&&<button className="button" type="button" disabled={!!busy||!plan?.counts.FILL} onClick={()=>void send('apply')}>{busy==='apply'?'กำลังเติมข้อมูล…':`ยืนยันเติมข้อมูล ${plan?.counts.FILL??0} ราย`}</button>}
+   {!result&&busy!=='apply'&&<button className="button" type="button" disabled={!!busy||!plan?.counts.FILL} onClick={()=>void send('apply')}>{`ยืนยันเติมข้อมูล ${plan?.counts.FILL??0} ราย`}</button>}
+   {(busy==='apply'||result)&&<HisAncProgress total={plan?.counts.FILL??0} result={result&&{applied:result.applied,failed:result.failed.length}} onDismiss={()=>{setFile(null);setPlan(null);setResult(null);setInputKey(k=>k+1);}}/>}
   </div>}
  </details>;
 }

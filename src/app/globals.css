@@ -794,3 +794,8 @@ input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-o
 .his-progress.done progress::-moz-progress-bar{background:var(--color-success)}
 @media(max-width:700px){.his-progress{grid-template-columns:minmax(0,1fr)}}
 @media(prefers-reduced-motion:reduce){.his-spinner{animation:none}}
+/* HIS ANC import (Owner 2026-11-18): the same strip, with a moving bar while the cases are filled in one request. */
+.his-indeterminate{position:relative;height:10px;border-radius:999px;overflow:hidden;background:var(--color-surface)}
+.his-indeterminate::after{content:"";position:absolute;top:0;bottom:0;left:0;width:35%;border-radius:999px;background:var(--color-brand);animation:his-indeterminate 1.2s ease-in-out infinite}
+@keyframes his-indeterminate{from{transform:translateX(-100%)}to{transform:translateX(290%)}}
+@media(prefers-reduced-motion:reduce){.his-indeterminate::after{animation:none;width:100%;opacity:.5}}
