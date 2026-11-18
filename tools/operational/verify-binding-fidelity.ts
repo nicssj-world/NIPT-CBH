@@ -40,7 +40,12 @@ export function verifyBindingFidelity(master:Buffer) {
   assert.deepEqual(generatedDxfs.slice(0,originalDxfs.length),originalDxfs,'original conditional formats changed');
   // Owner 2026-11-11: the red font and, for a Volume below 2 µL, a light fill on Barcode / Sample ID / Volume (visible in black-and-white print).
   assert.deepEqual(generatedDxfs.slice(originalDxfs.length),['<dxf><font><color rgb="FFFF0000"/></font></dxf>','<dxf><fill><patternFill patternType="solid"><fgColor rgb="FFFFC7CE"/><bgColor rgb="FFFFC7CE"/></patternFill></fill></dxf>'],'only the Owner red font and light-fill conditional formats may be appended');
-  const stripStyles=(bytes:Buffer)=>bytes.toString().replace(/<cellXfs\b[^>]*>[\s\S]*?<\/cellXfs>/,'').replace(/<fills\b[^>]*>[\s\S]*?<\/fills>/,'').replace(/<dxfs\b[^>]*>[\s\S]*?<\/dxfs>/,'');
+  // Owner 2026-11-18: the work dates print black: black clones of master fonts may be appended; the master fonts stay as they are.
+  const fontList=(bytes:Buffer)=>[.../<fonts\b[^>]*>([\s\S]*?)<\/fonts>/.exec(bytes.toString())![1].matchAll(/<font\b[^>]*>[\s\S]*?<\/font>|<font\/>/g)].map(m=>m[0]);
+  const originalFonts=fontList(before.get('xl/styles.xml')!),generatedFonts=fontList(after.get('xl/styles.xml')!);
+  assert.deepEqual(generatedFonts.slice(0,originalFonts.length),originalFonts,'original fonts changed');
+  for(const font of generatedFonts.slice(originalFonts.length))assert.match(font,/<color rgb="FF000000"\/><\/font>$/,'only black work-date fonts may be appended');
+  const stripStyles=(bytes:Buffer)=>bytes.toString().replace(/<fonts\b[^>]*>[\s\S]*?<\/fonts>/,'').replace(/<cellXfs\b[^>]*>[\s\S]*?<\/cellXfs>/,'').replace(/<fills\b[^>]*>[\s\S]*?<\/fills>/,'').replace(/<dxfs\b[^>]*>[\s\S]*?<\/dxfs>/,'');
   assert.equal(stripStyles(before.get('xl/styles.xml')!),stripStyles(after.get('xl/styles.xml')!),'fonts/other style definitions changed');
   const normalizeStyle=(s:string)=>s.replace(/\s+(?:applyAlignment|shrinkToFit)="[^"]*"/g,'').replace(/<alignment\s*\/>/g,'').replace(/^<xf([^>]*?)\/>$/,'<xf$1></xf>');
   for(const [name,bytes] of before)if(!output.changedParts.includes(name))assert.ok(after.get(name)!.equals(bytes),`immutable part ${name}`);
@@ -55,6 +60,7 @@ export function verifyBindingFidelity(master:Buffer) {
       const metadata=index<3&&['B16','B17'].includes(ref)?style.replace(/\s+wrapText="[^"]*"/g,''):style;
       return normalizeStyle(isControl(ref)?metadata.replace(/\s+applyFill="[^"]*"/g,'').replace(/\bfillId="\d+"/,'fillId="0"'):metadata);
     };
+    const dateCells=new Set(defs.filter(d=>/^(?:task\.\d+|qc|pool|seq)\.date$/.test(d.key)).map(d=>d.cell));
     const merges=[...original.matchAll(/<mergeCell ref="([^"]+)"/g)].map(m=>m[1]);
     for(const b of defs) {
       const source=matrix.cells.find(c=>c.sheet===sheet&&c.cell===b.cell)!;
@@ -64,7 +70,11 @@ export function verifyBindingFidelity(master:Buffer) {
       const originalAttrs=originals.get(b.cell)!.attributes,stripAttrs=(s:string)=>s.replace(/\s+[ts]="[^"]*"/g,'');
       assert.equal(stripAttrs(cell.attributes),stripAttrs(originalAttrs),`cell attributes ${b.key}`);
       const originalStyle=Number(/\bs="(\d+)"/.exec(originalAttrs)?.[1]??0),fittedStyle=Number(/\bs="(\d+)"/.exec(cell.attributes)?.[1]??0);
-      if(b.dataType==='text'&&!b.rendering){assert.match(fittedStyles[fittedStyle],/shrinkToFit="1"/);assert.equal(baseStyle(fittedStyles[fittedStyle],b.cell),baseStyle(originalStyles[originalStyle],b.cell),`base style ${b.key}`);}
+      if(b.dataType==='text'&&!b.rendering){assert.match(fittedStyles[fittedStyle],/shrinkToFit="1"/);
+        // A work date may only take a black font (Owner 2026-11-18); the rest of its style is the master's.
+        const date=/^(?:task\.\d+|qc|pool|seq)\.date$/.test(b.key),font=(s:string)=>date?s.replace(/\s+(?:fontId|applyFont)="[^"]*"/g,''):s;
+        if(date)assert.match(generatedFonts[Number(/fontId="(\d+)"/.exec(fittedStyles[fittedStyle])![1])],/<color rgb="FF000000"\/>/,`black date ${b.key}`);
+        assert.equal(font(baseStyle(fittedStyles[fittedStyle],b.cell)),font(baseStyle(originalStyles[originalStyle],b.cell)),`base style ${b.key}`);}
       else if(isControl(b.cell))assert.equal(baseStyle(fittedStyles[fittedStyle],b.cell),baseStyle(originalStyles[originalStyle],b.cell),`control base style ${b.key}`);
       else if(b.dataType==='number'&&/^qc\.[123]\.standard[12]$/.test(b.key)){
         // Owner 2026-11-11: only the horizontal alignment may differ (centered, like the cell below); everything else of the style is the master's.
@@ -86,6 +96,8 @@ export function verifyBindingFidelity(master:Buffer) {
       const individualStyles=xfs(individualParts.get('xl/styles.xml')!);
       for(const [ref,c] of baselineCells)if(ref!==b.cell){const actual=individualCells.get(ref)!.xml;
         if(isControl(ref)){const originalCell=originals.get(ref)!;assert.equal(actual.replace(/\bs="\d+"/,''),withoutCache(originalCell.xml).replace(/\bs="\d+"/,''),`${b.key} changed control content ${ref}`);const style=Number(/\bs="(\d+)"/.exec(actual)![1]);assert.equal(baseStyle(individualStyles[style],ref),baseStyle(originalStyles[Number(/\bs="(\d+)"/.exec(originalCell.attributes)![1])],ref),`control style ${ref}`);}
+        // A work date carries its own black-font style clone (Owner 2026-11-18): only its style number may move.
+        else if(dateCells.has(ref))assert.equal(actual.replace(/\bs="\d+"/,''),withoutCache(c.xml).replace(/\bs="\d+"/,''),`${b.key} changed ${ref}`);
         else assert.equal(actual,withoutCache(c.xml),`${b.key} changed ${ref}`);
       }
       const stripCells=(s:string)=>s.replace(/<c\b[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g,'').replace(ownerAlerts,'');

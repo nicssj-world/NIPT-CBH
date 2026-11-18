@@ -135,6 +135,9 @@ export function generateTaskWorkbook(master: Buffer, values: Record<string,unkno
   for(const name of highlightControls(parts,options.urgent40))if(!changedParts.includes(name))changedParts.push(name);
   const exceptionalTargets=defs.filter(d=>options.exceptionalSlots?.some(slot=>d.key===`slot.${slot}.printedSampleId`)).map(d=>({sheet:SHEETS.indexOf(d.sheet as typeof SHEETS[number])+1,cell:d.cell}));
   for(const name of highlightExceptionalIds(parts,exceptionalTargets))if(!changedParts.includes(name))changedParts.push(name);
+  // Owner 2026-11-18: every work date prints black (the master's Seq date is light grey and its QC date near white).
+  const dateTargets=defs.filter(d=>/^(?:task\.\d+|qc|pool|seq)\.date$/.test(d.key)).map(d=>({sheet:SHEETS.indexOf(d.sheet as typeof SHEETS[number])+1,cell:d.cell}));
+  for(const name of highlightExceptionalIds(parts,dateTargets,'FF000000'))if(!changedParts.includes(name))changedParts.push(name);
   for(const name of applyPoolingRules(parts,options.poolExcludedSlots??[]))if(!changedParts.includes(name))changedParts.push(name);
   for(const name of poolingAlerts(parts,values))if(!changedParts.includes(name))changedParts.push(name);
   if(Object.keys(values).length) {

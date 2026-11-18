@@ -11,8 +11,11 @@ describe.skipIf(!existsSync(source))('Exhaustive exact-master binding verificati
     const styles=(bytes:Buffer)=>/<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/.exec(bytes.toString())![1];
     expect(styles(out.get('xl/styles.xml')!)).toContain(styles(before.get('xl/styles.xml')!));
     expect(out.get('xl/styles.xml')!.toString()).toContain('shrinkToFit="1"');
-    const fonts=(bytes:Buffer)=>/<fonts\b[^>]*>[\s\S]*?<\/fonts>/.exec(bytes.toString())![0];
-    expect(fonts(out.get('xl/styles.xml')!)).toBe(fonts(before.get('xl/styles.xml')!));
+    // The master fonts are untouched; only black work-date clones are appended (Owner 2026-11-18).
+    const fonts=(bytes:Buffer)=>[.../<fonts\b[^>]*>([\s\S]*?)<\/fonts>/.exec(bytes.toString())![1].matchAll(/<font\b[^>]*>[\s\S]*?<\/font>|<font\/>/g)].map(m=>m[0]);
+    const original=fonts(before.get('xl/styles.xml')!),generated=fonts(out.get('xl/styles.xml')!);
+    expect(generated.slice(0,original.length)).toEqual(original);
+    for(const font of generated.slice(original.length))expect(font).toMatch(/<color rgb="FF000000"\/><\/font>$/);
     expect(out.get('xl/worksheets/sheet1.xml')!.toString()).toContain('26B261015001R-VERY-LONG-ID');
   });
   it('centers the QC reference-standard numbers (F19:H20) like the cell below them, cloning the style and leaving the master styles untouched',()=>{

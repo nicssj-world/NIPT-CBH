@@ -20,11 +20,14 @@ it.skipIf(!process.env.NIPT_TASK_MASTER_PATH&&!existsSync(source))('highlights o
   expect([...a.matchAll(/<f\b[^>]*>[\s\S]*?<\/f>/g)].map(m=>m[0])).toEqual([...b.matchAll(/<f\b[^>]*>[\s\S]*?<\/f>/g)].map(m=>m[0]));
   for(const [ref,cell]of ca){
    const target=i<=3&&targets[i-1][0].split('').some(col=>ref===col+targets[i-1][1]);
-   if(target){const derived=cb.get(ref)!;expect(derived.replace(/\bs="\d+"/,'')).toBe(cell.replace(/\bs="\d+"/,''));const style=xfs[Number(/\bs="(\d+)"/.exec(derived)![1])];expect(fills[Number(/\bfillId="(\d+)"/.exec(style)![1])]).toContain(`rgb="${targets[i-1][2]}"`);}
+   // Owner 2026-11-18: the work-date cells only take a black font (tests/contracts/workbook-date-black.test.ts); their content is untouched.
+   const date=ref===(i===4||i===5?'D3':'B4');
+   if(date)expect(cb.get(ref)!.replace(/\bs="\d+"/,''),name+'!'+ref).toBe(cell.replace(/\bs="\d+"/,''));
+   else if(target){const derived=cb.get(ref)!;expect(derived.replace(/\bs="\d+"/,'')).toBe(cell.replace(/\bs="\d+"/,''));const style=xfs[Number(/\bs="(\d+)"/.exec(derived)![1])];expect(fills[Number(/\bfillId="(\d+)"/.exec(style)![1])]).toContain(`rgb="${targets[i-1][2]}"`);}
    else expect(cb.get(ref),name+'!'+ref).toBe(cell);
   }
   const strip=(x:string)=>x.replace(/<c\b[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g,'');expect(strip(b)).toBe(strip(a));
  }
  expect(sha256(master)).toBe(MASTER_SHA256);
- for(const [name,bytes]of before)if(name!=='xl/styles.xml'&&!/^xl\/worksheets\/sheet[123]\.xml$/.test(name))expect(after.get(name)!.equals(bytes),name).toBe(true);
+ for(const [name,bytes]of before)if(name!=='xl/styles.xml'&&!/^xl\/worksheets\/sheet[1-6]\.xml$/.test(name))expect(after.get(name)!.equals(bytes),name).toBe(true);
 });
