@@ -9,7 +9,7 @@ import {ageOnDate,type RequestDraft} from '../p2/schema';
 import {bangkokIsoDay,formatBe,formatBeDateTime} from '../domain/thai-date';
 import {simpleXlsx} from '../workbook/simple-xlsx';
 import {gaFromEdd} from './nhso-format';
-import {historicalReportedAtSql} from './query';
+import {historicalReportedAtSql,positiveKeysSql,POSITIVE_KEYS,type PositiveKey} from './query';
 import {recordPhiAccess} from '../db/phi-access';
 
 // ลงผลสปสช. (Owner 2026-11-09). Lists every certified, Active result of a patient whose request records the NHSO (สปสช.) entitlement;
@@ -17,10 +17,12 @@ import {recordPhiAccess} from '../db/phi-access';
 // (migration 208). A reissued result is a new release, so it comes back as pending with `reissued` set.
 export type NhsoTab='PENDING'|'DONE'|'NOT_NHSO';
 /** `entitlement` UNSPECIFIED = the request chose neither สปสช. nor self-pay (treated as สปสช.). `entry` is the current CONFIRMED / NOT_NHSO decision, if any. */
-export type NhsoRow={resultId:string;caseId:string;ln:string;lnHalos:string|null;hn:string|null;name:string|null;certifiedAt:string;reissued:boolean;entitlement:'NHSO'|'UNSPECIFIED';entry:{kind:'CONFIRMED'|'NOT_NHSO';at:string;by:string|null}|null};
+export type NhsoRow={resultId:string;caseId:string;ln:string;lnHalos:string|null;hn:string|null;name:string|null;certifiedAt:string;reissued:boolean;
+ /** Owner 2026-11-23: the High Risk findings of this result (t13/t18/t21 'High Risk', xo/xxx/xxy/xyy 'Detected' singleton only) — the registry's High Risk evidence. Empty = not High Risk. */
+ positive:PositiveKey[];entitlement:'NHSO'|'UNSPECIFIED';entry:{kind:'CONFIRMED'|'NOT_NHSO';at:string;by:string|null}|null};
 
 type R={subject_id:string;source:'RELEASE'|'HISTORICAL';version_id:string;case_id:string;round_id:string;certified_at:Date;ln:string;ln_halos:string|null;hn:string|null;name:string|null;registration_origin:string;unit_id:string|null;
- draft:RequestDraft|null;entitlement:string|null;entry_kind:string|null;entry_at:Date|null;entry_by:string|null;reissued:boolean};
+ draft:RequestDraft|null;entitlement:string|null;entry_kind:string|null;entry_at:Date|null;entry_by:string|null;reissued:boolean;positive:string[]|null};
 
 /** Same meaning as ANC's "มีผลตรวจแล้ว": a certified NIPT-CBH release, or a result HIS already holds / the previous system reported (historical_reported_result, no release).
  *  `subject_id` is the release id for the first and the result version id for the second. */
@@ -33,7 +35,8 @@ const ROWS_SQL=`WITH subj AS (
   w.draft,ent.entitlement,COALESCE(NULLIF(btrim(pet.parsed->>'name'),''),NULLIF(btrim(w.draft#>>'{patient,syntheticName}'),'')) AS name,
   e.kind entry_kind,e.at entry_at,COALESCE(NULLIF(btrim(u.display_name),''),u.username) entry_by,
   (r.source='RELEASE' AND EXISTS(SELECT 1 FROM result_release p WHERE p.round_id=r.round_id AND p.kind='RESULT' AND p.id<>r.subject_id
-   AND (SELECT x.kind FROM nhso_result_entry_event x WHERE x.release_id=p.id ORDER BY x.sequence DESC LIMIT 1)='CONFIRMED')) reissued
+   AND (SELECT x.kind FROM nhso_result_entry_event x WHERE x.release_id=p.id ORDER BY x.sequence DESC LIMIT 1)='CONFIRMED')) reissued,
+  (SELECT ${positiveKeysSql} FROM result_report_version v WHERE v.id=r.version_id) positive
  FROM subj r JOIN nipt_case c ON c.id=r.case_id JOIN specimen_round s ON s.id=r.round_id JOIN case_ln l ON l.id=s.case_ln_id LEFT JOIN specimen_lab_number n ON n.round_id=r.round_id
  LEFT JOIN p2_case_identity i ON i.case_id=c.id
  LEFT JOIN LATERAL (SELECT w.draft FROM p2_workspace w JOIN specimen_round x ON x.id=w.round_id
@@ -53,7 +56,7 @@ const ROWS_SQL=`WITH subj AS (
 const kindOf=(r:R)=>entitlementKind(r.entitlement);
 const eligible=(user:Staff,r:R)=>kindOf(r)!=='SELF_PAY'&&caseVisible(user,{unit_id:r.unit_id,registration_origin:r.registration_origin});
 const toRow=(r:R):NhsoRow=>({resultId:r.subject_id,caseId:r.case_id,ln:r.ln,lnHalos:r.ln_halos,hn:r.hn,name:r.name?patientDisplayName(r.name):null,certifiedAt:new Date(r.certified_at).toISOString(),reissued:r.reissued,
- entitlement:kindOf(r)==='NHSO'?'NHSO':'UNSPECIFIED',
+ positive:POSITIVE_KEYS.filter(k=>(r.positive??[]).includes(k)),entitlement:kindOf(r)==='NHSO'?'NHSO':'UNSPECIFIED',
  entry:(r.entry_kind==='CONFIRMED'||r.entry_kind==='NOT_NHSO')&&r.entry_at?{kind:r.entry_kind,at:new Date(r.entry_at).toISOString(),by:r.entry_by}:null});
 
 const day=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v=>!Number.isNaN(Date.parse(v)),'DATE_INVALID');

@@ -40,3 +40,10 @@
 @media(max-width:600px){.nhso-board .search-form>.button{margin-top:0}}
 .nhso-ln{display:grid;justify-items:start;gap:2px}
 .nhso-halos{font-size:.8125rem;color:var(--color-muted);text-decoration:none}
+/* Owner 2026-11-23: the High Risk warning before the details open. */
+.nhso-warning{display:grid;gap:8px}
+.nhso-warning p{margin:0}
+.nhso-warning-who{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-weight:600}
+.nhso-warning-found{color:var(--color-danger);font-weight:700;font-size:1.0625rem}
+.nhso-warning-actions{justify-content:flex-end;margin-top:var(--space-3,16px)}
+.nhso-name-cell{display:flex;flex-wrap:wrap;gap:6px;align-items:center}

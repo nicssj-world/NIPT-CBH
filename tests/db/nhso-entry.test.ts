@@ -24,18 +24,18 @@ async function request(f:F,index:number,entitlement:string,gravida=2){
   ON CONFLICT(round_id) DO UPDATE SET draft=EXCLUDED.draft,version=p2_workspace.version+1`,[c.roundId,c.caseId,JSON.stringify(draft),f.admin.id]);
 }
 /** One external PDF taken through review to "รอส่ง HIS" (PendingCertification). */
-async function waiting(f:F,index:number){
- const c=f.cases[index],bytes=syntheticReportPdf({kind:'SINGLETON',labNumber:c.printed,hn:c.hn,dob:'01-Jan-1990',collection:pdfDate('2026-10-20'),gaWeeks:17,gaDays:6,sex:null});
+async function waiting(f:F,index:number,hr?:{risks?:[string,string,string];sca?:[string,string,string,string]}){
+ const c=f.cases[index],bytes=syntheticReportPdf({kind:'SINGLETON',labNumber:c.printed,hn:c.hn,dob:'01-Jan-1990',collection:pdfDate('2026-10-20'),gaWeeks:17,gaDays:6,sex:null,...hr});
  const intakeId=await f.run(t=>registerIntake(t,f.store,{source:'UPLOAD',relativePath:null,originalName:`SYNTHETIC-nhso-${index}.pdf`,actorId:f.admin.id,jobId:null},bytes));
  await f.run(t=>parseIntake(t,f.store,intakeId,{maxBytes:10000000,acceptZip:true}));
  await f.run(t=>reviewBenchForResult(t,f.admin,c.attemptId,{revision:1,measurementsReviewed:true,reason:'SYNTHETIC legacy paper-only result evidence review'}));
- const done=await f.run(t=>confirmCompletion(t,f.admin,{idempotencyKey:randomUUID(),abnormalAcknowledged:false,items:[{intakeId,caseId:c.caseId,roundId:c.roundId,attemptId:c.attemptId}]}));
+ const done=await f.run(t=>confirmCompletion(t,f.admin,{idempotencyKey:randomUUID(),abnormalAcknowledged:!!hr,items:[{intakeId,caseId:c.caseId,roundId:c.roundId,attemptId:c.attemptId}]}));
  return done.items[0].versionId!;
 }
 /** … then "ส่ง HIS": a certified, Active release. */
-async function release(f:F,index:number){
- const versionId=await waiting(f,index),rv=(await f.db.query<{row_version:number}>('SELECT row_version FROM result_report_version WHERE id=$1',[versionId])).rows[0].row_version;
- const sent=await f.run(t=>sendToHis(t,f.admin,{idempotencyKey:randomUUID(),reviewConfirmed:true,abnormalAcknowledged:false,items:[{versionId,expectedRowVersion:rv}]}));
+async function release(f:F,index:number,hr?:Parameters<typeof waiting>[2]){
+ const versionId=await waiting(f,index,hr),rv=(await f.db.query<{row_version:number}>('SELECT row_version FROM result_report_version WHERE id=$1',[versionId])).rows[0].row_version;
+ const sent=await f.run(t=>sendToHis(t,f.admin,{idempotencyKey:randomUUID(),reviewConfirmed:true,abnormalAcknowledged:!!hr,items:[{versionId,expectedRowVersion:rv}]}));
  expect(sent.items[0].outcome).toBe('CertifiedReleased');
  return (await f.db.query<{id:string}>('SELECT id FROM result_release WHERE version_id=$1',[versionId])).rows[0].id;
 }
@@ -220,5 +220,17 @@ it('a result HIS already holds (no NIPT-CBH release) is listed like ANC counts i
   // a release and a reported result of two different cases are both on the list
   await request(f,1,'NHSO');const rel=await release(f,1);
   expect((await board(f,'PENDING')).rows.map(r=>r.resultId).sort()).toEqual([v,rel].sort());
+ }finally{await f.close();}
+},600000);
+
+it('a High Risk result carries its findings so the list can warn before the details open (Owner 2026-11-23); a Low Risk one carries none',async()=>{
+ const f=await fixture();try{
+  const hi=await release(f,0,{risks:['High Risk','Low Risk','Low Risk'],sca:['Detected','Not Detected','Not Detected','Not Detected']}),lo=await release(f,1);
+  const rows=(await board(f,'PENDING')).rows;
+  expect(rows.find(r=>r.resultId===hi)?.positive).toEqual(['t21','xo']);
+  expect(rows.find(r=>r.resultId===lo)?.positive).toEqual([]);
+  // still there after the entry is confirmed
+  await f.run(t=>confirmNhsoEntry(t,f.admin,{resultId:hi}));
+  expect((await board(f,'DONE')).rows[0]).toMatchObject({resultId:hi,positive:['t21','xo']});
  }finally{await f.close();}
 },600000);

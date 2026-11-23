@@ -10,6 +10,8 @@ import {LabIcon} from "../shared/lab-icons";
 import {formatBeDateTime} from "../../../packages/domain/thai-date";
 import type {NhsoRow,NhsoTab} from "../../../packages/results/nhso-entry";
 import {NhsoDialog} from "./nhso-dialog";
+import {NhsoHighRiskWarning} from "./nhso-high-risk-warning";
+import {Icon} from "../p2/anc-progress-view";
 import "./nhso.css";
 
 type Board={rows:NhsoRow[];counts:Record<NhsoTab,number>;truncated:boolean;page:{number:number;size:number;total:number;totalPages:number;hasNext:boolean}};
@@ -22,7 +24,9 @@ const TAB_LABEL:Record<NhsoTab,string>={PENDING:"รายการที่ต�
 export function NhsoBoard(){
  const [tab,setTab]=useState<NhsoTab>("PENDING"),[q,setQ]=useState(""),[term,setTerm]=useState(""),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50),[from,setFrom]=useState(""),[to,setTo]=useState(""),[exporting,setExporting]=useState(false);
  const [data,setData]=useState<Board|null>(null),[counts,setCounts]=useState<Board["counts"]|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(""),[notice,setNotice]=useState("");
- const [open,setOpen]=useState<NhsoRow|null>(null),seq=useRef(0);
+ const [open,setOpen]=useState<NhsoRow|null>(null),[warn,setWarn]=useState<NhsoRow|null>(null),seq=useRef(0);
+ // Owner 2026-11-23: a High Risk result first shows a warning; the details open only after "รับทราบ เปิดรายละเอียด".
+ const openRow=(r:NhsoRow)=>{if(r.positive.length)setWarn(r);else setOpen(r);};
  const load=useCallback(async()=>{const n=++seq.current;setLoading(true);
   try{const d=await labApi<Board>("/api/nhso",{action:"board",tab,page,pageSize,...(term?{q:term}:{}),...(from?{from}:{}),...(to?{to}:{})});if(n===seq.current){setData(d);setCounts(d.counts);setError("");}}
   catch(e){if(n===seq.current){setData(null);setError(failureText(e));}}finally{if(n===seq.current)setLoading(false);}},[tab,page,pageSize,term,from,to]);
@@ -61,13 +65,14 @@ export function NhsoBoard(){
    {!error&&<TableScroll label={TAB_LABEL[tab]} railLabel="แถบเลื่อนแนวนอนของตารางลงผลสปสช.">
     <table className="data-table"><thead><tr><th scope="col">LN</th><th scope="col">HN</th><th scope="col">ชื่อ-นามสกุล</th><th scope="col">ออกผลเมื่อ</th><th scope="col">{tab==="PENDING"?"สถานะ":tab==="DONE"?"ลงผลเมื่อ":"ระบุเมื่อ"}</th></tr></thead>
      <tbody>{rows.length?rows.map(r=><tr key={r.resultId}>
-      <td><button type="button" className="nhso-ln" aria-haspopup="dialog" onClick={()=>setOpen(r)}><Ln value={r.ln}/>{r.lnHalos&&<span className="nhso-halos num">{r.lnHalos}</span>}<span className="sr-only"> เปิดข้อมูลสำหรับลงผลสปสช.</span></button></td>
-      <td className="num">{r.hn??"—"}</td><td>{r.name??"—"}</td><td className="num">{formatBeDateTime(r.certifiedAt)}</td>
+      <td><button type="button" className="nhso-ln" aria-haspopup="dialog" onClick={()=>openRow(r)}><Ln value={r.ln}/>{r.lnHalos&&<span className="nhso-halos num">{r.lnHalos}</span>}<span className="sr-only"> เปิดข้อมูลสำหรับลงผลสปสช.</span></button></td>
+      <td className="num">{r.hn??"—"}</td><td><span className="nhso-name-cell">{r.name??"—"}{r.positive.length>0&&<span className="progress-badge tone-high-risk"><Icon name="alert"/>High Risk</span>}</span></td><td className="num">{formatBeDateTime(r.certifiedAt)}</td>
       <td>{tab==="PENDING"?<><span className="status warning">ต้องลงผล</span>{r.entitlement==="UNSPECIFIED"&&<span className="badge info">ไม่ได้ระบุสิทธิ</span>}{r.reissued&&<span className="badge warning">ผลถูกแก้ไข ต้องลงใหม่</span>}</>
        :<><span className="num">{r.entry?formatBeDateTime(r.entry.at):"—"}</span><span className="cell-sub">โดย {r.entry?.by??"—"}</span></>}</td></tr>)
       :<tr><td colSpan={5} className="empty-row">{loading?"กำลังโหลด…":empty}</td></tr>}</tbody></table></TableScroll>}
    {data&&data.page.total>0&&<Pager label="รายการลงผลสปสช." page={data.page.number} pageSize={data.page.size} total={data.page.total} totalPages={data.page.totalPages} busy={loading} onPage={setPage} onSize={n=>{setPageSize(n);setPage(1);}}/>}
   </section>
+  {warn&&createPortal(<NhsoHighRiskWarning row={warn} onCancel={()=>setWarn(null)} onProceed={()=>{const r=warn;setWarn(null);setOpen(r);}}/>,document.body)}
   {open&&createPortal(<NhsoDialog row={open} tab={tab} onClose={()=>setOpen(null)} onChanged={m=>void changed(m)}/>,document.body)}
  </div>;
 }
