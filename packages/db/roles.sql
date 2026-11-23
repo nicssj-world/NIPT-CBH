@@ -262,3 +262,7 @@ GRANT SELECT ON report_template_active,report_template_revision TO worker_rw;
 GRANT SELECT,INSERT,UPDATE,DELETE ON business_holiday TO app_rw,worker_rw;
 GRANT SELECT,UPDATE ON holiday_sync_state TO app_rw,worker_rw;
 GRANT SELECT ON business_holiday,holiday_sync_state TO report_ro;
+-- ผลตรวจยืนยัน (Confirm) (migration 231): insert-only confirmatory-result revisions.
+GRANT SELECT,INSERT ON confirm_result_revision TO app_rw;
+GRANT USAGE ON SEQUENCE confirm_result_revision_sequence_seq TO app_rw;
+GRANT SELECT ON confirm_result_revision TO report_ro;

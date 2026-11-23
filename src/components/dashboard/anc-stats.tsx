@@ -6,6 +6,7 @@ import type {AncInsights as Data} from "../../../packages/anc/insights";
 import {MonthBars} from "./month-bars";
 import {HBars,StackedMonthBars,TrendLines} from "./stat-charts";
 import {monthLabelLong} from "./month-label";
+import {ConfirmStatsCard} from "../confirm/confirm-stats-card";
 import "./dashboard.css";
 import "./anc-insights.css";
 
@@ -35,7 +36,7 @@ export function AncStatsPage(){
  const head=<header className="page-header"><div><h1>สถิติการส่งตรวจ</h1><p className="page-meta">ANC · ปีงบประมาณ {fy} · นับตามหน่วยงานที่เลือก · ตัวเลขอ่านอย่างเดียว</p></div></header>;
  if(error)return <div className="dash-stats">{head}{filters}<div className="error" role="alert">{error||"โหลดสถิติไม่สำเร็จ"} <button type="button" className="button secondary" onClick={()=>setN(x=>x+1)}>ลองใหม่</button></div></div>;
  if(!data)return <div className="dash-stats">{head}{filters}<section className="panel dash-panel anc-skeleton" aria-busy="true" aria-label="กำลังโหลดสถิติ"><span/><span/><span/></section></div>;
- return <div><AncStatsView data={data} filters={<>{head}{filters}</>} loading={loading}/></div>;
+ return <div className="stack"><AncStatsView data={data} filters={<>{head}{filters}</>} loading={loading}/><ConfirmStatsCard fy={fy}/></div>;
 }
 
 /** The statistics themselves (no fetching): the tab above wraps it. */

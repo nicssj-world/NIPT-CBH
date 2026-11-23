@@ -81,6 +81,10 @@ const rows = {
   "result.read.obsolete": "--YY---R-",
   // ลงผลสปสช. (Owner 2026-11-09): lab staff copy a released result into the NHSO system and record that it was entered.
   "nhso.entry": "--YY-----",
+  // ผลตรวจยืนยัน (Confirm) (Owner 2026-11-23): Lab staff record the outlab confirmatory result of a High Risk case; ANC, the clinical approver and
+  // the auditor read the list and the concordance figures (case visibility still follows case.read).
+  "confirm.read": "RRYYR--R-",
+  "confirm.write": "--YY-----",
   "his.retry": "--YY-Y-R-",
   "his.reconcile": "--YY--YR-",
   "integration.configure": "-----YYR-",
