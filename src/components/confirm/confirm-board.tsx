@@ -27,7 +27,7 @@ const TAB_LABEL:Record<ConfirmTab,string>={ALL:"ทุกเคสที่ต�
 const CURRENT_FY=()=>{const d=new Date(Date.now()+7*3600000),y=d.getUTCFullYear()+543;return d.getUTCMonth()>=9?y+1:y;};
 const be=(iso:string)=>{try{return formatBe(iso.slice(0,10));}catch{return "—";}};
 
-/** ผลตรวจยืนยัน (Confirm) (Owner 2026-11-23): concordance figures, then the followed High Risk cases by status; Lab staff record each outlab result. */
+/** ผลตรวจยืนยัน (Owner 2026-11-23): concordance figures, then the followed High Risk cases by status; Lab staff record each outlab result. */
 export function ConfirmBoard({canWrite}:{canWrite:boolean}){
  const [fy,setFy]=useState<number|"all">(CURRENT_FY),[tab,setTab]=useState<ConfirmTab>("PENDING"),[q,setQ]=useState(""),[term,setTerm]=useState(""),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50);
  const [data,setData]=useState<Board|null>(null),[stats,setStats]=useState<ConfirmStats|null>(null),[statsError,setStatsError]=useState("");
@@ -43,7 +43,7 @@ export function ConfirmBoard({canWrite}:{canWrite:boolean}){
  const rows=data?.rows??[],counts=data?.counts;
  const empty=q?"ไม่พบเคสที่ตรงกับคำค้น":tab==="PENDING"?"ไม่มีเคสที่รอผลยืนยัน":tab==="RESULTED"?"ยังไม่มีเคสที่บันทึกผลยืนยัน":tab==="NOT_DONE"?"ไม่มีเคสที่ไม่ได้ตรวจยืนยัน":"ยังไม่มีเคสที่ผลคัดกรองผิดปกติ";
  return <div className="confirm-board nhso-board stack">
-  <header className="page-header confirm-head"><div><h1>ผลตรวจยืนยัน (Confirm)</h1>
+  <header className="page-header confirm-head"><div><h1>ผลตรวจยืนยัน</h1>
    <p className="page-meta">เคสที่ผลคัดกรอง NIPT ผิดปกติ (High Risk) · บันทึกผลตรวจยืนยันจาก outlab (น้ำคร่ำ ชิ้นเนื้อรก หรือผลหลังคลอด) แล้วระบบเทียบกับผลคัดกรองให้</p></div>
    <div className="field confirm-fy"><label htmlFor="confirm-fy">ปีงบประมาณของผลคัดกรอง</label>
     <select id="confirm-fy" value={String(fy)} onChange={e=>{setFy(e.target.value==="all"?"all":Number(e.target.value));setPage(1);}}>

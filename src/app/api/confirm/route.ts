@@ -8,8 +8,11 @@ import {confirmError} from "../../../server/confirm";
 
 /** ผลตรวจยืนยัน: `?caseId=` = one case for the editor; `?view=stats&fy=` = the concordance figures (counts only). */
 export async function GET(request:NextRequest){try{const user=await protect(request,"confirm.read");const p=request.nextUrl.searchParams,caseId=p.get("caseId");
- const r=await withTransaction<unknown>(async db=>{await db.query("SET TRANSACTION READ ONLY");
-  return caseId?confirmDetail(db,user,caseId):confirmStats(db,user,p.get("fy")?{fy:p.get("fy")}:{});});
+ // Opening a case records PHI access (an INSERT), so only the counts-only stats view may run read-only.
+ const r=await withTransaction<unknown>(async db=>{
+  if(caseId)return confirmDetail(db,user,caseId);
+  await db.query("SET TRANSACTION READ ONLY");
+  return confirmStats(db,user,p.get("fy")?{fy:p.get("fy")}:{});});
  return NextResponse.json(r,{headers:noStore});}catch(e){return confirmError(e);}}
 
 /** The list is a POST so a searched LN/HN never appears in a URL. It records PHI access, so it is not read-only. */

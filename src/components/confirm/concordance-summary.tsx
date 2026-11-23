@@ -8,7 +8,7 @@ import "../dashboard/dashboard.css";
 const pct=(v:number|null)=>v===null?"—":`${v.toLocaleString("th-TH",{maximumFractionDigits:1})}%`;
 
 /**
- * Concordance of the NIPT screening with the confirmatory result (Owner 2026-11-23), shared by ผลตรวจยืนยัน (Confirm) and the ANC statistics page.
+ * Concordance of the NIPT screening with the confirmatory result (Owner 2026-11-23), shared by ผลตรวจยืนยัน and the ANC statistics page.
  * % ผลตรงกัน = True positive ÷ findings with a confirmatory result; Mosaic-other counts as not concordant. Cases without a result are counted, never in the %.
  */
 export function ConcordanceSummary({stats,headingId}:{stats:ConfirmStats;headingId:string}){

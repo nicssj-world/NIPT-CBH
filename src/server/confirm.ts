@@ -2,7 +2,7 @@ import {NextResponse} from "next/server";
 import {LabError} from "../../packages/lab/core";
 import {p5Error,noStore} from "./p5";
 
-// ผลตรวจยืนยัน (Confirm): Thai messages of the module's refusals; everything else falls through to the shared P5 messages.
+// ผลตรวจยืนยัน: Thai messages of the module's refusals; everything else falls through to the shared P5 messages.
 const MESSAGES:Record<string,string>={
  CONFIRM_CHANGED:"มีผู้บันทึกเคสนี้ไปก่อนแล้ว กรุณาเปิดเคสใหม่เพื่อดูข้อมูลล่าสุด",
  CONFIRM_SCREEN_CHANGED:"ผลคัดกรองของเคสนี้เปลี่ยนไปแล้ว กรุณาเปิดเคสใหม่",

@@ -13,7 +13,7 @@ export function ConfirmStatsCard({fy}:{fy:number}){
  if(state.hidden)return null;
  return <section className="panel dash-panel" aria-labelledby="as-confirm">
   <header className="dash-panel-head"><h2 id="as-confirm">ผลตรวจยืนยันเทียบกับผลคัดกรอง</h2>
-   <p className="dash-panel-note">เคสผลคัดกรองผิดปกติที่ออกผลในปีงบ {fy} · ทุกหน่วยในขอบเขตสิทธิ์ (ไม่ใช้ตัวกรองหน่วยงานด้านบน) · ผลตรงกัน = True positive ÷ รายการที่มีผลยืนยัน · <Link href="/confirm">ดูรายเคสที่หน้า ผลตรวจยืนยัน (Confirm)</Link></p></header>
+   <p className="dash-panel-note">เคสผลคัดกรองผิดปกติที่ออกผลในปีงบ {fy} · ทุกหน่วยในขอบเขตสิทธิ์ (ไม่ใช้ตัวกรองหน่วยงานด้านบน) · ผลตรงกัน = True positive ÷ รายการที่มีผลยืนยัน · <Link href="/confirm">ดูรายเคสที่หน้า ผลตรวจยืนยัน</Link></p></header>
   {state.error?<div className="notice" role="alert">{state.error} <button type="button" className="button small secondary" onClick={()=>setN(x=>x+1)}>ลองใหม่</button></div>
    :state.stats?<ConcordanceSummary stats={state.stats} headingId="as-confirm"/>:<p className="help" role="status">กำลังโหลด…</p>}
  </section>;

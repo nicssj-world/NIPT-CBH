@@ -42,7 +42,7 @@ export function ConfirmEditor({caseId,canWrite,onClose,onSaved}:{caseId:string;c
    if(!r.ok){setError(d.error??"บันทึกไม่สำเร็จ กรุณาลองอีกครั้ง");if(d.code==="CONFIRM_CHANGED"||d.code==="CONFIRM_SCREEN_CHANGED"){setDirty(false);setReload(n=>n+1);}return;}
    setDirty(false);onSaved(`บันทึก ${STATUS_LABEL[form.status]} ของ LN ${row.ln} แล้ว`);}
   catch{setError("เชื่อมต่อระบบไม่สำเร็จ กรุณาลองอีกครั้ง");}finally{setBusy(false);}};
- return <Dialog title="ผลตรวจยืนยัน (Confirm)" onClose={onClose} dirty={dirty} discardDescription="ข้อมูลผลยืนยันที่กรอกไว้ยังไม่ได้บันทึก">
+ return <Dialog title="ผลตรวจยืนยัน" onClose={onClose} dirty={dirty} discardDescription="ข้อมูลผลยืนยันที่กรอกไว้ยังไม่ได้บันทึก">
   {loadError?<div className="notice" role="alert">{loadError} <button type="button" className="button small secondary" onClick={()=>setReload(n=>n+1)}>ลองใหม่</button></div>
   :!row||!form?<p className="help" role="status">กำลังโหลด…</p>
   :<form className="confirm-editor" onSubmit={e=>{e.preventDefault();void save();}}>
