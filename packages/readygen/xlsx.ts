@@ -20,7 +20,8 @@ const attr=(tag:string,name:string)=>new RegExp(`\\s${name}="([^"]*)"`).exec(tag
 // Text of <t> runs only: phonetic guides (<rPh>) are not part of the cell value.
 const runText=(xml:string)=>[...xml.replace(/<rPh\b[\s\S]*?<\/rPh>/g,'').matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>|<t(?:\s[^>]*)?\/>/g)].map(m=>xmlDecode(m[1]??'')).join('');
 
-export function readXlsx(bytes:Buffer):XlsxSheet[]{
+/** `maxRows` lets a caller whose files are known to be longer (the HIS ANC export) raise the row cap; size and every other limit stay. */
+export function readXlsx(bytes:Buffer,{maxRows=XLSX_LIMITS.rows}:{maxRows?:number}={}):XlsxSheet[]{
  if(bytes.length===0)fail('EMPTY_FILE');if(bytes.length>XLSX_LIMITS.bytes)fail('FILE_TOO_LARGE');
  let parts:Map<string,Buffer>;
  try{parts=readArchive(bytes);}catch(e){return fail(e instanceof ZipError?e.message:'XLSX_NOT_A_PACKAGE');}
@@ -43,7 +44,7 @@ export function readXlsx(bytes:Buffer):XlsxSheet[]{
   const rows:XlsxRow[]=[];
   for(const r of xml.matchAll(/<row\b([^>]*)(?:\/>|>([\s\S]*?)<\/row>)/g)){
    const number=Number(attr(r[1],'r'));if(!Number.isInteger(number)||number<1)fail('XLSX_ROW_NUMBER_INVALID');
-   if(rows.length>=XLSX_LIMITS.rows)fail('XLSX_TOO_MANY_ROWS');
+   if(rows.length>=maxRows)fail('XLSX_TOO_MANY_ROWS');
    const cells=new Map<number,XlsxCell>();
    for(const c of (r[2]??'').matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)){
     const ref=attr(c[1],'r')??fail('XLSX_CELL_REFERENCE_INVALID'),type=attr(c[1],'t'),body=c[2]??'';

@@ -32,8 +32,8 @@ describe('HIS ANC import route',()=>{
  it('an unauthenticated request never reaches the import',async()=>{
   calls.protect.mockRejectedValue(new Error('UNAUTHENTICATED'));const r=await POST(upload({action:'preview'}));expect(r.status).toBe(401);expect(calls.preview).not.toHaveBeenCalled();
  });
- it('a file over 2000 rows is told so in Thai',async()=>{
+ it('a file over 10,000 rows is told so in Thai',async()=>{
   calls.preview.mockRejectedValue(new HisAncError('TOO_MANY_ROWS'));
-  const body=await (await POST(upload({action:'preview'}))).json();expect(body.code).toBe('TOO_MANY_ROWS');expect(body.error).toMatch(/2,000 แถว/);
+  const body=await (await POST(upload({action:'preview'}))).json();expect(body.code).toBe('TOO_MANY_ROWS');expect(body.error).toMatch(/10,000 แถว/);
  });
 });

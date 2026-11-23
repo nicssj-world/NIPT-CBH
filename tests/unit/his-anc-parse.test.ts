@@ -1,5 +1,6 @@
 import {describe,it,expect,vi} from 'vitest';
 import {parseHisAncWorkbook,splitGa,isDoctorName,HisAncError} from '../../packages/his-anc/parse';
+import {readXlsx,XLSX_LIMITS} from '../../packages/readygen/xlsx';
 import {hisAncWorkbook,hisAncRow,HIS_ANC_HEADER} from '../helpers/his-anc-workbook';
 
 const code=(f:()=>unknown)=>{try{f();return null;}catch(e){return e instanceof HisAncError?e.code:'OTHER';}};
@@ -35,7 +36,14 @@ describe('HIS ANC export workbook',()=>{
   expect(code(()=>parseHisAncWorkbook(hisAncWorkbook([hisAncRow()],HIS_ANC_HEADER.map(h=>h==='edc'?'edd':h))))).toBe('HEADER_MISMATCH');
  });
  it('header case and spaces do not matter',()=>{expect(parseHisAncWorkbook(hisAncWorkbook([hisAncRow()],HIS_ANC_HEADER.map(h=>' '+h.toUpperCase()))).length).toBe(1);});
- it('a file over the 2000-row limit says so, not "not an xlsx"',()=>{expect(code(()=>parseHisAncWorkbook(hisAncWorkbook(Array.from({length:2000},()=>hisAncRow()))))).toBe('TOO_MANY_ROWS');});
+ it('a month-long export (2,616 rows with header, Owner 2026-11-23) is read; only past 10,000 rows is it refused',()=>{
+  expect(parseHisAncWorkbook(hisAncWorkbook(Array.from({length:2615},()=>hisAncRow()))).length).toBe(2615);
+  expect(code(()=>parseHisAncWorkbook(hisAncWorkbook(Array.from({length:10000},()=>hisAncRow()))))).toBe('TOO_MANY_ROWS');
+ });
+ it('the HALOS reader keeps its 2,000-row cap',()=>{
+  expect(()=>readXlsx(hisAncWorkbook(Array.from({length:2000},()=>hisAncRow())))).toThrow('XLSX_TOO_MANY_ROWS');
+  expect(XLSX_LIMITS.rows).toBe(2000);
+ });
  it('a file with no data rows, or not an xlsx, is refused',()=>{
   expect(code(()=>parseHisAncWorkbook(hisAncWorkbook([])))).toBe('EMPTY_FILE');
   expect(code(()=>parseHisAncWorkbook(Buffer.from('hn\tcid\n')))).toBe('NOT_XLSX');

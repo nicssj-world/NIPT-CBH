@@ -3,6 +3,8 @@ import {operationalDataEnabled} from '../security/runtime';
 
 // HIS ANC export (.xlsx, every cell stored as text). Owner 2026-11-18: it only fills blanks on waiting cases.
 export const HIS_ANC_COLUMNS=['hospcode','hn','cid','brthdate','pttype','age','seq','date_serv','gravida','ancno','ga','ancresult','ancplace','provider','weight','height','bmi','edc','nipt_date','nipt'] as const;
+// Owner 2026-11-23: a month of HIS ANC visits is ~2,600 rows (header included), over the 2,000 HALOS cap; the 8 MB size cap stays.
+export const HIS_ANC_MAX_ROWS=10000;
 export class HisAncError extends Error{constructor(public code:string){super(code);}}
 export type HisAncIncomplete='BAD_IDENTIFIER'|'BAD_DATE'|'BAD_GA'|'G_ZERO'|'EDC_GA_MISMATCH';
 export type HisAncRow={rowNo:number;hn:string;cid:string;visitDate:string;gravida:number|null;ga:{weeks:number;days:number}|null;edc:string|null;provider:string;weightKg:number|null;heightCm:number|null;incomplete:HisAncIncomplete|null};
@@ -26,7 +28,7 @@ const positive=(text:string)=>{const n=Number(text.trim());return text.trim()!==
 
 export function parseHisAncWorkbook(bytes:Buffer):HisAncRow[]{
  let sheets;
- try{sheets=readXlsx(bytes);}catch(e){const m=e instanceof XlsxError?e.message:'';throw new HisAncError(m==='EMPTY_FILE'?'EMPTY_FILE':m==='XLSX_TOO_MANY_ROWS'?'TOO_MANY_ROWS':m==='FILE_TOO_LARGE'?'FILE_TOO_LARGE':'NOT_XLSX');}
+ try{sheets=readXlsx(bytes,{maxRows:HIS_ANC_MAX_ROWS});}catch(e){const m=e instanceof XlsxError?e.message:'';throw new HisAncError(m==='EMPTY_FILE'?'EMPTY_FILE':m==='XLSX_TOO_MANY_ROWS'?'TOO_MANY_ROWS':m==='FILE_TOO_LARGE'?'FILE_TOO_LARGE':'NOT_XLSX');}
  const [head,...rows]=sheets[0]?.rows??[];if(!head)throw new HisAncError('EMPTY_FILE');
  const index=new Map<string,number>();for(const c of head.cells.values())index.set(normalizeHeader(c.text),c.column);
  if(index.size!==HIS_ANC_COLUMNS.length||HIS_ANC_COLUMNS.some(k=>!index.has(k)))throw new HisAncError('HEADER_MISMATCH');
