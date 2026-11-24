@@ -61,12 +61,16 @@
 .confirm-read{display:grid;gap:var(--space-3,16px);padding:var(--space-3,16px);border:1px solid var(--color-line);border-radius:12px;background:var(--raised)}
 .confirm-read-top{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .confirm-read-findings{display:grid;gap:0;margin:0;padding:0;list-style:none}
-.confirm-read-findings li{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--color-line);font-size:1.0625rem}
+.confirm-read-findings li{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:flex-start;padding:10px 0;border-bottom:1px solid var(--color-line);font-size:1.0625rem}
 .confirm-read-findings li:last-child{border-bottom:0}
-.confirm-read-outcome{font-weight:700}
-.confirm-read-outcome.is-true_positive{color:var(--color-success)}
-.confirm-read-outcome.is-false_positive{color:var(--color-danger)}
-.confirm-read-outcome.is-mosaic_other{color:var(--color-warning)}
+.confirm-read-arrow{color:var(--color-muted);font-weight:600}
+/* The confirmatory outcome is the point of this card (Owner 2026-11-24): a coloured pill right beside its finding, never pushed to the far edge. */
+.confirm-read-outcome{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 14px;border:1px solid var(--color-line);border-radius:999px;background:var(--color-surface);color:var(--color-muted);font-weight:700;font-size:1.0625rem}
+.confirm-read-outcome .ui-icon{display:inline-flex;width:18px;height:18px}
+.confirm-read-outcome .ui-icon svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2}
+.confirm-read-outcome.is-true_positive{background:var(--good-bg);border-color:var(--color-success);color:var(--color-success)}
+.confirm-read-outcome.is-false_positive{background:var(--bad-bg);border-color:var(--color-danger);color:var(--color-danger)}
+.confirm-read-outcome.is-mosaic_other{background:var(--warn-bg);border-color:var(--color-warning);color:var(--color-warning)}
 .confirm-read-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px var(--space-3,16px);margin:0}
 .confirm-read-list dt{font-size:.8125rem;color:var(--color-muted)}
 .confirm-read-list dd{margin:2px 0 0;font-weight:600;overflow-wrap:anywhere}

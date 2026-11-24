@@ -64,7 +64,8 @@ export function ConfirmEditor({caseId,canWrite,onClose,onSaved}:{caseId:string;c
     <div className="confirm-read-top"><StatusBadge status={row.status}/>{previewMatch!==null&&<MatchBadge value={previewMatch}/>}</div>
     {result?<>
      <ul className="confirm-read-findings">{row.screen.map(k=><li key={k}><span className="confirm-finding-name">{SCREEN_LABEL[k]}</span>
-      <span className={"confirm-read-outcome is-"+(form.findings[k]??"none").toLowerCase()}>{form.findings[k]?OUTCOME_LABEL[form.findings[k]!]:"—"}</span></li>)}</ul>
+      <span className="confirm-read-arrow" aria-hidden="true">→</span>
+      <span className={"confirm-read-outcome is-"+(form.findings[k]??"none").toLowerCase()}>{form.findings[k]&&<Icon name={form.findings[k]==="TRUE_POSITIVE"?"done":form.findings[k]==="FALSE_POSITIVE"?"stop":"alert"}/>}{form.findings[k]?OUTCOME_LABEL[form.findings[k]!]:"ยังไม่มีผล"}</span></li>)}</ul>
      <dl className="confirm-read-list">
       {([["วิธีตรวจ",form.method?METHOD_LABEL[form.method]:"—"],["สิ่งส่งตรวจ",form.specimen?SPECIMEN_LABEL[form.specimen]:"—"],["ห้องปฏิบัติการ (outlab)",form.outlabName||"—"],
        ["วันเจาะ/เก็บสิ่งส่งตรวจ",be(form.procedureDate)],["วันออกผล outlab",be(form.reportDate)],["ผลรายงาน",form.resultText||"—"]] as [string,string][]).map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
