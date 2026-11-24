@@ -18,18 +18,39 @@ describe("Run step progress is evidence-based and shared by every Run page",()=>
  });
  it("QC is done only with a saved revision, nothing unsaved and no empty QC field",()=>{
   expect(qcMissingCount(slots,qcFull)).toBe(0);
-  expect(benchSteps(facts()).QC).toBe(true);
-  expect(benchSteps(facts({revision:0})).QC).toBe(false);
-  expect(benchSteps(facts(),{dirty:true}).QC).toBe(false);
-  expect(benchSteps(facts({values:{...qcFull,"slot.2.libraryQc":""}})).QC).toBe(false);
+  expect(benchSteps(facts()).QC.done).toBe(true);
+  expect(benchSteps(facts({revision:0})).QC.done).toBe(false);
+  expect(benchSteps(facts({sourceStale:true})).QC.done).toBe(false);
+  expect(benchSteps(facts(),{qcDirty:true}).QC.done).toBe(false);
+  expect(benchSteps(facts({values:{...qcFull,"slot.2.libraryQc":""}})).QC.done).toBe(false);
   expect(qcMissingCount(slots,{...qcFull,"qc.2.standard1":null})).toBe(1);
  });
- it("Pooling needs a current actual pooling; Sequencing also needs the exported HALOS file (export evidence, as before)",()=>{
-  expect(benchSteps(facts()).POOL).toBe(false);
-  expect(benchSteps(facts({actualPooling:{current:true}})).POOL).toBe(true);
-  expect(benchSteps(facts({actualPooling:{current:true}})).SEQ).toBe(false);
-  expect(benchSteps(facts({actualPooling:{current:true},exports:[{kind:"HALOS_TASK_XLSX"}]})).SEQ).toBe(true);
-  expect(benchSteps(facts({exports:[{kind:"HALOS_TASK_XLSX"}]})).SEQ).toBe(false);   // an export without pooling is never "sequencing done"
+ it("completes Pooling only with a current recorded transfer",()=>{
+  expect(benchSteps(facts()).POOL.done).toBe(false);
+  expect(benchSteps(facts({actualPooling:{current:true}})).POOL.done).toBe(true);
+  const stale=benchSteps(facts({actualPooling:{current:false},exports:[{kind:"POOL_CSV",current:false}]})).POOL;
+  expect(stale.done).toBe(false);
+  expect(stepText(stale,false,"POOL")).toBe("รอบันทึก QC2 อีกครั้ง");
+ });
+ it("completes Sequencing when all four first-cycle measurements are saved",()=>{
+  const firstCycle={...qcFull,"seq.loadedDnb":10,"seq.q30":90,"seq.bic":0,"seq.fit":0};
+  expect(benchSteps(facts({values:firstCycle})).SEQ.done).toBe(true);
+  expect(benchSteps(facts({values:{...firstCycle,"seq.fit":null},exports:[{kind:"HALOS_TASK_XLSX"}]})).SEQ.done).toBe(false);
+ });
+ it("shows the saved progress of each step when Sequencing files were exported before QC2 and the first-cycle results",()=>{
+  const status=benchSteps(facts({
+   values:{...qcFull,"qc.2.standard1":null},
+   exports:[{kind:"POOL_CSV",current:true},{kind:"HALOS_TASK_XLSX"}],
+  }));
+  expect(stepText(status.QC,false,"QC")).toBe("บันทึก QC บางส่วน · ขาด 1 ช่อง");
+  expect(stepText(status.POOL,false,"POOL")).toBe("ส่งออกไฟล์ Pooling แล้ว · รอบันทึก QC2");
+  expect(stepText(status.SEQ,false,"SEQ")).toBe("ส่งออกไฟล์ Sequencing แล้ว");
+  expect(status.SEQ.done).toBe(false);
+ });
+ it("keeps QC and Pooling pending when the export is the only evidence",()=>{
+  const status=benchSteps(facts({values:{},exports:[{kind:"HALOS_TASK_XLSX"}]}));
+  expect(stepText(status.QC,false,"QC")).toBe("รอบันทึก QC Measurements");
+  expect(stepText(status.POOL,false,"POOL")).toBe("รอบันทึก QC2");
  });
  it("an unknown status never reads as done",()=>{
   expect(stepText({done:true,known:false},false,"QC")).toBe("ไม่ทราบสถานะ");

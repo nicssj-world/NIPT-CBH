@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import {useEffect,useMemo,useState} from 'react';
+import {useEffect,useState} from 'react';
 import {Dialog} from '../p2/shared';
 import {PdfPreview} from '../shared/pdf-preview';
 import {csrf} from '../p2/shared';
@@ -98,7 +98,14 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
   const members:Transfer[]=actualPoolingMembers(pool!.calculation.rows,poolable);
   await labApi(api,{action:'recordActualPooling',revision,members,note:''});await reload();setSeqFiles(null);setNotice('บันทึก QC2 และ Pooling แล้ว');
  });
- const exportPair=()=>run(async()=>{const result=await labApi<SeqFiles&{dnbId?:string}>(api,{action:'exportSeqPair',revision:data!.revision,idempotencyKey:crypto.randomUUID()});if(result.dnbId)setData(d=>d?{...d,halosDnbId:result.dnbId!}:d);if(result.files.length!==2)throw Error('สร้างไฟล์ไม่ครบสองไฟล์');setSeqFiles(result);setNotice('สร้างไฟล์ครบ 2 ไฟล์แล้ว');});
+ const exportPair=()=>run(async()=>{
+  const result=await labApi<SeqFiles>(api,{action:'exportSeqPair',revision:data!.revision,idempotencyKey:crypto.randomUUID()});
+  if(result.files.length!==2)throw Error('สร้างไฟล์ไม่ครบสองไฟล์');
+  const files=[...result.files].sort((a,b)=>Number(b.kind==='HALOS_TASK_XLSX')-Number(a.kind==='HALOS_TASK_XLSX'));
+  setSeqFiles({...result,files});
+  setNotice('สร้างไฟล์ครบ 2 ไฟล์แล้ว');
+  await reload();
+ });
  async function fetchExport(kind:'POOL_CSV'|'NIFTY_XLSX'|'QC'|'POOL'|'SEQ'){
   const isWorkbook=kind!=='POOL_CSV'&&kind!=='NIFTY_XLSX',sheet=kind==='QC'?'QC measurements':kind==='POOL'?'Pooling Table':'Seq Task-G50';
   const response=await fetch(isWorkbook?workbookApi:api,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','x-csrf-token':csrf()},body:JSON.stringify(isWorkbook?{action:'export',revision:data!.revision,format:'PDF',sheet}:{action:'export',revision:data!.revision,kind})});
@@ -112,7 +119,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
  }
  /** Owner 2026-11-11: the QC and Pooling steps also offer the same worksheet PDF as a file download (the preview/print button stays). */
  const downloadPdf=(kind:'QC'|'POOL'|'SEQ',name:string)=>run(async()=>{const url=URL.createObjectURL(await fetchExport(kind));const a=document.createElement('a');a.href=url;a.download=`${data!.runLabel.replace('/','-')}-${name}.pdf`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);});
- const downloadCsv=()=>run(async()=>{const url=URL.createObjectURL(await fetchExport('POOL_CSV'));const a=document.createElement('a');a.href=url;a.download=`${data!.runLabel.replace('/','-')}-POOL_CSV.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);});
+ const downloadCsv=()=>run(async()=>{const url=URL.createObjectURL(await fetchExport('POOL_CSV'));const a=document.createElement('a');a.href=url;a.download=`${data!.runLabel.replace('/','-')}-POOL_CSV.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);await reload();});
  /** Sample-info (NIFTY Test Request) file: needs only the saved task, not finalized QC or recorded actual pooling. Owner 2026-11-09: the button lives only on the Sequencing step, where the vendor file is made. The HALOS file stays in the two-file pair because it lists the positions actually pooled. */
  const downloadNifty=()=>run(async()=>{const url=URL.createObjectURL(await fetchExport('NIFTY_XLSX'));const a=document.createElement('a');a.href=url;a.download=`${data!.runLabel.replace('/','-')}-NIFTY-Test-Request.xlsx`;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);setNotice('สร้างไฟล์ข้อมูลตัวอย่าง (NIFTY) แล้ว');});
  const subjectOf=(row:Slot):ActionCenterSubject|null=>row.kind==='PATIENT'&&row.attemptId&&row.caseId&&row.roundId&&row.hisLn&&row.roundNumber?{attemptId:row.attemptId,caseId:row.caseId,roundId:row.roundId,hisLn:row.hisLn,hn:row.hn,roundNumber:row.roundNumber,sampleId:row.sampleId,attemptState:row.attemptState??'',overallOrdinal:row.overallOrdinal,attemptNumber:row.attemptNumber,outcomeStatus:row.outcomeStatus}:null;
@@ -123,10 +130,10 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
    {row.kind==='PATIENT'?<small>LN {row.hisLn} · HN {row.hn??'—'} · รอบที่ {row.roundNumber}</small>:row.kind!=='EMPTY'&&<small>{kindLabel(row.kind)}</small>}
    {row.outcomeStatus&&<small className="bench-status-text">{row.outcomeStatus}</small>}</>;};
  // One shared definition (bench-progress.ts) so the Task List page and this page can never disagree about a step.
- const stepStatus=useMemo<Record<StepKey,StepStatus>>(()=>{
-  const known=!!data,b=data?benchSteps(data,{values,dirty}):{QC:false,POOL:false,SEQ:false};
-  return {TASK:{done:!!data?.finalized,known},QC:{done:b.QC,known},POOL:{done:b.POOL,known},SEQ:{done:b.SEQ,known}};
- },[data,values,dirty]);
+ const stepStatus:Record<StepKey,StepStatus>={
+  TASK:{done:!!data?.finalized,known:!!data,pending:!data&&!error},
+  ...benchSteps(data,{qcDirty:tab==='QC'&&dirty,pending:!data&&!error}),
+ };
  const status=busy?'กำลังบันทึก…':dirty?'มีค่าที่ยังไม่บันทึก':data?.sourceStale?'ข้อมูลต้นทางเปลี่ยน — บันทึกเพื่อผูกข้อมูลล่าสุด':data?.revision?`บันทึกแล้ว · ฉบับ ${data.revision}`:'ยังไม่บันทึก';
  const poolable=(row:{slot:number;sampleId:string})=>{const s=data?.slots.find(x=>x.slot===row.slot),k=s?.kind;return !!row.sampleId&&(k==='PATIENT'||k==='PC'||k==='NC')&&!['QcFailed','Superseded','Stopped','BatchCancelled'].includes(s?.attemptState??'');};
  const pooledCount=pool?pool.calculation.rows.filter(r=>isPooled(r,poolable)).length:0;
@@ -195,7 +202,7 @@ export function LabBench({batchId,canWrite,initialStage="QC"}:{batchId:string;ca
     return <div key={f.key} className="field"><label htmlFor={id}>{f.label}</label>{f.key==='seq.operator'?<OperatorPicker id={id} value={String(values[f.key]??'')} disabled={!canWrite||busy||data.automaticKeys.includes(f.key)} onChange={v=>change(f.key,v)}/>:f.type==='text'?<input id={id} type="text" disabled={!canWrite||busy||data.automaticKeys.includes(f.key)} value={String(values[f.key]??'')} onChange={e=>change(f.key,e.target.value)} aria-describedby={f.hint?`${id}-hint`:undefined}/>
      :<NumberField id={id} label={f.label} signed={f.type==='signed'} value={values[f.key]} disabled={!canWrite||busy||data.automaticKeys.includes(f.key)} describedBy={f.hint?`${id}-hint`:undefined} onChange={v=>change(f.key,v)}/>}{f.hint&&<small id={`${id}-hint`} className="muted">{f.hint}</small>}</div>;})}</div></fieldset>)}</div>
    {data.slots.some(r=>r.kind==='PATIENT')&&<details className="bench-failures"><summary>ผลไม่สำเร็จ / ตรวจซ้ำหลัง Sequencing</summary><ul>{data.slots.filter(r=>r.kind==='PATIENT').map(row=><li key={row.slot}><span className="muted">ตำแหน่ง {row.slot}</span> {sampleCell(row)}</li>)}</ul></details>}
-   {seqFiles&&<div className="notice success bench-files" role="region" aria-label="ไฟล์ XLSX จากฉบับเดียวกัน"><p>ใบงานฉบับ {seqFiles.revision} · หาก Browser ไม่ดาวน์โหลดอัตโนมัติ ให้เลือกแต่ละไฟล์</p><div className="bench-actions">{seqFiles.files.map((file,i)=><a key={file.id} className="button secondary" href={`/api/lab-bench/seq-exports/${seqFiles.id}/${file.id}`} download><LabIcon name="download"/>{i+1}. {file.kind==='NIFTY_XLSX'?'NIFTY Test Request':'HALOS Task Import'}</a>)}
+   {seqFiles&&<div className="notice success bench-files" role="region" aria-label="ไฟล์ XLSX จากฉบับเดียวกัน"><p>ใบงานฉบับ {seqFiles.revision} · เลือกดาวน์โหลดแต่ละไฟล์</p><div className="bench-actions">{seqFiles.files.map((file,i)=><a key={file.id} className="button secondary" href={`/api/lab-bench/seq-exports/${seqFiles.id}/${file.id}`} download={file.filename}><LabIcon name="download"/>{i+1}. {file.filename}</a>)}
     <a className="button secondary" href={`/api/lab-bench/seq-exports/${seqFiles.id}/fallback`} download><LabIcon name="archive"/>3. ชุดสำรองสำหรับ ReadyGen</a></div>
     <p className="help">ชุดสำรองใช้เมื่อระบบ NIPT-CBH ขัดข้องเท่านั้น — มีข้อมูลผู้ป่วย เก็บในสื่อเข้ารหัสของโรงพยาบาลตาม SOP</p></div>}
   </section>}

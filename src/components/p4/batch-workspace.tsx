@@ -119,10 +119,9 @@ export function BatchWorkspace({initial,userId}:{initial:Workspace;userId:string
  const finalizedAny=w.sheets.some(s=>s.placement_revision>0&&s.state!=="Cancelled"&&!EDITABLE.includes(s.state));
  const taskStats=w.sheets.map(x=>sheetStats(w.slots,x.sheet_number));
  const placedAll=taskStats.reduce((n,x)=>n+x.placed,0),capacityAll=taskStats.reduce((n,x)=>n+x.capacity,0);
- const benchFacts=bench&&bench!=="error"?bench:null,steps=benchFacts?benchSteps(benchFacts):null;
  const stepStatus:Record<StepKey,StepStatus>={
   TASK:{done:taskListDone(w.sheets,w.batch.state==="Cancelled"),known:true,detail:`ตัวอย่าง ${placedAll}/${capacityAll} · ว่าง ${capacityAll-placedAll}`},
-  QC:{done:!!steps?.QC,known:!!steps,pending:bench===null},POOL:{done:!!steps?.POOL,known:!!steps,pending:bench===null},SEQ:{done:!!steps?.SEQ,known:!!steps,pending:bench===null}};
+  ...benchSteps(bench==="error"?null:bench,{pending:bench===null})};
  const qcOpen=w.sheets.some(s=>["ExecutionRecorded","ExecutionVerified","CompletedIssued"].includes(s.state));
  return <>
   <header className="page-header"><div><p className="muted"><Link href="/lab/batches">Batch / Task List</Link></p><h1>{w.batch.runLabel}</h1><p className="muted">สถานะ Batch: <strong>{batchStatusText({...w.batch,...w.progress})}</strong> · ฉบับ {w.batch.version}{!w.operational&&<> · Template {w.batch.templateVersion} · Formula {w.batch.formulaVersion}</>}</p></div>

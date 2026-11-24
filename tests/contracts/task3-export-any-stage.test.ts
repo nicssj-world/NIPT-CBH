@@ -7,7 +7,7 @@ import {randomUUID} from 'node:crypto';
 import {task3Fixture} from '../helpers/task3';
 import {benchWorkspace,benchExport} from '../../packages/lab/bench';
 import {saveWorkbookDraft} from '../../packages/workbook/service';
-import {exportSeqPair} from '../../packages/lab/seq-export';
+import {downloadSeqFile,exportSeqPair} from '../../packages/lab/seq-export';
 
 // Owner decision 2026-11-03: the two-file export (NIFTY + HALOS) is available at every stage. When the recorded actual pooling is not current for the saved task
 // (here: a QC value edited after it was recorded) the server records one from the saved task, marked as automatic, and still produces both files.
@@ -22,6 +22,21 @@ it('exports NIFTY and HALOS when the recorded actual pooling is stale, with an a
   const revision=(await f.run(t=>benchWorkspace(t,f.u.staff,f.batchId,deps))).revision;
   const pair=await f.run(t=>exportSeqPair(t,f.u.staff,{batchId:f.batchId,revision,idempotencyKey:randomUUID()},deps));
   expect(pair.files.map(x=>x.kind).sort()).toEqual(['HALOS_TASK_XLSX','NIFTY_XLSX']);
+  const year=Number(w.runLabel.split('/')[1])+543;
+  const legacyFiles=pair.files.map(file=>({...file,filename:`${file.kind==='HALOS_TASK_XLSX'?'HALOS-Task-Import':'NIFTY'}-${file.id}.xlsx`}));
+  const legacy=(await f.db.query<{id:string}>(`INSERT INTO lab_seq_export_pair(batch_id,workbook_revision_id,actual_pooling_id,nifty_export_id,halos_export_id,idempotency_key,manifest,created_by)
+   SELECT batch_id,workbook_revision_id,actual_pooling_id,nifty_export_id,halos_export_id,$2,jsonb_set(manifest,'{files}',$3::jsonb),created_by
+   FROM lab_seq_export_pair WHERE id=$1 RETURNING id`,[pair.id,randomUUID(),JSON.stringify(legacyFiles)])).rows[0];
+  for(const file of pair.files){
+   const prefix=file.kind==='HALOS_TASK_XLSX'?'HALOS-Task-Import':'NIFTY Info';
+   const filename=`${prefix}-Run1-${year}.xlsx`;
+   expect(file.filename).toBe(filename);
+   for(const pairId of [pair.id,legacy.id]){
+    const download=await f.run(t=>downloadSeqFile(t,f.u.staff,pairId,file.id,deps));
+    expect(download).toMatchObject({filename,sha256:file.sha256});
+   }
+  }
+  expect((await f.db.query<{files:unknown}>("SELECT manifest->'files' files FROM lab_seq_export_pair WHERE id=$1",[legacy.id])).rows[0].files).toEqual(legacyFiles);
   const rows=(await f.db.query<{note:string;recorded_by:string}>('SELECT note,recorded_by FROM lab_actual_pooling WHERE batch_id=$1 ORDER BY recorded_at DESC,id DESC',[f.batchId])).rows;
   expect(rows[0]).toMatchObject({note:'AUTO_RECORDED_FROM_SAVED_TASK_AT_EXPORT',recorded_by:f.u.staff.id});
   expect(rows.length).toBe(2);                                    // the operator's earlier record is kept untouched
