@@ -1,30 +1,46 @@
 import {afterAll,beforeAll,describe,expect,it} from 'vitest';
 import {execFileSync} from 'node:child_process';
-import {createHash} from 'node:crypto';
-import {mkdtempSync,readFileSync,readFileSync as read,rmSync} from 'node:fs';
+import {createHash,X509Certificate} from 'node:crypto';
+import {existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync} from 'node:fs';
 import https from 'node:https';
 import type {AddressInfo} from 'node:net';
-import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {authorize} from '../../packages/security/policy';
 import {describeCertificate,servedCertificate} from '../../src/server/certificate';
 
 let dir:string,der:Buffer,server:https.Server,origin:string;
+const fixtureRoot=path.resolve('.local/dev');
 const hex=(buffer:Buffer)=>createHash('sha256').update(buffer).digest('hex').toUpperCase().match(/../g)!.join(':');
 
+function opensslPath(){
+ if(process.platform==='win32'){
+  const gitExecPath=execFileSync('git',['--exec-path'],{encoding:'utf8'}).trim();
+  const bundled=path.resolve(gitExecPath,'../../../usr/bin/openssl.exe');
+  if(existsSync(bundled))return bundled;
+ }
+ return 'openssl';
+}
+
 beforeAll(async()=>{
- dir=mkdtempSync(path.join(tmpdir(),'nipt-cert-test-'));
- const pfx=path.join(dir,'t.pfx'),cer=path.join(dir,'t.cer'),pass='synthetic-test-only';
- // Synthetic self-signed certificate (same cmdlet the installer uses), created for this test only and removed from the store at once.
- const script=`$c=New-SelfSignedCertificate -Subject 'CN=nipt-test.local' -KeyAlgorithm RSA -KeyLength 2048 -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(200) -CertStoreLocation Cert:\\CurrentUser\\My -KeyExportPolicy Exportable;`+
-  `try{Export-PfxCertificate -Cert $c -FilePath '${pfx}' -Password (ConvertTo-SecureString '${pass}' -AsPlainText -Force)|Out-Null;Export-Certificate -Cert $c -FilePath '${cer}' -Type CERT|Out-Null}finally{Remove-Item ('Cert:\\CurrentUser\\My\\'+$c.Thumbprint) -Force}`;
- execFileSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',script],{stdio:'ignore'});
- der=readFileSync(cer);
- server=https.createServer({pfx:readFileSync(pfx),passphrase:pass},(_,res)=>res.end('ok'));
- await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+ mkdirSync(fixtureRoot,{recursive:true});
+ dir=mkdtempSync(path.join(fixtureRoot,'nipt-cert-test-'));
+ const keyPath=path.join(dir,'tls.key'),certPath=path.join(dir,'tls.crt');
+ // Use temporary synthetic TLS material so the test can run without a Windows certificate store.
+ execFileSync(opensslPath(),['req','-x509','-newkey','rsa:2048','-sha256','-nodes','-days','200',
+  '-subj','/CN=nipt-test.local','-keyout',keyPath,'-out',certPath],{windowsHide:true,stdio:['ignore','ignore','pipe']});
+ const cert=readFileSync(certPath);
+ der=new X509Certificate(cert).raw;
+ server=https.createServer({key:readFileSync(keyPath),cert},(_,res)=>res.end('ok'));
+ await new Promise<void>((resolve,reject)=>{
+  server.once('error',reject);
+  server.listen(0,'127.0.0.1',resolve);
+ });
  origin=`https://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
-afterAll(()=>{server?.close();if(dir)rmSync(dir,{recursive:true,force:true});});
+afterAll(async()=>{
+ if(server?.listening)await new Promise<void>(resolve=>server.close(()=>resolve()));
+ if(dir&&path.dirname(dir)===fixtureRoot)rmSync(dir,{recursive:true,force:true});
+});
 
 describe('HTTPS certificate settings',()=>{
  it('downloads exactly the certificate the listener serves (public DER bytes only)',async()=>{
@@ -61,11 +77,11 @@ describe('HTTPS certificate settings',()=>{
   expect(authorize(principal('APP_ADMIN'),'settings.read',{},'read')).toBe(true);
   for(const role of ['LAB_OPERATOR','ANC_USER','LAB_SUPERVISOR','REPORT_SIGNER'])expect(authorize(principal(role),'settings.read',{},'read')).toBe(false);
   for(const file of ['route.ts','download/route.ts']){
-   const source=read(path.join(__dirname,'../../src/app/api/settings/certificate',file),'utf8');
+   const source=readFileSync(path.join(__dirname,'../../src/app/api/settings/certificate',file),'utf8');
    expect(source).toContain("protect(request,'settings.read')");
    expect(source).not.toMatch(/searchParams|readJson|request\.json|readFileSync|process\.env\.NIPT_TLS|PRIVATE|\.pfx|passphrase/i);
   }
-  expect(read(path.join(__dirname,'../../src/app/api/settings/certificate/route.ts'),'utf8')).toContain("'Cache-Control':'no-store'");
-  expect(read(path.join(__dirname,'../../src/app/api/settings/certificate/download/route.ts'),'utf8')).toContain("'Cache-Control':'no-store'");
+  expect(readFileSync(path.join(__dirname,'../../src/app/api/settings/certificate/route.ts'),'utf8')).toContain("'Cache-Control':'no-store'");
+  expect(readFileSync(path.join(__dirname,'../../src/app/api/settings/certificate/download/route.ts'),'utf8')).toContain("'Cache-Control':'no-store'");
  });
 });
