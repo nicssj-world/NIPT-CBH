@@ -267,3 +267,105 @@ describe('database ↔ file consistency, backup and restore',()=>{
   await expect(restorePhotos(roots.dir('backup'),a.root.root_id,roots.dir('again'))).rejects.toThrow(/BACKUP_MANIFEST_TAMPERED/);
  });
 });
+
+// Owner 2026-11-24: tube photos are taken before the tubes go into a Task, when no Run exists. Such a photo has no Run and states the LN Halos
+// range of its tubes; a search by LN Halos or LN HIS finds it whether or not the sample was ever placed in a Run.
+describe('tube photos without a Run, found by their LN Halos range',()=>{
+ /** `n` received samples that are NOT placed in any Run, with their LN HIS and LN Halos. */
+ async function received(n:number){
+  const out=[];
+  for(let i=0;i<n;i++){const c=await run(t=>syntheticCase(t,u));await run(t=>receiveS1(t,c,new Date(Date.now()-(n-i)*60000)));
+   const ln=(await db.query<{ln:string}>('SELECT ln FROM case_ln WHERE id=$1',[c.lnId])).rows[0].ln;
+   const lnHalos=(await db.query<{ln_halos:string}>('SELECT ln_halos FROM specimen_lab_number WHERE round_id=$1',[c.roundId])).rows[0].ln_halos;
+   out.push({...c,ln,lnHalos});}
+  return out;
+ }
+ const ids=(r:{rangePhotos:{photos:{id:string}[]}})=>r.rangePhotos.photos.map(p=>p.id).sort();
+ const issues=async(p:Promise<unknown>)=>p.then(()=>[] as string[],(e:{issues?:{message:string}[]})=>(e.issues??[]).map(x=>x.message));
+ const today=()=>new Date(Date.now()+7*3600000).toISOString().slice(0,10);
+
+ it('uploads without a Run only with a valid LN Halos range and never with a sample order; the same file twice is refused',async()=>{
+  const [a,b]=await received(2);
+  expect(await issues(uploadPhoto(q(),u.staff,null))).toContain('LN_HALOS_RANGE_REQUIRED');
+  expect(await issues(uploadPhoto(q(),u.staff,null,{lnHalosFrom:a.lnHalos,lnHalosTo:b.lnHalos,sampleFrom:1,sampleTo:2}))).toContain('SAMPLE_ORDER_NEEDS_RUN');
+  expect(await issues(uploadPhoto(q(),u.staff,null,{lnHalosFrom:b.lnHalos,lnHalosTo:a.lnHalos}))).toContain('LN_HALOS_RANGE_ORDER');
+  expect(await issues(uploadPhoto(q(),u.staff,null,{lnHalosFrom:a.lnHalos,lnHalosTo:null}))).toContain('LN_HALOS_RANGE_INCOMPLETE');
+  expect(await issues(uploadPhoto(q(),u.staff,null,{lnHalosFrom:'26X261124001',lnHalosTo:'26X261124002'}))).toContain('LN_HALOS_RANGE_INVALID');
+  const bytes=syntheticJpeg(4032,3024,9001);
+  // A suffix (D / -1 / R) is dropped: the stored range is the 12-character base.
+  const p=await uploadPhoto(q(),u.staff,null,{bytes,lnHalosFrom:a.lnHalos+'-1',lnHalosTo:b.lnHalos+'R',caption:'แร็คก่อนวางลง Task'});
+  expect((await db.query('SELECT batch_id,ln_halos_from,ln_halos_to,sample_from FROM run_photo WHERE id=$1',[p.photoId])).rows[0]).toEqual({batch_id:null,ln_halos_from:a.lnHalos,ln_halos_to:b.lnHalos,sample_from:null});
+  expect(await code(uploadPhoto(q(),u.staff,null,{bytes,lnHalosFrom:a.lnHalos,lnHalosTo:a.lnHalos}))).toBe('DUPLICATE_IN_RUN');
+  // The database itself refuses a photo without a Run that has no range, or that has a sample order.
+  const root=(await db.query<{root_id:string}>('SELECT root_id FROM run_photo WHERE id=$1',[p.photoId])).rows[0].root_id;
+  const insert=(cols:string,vals:string)=>db.query(`INSERT INTO run_photo(batch_id,root_id,sha256,byte_size,media_type,original_name,taken_on,uploaded_by,idempotency_key${cols}) VALUES(NULL,$1,$2,10,'image/jpeg','x.jpg','2026-11-24',$3,$4${vals})`,[root,'a'.repeat(64),u.staff.id,'k'.repeat(20)]);
+  await expect(insert('','')).rejects.toThrow(/run_photo_without_run_has_range/);
+  await expect(insert(',ln_halos_from,ln_halos_to,sample_from,sample_to',`,'${a.lnHalos}','${a.lnHalos}',1,1`)).rejects.toThrow(/run_photo_without_run_no_sample_order/);
+  await expect(insert(',ln_halos_from,ln_halos_to',`,'${b.lnHalos}','${a.lnHalos}'`)).rejects.toThrow(/run_photo_ln_halos_format/);
+  expect((await db.query("SELECT count(*)::int n FROM audit_chain WHERE action='RUN_PHOTO_UPLOADED'")).rows[0]).toEqual({n:1});
+ });
+
+ it('LN Halos and LN HIS searches find every photo whose range covers the sample (placed in a Run or not); edges count, outside does not',async()=>{
+  const [a,b,c,d]=await received(4);
+  const ab=await uploadPhoto(q(),u.staff,null,{lnHalosFrom:a.lnHalos,lnHalosTo:b.lnHalos});
+  const cOnly=await uploadPhoto(q(),u.staff,null,{lnHalosFrom:c.lnHalos,lnHalosTo:c.lnHalos});
+  // A range across months, end of October to start of December, still orders correctly (text order = date order).
+  const yy=a.lnHalos.slice(0,3),lo=`${yy}${yy.slice(0,2)}1031990`,hi=`${yy}${yy.slice(0,2)}1202001`;
+  const wide=await uploadPhoto(q(),u.staff,null,{lnHalosFrom:lo,lnHalosTo:hi});
+  const s=(o:Record<string,unknown>)=>run(t=>svc.searchRunPhotos(t,u.staff,o));
+  const plusWide=(h:string,list:string[])=>[...list,...(h>=lo&&h<=hi?[wide.photoId]:[])].sort();
+  expect(ids(await s({lnHalos:a.lnHalos}))).toEqual(plusWide(a.lnHalos,[ab.photoId]));          // lower edge
+  expect(ids(await s({lnHalos:b.lnHalos}))).toEqual(plusWide(b.lnHalos,[ab.photoId]));          // upper edge
+  expect(ids(await s({lnHalos:c.lnHalos+'D'}))).toEqual(plusWide(c.lnHalos,[cOnly.photoId]));   // suffix ignored
+  expect(ids(await s({lnHalos:d.lnHalos})).includes(ab.photoId)).toBe(false);                   // outside
+  const byHis=await s({lnHis:b.ln});
+  expect(ids(byHis)).toEqual(ids(await s({lnHalos:b.lnHalos})));
+  expect(byHis.rangePhotos.lnHalos).toEqual([b.lnHalos]);
+  expect(byHis.lnMatches).toEqual([]);   // never placed in a Run: no Run hit, yet its tube photos are found
+  // A Run or sample-order search never uses ranges; a date search adds the photos without a Run.
+  expect((await s({run:'1'})).rangePhotos.total).toBe(0);
+  expect((await s({sample:1})).rangePhotos.total).toBe(0);
+  expect(ids(await s({date:today()}))).toEqual([ab.photoId,cOnly.photoId,wide.photoId].sort());
+  expect((await run(t=>svc.recentPhotosWithoutRun(t,u.staff))).map(p=>p.id).sort()).toEqual([ab.photoId,cOnly.photoId,wide.photoId].sort());
+ });
+
+ it('a Run photo may also state a range and is then found by it; the Run results are unchanged',async()=>{
+  const r=await runWith(2);
+  const plain=await uploadPhoto(q(),u.staff,r.batchId,{sampleFrom:1,sampleTo:2});
+  const ranged=await uploadPhoto(q(),u.staff,r.batchId,{lnHalosFrom:r.cases[0].lnHalos,lnHalosTo:r.cases[1].lnHalos});
+  const res=await run(t=>svc.searchRunPhotos(t,u.staff,{lnHalos:r.cases[1].lnHalos}));
+  expect(res.photos.map(p=>p.id).sort()).toEqual([plain.photoId,ranged.photoId].sort());
+  expect(ids(res)).toEqual([ranged.photoId]);
+  expect(res.rangePhotos.photos[0]).toMatchObject({batchId:r.batchId,runLabel:r.runLabel});
+  // A date search lists only photos without a Run in this section; Run photos stay under their Run.
+  expect((await run(t=>svc.searchRunPhotos(t,u.staff,{date:today()}))).rangePhotos.total).toBe(0);
+ });
+
+ it('editing keeps the range rules; a photo without a Run cannot be moved, only retracted',async()=>{
+  const [a,b]=await received(2);
+  const p=await uploadPhoto(q(),u.staff,null,{lnHalosFrom:a.lnHalos,lnHalosTo:a.lnHalos});
+  const base={expectedRowVersion:1,caption:'',sampleFrom:null,sampleTo:null,takenOn:today()};
+  expect(await code(run(t=>svc.editPhoto(t,u.staff,p.photoId,{...base,lnHalosFrom:null,lnHalosTo:null})))).toBe('LN_HALOS_RANGE_REQUIRED');
+  expect(await code(run(t=>svc.editPhoto(t,u.staff,p.photoId,{...base,sampleFrom:1,sampleTo:1})))).toBe('SAMPLE_ORDER_NEEDS_RUN');
+  expect(await code(run(t=>svc.editPhoto(t,u.staff,p.photoId,{...base,lnHalosFrom:b.lnHalos,lnHalosTo:a.lnHalos})))).toBe('LN_HALOS_RANGE_ORDER');
+  // Leaving the range out keeps it (earlier clients); a new range is saved and recorded in the history.
+  expect(await run(t=>svc.editPhoto(t,u.staff,p.photoId,{...base,caption:'แร็ค 1'}))).toMatchObject({changed:true,rowVersion:2});
+  expect((await db.query('SELECT ln_halos_from,ln_halos_to FROM run_photo WHERE id=$1',[p.photoId])).rows[0]).toEqual({ln_halos_from:a.lnHalos,ln_halos_to:a.lnHalos});
+  await run(t=>svc.editPhoto(t,u.staff,p.photoId,{...base,expectedRowVersion:2,caption:'แร็ค 1',lnHalosFrom:a.lnHalos,lnHalosTo:b.lnHalos}));
+  expect(ids(await run(t=>svc.searchRunPhotos(t,u.staff,{lnHalos:b.lnHalos})))).toEqual([p.photoId]);
+  const ev=(await db.query<{after:{lnHalosTo:string}}>("SELECT after FROM run_photo_event WHERE photo_id=$1 AND event_type='EDITED' ORDER BY sequence DESC LIMIT 1",[p.photoId])).rows[0];
+  expect(ev.after.lnHalosTo).toBe(b.lnHalos);
+  const r=await runWith(1);
+  expect(await code(run(t=>svc.movePhoto(t,u.staff,p.photoId,{expectedRowVersion:3,targetBatchId:r.batchId,reason:'SYNTHETIC move attempt'})))).toBe('RUN_PHOTO_NO_RUN');
+  await run(t=>svc.retractPhoto(t,u.staff,p.photoId,{expectedRowVersion:3,reason:'SYNTHETIC blurred label'}));
+  expect(ids(await run(t=>svc.searchRunPhotos(t,u.staff,{lnHalos:b.lnHalos})))).toEqual([]);
+ });
+
+ it('auditors read tube photos but cannot upload; ANC and approvers get nothing',async()=>{
+  const [a]=await received(1);
+  await uploadPhoto(q(),u.staff,null,{lnHalosFrom:a.lnHalos,lnHalosTo:a.lnHalos});
+  expect(await code(uploadPhoto(q(),u.auditor,null,{lnHalosFrom:a.lnHalos,lnHalosTo:a.lnHalos,bytes:syntheticJpeg(4032,3024,777)}))).toBe('FORBIDDEN');
+  expect(ids(await run(t=>svc.searchRunPhotos(t,u.auditor,{lnHalos:a.lnHalos})))).toHaveLength(1);
+  for(const who of [u.anc,u.approver])expect(await code(run(t=>svc.recentPhotosWithoutRun(t,who as Staff)))).toBe('FORBIDDEN');
+ });
+});

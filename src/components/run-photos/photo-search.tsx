@@ -7,6 +7,7 @@ import {ThaiDateInput} from "../shared/thai-date-input";
 import {labApi,failureText,bkk} from "../p4/lab-api";
 import {Thumb} from "./thumb";
 import {rangeText,runStateText} from "./labels";
+import {TubePhotoGrid} from "./tube-photos";
 
 type Form={date:string;run:string;lnHalos:string;lnHis:string;sample:string;text:string};
 const EMPTY:Form={date:"",run:"",lnHalos:"",lnHis:"",sample:"",text:""};
@@ -23,7 +24,7 @@ export function RunPhotoSearch({initial}:{initial:PhotoSearch}){
  const loadMore=async()=>{setBusy(true);setError("");
   try{const next=await labApi<PhotoSearch>("/api/run-photos/search",body(last,result.nextRunsOffset));setResult(r=>({...next,runs:[...r.runs,...next.runs.filter(x=>!r.runs.some(y=>y.id===x.id))]}));}
   catch(e){setError(failureText(e));}finally{setBusy(false);}};
- const byRun=new Map<string,PhotoSearch["photos"]>();for(const p of result.photos){if(!byRun.has(p.batchId))byRun.set(p.batchId,[]);byRun.get(p.batchId)!.push(p);}
+ const byRun=new Map<string,PhotoSearch["photos"]>();for(const p of result.photos){const k=p.batchId!;if(!byRun.has(k))byRun.set(k,[]);byRun.get(k)!.push(p);}
  const hits=new Map<string,PhotoSearch["lnMatches"]>();for(const m of result.lnMatches){if(!hits.has(m.batchId))hits.set(m.batchId,[]);hits.get(m.batchId)!.push(m);}
  return <>
   <section className="panel" aria-labelledby={id+"-h"}>
@@ -39,6 +40,14 @@ export function RunPhotoSearch({initial}:{initial:PhotoSearch}){
    </form>
    {error&&<p className="notice" role="alert">{error}</p>}
   </section>
+
+  {/* Owner 2026-11-24: tube photos found by the LN Halos range stated at upload, with or without a Run. */}
+  {result.criteria&&result.rangePhotos.total>0&&<section className="panel" aria-labelledby={id+"-t"} aria-busy={busy}>
+   <h2 id={id+"-t"}>ภาพตามเลข LN Halos <span className="muted">· {result.rangePhotos.total} ภาพ</span></h2>
+   <p className="help">{result.rangePhotos.lnHalos.length?`ภาพที่ช่วงเลข LN Halos ครอบ ${result.rangePhotos.lnHalos.join(", ")} ตามที่ผู้อัปโหลดระบุ — ระบบไม่ได้ยืนยันว่าเห็นหลอดนี้ในภาพ ตรวจฉลากในภาพต้นฉบับ`:"ภาพหลอดที่ไม่อยู่ใน Run ตามวันที่หรือคำอธิบายที่ค้นหา"}</p>
+   {result.rangePhotos.truncated&&<p className="notice warning-notice" role="note">พบ {result.rangePhotos.total} ภาพ แสดงเฉพาะ {result.rangePhotos.photos.length} ภาพล่าสุด — เพิ่มเงื่อนไขค้นหาให้แคบลง</p>}
+   <TubePhotoGrid photos={result.rangePhotos.photos} onChanged={()=>void search(last)}/>
+  </section>}
 
   <section className="panel" aria-labelledby={id+"-r"} aria-busy={busy}>
    <h2 id={id+"-r"}>{result.criteria?`ผลการค้นหา · ${result.runTotal} Run · ${result.photoTotal} ภาพ`:"Run ล่าสุด"}</h2>

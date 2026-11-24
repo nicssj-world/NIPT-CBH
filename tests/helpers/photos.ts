@@ -24,10 +24,12 @@ export async function photoRoots(){
  return {base,dir:(name:string)=>path.join(base,name),close:async()=>{if(previous===undefined)delete process.env.RUN_PHOTO_DEFAULT_ROOT;else process.env.RUN_PHOTO_DEFAULT_ROOT=previous;resetPhotoStorageBreaker();await rm(base,{recursive:true,force:true});}};
 }
 /** Plays the upload route: validate, choose the root, write + verify bytes, then record in one transaction. */
-export async function uploadPhoto(db:Queryable,user:Staff,batchId:string,o:{bytes?:Buffer;thumb?:Buffer|null;name?:string;caption?:string;sampleFrom?:number|null;sampleTo?:number|null;takenOn?:string;key?:string}={}){
+/** `batchId` null = a tube photo without a Run (Owner 2026-11-24), which states `lnHalosFrom`/`lnHalosTo`. */
+export async function uploadPhoto(db:Queryable,user:Staff,batchId:string|null,o:{bytes?:Buffer;thumb?:Buffer|null;name?:string;caption?:string;sampleFrom?:number|null;sampleTo?:number|null;takenOn?:string;key?:string;lnHalosFrom?:string|null;lnHalosTo?:string|null}={}){
  const bytes=o.bytes??syntheticJpeg(),thumb=o.thumb===undefined?syntheticThumb():o.thumb;
  const today=new Date(Date.now()+7*3600000).toISOString().slice(0,10);
- const prepared=svc.preparePhoto({batchId,idempotencyKey:o.key??randomUUID().replaceAll('-',''),caption:o.caption??'',sampleFrom:o.sampleFrom??null,sampleTo:o.sampleTo??null,takenOn:o.takenOn??today},{name:o.name??'IMG_0001.jpg',bytes},thumb);
+ const range=o.lnHalosFrom===undefined&&o.lnHalosTo===undefined?{}:{lnHalosFrom:o.lnHalosFrom??null,lnHalosTo:o.lnHalosTo??null};
+ const prepared=svc.preparePhoto({batchId,idempotencyKey:o.key??randomUUID().replaceAll('-',''),caption:o.caption??'',sampleFrom:o.sampleFrom??null,sampleTo:o.sampleTo??null,takenOn:o.takenOn??today,...range},{name:o.name??'IMG_0001.jpg',bytes},thumb);
  const root=await tx(db,t=>svc.uploadRoot(t));
  const original=await putPhoto(root.root_path,prepared.bytes);
  const thumbHash=prepared.thumb?(await putPhoto(root.root_path,prepared.thumb)).hash:null;

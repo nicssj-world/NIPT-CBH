@@ -18,6 +18,9 @@ const MESSAGES:Record<string,string>={
  EMPTY_FILE:"ไฟล์ว่าง",FILE_TOO_LARGE:"ไฟล์ใหญ่เกินกำหนด",UPLOAD_TOO_LARGE:"ไฟล์ใหญ่เกินกำหนด",FILE_REQUIRED:"กรุณาเลือกภาพ",UNSUPPORTED_IMAGE:"รับเฉพาะภาพ JPEG, PNG, WebP หรือ HEIC จากกล้อง",THUMBNAIL_INVALID:"ภาพย่อที่เบราว์เซอร์สร้างไม่ถูกต้อง กรุณาลองอีกครั้ง",THUMBNAIL_MISSING:"ภาพนี้ไม่มีภาพย่อ เปิดภาพต้นฉบับแทน",
  DUPLICATE_IN_RUN:"ภาพนี้ (ไฟล์เดียวกันทุกไบต์) มีอยู่แล้วใน Run นี้ — ไม่ได้บันทึกซ้ำ",IDEMPOTENCY_KEY_REUSED:"คำขอนี้ถูกใช้กับภาพอื่นแล้ว กรุณาโหลดหน้าใหม่",
  TAKEN_ON_FUTURE:"วันที่ถ่ายภาพอยู่ในอนาคต",TAKEN_ON_TOO_OLD:"วันที่ถ่ายภาพเก่าเกินไป กรุณาตรวจปี พ.ศ.",RUN_PHOTO_RETRACTED:"ภาพนี้ถูกถอนออกแล้ว แก้ไขต่อไม่ได้",RUN_PHOTO_SAME_RUN:"ภาพอยู่ใน Run นี้อยู่แล้ว",
+ RUN_PHOTO_NO_RUN:"ภาพหลอดตัวอย่างนี้ไม่ได้อยู่ใน Run — ค้นหาได้จากเลข LN Halos ที่ระบุไว้",
+ LN_HALOS_RANGE_INCOMPLETE:"ระบุเลข LN Halos ให้ครบทั้ง \"ตั้งแต่\" และ \"ถึง\"",LN_HALOS_RANGE_ORDER:"เลข LN Halos \"ถึง\" ต้องไม่น้อยกว่า \"ตั้งแต่\"",
+ LN_HALOS_RANGE_REQUIRED:"ภาพหลอดตัวอย่างต้องระบุเลข LN Halos ตั้งแต่–ถึง เพื่อให้ค้นหาเจอ",SAMPLE_ORDER_NEEDS_RUN:"ลำดับตัวอย่าง 1–48 ใช้กับภาพที่อยู่ใน Run เท่านั้น",
  RUN_QUERY_INVALID:"กรอกเลข Run เช่น 12, Run012 หรือ 012/2026",LN_HALOS_QUERY_INVALID:"LN Halos มีรูปแบบ เช่น 26B261018001",LN_HIS_QUERY_INVALID:"LN HIS เป็นตัวเลขเท่านั้น",
  STORAGE_TEST_FAILED:"ทดสอบที่เก็บไม่ผ่าน จึงยังไม่เปลี่ยน Path — ดูรายการตรวจด้านล่าง",STORAGE_TEST_PATH_MISMATCH:"Path ที่ทดสอบไม่ตรงกับ Path ที่จะบันทึก",STORAGE_PATH_UNCHANGED:"Path นี้เป็นที่เก็บที่ใช้งานอยู่แล้ว",
  PATH_LENGTH:"Path ว่างหรือยาวเกิน 400 ตัวอักษร",PATH_CONTROL_CHARACTER:"Path มีอักขระควบคุม",PATH_DEVICE_NAMESPACE:"ไม่รับ Path แบบ \\\\?\\ หรือ \\\\.\\",PATH_NOT_ABSOLUTE:"ใช้ Path เต็ม เช่น D:\\NIPT-CBH\\RunPhotos หรือ \\\\LAB-SERVER\\NIPT-Photos",
@@ -26,7 +29,8 @@ const MESSAGES:Record<string,string>={
 };
 export function photoError(error:unknown){
  if(error instanceof ZodError){const m=error.issues.map(x=>x.message);
-  const text=m.includes("SAMPLE_RANGE_INCOMPLETE")?"ระบุลำดับตัวอย่างให้ครบทั้ง \"ตั้งแต่\" และ \"ถึง\" หรือเว้นว่างทั้งคู่":m.includes("SAMPLE_RANGE_ORDER")?"ลำดับ \"ถึง\" ต้องไม่น้อยกว่า \"ตั้งแต่\"":m.includes("CAPTION_TEXT_INVALID")?"คำอธิบายต้องไม่มีเลข 13 หลักหรืออักขระควบคุม":
+  const own=m.find(x=>/^(LN_HALOS_RANGE_|SAMPLE_ORDER_NEEDS_RUN)/.test(x));
+  const text=own?(MESSAGES[own]??"เลข LN Halos มีรูปแบบ เช่น 26B261018001"):m.includes("SAMPLE_RANGE_INCOMPLETE")?"ระบุลำดับตัวอย่างให้ครบทั้ง \"ตั้งแต่\" และ \"ถึง\" หรือเว้นว่างทั้งคู่":m.includes("SAMPLE_RANGE_ORDER")?"ลำดับ \"ถึง\" ต้องไม่น้อยกว่า \"ตั้งแต่\"":m.includes("CAPTION_TEXT_INVALID")?"คำอธิบายต้องไม่มีเลข 13 หลักหรืออักขระควบคุม":
    m.includes("DATE_LIKELY_BUDDHIST_ERA")?"ปีของวันที่ดูเป็น พ.ศ. ที่ถูกส่งเป็น ค.ศ. — กรุณากรอกวันที่ใหม่":m.includes("INVALID_DATE")?"วันที่ไม่มีอยู่จริงในปฏิทิน":"ข้อมูลไม่ครบหรือไม่ถูกต้อง — เหตุผลต้องมีอย่างน้อย 8 ตัวอักษร";
   return NextResponse.json({code:"VALIDATION_ERROR",error:text,issues:error.issues.map(x=>({path:x.path.join("."),message:x.message}))},{status:422,headers:noStore});}
  const code=error instanceof LabError||error instanceof PhotoStorageError?error.code:error instanceof Error?error.message:"";

@@ -17,12 +17,24 @@ const caption=z.string().max(1000).transform(v=>v.replace(/\r\n?/g,'\n').trim())
 const sample=z.number().int().min(1).max(48);
 const takenOn=isoDate;
 const ranged=<T extends {sampleFrom:number|null;sampleTo:number|null}>(s:z.ZodType<T>)=>s.refine(v=>(v.sampleFrom===null)===(v.sampleTo===null),'SAMPLE_RANGE_INCOMPLETE').refine(v=>v.sampleFrom===null||v.sampleTo!>=v.sampleFrom,'SAMPLE_RANGE_ORDER');
-export const uploadInput=ranged(z.strictObject({batchId:uuid,idempotencyKey:z.string().regex(/^[A-Za-z0-9_-]{16,80}$/),caption:caption.default(''),sampleFrom:sample.nullable().default(null),sampleTo:sample.nullable().default(null),takenOn}));
-const editInput=ranged(z.strictObject({expectedRowVersion:z.number().int().min(1),caption,sampleFrom:sample.nullable(),sampleTo:sample.nullable(),takenOn}));
+/** Owner 2026-11-24: a tube photo may have no Run; it then states the LN Halos range of its tubes. Only the 12-character base counts
+ *  (YYBYYMMDDNNN sorts by receipt date and monthly order); a suffix (D, -1, -2, R) is dropped. */
+export const LN_HALOS_BASE=/^[0-9]{2}B[0-9]{9}$/;
+const lnHalosBase=z.string().trim().transform(v=>v.toUpperCase().slice(0,12)).refine(v=>LN_HALOS_BASE.test(v),'LN_HALOS_RANGE_INVALID');
+type HalosRange={lnHalosFrom:string|null;lnHalosTo:string|null};
+const rangeComplete=(v:HalosRange)=>(v.lnHalosFrom===null)===(v.lnHalosTo===null);
+const rangeOrdered=(v:HalosRange)=>v.lnHalosFrom===null||v.lnHalosFrom<=v.lnHalosTo!;
+export const uploadInput=ranged(z.strictObject({batchId:uuid.nullable().default(null),idempotencyKey:z.string().regex(/^[A-Za-z0-9_-]{16,80}$/),caption:caption.default(''),sampleFrom:sample.nullable().default(null),sampleTo:sample.nullable().default(null),takenOn,
+ lnHalosFrom:lnHalosBase.nullable().default(null),lnHalosTo:lnHalosBase.nullable().default(null)}))
+ .refine(rangeComplete,'LN_HALOS_RANGE_INCOMPLETE').refine(rangeOrdered,'LN_HALOS_RANGE_ORDER')
+ .refine(v=>v.batchId!==null||v.lnHalosFrom!==null,'LN_HALOS_RANGE_REQUIRED').refine(v=>v.batchId!==null||v.sampleFrom===null,'SAMPLE_ORDER_NEEDS_RUN');
+/** `lnHalosFrom`/`lnHalosTo` left out = keep the photo's range (earlier clients never send them). */
+const editInput=ranged(z.strictObject({expectedRowVersion:z.number().int().min(1),caption,sampleFrom:sample.nullable(),sampleTo:sample.nullable(),takenOn,
+ lnHalosFrom:lnHalosBase.nullable().optional(),lnHalosTo:lnHalosBase.nullable().optional()}));
 
 type Root={root_id:string;root_path:string;state:string;source:string};
-type PhotoRow={id:string;batch_id:string;root_id:string;sha256:string;byte_size:string;media_type:PhotoMediaType;width:number|null;height:number|null;thumb_sha256:string|null;thumb_bytes:number|null;original_name:string;caption:string;sample_from:number|null;sample_to:number|null;taken_on:string;uploaded_by:string;uploaded_at:Date;state:string;retracted_by:string|null;retracted_at:Date|null;retract_reason:string|null;row_version:number};
-const PHOTO_COLS="p.id,p.batch_id,p.root_id,p.sha256,p.byte_size::text,p.media_type,p.width,p.height,p.thumb_sha256,p.thumb_bytes,p.original_name,p.caption,p.sample_from,p.sample_to,p.taken_on::text,p.uploaded_by,p.uploaded_at,p.state,p.retracted_by,p.retracted_at,p.retract_reason,p.row_version";
+type PhotoRow={id:string;batch_id:string|null;root_id:string;sha256:string;byte_size:string;media_type:PhotoMediaType;width:number|null;height:number|null;thumb_sha256:string|null;thumb_bytes:number|null;original_name:string;caption:string;sample_from:number|null;sample_to:number|null;taken_on:string;uploaded_by:string;uploaded_at:Date;state:string;retracted_by:string|null;retracted_at:Date|null;retract_reason:string|null;row_version:number;ln_halos_from:string|null;ln_halos_to:string|null};
+const PHOTO_COLS="p.id,p.batch_id,p.root_id,p.sha256,p.byte_size::text,p.media_type,p.width,p.height,p.thumb_sha256,p.thumb_bytes,p.original_name,p.caption,p.sample_from,p.sample_to,p.taken_on::text,p.uploaded_by,p.uploaded_at,p.state,p.retracted_by,p.retracted_at,p.retract_reason,p.row_version,p.ln_halos_from,p.ln_halos_to";
 const BKK_TODAY="(now() AT TIME ZONE 'Asia/Bangkok')::date";
 /** Placement of patient samples in a Run, numbered 1..n in slot order without controls (controls are never assigned). A
  * cancelled Run keeps the placement it had when it was cancelled. */
@@ -109,18 +121,19 @@ export async function recordPhoto(db:Queryable,user:Staff,p:PreparedPhoto,stored
  const today=(await db.query<{d:string}>(`SELECT ${BKK_TODAY}::text d`)).rows[0].d;
  if(p.input.takenOn>today)throw new LabError('TAKEN_ON_FUTURE',422);
  if(p.input.takenOn<'2020-01-01')throw new LabError('TAKEN_ON_TOO_OLD',422);
- const run=await runRow(db,p.input.batchId,true);
- const replay=(await db.query<{id:string;batch_id:string;sha256:string}>('SELECT id,batch_id,sha256 FROM run_photo WHERE idempotency_key=$1',[p.input.idempotencyKey])).rows[0];
- if(replay){if(replay.batch_id!==run.id||replay.sha256!==stored.sha256)throw new LabError('IDEMPOTENCY_KEY_REUSED',409);return {photoId:replay.id,replayed:true,otherRuns:[] as string[]};}
- await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['run_photo:'+run.id+':'+stored.sha256]);
- const same=(await db.query<{id:string}>("SELECT id FROM run_photo WHERE batch_id=$1 AND sha256=$2 AND state='Active'",[run.id,stored.sha256])).rows[0];
+ // A tube photo taken before any Run exists has no Run (Owner 2026-11-24); its LN Halos range makes it findable.
+ const run=p.input.batchId?await runRow(db,p.input.batchId,true):null,runId=run?.id??null;
+ const replay=(await db.query<{id:string;batch_id:string|null;sha256:string}>('SELECT id,batch_id,sha256 FROM run_photo WHERE idempotency_key=$1',[p.input.idempotencyKey])).rows[0];
+ if(replay){if(replay.batch_id!==runId||replay.sha256!==stored.sha256)throw new LabError('IDEMPOTENCY_KEY_REUSED',409);return {photoId:replay.id,replayed:true,otherRuns:[] as string[]};}
+ await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['run_photo:'+(runId??'no-run')+':'+stored.sha256]);
+ const same=(await db.query<{id:string}>("SELECT id FROM run_photo WHERE batch_id IS NOT DISTINCT FROM $1::uuid AND sha256=$2 AND state='Active'",[runId,stored.sha256])).rows[0];
  if(same)throw new LabError('DUPLICATE_IN_RUN',409,{photoId:same.id});
  // The same bytes filed in another Run is usually a wrong-Run upload: accepted, but the uploader is told where else it is.
- const otherRuns=(await db.query<{run_label:string}>("SELECT DISTINCT b.run_label FROM run_photo p JOIN lab_batch b ON b.id=p.batch_id WHERE p.sha256=$1 AND p.state='Active' AND p.batch_id<>$2 ORDER BY 1",[stored.sha256,run.id])).rows.map(r=>r.run_label);
- const id=(await db.query<{id:string}>(`INSERT INTO run_photo(batch_id,root_id,sha256,byte_size,media_type,width,height,thumb_sha256,thumb_bytes,original_name,caption,sample_from,sample_to,taken_on,uploaded_by,idempotency_key)
-  VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,[run.id,stored.root.root_id,stored.sha256,p.bytes.length,p.mediaType,p.size?.width??null,p.size?.height??null,stored.thumbSha256,stored.thumbSha256?p.thumb!.length:null,
-   p.name,p.input.caption,p.input.sampleFrom,p.input.sampleTo,p.input.takenOn,user.id,p.input.idempotencyKey])).rows[0].id;
- await db.query("INSERT INTO run_photo_event(photo_id,event_type,actor_id,after) VALUES($1,'UPLOADED',$2,$3)",[id,user.id,JSON.stringify({batchId:run.id,runLabel:run.run_label,sha256:stored.sha256,caption:p.input.caption,sampleFrom:p.input.sampleFrom,sampleTo:p.input.sampleTo,takenOn:p.input.takenOn})]);
+ const otherRuns=(await db.query<{run_label:string}>("SELECT DISTINCT b.run_label FROM run_photo p JOIN lab_batch b ON b.id=p.batch_id WHERE p.sha256=$1 AND p.state='Active' AND p.batch_id IS DISTINCT FROM $2::uuid ORDER BY 1",[stored.sha256,runId])).rows.map(r=>r.run_label);
+ const id=(await db.query<{id:string}>(`INSERT INTO run_photo(batch_id,root_id,sha256,byte_size,media_type,width,height,thumb_sha256,thumb_bytes,original_name,caption,sample_from,sample_to,taken_on,uploaded_by,idempotency_key,ln_halos_from,ln_halos_to)
+  VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,[runId,stored.root.root_id,stored.sha256,p.bytes.length,p.mediaType,p.size?.width??null,p.size?.height??null,stored.thumbSha256,stored.thumbSha256?p.thumb!.length:null,
+   p.name,p.input.caption,p.input.sampleFrom,p.input.sampleTo,p.input.takenOn,user.id,p.input.idempotencyKey,p.input.lnHalosFrom,p.input.lnHalosTo])).rows[0].id;
+ await db.query("INSERT INTO run_photo_event(photo_id,event_type,actor_id,after) VALUES($1,'UPLOADED',$2,$3)",[id,user.id,JSON.stringify({batchId:runId,runLabel:run?.run_label??null,sha256:stored.sha256,caption:p.input.caption,sampleFrom:p.input.sampleFrom,sampleTo:p.input.sampleTo,takenOn:p.input.takenOn,lnHalosFrom:p.input.lnHalosFrom,lnHalosTo:p.input.lnHalosTo})]);
  await audit(db,user,'RUN_PHOTO_UPLOADED','run_photo',id,{outcome:otherRuns.length?'UPLOADED_ALSO_IN_OTHER_RUN':'UPLOADED',count:1});
  return {photoId:id,replayed:false,otherRuns};
 }
@@ -137,15 +150,21 @@ function manageable(user:Staff,p:PhotoRow,expected:number){
  if(p.state!=='Active')throw new LabError('RUN_PHOTO_RETRACTED',409);
  if(p.row_version!==expected)throw new LabError('VERSION_CONFLICT',409);
 }
-const snapshot=(p:Pick<PhotoRow,'caption'|'sample_from'|'sample_to'|'taken_on'>)=>({caption:p.caption,sampleFrom:p.sample_from,sampleTo:p.sample_to,takenOn:p.taken_on});
+const snapshot=(p:Pick<PhotoRow,'caption'|'sample_from'|'sample_to'|'taken_on'|'ln_halos_from'|'ln_halos_to'>)=>({caption:p.caption,sampleFrom:p.sample_from,sampleTo:p.sample_to,takenOn:p.taken_on,lnHalosFrom:p.ln_halos_from,lnHalosTo:p.ln_halos_to});
 export async function editPhoto(db:Queryable,user:Staff,id:string,input:unknown){
  await assertSession(db,user);
  const d=editInput.parse(input);
  const p=await lockedPhoto(db,id);manageable(user,p,d.expectedRowVersion);
  const today=(await db.query<{d:string}>(`SELECT ${BKK_TODAY}::text d`)).rows[0].d;if(d.takenOn>today)throw new LabError('TAKEN_ON_FUTURE',422);
- const after={caption:d.caption,sampleFrom:d.sampleFrom,sampleTo:d.sampleTo,takenOn:d.takenOn};
+ const range={lnHalosFrom:d.lnHalosFrom===undefined?p.ln_halos_from:d.lnHalosFrom,lnHalosTo:d.lnHalosTo===undefined?p.ln_halos_to:d.lnHalosTo};
+ if(!rangeComplete(range))throw new LabError('LN_HALOS_RANGE_INCOMPLETE',422);
+ if(!rangeOrdered(range))throw new LabError('LN_HALOS_RANGE_ORDER',422);
+ // Without a Run the range is how the photo is found, and the sample order 1-48 has no Task to count in.
+ if(p.batch_id===null&&range.lnHalosFrom===null)throw new LabError('LN_HALOS_RANGE_REQUIRED',422);
+ if(p.batch_id===null&&d.sampleFrom!==null)throw new LabError('SAMPLE_ORDER_NEEDS_RUN',422);
+ const after={caption:d.caption,sampleFrom:d.sampleFrom,sampleTo:d.sampleTo,takenOn:d.takenOn,...range};
  if(JSON.stringify(after)===JSON.stringify(snapshot(p)))return {photoId:p.id,rowVersion:p.row_version,changed:false};
- await db.query('UPDATE run_photo SET caption=$2,sample_from=$3,sample_to=$4,taken_on=$5,row_version=row_version+1 WHERE id=$1',[p.id,d.caption,d.sampleFrom,d.sampleTo,d.takenOn]);
+ await db.query('UPDATE run_photo SET caption=$2,sample_from=$3,sample_to=$4,taken_on=$5,ln_halos_from=$6,ln_halos_to=$7,row_version=row_version+1 WHERE id=$1',[p.id,d.caption,d.sampleFrom,d.sampleTo,d.takenOn,range.lnHalosFrom,range.lnHalosTo]);
  await db.query("INSERT INTO run_photo_event(photo_id,event_type,actor_id,before,after) VALUES($1,'EDITED',$2,$3,$4)",[p.id,user.id,JSON.stringify(snapshot(p)),JSON.stringify(after)]);
  await audit(db,user,'RUN_PHOTO_EDITED','run_photo',p.id,{outcome:'EDITED',version:p.row_version+1});
  return {photoId:p.id,rowVersion:p.row_version+1,changed:true};
@@ -155,6 +174,8 @@ export async function movePhoto(db:Queryable,user:Staff,id:string,input:unknown)
  await assertSession(db,user);
  const d=z.strictObject({expectedRowVersion:z.number().int().min(1),targetBatchId:uuid,reason:reasonText}).parse(input);
  const p=await lockedPhoto(db,id);manageable(user,p,d.expectedRowVersion);
+ // A tube photo without a Run is found by its LN Halos range; there is no step that files it into a Run (Owner 2026-11-24).
+ if(p.batch_id===null)throw new LabError('RUN_PHOTO_NO_RUN',409);
  if(d.targetBatchId===p.batch_id)throw new LabError('RUN_PHOTO_SAME_RUN',409);
  const [from,to]=[await runRow(db,p.batch_id),await runRow(db,d.targetBatchId,true)];
  const dup=(await db.query<{id:string}>("SELECT id FROM run_photo WHERE batch_id=$1 AND sha256=$2 AND state='Active'",[to.id,p.sha256])).rows[0];
@@ -180,7 +201,8 @@ type PhotoView=ReturnType<typeof photoView>;
 function photoView(p:PhotoRow&{uploader:string;retractor:string|null},user:Staff){
  return {id:p.id,batchId:p.batch_id,mediaType:p.media_type,bytes:Number(p.byte_size),width:p.width,height:p.height,hasThumb:!!p.thumb_sha256,sha256:p.sha256,name:p.original_name,
   caption:p.caption,sampleFrom:p.sample_from,sampleTo:p.sample_to,takenOn:p.taken_on,uploadedBy:p.uploader,uploadedAt:p.uploaded_at,state:p.state as 'Active'|'Retracted',
-  retractedBy:p.retractor,retractedAt:p.retracted_at,retractReason:p.retract_reason,rowVersion:p.row_version,canManage:p.state==='Active'&&mayManage(user,p)};
+  retractedBy:p.retractor,retractedAt:p.retracted_at,retractReason:p.retract_reason,rowVersion:p.row_version,canManage:p.state==='Active'&&mayManage(user,p),
+  lnHalosFrom:p.ln_halos_from,lnHalosTo:p.ln_halos_to};
 }
 const PHOTO_FROM=`FROM run_photo p JOIN app_user u ON u.id=p.uploaded_by LEFT JOIN app_user x ON x.id=p.retracted_by`;
 type PlacementRow={slot_number:number;ordinal:number;attempt_id:string;ln:string;ln_halos:string|null;printed_sample_id:string|null;round_number:number;unit_id:string|null;registration_origin:string};
@@ -303,15 +325,54 @@ export async function searchRunPhotos(db:Queryable,user:Staff,input:unknown){
   FROM lab_batch b WHERE (${runWhere}) AND b.state<>'Cancelled' ORDER BY b.created_at DESC,b.id DESC LIMIT ${runBlock} OFFSET ${d.runsOffset}`,rq.values)).rows;
  const byRun=new Map<string,Match[]>();for(const m of matches){if(!byRun.has(m.batch_id))byRun.set(m.batch_id,[]);byRun.get(m.batch_id)!.push(m);}
  const nextRunsOffset=d.runsOffset+runs.length;
- return {criteria,
+ const rangePhotos=await photosByHalosRange(db,user,d,{lnHalos,lnHis,run:!!run});
+ return {criteria,rangePhotos,
   /** Exact totals (never the capped list lengths): Runs matching, photos matching, and whether the photo list hit its cap. */
   runTotal,hasMoreRuns:nextRunsOffset<runTotal,nextRunsOffset,photoTotal,photosTruncated,photoCap:SEARCH_PHOTO_CAP,
   runs:runs.map(r=>({id:r.id,runLabel:r.run_label,state:r.state,createdAt:r.created_at,workDates:r.work_dates,photos:r.photos,latestTakenOn:r.latest})),
   lnMatches:matches.map(m=>({batchId:m.batch_id,runLabel:m.run_label,slot:m.slot_number,ordinal:m.ordinal,removed:m.removed,sampleCode:m.printed_sample_id??m.ln_halos,lnHis:m.ln,lnHalos:m.ln_halos,round:m.round_number})),
-  photos:photos.map(x=>{const own=byRun.get(x.batch_id)??[];
+  photos:photos.map(x=>{const own=byRun.get(x.batch_id!)??[];   // joined to its Run above, never null here
    const covers=own.filter(m=>m.ordinal!==null&&x.sample_from!==null&&m.ordinal>=x.sample_from&&m.ordinal<=x.sample_to!).map(m=>m.ordinal!);
    return {...photoView(x,user),runLabel:x.run_label,coversLnOrdinals:lnRuns?covers:null};}),
   lnSearched:!!lnRuns};
+}
+/**
+ * "ภาพตามเลข LN Halos" (Owner 2026-11-24): photos found by the LN Halos range stated at upload, with or without a Run.
+ * An LN HIS or LN Halos search resolves the sample's LN Halos (any round, placed in a Run or not), visible cases only, and returns every photo whose
+ * range covers it. A date or caption search alone adds the photos that have no Run (Run photos are already in the Run results). A Run or sample-order
+ * search does not use ranges. It is a photo stated to cover these tubes, not a verified tube-by-tube match.
+ */
+async function photosByHalosRange(db:Queryable,user:Staff,d:z.infer<typeof searchInput>,q:{lnHalos:string|null;lnHis:string|null;run:boolean}){
+ const none={photos:[] as (PhotoView&{runLabel:string|null})[],total:0,truncated:false,lnHalos:[] as string[]};
+ if(q.run||d.sample)return none;
+ const values:unknown[]=[],v=(x:unknown)=>{values.push(x);return '$'+values.length;};
+ const w=[`(p.state='Active' OR ${v(d.includeRetracted)}::boolean)`];
+ let bases:string[]=[];
+ if(q.lnHalos||q.lnHis){
+  const rows=(await db.query<{case_id:string;ln_halos:string;unit_id:string|null;registration_origin:string}>(`SELECT DISTINCT n.case_id,n.ln_halos,c.registration_origin,
+    (SELECT s.unit_id FROM case_unit_scope s WHERE s.case_id=c.id ORDER BY s.unit_id LIMIT 1) unit_id
+   FROM specimen_lab_number n JOIN specimen_round r ON r.id=n.round_id JOIN case_ln l ON l.id=r.case_ln_id JOIN nipt_case c ON c.id=n.case_id
+   WHERE ($1::text IS NULL OR l.ln=$1) AND ($2::text IS NULL OR n.ln_halos=$2) LIMIT 200`,[q.lnHis,q.lnHalos?q.lnHalos.slice(0,12):null])).rows.filter(r=>caseVisible(user,r));
+  if(!rows.length)return none;
+  await recordPhiAccess(db,user.id,[...new Set(rows.map(r=>r.case_id))],'REGISTRY_VIEW');
+  bases=[...new Set(rows.map(r=>r.ln_halos))].sort();
+  w.push(`p.ln_halos_from IS NOT NULL AND EXISTS(SELECT 1 FROM unnest(${v(bases)}::text[]) x(b) WHERE x.b BETWEEN p.ln_halos_from AND p.ln_halos_to)`);
+ }else if(d.date||d.text)w.push('p.batch_id IS NULL');
+ else return none;
+ if(d.date)w.push(`p.taken_on=${v(d.date)}::date`);
+ if(d.text)w.push(`p.caption ILIKE ${v(like(d.text))} ESCAPE '\\'`);
+ const where=w.join(' AND ');
+ const rows=(await db.query<PhotoRow&{uploader:string;retractor:string|null;run_label:string|null}>(`SELECT ${PHOTO_COLS},u.display_name uploader,x.display_name retractor,b.run_label ${PHOTO_FROM} LEFT JOIN lab_batch b ON b.id=p.batch_id
+  WHERE ${where} ORDER BY p.taken_on DESC,p.uploaded_at DESC,p.id DESC LIMIT ${SEARCH_PHOTO_CAP+1}`,values)).rows;
+ const truncated=rows.length>SEARCH_PHOTO_CAP,photos=rows.slice(0,SEARCH_PHOTO_CAP);
+ const total=truncated?Number((await db.query<{n:string}>(`SELECT count(*)::text n FROM run_photo p WHERE ${where}`,values)).rows[0].n):photos.length;
+ return {photos:photos.map(p=>({...photoView(p,user),runLabel:p.run_label})),total,truncated,lnHalos:bases};
+}
+/** Tube photos without a Run, newest first, for the photo home page (Owner 2026-11-24). */
+export async function recentPhotosWithoutRun(db:Queryable,user:Staff,limit=60){
+ await assertSession(db,user);need(user,'photo.read','read');
+ return (await db.query<PhotoRow&{uploader:string;retractor:string|null}>(`SELECT ${PHOTO_COLS},u.display_name uploader,x.display_name retractor ${PHOTO_FROM}
+  WHERE p.batch_id IS NULL AND p.state='Active' ORDER BY p.taken_on DESC,p.uploaded_at DESC,p.id DESC LIMIT $1`,[Math.min(200,Math.max(1,limit))])).rows.map(p=>photoView(p,user));
 }
 export type RunGallery=Awaited<ReturnType<typeof runGallery>>;
 export type PhotoSearch=Awaited<ReturnType<typeof searchRunPhotos>>;

@@ -419,6 +419,13 @@ input::placeholder,textarea::placeholder {color:var(--color-muted);opacity:1;}
 /* Run Photo Evidence — optional evidence of a Run. Thumbnails reserve their box (no layout shift); the original is only
    loaded in the viewer. Status and coverage always carry text; colour is supplemental. */
 .photo-capture {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--space-3);margin-bottom:var(--space-4);}
+/* Tube photos without a Run (Owner 2026-11-24): the uploader opens from one button above the grid. */
+.tube-upload {margin-bottom:var(--space-4);}
+.tube-upload > summary {display:inline-flex;align-items:center;gap:8px;list-style:none;cursor:pointer;}
+.tube-upload > summary::-webkit-details-marker {display:none;}
+.tube-upload[open] > summary {margin-bottom:var(--space-3);}
+.tube-upload-body {display:grid;gap:var(--space-3);padding:var(--space-4);border:1px solid var(--color-line);border-radius:12px;background:var(--color-surface);}
+.tube-upload-body .help {margin:0;}
 .photo-capture > div {position:relative;}
 .photo-capture .button {width:100%;min-height:64px;font-size:16px;margin:0;cursor:pointer;}
 .photo-capture input[type="file"] {position:absolute;inset:0;width:1px;height:1px;opacity:0;pointer-events:none;}

@@ -19,7 +19,8 @@ export async function makeThumbnail(file:Blob):Promise<{blob:Blob;dataUrl:string
  }catch{return null;}
 }
 export const newKey=()=>crypto.randomUUID().replaceAll("-","");
-export type UploadMeta={batchId:string;idempotencyKey:string;caption:string;sampleFrom:number|null;sampleTo:number|null;takenOn:string};
+/** `batchId` null = a tube photo without a Run, found by its LN Halos range (Owner 2026-11-24). */
+export type UploadMeta={batchId:string|null;idempotencyKey:string;caption:string;sampleFrom:number|null;sampleTo:number|null;takenOn:string;lnHalosFrom?:string|null;lnHalosTo?:string|null};
 export type UploadResult={photoId:string;replayed:boolean;otherRuns:string[];sha256:string};
 /** One photo per request; XMLHttpRequest because fetch cannot report upload progress. */
 export function uploadOne(file:File,thumb:Blob|null,meta:UploadMeta,onProgress:(fraction:number)=>void):Promise<UploadResult>{

@@ -14,9 +14,10 @@ import {Thumb} from "./thumb";
 type Placement=RunGallery["placement"];
 const RENDERABLE=new Set(["image/jpeg","image/png","image/webp"]);
 const num=(v:string)=>v.trim()===""?null:Number(v);
-function Icon({d}:{d:string}){return <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d}/></svg>;}
-const CAMERA="M3 8h3.5l2-3h7l2 3H21v11H3zM12 10.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7";
-const IMAGES="M3 5h14v12H3zM7 21h14V9M3 14l4-4 4 4 2-2 4 4M13 9h.01";
+export function Icon({d}:{d:string}){return <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d}/></svg>;}
+export const CAMERA="M3 8h3.5l2-3h7l2 3H21v11H3zM12 10.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7";
+export const IMAGES="M3 5h14v12H3zM7 21h14V9M3 14l4-4 4 4 2-2 4 4M13 9h.01";
+export const PHOTO_RENDERABLE=RENDERABLE;
 
 // ── Upload ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
 type Item={key:string;file:File;preview:string|null;thumb:Blob|null;status:"preparing"|"ready"|"uploading"|"done"|"duplicate"|"error";progress:number;message:string};
@@ -84,10 +85,12 @@ function Uploader({run,placement,onUploaded}:{run:RunGallery["run"];placement:Pl
 
 // ── Viewer ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
 type RunOption={id:string;runLabel:string};
-type ViewerProps={photos:PhotoView[];index:number|null;setIndex:(i:number|null)=>void;run:RunGallery["run"];placement:Placement;onChanged:(message:string)=>void};
+/** `run` null = tube photos without a Run (Owner 2026-11-24): the viewer shows and edits their LN Halos range, and has no move to another Run. */
+type ViewerProps={photos:PhotoView[];index:number|null;setIndex:(i:number|null)=>void;run:RunGallery["run"]|null;placement:Placement;onChanged:(message:string)=>void};
+export const halosRangeText=(from:string|null,to:string|null)=>from?(from===to?from:`${from} – ${to}`):null;
 /** Full-size inspection in a native modal dialog (focus trap, Esc to close); arrow keys move between photos. Per-photo form
  * state lives in ViewerContent, keyed by photo and version, so switching photos starts from that photo's saved values. */
-function Viewer(props:ViewerProps){
+export function Viewer(props:ViewerProps){
  const ref=useRef<HTMLDialogElement>(null),id=useId();const {photos,index,setIndex}=props;const p=index===null?null:photos[index]??null;
  useEffect(()=>{const d=ref.current;if(!d)return;if(p&&!d.open)d.showModal();if(!p&&d.open)d.close();},[p]);
  const go=useCallback((step:number)=>{if(index===null||!photos.length)return;setIndex((index+step+photos.length)%photos.length);},[index,photos.length,setIndex]);
@@ -99,15 +102,18 @@ function ViewerContent({p,photos,index,setIndex,run,placement,onChanged,titleId,
  const id=useId();
  const [loaded,setLoaded]=useState(false),[broken,setBroken]=useState(false),[error,setError]=useState(""),[busy,setBusy]=useState(false);
  const [caption,setCaption]=useState(p.caption),[from,setFrom]=useState(p.sampleFrom?.toString()??""),[to,setTo]=useState(p.sampleTo?.toString()??""),[takenOn,setTakenOn]=useState(p.takenOn),[reason,setReason]=useState(""),[target,setTarget]=useState(""),[runs,setRuns]=useState<RunOption[]|null>(null);
- const cover=coverage(placement,p.sampleFrom,p.sampleTo);
+ const [halosFrom,setHalosFrom]=useState(p.lnHalosFrom??""),[halosTo,setHalosTo]=useState(p.lnHalosTo??"");
+ const cover=run?coverage(placement,p.sampleFrom,p.sampleTo):null,halos=halosRangeText(p.lnHalosFrom,p.lnHalosTo);
  const act=async(action:string,body:Record<string,unknown>,done:string)=>{setBusy(true);setError("");try{await labApi(`/api/run-photos/${p.id}`,{action,expectedRowVersion:p.rowVersion,...body});onChanged(done);}catch(e){setError(failureText(e));}finally{setBusy(false);}};
- const loadRuns=async()=>{if(runs)return;try{const r=await labApi<{runs:RunOption[]}>("/api/run-photos/search",{});setRuns(r.runs.filter(x=>x.id!==run.id));}catch(e){setError(failureText(e));}};
+ const loadRuns=async()=>{if(runs)return;try{const r=await labApi<{runs:RunOption[]}>("/api/run-photos/search",{});setRuns(r.runs.filter(x=>x.id!==run?.id));}catch(e){setError(failureText(e));}};
+ // A Run photo edits its sample order; a tube photo without a Run edits its LN Halos range instead (one number = one tube).
+ const editBody=run?{caption,sampleFrom:num(from),sampleTo:num(to),takenOn}:{caption,sampleFrom:null,sampleTo:null,takenOn,lnHalosFrom:halosFrom||null,lnHalosTo:(halosTo||halosFrom)||null};
  const renderable=RENDERABLE.has(p.mediaType);
  return <div className="photo-viewer-body">
    <div className="photo-stage">
     {renderable&&!broken?<>
      {!loaded&&p.hasThumb&&<img src={fileUrl(p.id,"thumb")} alt="" aria-hidden="true"/>}
-     <img src={fileUrl(p.id,"original")} alt={p.caption||`ภาพประจำ ${run.runLabel}`} hidden={!loaded} onLoad={()=>setLoaded(true)} onError={()=>setBroken(true)}/>
+     <img src={fileUrl(p.id,"original")} alt={p.caption||(run?`ภาพประจำ ${run.runLabel}`:`ภาพหลอดตัวอย่าง ${halos??""}`)} hidden={!loaded} onLoad={()=>setLoaded(true)} onError={()=>setBroken(true)}/>
      {!loaded&&<span className="sr-only" role="status">กำลังโหลดภาพต้นฉบับ</span>}
     </>:<div className="photo-placeholder">{broken?"เปิดภาพต้นฉบับไม่ได้ขณะนี้ — ที่เก็บภาพอาจไม่พร้อมใช้งาน งานหลักทำต่อได้ตามปกติ":"ไฟล์ HEIC/HEIF แสดงในเบราว์เซอร์นี้ไม่ได้ — ดาวน์โหลดต้นฉบับเพื่อเปิด"}</div>}
     <div className="photo-stage-bar">
@@ -122,9 +128,10 @@ function ViewerContent({p,photos,index,setIndex,run,placement,onChanged,titleId,
     {p.state==="Retracted"&&<p className="notice" role="note">ถอนออกแล้วเมื่อ {bkk(p.retractedAt)} โดย {p.retractedBy} — {p.retractReason}</p>}
     {p.caption&&<p className="photo-text">{p.caption}</p>}
     <dl className="compact-facts">
-     <div><dt>Run</dt><dd>{run.runLabel}</dd></div>
+     <div><dt>Run</dt><dd>{run?run.runLabel:"ไม่อยู่ใน Run"}</dd></div>
      <div><dt>วันที่ถ่าย</dt><dd>{displayBe(p.takenOn)}</dd></div>
-     <div><dt>ลำดับตัวอย่าง</dt><dd>{rangeText(p.sampleFrom,p.sampleTo)??"ไม่ได้ระบุ"}</dd></div>
+     {halos&&<div><dt>เลข LN Halos</dt><dd className="mono">{halos}</dd></div>}
+     {run&&<div><dt>ลำดับตัวอย่าง</dt><dd>{rangeText(p.sampleFrom,p.sampleTo)??"ไม่ได้ระบุ"}</dd></div>}
      <div><dt>ผู้อัปโหลด</dt><dd>{p.uploadedBy} · {bkk(p.uploadedAt)}</dd></div>
      <div><dt>ไฟล์</dt><dd>{p.name} · {formatBytes(p.bytes)}{p.width&&p.height?` · ${p.width}×${p.height} px`:""}</dd></div>
      <div><dt>SHA-256</dt><dd className="photo-hash">{p.sha256}</dd></div>
@@ -133,19 +140,20 @@ function ViewerContent({p,photos,index,setIndex,run,placement,onChanged,titleId,
      {cover.rows.length?<ul className="photo-samples" tabIndex={0} aria-label="ตัวอย่างในช่วงที่ระบุ">{cover.rows.map(r=><li key={r.slot}><span>คนที่ {r.ordinal}</span><span>ตน. {r.slot}</span><span><span className="sample-code">{r.sampleCode??"ไม่มีสิทธิ์ดู"}</span>{r.lnHis&&<span className="sample-ln">LN HIS {r.lnHis}</span>}</span></li>)}</ul>:<p className="muted small">{cover.text}</p>}</div>}
     {error&&<p className="notice" role="alert">{error}</p>}
     {p.canManage&&<>
-     <details><summary>แก้ไขคำอธิบาย ช่วงตัวอย่าง หรือวันที่</summary>
-      <form className="stack" onSubmit={e=>{e.preventDefault();void act("edit",{caption,sampleFrom:num(from),sampleTo:num(to),takenOn},"บันทึกการแก้ไขแล้ว");}}>
+     <details><summary>{run?"แก้ไขคำอธิบาย ช่วงตัวอย่าง หรือวันที่":"แก้ไขคำอธิบาย เลข LN Halos หรือวันที่"}</summary>
+      <form className="stack" onSubmit={e=>{e.preventDefault();void act("edit",editBody,"บันทึกการแก้ไขแล้ว");}}>
        <div><label htmlFor={id+"-cap"}>คำอธิบายภาพ</label><textarea id={id+"-cap"} maxLength={1000} value={caption} onChange={e=>setCaption(e.target.value)}/></div>
-       <div><label htmlFor={id+"-from"}>ลำดับตัวอย่าง (คนที่)</label><div className="photo-range"><input id={id+"-from"} inputMode="numeric" aria-label="ตั้งแต่คนที่" value={from} onChange={e=>setFrom(e.target.value.replace(/\D/g,"").slice(0,2))}/><span>ถึง</span><input inputMode="numeric" aria-label="ถึงคนที่" value={to} onChange={e=>setTo(e.target.value.replace(/\D/g,"").slice(0,2))}/></div></div>
+       {run?<div><label htmlFor={id+"-from"}>ลำดับตัวอย่าง (คนที่)</label><div className="photo-range"><input id={id+"-from"} inputMode="numeric" aria-label="ตั้งแต่คนที่" value={from} onChange={e=>setFrom(e.target.value.replace(/\D/g,"").slice(0,2))}/><span>ถึง</span><input inputMode="numeric" aria-label="ถึงคนที่" value={to} onChange={e=>setTo(e.target.value.replace(/\D/g,"").slice(0,2))}/></div></div>
+        :<div><label htmlFor={id+"-hfrom"}>เลข LN Halos</label><div className="photo-range"><input id={id+"-hfrom"} className="mono" aria-label="LN Halos ตั้งแต่" value={halosFrom} onChange={e=>setHalosFrom(e.target.value.trim().toUpperCase())} spellCheck={false} autoComplete="off"/><span>ถึง</span><input className="mono" aria-label="LN Halos ถึง" value={halosTo} onChange={e=>setHalosTo(e.target.value.trim().toUpperCase())} spellCheck={false} autoComplete="off"/></div></div>}
        <div><label htmlFor={id+"-taken"}>วันที่ถ่ายภาพ</label><ThaiDateInput id={id+"-taken"} value={takenOn} onChange={setTakenOn} required/></div>
        <button className="button" disabled={busy}>{busy?"กำลังบันทึก…":"บันทึกการแก้ไข"}</button>
       </form></details>
-     <details onToggle={e=>{if((e.target as HTMLDetailsElement).open)void loadRuns();}}><summary>อัปโหลดผิด Run หรือภาพใช้ไม่ได้</summary>
+     <details onToggle={e=>{if(run&&(e.target as HTMLDetailsElement).open)void loadRuns();}}><summary>{run?"อัปโหลดผิด Run หรือภาพใช้ไม่ได้":"ภาพใช้ไม่ได้"}</summary>
       <div className="stack">
-       <div><label htmlFor={id+"-reason"}>เหตุผล (ไม่บังคับ)</label><input id={id+"-reason"} value={reason} maxLength={500} onChange={e=>setReason(e.target.value)} placeholder="เช่น อัปโหลดผิด Run / ภาพเบลออ่านฉลากไม่ได้"/></div>
-       <div><label htmlFor={id+"-target"}>ย้ายไป Run ที่ถูกต้อง</label><select id={id+"-target"} value={target} onChange={e=>setTarget(e.target.value)}><option value="">{runs?"เลือก Run":"กำลังโหลดรายการ Run…"}</option>{runs?.map(r=><option key={r.id} value={r.id}>{r.runLabel}</option>)}</select></div>
-       <button type="button" className="button secondary" disabled={busy||!target} onClick={()=>void act("move",{targetBatchId:target,reason},"ย้ายภาพไป Run ที่เลือกแล้ว")}>ย้ายภาพไป Run นี้</button>
-       <p className="help">หรือถอนภาพออกจากหลักฐานของ Run — ไฟล์และประวัติยังเก็บไว้ตรวจสอบได้ ไม่มีการลบ</p>
+       <div><label htmlFor={id+"-reason"}>เหตุผล (ไม่บังคับ)</label><input id={id+"-reason"} value={reason} maxLength={500} onChange={e=>setReason(e.target.value)} placeholder={run?"เช่น อัปโหลดผิด Run / ภาพเบลออ่านฉลากไม่ได้":"เช่น ภาพเบลออ่านฉลากไม่ได้"}/></div>
+       {run&&<><div><label htmlFor={id+"-target"}>ย้ายไป Run ที่ถูกต้อง</label><select id={id+"-target"} value={target} onChange={e=>setTarget(e.target.value)}><option value="">{runs?"เลือก Run":"กำลังโหลดรายการ Run…"}</option>{runs?.map(r=><option key={r.id} value={r.id}>{r.runLabel}</option>)}</select></div>
+       <button type="button" className="button secondary" disabled={busy||!target} onClick={()=>void act("move",{targetBatchId:target,reason},"ย้ายภาพไป Run ที่เลือกแล้ว")}>ย้ายภาพไป Run นี้</button></>}
+       <p className="help">{run?"หรือถอนภาพออกจากหลักฐานของ Run":"ถอนภาพออกจากหลักฐาน"} — ไฟล์และประวัติยังเก็บไว้ตรวจสอบได้ ไม่มีการลบ</p>
        <button type="button" className="button danger" disabled={busy} onClick={()=>void act("retract",{reason},"ถอนภาพออกแล้ว")}>ถอนภาพนี้ออก</button>
       </div></details>
     </>}
