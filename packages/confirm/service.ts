@@ -151,4 +151,14 @@ export async function confirmReport(db:Queryable,store:FileStore,user:Staff,case
  return {bytes:await store.get(sha),name:`confirm-${row.ln}.pdf`};
 }
 
+/** The full NIPT screening report (the exact released PDF) of the case's followed result, for the confirm screen (Owner 2026-11-24). Same scope and access log as the rest. */
+export async function confirmScreeningReport(db:Queryable,store:FileStore,user:Staff,caseId:string){
+ await assertSession(db,user);need(user,'confirm.read','read');
+ const row=await followed(db,user,caseId);
+ const f=(await db.query<{sha256:string;container:string}>('SELECT v.sha256,f.container FROM result_report_version v JOIN result_intake_file f ON f.id=v.intake_file_id WHERE v.id=$1',[row.versionId])).rows[0];
+ if(!f||f.container!=='PDF')throw new LabError('NOT_FOUND',404);
+ await recordPhiAccess(db,user.id,[row.caseId],'CASE_DETAIL_VIEW');
+ return {bytes:await store.get(f.sha256),name:`nipt-${row.ln}.pdf`};
+}
+
 

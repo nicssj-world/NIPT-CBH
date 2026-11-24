@@ -56,3 +56,20 @@
 @media (prefers-reduced-motion:reduce){.confirm-choice span{transition:none}}
 .confirm-person{display:grid;gap:2px;justify-items:start}
 .confirm-sub{display:block;margin-top:4px;font-size:.8125rem;color:var(--color-muted)}
+
+/* Read-only card for non-Lab roles (Owner 2026-11-24): plain values, no locked form fields. */
+.confirm-read{display:grid;gap:var(--space-3,16px);padding:var(--space-3,16px);border:1px solid var(--color-line);border-radius:12px;background:var(--raised)}
+.confirm-read-top{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.confirm-read-findings{display:grid;gap:0;margin:0;padding:0;list-style:none}
+.confirm-read-findings li{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--color-line);font-size:1.0625rem}
+.confirm-read-findings li:last-child{border-bottom:0}
+.confirm-read-outcome{font-weight:700}
+.confirm-read-outcome.is-true_positive{color:var(--color-success)}
+.confirm-read-outcome.is-false_positive{color:var(--color-danger)}
+.confirm-read-outcome.is-mosaic_other{color:var(--color-warning)}
+.confirm-read-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px var(--space-3,16px);margin:0}
+.confirm-read-list dt{font-size:.8125rem;color:var(--color-muted)}
+.confirm-read-list dd{margin:2px 0 0;font-weight:600;overflow-wrap:anywhere}
+.confirm-read-note{margin:0}
+.confirm-pdf{display:inline-flex;align-items:center;gap:8px;min-height:44px;justify-self:start;font-weight:700;text-decoration:none}
+@media (max-width:600px){.confirm-read-list{grid-template-columns:1fr}}

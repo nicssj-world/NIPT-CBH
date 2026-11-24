@@ -17,7 +17,7 @@ type Form={status:ConfirmStatus;method:Method|"";specimen:Specimen|"";outlabName
 const formOf=(r:ConfirmRow):Form=>{const x=r.record;return {status:r.status,method:x?.method??"",specimen:x?.specimen??"",outlabName:x?.outlabName??"",procedureDate:x?.procedureDate??"",
  reportDate:x?.reportDate??"",resultText:x?.resultText??"",note:x?.note??"",findings:{...(x?.findings??{})}};};
 const be=(iso:string|null|undefined)=>{if(!iso)return "—";try{return formatBe(iso.slice(0,10));}catch{return "—";}};
-const pdfUrl=(caseId:string,sequence?:number)=>`/api/confirm/report?caseId=${caseId}${sequence?`&sequence=${sequence}`:""}`;
+const pdfUrl=(caseId:string,sequence?:number,screening?:boolean)=>`/api/confirm/report?caseId=${caseId}${sequence?`&sequence=${sequence}`:""}${screening?"&kind=screening":""}`;
 
 /** Record or read one case's confirmatory result (Owner 2026-11-23). Only Lab staff edit; everyone else sees the same values read-only. */
 export function ConfirmEditor({caseId,canWrite,onClose,onSaved}:{caseId:string;canWrite:boolean;onClose:()=>void;onSaved:(message:string)=>void}){
@@ -50,16 +50,31 @@ export function ConfirmEditor({caseId,canWrite,onClose,onSaved}:{caseId:string;c
     <p className="confirm-who"><span>LN <Ln value={row.ln}/></span>{row.name&&<span>{row.name}</span>}{row.hn&&<span className="num">HN {row.hn}</span>}</p>
     <p className="confirm-screen"><span className="confirm-screen-label">ผลคัดกรอง NIPT ออกผล {be(row.releasedAt)}</span>
      {row.screen.map(k=><span key={k} className="progress-badge tone-high-risk"><Icon name="alert"/>{SCREEN_LABEL[k]}</span>)}</p>
+    <a className="button secondary confirm-pdf" href={pdfUrl(row.caseId,undefined,true)} target="_blank" rel="noopener"><Icon name="doc"/>ดูผลตรวจเดิม (รายงานฉบับเต็ม)</a>
    </section>
 
-   <fieldset className="confirm-group" disabled={!editable||busy}>
+   {editable&&<fieldset className="confirm-group" disabled={busy}>
     <legend>สถานะ</legend>
     <div className="confirm-choices" role="radiogroup" aria-label="สถานะผลยืนยัน">{STATUSES.map(s=><label key={s} className="confirm-choice">
      <input type="radio" name={ids+"status"} value={s} checked={form.status===s} onChange={()=>set("status",s)}/><span>{STATUS_LABEL[s]}</span></label>)}</div>
     {!result&&form.status!=="PENDING"&&<p className="help">สถานะนี้ไม่นำมาคิด % ผลตรงกัน</p>}
-   </fieldset>
+   </fieldset>}
 
-   {result&&<>
+   {!editable&&<section className="confirm-read" aria-label="ผลตรวจยืนยัน">
+    <div className="confirm-read-top"><StatusBadge status={row.status}/>{previewMatch!==null&&<MatchBadge value={previewMatch}/>}</div>
+    {result?<>
+     <ul className="confirm-read-findings">{row.screen.map(k=><li key={k}><span className="confirm-finding-name">{SCREEN_LABEL[k]}</span>
+      <span className={"confirm-read-outcome is-"+(form.findings[k]??"none").toLowerCase()}>{form.findings[k]?OUTCOME_LABEL[form.findings[k]!]:"—"}</span></li>)}</ul>
+     <dl className="confirm-read-list">
+      {([["วิธีตรวจ",form.method?METHOD_LABEL[form.method]:"—"],["สิ่งส่งตรวจ",form.specimen?SPECIMEN_LABEL[form.specimen]:"—"],["ห้องปฏิบัติการ (outlab)",form.outlabName||"—"],
+       ["วันเจาะ/เก็บสิ่งส่งตรวจ",be(form.procedureDate)],["วันออกผล outlab",be(form.reportDate)],["ผลรายงาน",form.resultText||"—"]] as [string,string][]).map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
+     </dl>
+     {row.record?.hasReport&&<a className="button secondary confirm-pdf" href={pdfUrl(row.caseId)} target="_blank" rel="noopener"><Icon name="doc"/>เปิดไฟล์ PDF รายงานจาก outlab</a>}
+    </>:null}
+    {form.note&&<p className="confirm-read-note"><strong>หมายเหตุ</strong> {form.note}</p>}
+   </section>}
+
+   {editable&&result&&<>
     <fieldset className="confirm-group" disabled={!editable||busy}>
      <legend>ผลยืนยันแต่ละรายการ</legend>
      <p className="help">เทียบผลจาก outlab กับรายการที่ผลคัดกรองพบ · Mosaic-other นับเป็นผลไม่ตรง</p>
@@ -82,15 +97,16 @@ export function ConfirmEditor({caseId,canWrite,onClose,onSaved}:{caseId:string;c
      <div className="field"><label htmlFor={ids+"rdate"}>วันออกผล outlab</label><ThaiDateInput id={ids+"rdate"} value={form.reportDate} onChange={v=>set("reportDate",v)}/></div>
      <div className="field confirm-wide"><label htmlFor={ids+"text"}>ผลรายงาน</label><input id={ids+"text"} maxLength={500} placeholder="เช่น 47,XX,+21" value={form.resultText} onChange={e=>set("resultText",e.target.value)}/></div>
      <div className="field confirm-wide"><label htmlFor={ids+"file"}>ไฟล์ PDF รายงานผลจาก outlab {!row.record?.hasReport&&<span className="required-mark">(จำเป็น)</span>}</label>
-      {editable&&<input id={ids+"file"} type="file" accept="application/pdf,.pdf" onChange={e=>{setFile(e.target.files?.[0]??null);setDirty(true);setError("");}}/>}
-      <p className="help">{row.record?.hasReport?<>มีไฟล์แล้ว · <a href={pdfUrl(row.caseId)} target="_blank" rel="noopener">เปิดดู PDF ที่บันทึกไว้</a>{editable&&" · เลือกไฟล์ใหม่เมื่อต้องการแทนที่"}</>:"PDF ไม่เกิน 8 MB"}</p></div>
+      {row.record?.hasReport&&<div><a className="button secondary confirm-pdf" href={pdfUrl(row.caseId)} target="_blank" rel="noopener"><Icon name="doc"/>เปิดไฟล์ PDF ที่บันทึกไว้</a></div>}
+      <input id={ids+"file"} type="file" accept="application/pdf,.pdf" onChange={e=>{setFile(e.target.files?.[0]??null);setDirty(true);setError("");}}/>
+      <p className="help">{row.record?.hasReport?"เลือกไฟล์ใหม่เมื่อต้องการแทนที่":"PDF ไม่เกิน 8 MB"}</p></div>
     </fieldset>
    </>}
 
-   <fieldset className="confirm-group" disabled={!editable||busy}>
+   {editable&&<fieldset className="confirm-group" disabled={busy}>
     <legend className="sr-only">หมายเหตุ</legend>
     <div className="field"><label htmlFor={ids+"note"}>หมายเหตุ</label><textarea id={ids+"note"} rows={2} maxLength={1000} value={form.note} onChange={e=>set("note",e.target.value)}/></div>
-   </fieldset>
+   </fieldset>}
 
    {detail.history.length>0&&<details className="confirm-history"><summary>ประวัติการบันทึก ({detail.history.length})</summary>
     <ol>{detail.history.map(h=><li key={h.sequence}><StatusBadge status={h.status}/><span className="num">{formatBeDateTime(h.at)}</span><span>โดย {h.by??"—"}</span>

@@ -13,6 +13,7 @@ const PATHS:Record<string,string>={
  alert:"M12 3 2 20h20L12 3zM12 10v4M12 17h.01",
  redo:"M3 12a9 9 0 1 0 3-6.7M3 4v5h5",
  all:"M4 6h16M4 12h16M4 18h10",
+ doc:"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5zM14 3v5h5M9 13h6M9 17h6",
 };
 export function Icon({name,className="ui-icon"}:{name:keyof typeof PATHS|string;className?:string}){
  return <span className={className} aria-hidden="true"><svg viewBox="0 0 24 24"><path d={PATHS[name]??PATHS.check}/></svg></span>;

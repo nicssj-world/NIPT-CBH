@@ -7,7 +7,7 @@ import {registerIntake,parseIntake} from '../../packages/results/intake';
 import {reviewBenchForResult} from '../../packages/lab/bench-review';
 import {confirmCompletion} from '../../packages/results/completion';
 import {sendToHis} from '../../packages/results/send-his';
-import {confirmBoard,confirmDetail,saveConfirm,confirmReport} from '../../packages/confirm/service';
+import {confirmBoard,confirmDetail,saveConfirm,confirmReport,confirmScreeningReport} from '../../packages/confirm/service';
 import {confirmStats} from '../../packages/confirm/stats';
 
 type F=Awaited<ReturnType<typeof task3Fixture>>;
@@ -66,6 +66,11 @@ it('lists only High Risk cases with their screening findings; a result needs the
   expect(d.row.record).toMatchObject({sequence:s2.sequence,method:'KARYOTYPE',specimen:'AMNIOTIC_FLUID',resultText:'47,XX,+21',hasReport:true,reportDate:'2026-11-15',findings:{t21:'TRUE_POSITIVE',xo:'TRUE_POSITIVE'}});
   expect(d.history.map(h=>h.sequence)).toEqual([s2.sequence,s1.sequence]);
   expect((await f.run(t=>confirmReport(t,f.store,f.admin,c0))).bytes.equals(PDF)).toBe(true);
+  // the full screening report is the exact released PDF (not the outlab file); an unfollowed Low Risk case is refused
+  const shown=await f.run(t=>confirmScreeningReport(t,f.store,f.admin,c0));
+  const releasedSha=(await f.db.query<{sha256:string}>('SELECT sha256 FROM result_report_version WHERE id=$1',[v0])).rows[0].sha256;
+  expect(shown.bytes.equals(await f.store.get(releasedSha))).toBe(true);expect(shown.bytes.equals(PDF)).toBe(false);
+  await expect(f.run(t=>confirmScreeningReport(t,f.store,f.admin,f.cases[1].caseId))).rejects.toMatchObject({code:'NOT_FOUND'});
 
   // a status without a result keeps only the note; a PDF or findings with it are refused
   await expect(f.run(t=>saveConfirm(t,f.store,f.admin,{...base(c2,v2),status:'DECLINED',note:'x'},PDF))).rejects.toMatchObject({code:'CONFIRM_PDF_ONLY_WITH_RESULT'});
