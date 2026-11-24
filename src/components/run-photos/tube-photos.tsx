@@ -61,7 +61,7 @@ function TubeUploader({onUploaded}:{onUploaded:()=>void}){
      <label className="button secondary" htmlFor={id+"-pick"}><Icon d={IMAGES}/>เลือกภาพจากเครื่อง (หลายภาพได้)</label></div>
    </div>
    <div className="photo-fields">
-    <div className="field" role="group" aria-labelledby={id+"-range-label"}>
+    <div className="field tube-range" role="group" aria-labelledby={id+"-range-label"}>
      <label id={id+"-range-label"} htmlFor={id+"-from"}>เลข LN Halos ของหลอดในภาพ <span className="required-mark">(จำเป็น)</span></label>
      <div className="photo-range"><input id={id+"-from"} className="mono" aria-label="LN Halos ตั้งแต่" placeholder="ตั้งแต่ เช่น 26B261124001" value={from} onChange={e=>setFrom(e.target.value.trim().toUpperCase())} aria-invalid={!!rangeError} spellCheck={false} autoComplete="off"/><span>ถึง</span>
       <input className="mono" aria-label="LN Halos ถึง" placeholder="ถึง (หลอดเดียวเว้นว่าง)" value={to} onChange={e=>setTo(e.target.value.trim().toUpperCase())} aria-invalid={!!rangeError} spellCheck={false} autoComplete="off"/></div>

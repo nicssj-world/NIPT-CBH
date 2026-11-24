@@ -426,6 +426,10 @@ input::placeholder,textarea::placeholder {color:var(--color-muted);opacity:1;}
 .tube-upload[open] > summary {margin-bottom:var(--space-3);}
 .tube-upload-body {display:grid;gap:var(--space-3);padding:var(--space-4);border:1px solid var(--color-line);border-radius:12px;background:var(--color-surface);}
 .tube-upload-body .help {margin:0;}
+/* Twelve-character LN Halos must show in full: the range takes the whole row. */
+.tube-upload-body .tube-range {grid-column:1 / -1;}
+.tube-upload-body .tube-range .photo-range {grid-template-columns:minmax(0,24ch) auto minmax(0,24ch);justify-content:start;}
+@media(max-width:600px){.tube-upload-body .tube-range .photo-range {grid-template-columns:1fr;}}
 .photo-capture > div {position:relative;}
 .photo-capture .button {width:100%;min-height:64px;font-size:16px;margin:0;cursor:pointer;}
 .photo-capture input[type="file"] {position:absolute;inset:0;width:1px;height:1px;opacity:0;pointer-events:none;}
