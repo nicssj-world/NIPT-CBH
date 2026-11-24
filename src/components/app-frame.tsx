@@ -24,7 +24,7 @@ export function AppFrame({sidebar,ancNavigation,ancUserName,ancWorkspace=false,c
  const menu=useRef<HTMLDialogElement>(null);
  const path=usePathname();
  const route=Object.keys(routeNames).sort((a,b)=>b.length-a.length).find(key=>path===key||(key!=="/"&&path.startsWith(key+"/")))??"/";
- const casesPath=path==="/cases"||path.startsWith("/cases/"),doctorsPath=path==="/doctors"||path==="/anc-stats";
+ const casesPath=path==="/cases"||path.startsWith("/cases/"),doctorsPath=path==="/doctors"||path==="/anc-stats"||path==="/confirm";   // ANC keeps its top-bar menu on /confirm (Owner 2026-11-24)
  const overviewPath=path==="/";
  const isAncPage=ancWorkspace&&(overviewPath||casesPath||doctorsPath);
  if(isAncPage)return <div className="app-shell anc-shell"><InputSafety/><div className="anc-shell-content"><header className="app-topbar anc-topbar"><div className="anc-topbar-inner"><div className="anc-lead"><div className="anc-brand"><img src="/brand/ui-logo.png" width="40" height="40" alt=""/><strong>NIPT-CBH</strong></div><div className="anc-navigation-slot">{ancNavigation}</div></div><div className="anc-account"><div className="anc-identity"><span>ผู้ใช้งาน</span><OwnProfile name={ancUserName??"บัญชีผู้ใช้"}/></div><div className="anc-account-tools"><ThemeButton/><LogoutButton/></div></div></div></header><div className="shell-content">{children}</div><AppFooter/></div></div>;
