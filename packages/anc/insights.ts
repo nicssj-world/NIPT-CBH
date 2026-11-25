@@ -50,7 +50,14 @@ export function ageGroups(ages:{age:number|null;high:boolean}[]):AncAge{
  */
 export type AncRecentDay={day:string;sent:number;released:number};
 export const RECENT_DAYS=14;
-export type AncInsights={fiscalYear:number;generatedAt:string;recent:AncRecentDay[];units:{id:string;name:string}[];highRisk:{count:number;runLabel:string|null;rows:CardCase[]}|null;gaOver18:{count:number;rows:GaCase[]}|null;monthly:AncMonth[];stats:AncStats};
+/**
+ * `releasedTat` (Owner 2026-11-25): the results released in the last 30 Bangkok days (today included), by working days from the Lab
+ * receipt to the release; the same rows and day count as the monthly median (a result without a receipt time is not timed).
+ * The last bucket is `businessDays+4` and more, as the Lab histogram.
+ */
+export const RELEASED_TAT_DAYS=30;
+export type AncReleasedTat={from:string;to:string;businessDays:number;distribution:{days:number;n:number}[];timed:number;withinTat:number;median:number|null;p90:number|null};
+export type AncInsights={fiscalYear:number;generatedAt:string;recent:AncRecentDay[];releasedTat:AncReleasedTat;units:{id:string;name:string}[];highRisk:{count:number;runLabel:string|null;rows:CardCase[]}|null;gaOver18:{count:number;rows:GaCase[]}|null;monthly:AncMonth[];stats:AncStats};
 
 /** The fiscal year's months (October to September, Bangkok) up to the current month. */
 export function fiscalMonths(fy:number,now:Date){
@@ -106,7 +113,8 @@ export async function ancInsights(db:Queryable,user:Staff,raw:unknown={},now=new
  const months=fiscalMonths(fy,now);
  const from=months[0]+'-01';
  // The last 14 days may begin before the fiscal year (early October): read from whichever is earlier; the monthly figures skip days outside their months.
- const today=bangkokDay(now),recentFrom=addDays(today,-(RECENT_DAYS-1)),readFrom=recentFrom<from?recentFrom:from;
+ // The 30-day TAT window too (Owner 2026-11-25).
+ const today=bangkokDay(now),recentFrom=addDays(today,-(RECENT_DAYS-1)),tatFrom=addDays(today,-(RELEASED_TAT_DAYS-1)),readFrom=[recentFrom,tatFrom,from].sort()[0];
  const [latest,ga,monthReleased,monthSent,monthRedraw]=await inOrder(
   ()=>brief?Promise.resolve({rows:[] as {id:string;ln:string;hn:string|null;patientName:string|null;run_label:string;risk:Risk;certified_at:Date}[]}):db.query<{id:string;ln:string;hn:string|null;patientName:string|null;run_label:string;risk:Risk;certified_at:Date}>(`${facts}${HIGH_RUN_SQL}`,[unitIds]),
   ()=>brief?Promise.resolve({rows:[] as GaRaw[]}):db.query<GaRaw>(`${facts}${GA_SQL}`,[unitIds]),
@@ -115,7 +123,7 @@ export async function ancInsights(db:Queryable,user:Staff,raw:unknown={},now=new
   ()=>db.query<{at:Date}>(`${facts} SELECT d.requested_at at FROM redraw_request d JOIN facts f ON f.id=d.case_id WHERE d.state<>'Cancelled' AND d.requested_at>=(($2::date)::timestamp AT TIME ZONE 'Asia/Bangkok')`,[unitIds,from]),
  );
  // Working days to the result skip weekends and the synced holidays (same calendar as the Lab TAT).
- const holidays=(await workingCalendar(db,now,Number(readFrom.slice(0,4))-1)).holidays;
+ const cal=await workingCalendar(db,now,Number(readFrom.slice(0,4))-1),holidays=cal.holidays;
  const byMonth=new Map(months.map(m=>[m,{month:m,sent:0,released:0,redraw:0,high:0,highTrisomy:0,highSca:0,low:0,unknown:0,medianDays:null as number|null}]));
  const days=new Map<string,number[]>();
  const key=(d:Date)=>bangkokDay(d).slice(0,7);
@@ -130,10 +138,13 @@ export async function ancInsights(db:Queryable,user:Staff,raw:unknown={},now=new
  for(const r of monthRedraw.rows){const m=byMonth.get(key(r.at));if(m)m.redraw++;}
  for(const r of monthReleased.rows){const m=byMonth.get(key(r.certified_at));if(!m)continue;m.released++;if(r.risk==='HIGH'){m.high++;if(r.hi_t)m.highTrisomy++;if(r.hi_s)m.highSca++;for(const k of r.pos??[])positive[k]++;}else if(r.risk==='LOW')m.low++;else m.unknown++;for(const u of unitsOf(r.unit_ids)){u.released++;if(r.risk==='HIGH')u.high++;}if(r.received_at){const d=businessDaysBetween(r.received_at,r.certified_at,holidays);allDays.push(d);days.set(m.month,[...(days.get(m.month)??[]),d]);}}
  for(const m of byMonth.values())m.medianDays=median(days.get(m.month)??[]);
+ const limit=cal.policy.businessDays,top=limit+4,tatDays=monthReleased.rows.filter(r=>r.received_at&&bangkokDay(r.certified_at)>=tatFrom).map(r=>businessDaysBetween(r.received_at!,r.certified_at,holidays));
+ const distribution=Array.from({length:top+1},(_,days)=>({days,n:0}));for(const d of tatDays)distribution[Math.min(Math.max(0,d),top)].n++;
+ const releasedTat:AncReleasedTat={from:tatFrom,to:today,businessDays:limit,distribution,timed:tatDays.length,withinTat:tatDays.filter(d=>d<=limit).length,median:median(tatDays),p90:percentile(tatDays,90)};
  const high:CardCase[]=latest.rows.filter(r=>r.risk==='HIGH').sort((x,y)=>+new Date(y.certified_at)-+new Date(x.certified_at)).map(r=>({caseId:r.id,ln:r.ln,hn:r.hn,name:nameOf(r.patientName),releasedAt:new Date(r.certified_at).toISOString()}));
  const gaCases=gaCasesOf(ga.rows);
  return {fiscalYear:fy,generatedAt:now.toISOString(),units:units.map(u=>({id:u.id,name:u.name})),
-  recent:[...recent.values()],
+  recent:[...recent.values()],releasedTat,
   highRisk:brief?null:{count:high.length,runLabel:latest.rows[0]?.run_label??null,rows:high},
   gaOver18:brief?null:{count:gaCases.length,rows:gaCases},
   monthly:[...byMonth.values()],

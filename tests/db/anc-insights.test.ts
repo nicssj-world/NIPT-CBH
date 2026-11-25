@@ -107,6 +107,20 @@ describe('ANC overview panel (Owner 2026-11-11)',()=>{
   expect(g.groups.map(x=>[x.sent,x.high])).toEqual([[1,0],[1,0],[0,0],[1,1],[1,1],[1,0]]);
   expect(g).toMatchObject({known:5,unknown:2,unknownHigh:1,over35:2,median:34});
  });
+ it('Dashboard: results released in the last 30 days by working days used (Owner 2026-11-25)',async()=>{
+  // 11 Nov: 12 Oct and earlier are outside; the 5 Nov (23 days) and 9 Nov (24) results fall in the last bucket "12+"; the 10 Nov XXY result (received 9 Oct) too.
+  let t=(await ancInsights(q(),u.anc,{view:'dashboard'},NOW)).releasedTat;
+  expect(t).toMatchObject({from:'2026-10-13',to:'2026-11-11',businessDays:8,timed:3,withinTat:0});
+  expect(t.distribution).toHaveLength(13);expect(t.distribution.at(-1)).toEqual({days:12,n:3});
+  // A result inside the limit: received Mon 2 Nov, released Wed 4 Nov.
+  const quick=await tx(q(),async t=>{const x=await syntheticCase(t,{staff:u.staff,unit:u.unit});await receiveS1(t,x,new Date('2026-11-02T03:00:00Z'),'2026-11-02');return x;});
+  await tx(q(),t=>release(t,quick,'2026-11-04T03:00:00Z',{}));
+  t=(await ancInsights(q(),u.anc,{view:'dashboard'},NOW)).releasedTat;
+  expect(t).toMatchObject({timed:4,withinTat:1});expect(t.distribution[2]).toEqual({days:2,n:1});
+  // 8 Dec: the window starts 9 Nov, so the 9 Nov and 10 Nov results stay and the 4 and 5 Nov results drop out (another unit never counts).
+  t=(await ancInsights(q(),u.anc,{view:'dashboard'},new Date('2026-12-08T05:00:00Z'))).releasedTat;
+  expect(t).toMatchObject({from:'2026-11-09',to:'2026-12-08',timed:2,withinTat:0});
+ });
  it('fiscal months run October to September and stop at the current month',()=>{
   expect(fiscalMonths(2570,new Date('2027-09-30T05:00:00Z'))).toHaveLength(12);
   expect(fiscalMonths(2569,NOW)).toHaveLength(12);

@@ -46,6 +46,8 @@ html[data-theme="dark"] .dash-chart{--series-1:#3987e5;--series-2:#d95926}
 .dash-line.ref{background:none;border-top:2px dashed var(--color-ink);height:0;opacity:.6}
 .dash-svg .dash-ref-text{fill:var(--color-ink);font-weight:600}
 .dash-axis-note{margin:0;font-size:.8125rem;color:var(--color-muted)}
+.dash-summary{margin:0;font-size:.9375rem;line-height:1.6}
+.dash-summary strong{font-weight:700}
 .dash-hbars{display:grid;gap:10px;margin:0;padding:0;list-style:none}
 .dash-hbars li{display:grid;grid-template-columns:minmax(7rem,12rem) minmax(0,1fr) auto;align-items:center;gap:12px}
 .dash-hlabel{display:grid;font-size:.875rem;line-height:1.4;overflow-wrap:anywhere}

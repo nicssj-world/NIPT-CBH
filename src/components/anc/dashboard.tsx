@@ -4,7 +4,7 @@ import {useEffect,useState} from "react";
 import {api,ApiFailure,message} from "../p2/shared";
 import {Icon} from "../p2/anc-progress-view";
 import {LabIcon} from "../shared/lab-icons";
-import {Columns,LinkBars} from "../dashboard/stat-charts";
+import {Columns,Histogram,LinkBars} from "../dashboard/stat-charts";
 import {Kpi} from "../dashboard/kpi";
 import {registryHref,STATUS_LABEL} from "../p2/registry-filters";
 import type {AncInsights} from "../../../packages/anc/insights";
@@ -19,6 +19,8 @@ const W=STATUS_LABEL.anc;
 const n=(v:number|undefined|null)=>v===undefined||v===null?"—":v.toLocaleString("th-TH");
 const dayLong=(day:string)=>new Date(day+"T00:00:00Z").toLocaleDateString("th-TH",{timeZone:"UTC",weekday:"short",day:"numeric",month:"short",year:"numeric"});
 const dayShort=(day:string)=>String(Number(day.slice(8,10)));
+const dayMedium=(day:string)=>new Date(day+"T00:00:00Z").toLocaleDateString("th-TH",{timeZone:"UTC",day:"numeric",month:"short"});
+const pct=(a:number,b:number)=>b?`${(a/b*100).toLocaleString("th-TH",{maximumFractionDigits:1})}%`:"—";
 async function load<T>(url:string):Promise<Source<T>>{try{return {data:await api<T>(url),error:"",forbidden:false};}catch(e){return {data:null,error:message(e),forbidden:e instanceof ApiFailure&&e.status===403};}}
 
 /**
@@ -32,7 +34,7 @@ export function AncDashboard({operational=false}:{operational?:boolean}){
  const [state,setState]=useState<{summary:Source<Summary>;insights:Source<AncInsights>;loading:boolean}>({summary:{data:null,error:"",forbidden:false},insights:{data:null,error:"",forbidden:false},loading:true});
  useEffect(()=>{let live=true;const t=setTimeout(()=>{setState(s=>({...s,loading:true}));void Promise.all([load<Summary>("/api/p2/cases?summary=1"),load<AncInsights>("/api/anc/insights?view=dashboard")]).then(([summary,insights])=>{if(live)setState({summary,insights,loading:false});});},0);
   return()=>{live=false;clearTimeout(t);};},[tick]);
- const {summary,insights,loading}=state,c=summary.data?.counts,ins=insights.data,tat=summary.data?.tat;
+ const {summary,insights,loading}=state,c=summary.data?.counts,ins=insights.data,tat=summary.data?.tat,rt=ins?.releasedTat;
  // TAT lists: exactly the cases counted (registry flags built from the same tatStatus).
  const over=registryHref({flag:"tat_overdue",sort:"asc"}),soon=registryHref({flag:"tat_due",sort:"asc"}),waiting=registryHref({flag:"tat_open",sort:"asc"});
  const units=ins?.units??[],scope=units.length===1?units[0].name:"ทุกหน่วยงานในสิทธิ์";
@@ -78,6 +80,11 @@ export function AncDashboard({operational=false}:{operational?:boolean}){
      items={tat.aging.map((b,i,all)=>({label:i===all.length-1?`${b.days}+`:String(b.days),long:`ใช้ไป ${b.days}${i===all.length-1?" วันทำการขึ้นไป":" วันทำการ"}`,values:[b.ok,b.dueSoon,b.overdue]}))}
      limit={{at:tat.policy.businessDays,label:`กำหนด ${tat.policy.businessDays} วัน`}} axisNote="แกนนอน = จำนวนวันทำการที่รอมาแล้ว นับจากวันที่ห้อง Lab ได้รับเลือด (ไม่นับเสาร์-อาทิตย์และวันหยุด)" empty="ตอนนี้ไม่มีคุณแม่ที่กำลังรอผล"/>:<p className="dash-empty">อ่านข้อมูล TAT ไม่ได้</p>}
     {c&&c.tat_open>0&&<Link className="button secondary" href={waiting}>ดูรายชื่อคุณแม่ที่รอผล เรียงจากรอนานที่สุด</Link>}</section>
+   {/* Results released in the last 30 days by working days used (Owner 2026-11-25): the Lab histogram, from the ANC insights rows. */}
+   <section className="panel dash-panel" aria-labelledby="ad-done"><header className="dash-panel-head"><h2 id="ad-done">ผลออกใช้เวลากี่วันทำการ</h2><p className="dash-panel-note">ผลที่ออกใน 30 วันล่าสุด{rt&&` (${dayMedium(rt.from)} – ${dayMedium(rt.to)})`} · ควรได้ผลภายใน {rt?.businessDays??"—"} วันทำการ</p></header>
+    {!rt?<p className="dash-empty">อ่านข้อมูลผลที่ออกแล้วไม่ได้</p>:rt.timed===0?<p className="dash-empty">30 วันที่ผ่านมายังไม่มีผลออก</p>:<>
+     <p className="dash-summary">โดยทั่วไป <strong className="num">{rt.median}</strong> วัน · 90% ภายใน <strong className="num">{rt.p90}</strong> วัน · ภายในกำหนด <strong className="num">{pct(rt.withinTat,rt.timed)}</strong> ({rt.withinTat.toLocaleString("th-TH")}/{rt.timed.toLocaleString("th-TH")})</p>
+     <Histogram title="ผลออกใช้เวลากี่วันทำการ" buckets={rt.distribution.map((d,i,all)=>({label:i===all.length-1?`${d.days}+`:String(d.days),n:d.n}))} limit={rt.businessDays} limitLabel={`กำหนด ${rt.businessDays} วัน`} names={["ภายในกำหนด","เกินกำหนด"]}/></>}</section>
    <section className="panel dash-panel" aria-labelledby="ad-follow"><header className="dash-panel-head"><h2 id="ad-follow">คุณแม่ที่ต้องติดตาม</h2><p className="dash-panel-note">เรื่องที่ยังต้องจัดการต่อ · คุณแม่หนึ่งคนอาจอยู่ได้มากกว่าหนึ่งแถว</p></header>
     {c?<LinkBars title="เรื่องที่ต้องติดตาม" parts={[{name:"คุณแม่",tone:"s2"}]} unit="ราย" rows={[
      {label:W.followup,sub:"เลือดชุดเดิมตรวจไม่ได้",values:[c.followup],href:registryHref({status:"followup"}),tone:"warn" as const},
