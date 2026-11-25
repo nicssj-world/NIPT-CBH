@@ -31,7 +31,7 @@ export default async function HealthPage(){
   ...(ops.tls.protocol==='https'&&ops.tls.daysLeft!==null&&ops.tls.daysLeft<30?['TLS_EXPIRING']:[]),...(ops.tls.protocol==='https'&&ops.tls.error?['TLS_UNVERIFIED']:[])];
  const workerTone:Tone=h.Alive?(h.LastError?'warn':'good'):h.observedAt?'bad':'unknown';
  const inboundTone:Tone=!ops.inbound.enabled?'unknown':ops.inbound.healthy?'good':!ops.inbound.lastSuccess?'unknown':'bad';
- const outboundTone:Tone=!ops.outbound.configured||!ops.outbound.enabled?'unknown':ops.outbound.attention?'bad':ops.outbound.retry?'warn':'good';
+ const outboundTone:Tone=!ops.outbound.configured?'unknown':ops.outbound.failed?'bad':ops.outbound.stuck?'warn':'good';
  const queueTone:Tone=h.backlog>=h.thresholds.backlogWarning||h.age>h.thresholds.staleSeconds?'warn':'good';
  const storageTone:Tone=h.storage.availableBytes===null?'unknown':h.storage.availableBytes<1024**3?'bad':h.backup.warning?'warn':'good';
  const tlsTone:Tone=ops.tls.protocol==='http'?'warn':ops.tls.protocol==='UNKNOWN'||ops.tls.error||ops.tls.daysLeft===null?'unknown':ops.tls.daysLeft<30?'warn':'good';
@@ -51,7 +51,7 @@ export default async function HealthPage(){
   </div></section>
   <section aria-labelledby="his-title" className="health-group"><h2 id="his-title">HIS และคิวงาน</h2><div className="health-grid">
    <Tile icon="inbox" title="HIS ขาเข้า (PET/OK)" tone={inboundTone} value={!ops.inbound.enabled?'ปิดใช้งาน':ops.inbound.healthy?'ทำงานปกติ':!ops.inbound.lastSuccess?'ยังไม่ทราบ':'ต้องตรวจสอบ'} facts={[['โฟลเดอร์ต้นทาง',SHARE[ops.inbound.share]??ops.inbound.share],['สำเร็จล่าสุด',when(ops.inbound.lastSuccess)],['ข้อผิดพลาดล่าสุด',ops.inbound.lastError??'ไม่มี'],['รอจับคู่ / .ok ค้าง',`${ops.inbound.readyBacklog} / ${ops.inbound.waitingOkOverdue}`]]} href="/inbound" linkText="ไปหน้ารับตัวอย่างจาก HIS"/>
-   <Tile icon="send" title="HIS ขาออก (RES/OK + PDF)" tone={outboundTone} value={!ops.outbound.configured?'ยังไม่ได้ตั้งค่า':!ops.outbound.enabled?'ปิดใช้งาน':`เขียนไฟล์แล้ว ${ops.outbound.written} รายการ`} facts={[['เขียนสำเร็จล่าสุด',when(ops.outbound.lastWritten)],['รอส่ง / ลองใหม่ / ต้องตรวจ',`${ops.outbound.pending} / ${ops.outbound.retry} / ${ops.outbound.attention}`],['การยืนยันรับจาก HIS (ACK)','ไม่มีในระบบ — ไม่แสดงว่ารับแล้ว']]} href="/results" linkText="ไปหน้าผลตรวจ NIPT"/>
+   <Tile icon="send" title="HIS ขาออก (RES/OK + PDF)" tone={outboundTone} value={!ops.outbound.configured?'ยังไม่ได้ตั้งค่า':ops.outbound.failed?`ส่งไม่สำเร็จ ${ops.outbound.failed} รายการ`:ops.outbound.stuck?`ค้างส่ง ${ops.outbound.stuck} รายการ`:'ทำงานปกติ'} facts={[['ส่งแล้ว',`${ops.outbound.sent} รายการ`],['ส่งสำเร็จล่าสุด',when(ops.outbound.lastSent)],['รอส่ง / ไม่สำเร็จ',`${ops.outbound.pending} / ${ops.outbound.failed}`]]} href="/results" linkText="ไปหน้าผลตรวจ NIPT"/>
    <Tile icon="layers" title="คิวงานเบื้องหลัง" tone={queueTone} value={`ค้าง ${h.backlog} งาน`} facts={[['อายุงานเก่าสุด',`${Math.round(h.age)} วินาที`],['เกณฑ์แจ้งเตือน',`${h.thresholds.backlogWarning} งาน / ${h.thresholds.staleSeconds} วินาที`],...ops.queues.slice(0,4).map(q=>[q.kind,`${q.pending} งาน`] as [string,string])]}/>
   </div></section>
   <section aria-labelledby="data-title" className="health-group"><h2 id="data-title">ข้อมูล ความปลอดภัย และการสำรอง</h2><div className="health-grid">

@@ -15,6 +15,7 @@ import {readHisDeliveryStatuses} from '../../packages/results/his-status';
 import {saveSystemSetting} from '../../packages/settings/direct';
 import {SETTINGS} from '../../packages/settings/catalog';
 import {syntheticProfile} from '../../packages/p6/res';
+import {outboundEvidence} from '../../src/server/health';
 
 // Owner 2026-11-11: "ส่ง HIS" = PDF -> CFS folder, .res + .ok -> RES folder. No backup, no confirmation wait, no simulator /
 // Production Authorized switch. A failure is recorded with its reason; "ส่ง HIS อีกครั้ง" queues another job that writes again.
@@ -38,6 +39,8 @@ it('writes PDF to CFS and RES + OK to the RES folder; a missing folder is a reco
  try{
   await fs.mkdir(resDir,{recursive:true});await fs.mkdir(pdfDir,{recursive:true});
   const {versionId,releaseId}=await released(f);
+  // The health card (Owner 2026-11-25) counts the same jobs: no RES profile yet = not set up; the queued job is waiting.
+  expect(await outboundEvidence(f.db)).toMatchObject({configured:false,sent:0,failed:0,pending:1,stuck:0,lastSent:null});
   // The old switches stay off: target SIMULATOR, productionAuthorized false, disabled. The send does not read them any more.
   await f.run(t=>saveSystemSetting(t,f.admin,'his_outbound',{...SETTINGS.his_outbound.default,resDestinationPath:resDir,pdfDestinationPath:pdfDir,
    resProfile:{...syntheticProfile,syntheticOnly:false,version:'TEST-SIMPLE-1'},operatorHisId:'TESTOP^ผู้ส่งผล'}));
@@ -56,6 +59,8 @@ it('writes PDF to CFS and RES + OK to the RES folder; a missing folder is a reco
   expect(await fs.readFile(path.join(pdfDir,first.pdfName))).toEqual(await f.store.get(pdfSha));
   await f.db.query('INSERT INTO integration_job_receipt(outbox_id,result) VALUES($1,$2)',[job.id,first]);
   expect((await readHisDeliveryStatuses(f.db,[versionId])).get(versionId)).toMatchObject({code:'SENT',label:'ส่ง HIS แล้ว',tone:'good'});
+  const afterSent=await outboundEvidence(f.db);
+  expect(afterSent).toMatchObject({configured:true,sent:1,failed:0,pending:0,stuck:0});expect(afterSent.lastSent).not.toBeNull();
 
   // A CFS folder that is gone: nothing is thrown, the reason is the result and the badge shows it.
   await fs.rm(pdfDir,{recursive:true});
@@ -65,6 +70,8 @@ it('writes PDF to CFS and RES + OK to the RES folder; a missing folder is a reco
   expect(failed).toEqual({sent:false,error:'SHARE_PATH_NOT_FOUND',resend:true});
   await f.db.query('INSERT INTO integration_job_receipt(outbox_id,result) VALUES($1,$2)',[again.jobId,failed]);
   expect((await readHisDeliveryStatuses(f.db,[versionId])).get(versionId)).toMatchObject({code:'FAILED',error:'SHARE_PATH_NOT_FOUND'});
+  // The latest job of the release decides: it failed, so the card counts a failure and no longer counts it as sent.
+  expect(await outboundEvidence(f.db)).toMatchObject({sent:0,failed:1,pending:0});
 
   // Folder back, "ส่ง HIS อีกครั้ง": the files are written again (the PDF keeps its name and is replaced; no temp file left).
   await fs.mkdir(pdfDir);
@@ -75,7 +82,14 @@ it('writes PDF to CFS and RES + OK to the RES folder; a missing folder is a reco
   expect(await fs.readdir(pdfDir)).toEqual([first.pdfName]);
   expect((await fs.readdir(resDir)).some(n=>n.endsWith('.part'))).toBe(false);
   expect((await readHisDeliveryStatuses(f.db,[versionId])).get(versionId)?.code).toBe('SENT');
+  expect(await outboundEvidence(f.db)).toMatchObject({sent:1,failed:0,pending:0});
   expect((await f.db.query("SELECT 1 FROM audit_chain WHERE action IN ('HIS_RESULT_SENT','HIS_RESULT_RESENT','HIS_RESULT_RESEND_QUEUED')")).rows).toHaveLength(4);
+  // A job older than 10 minutes without a result is stuck (the same 10 minutes as the STUCK badge on /results).
+  // Every job of the release is moved back by 11 minutes so their order stays the same.
+  await f.run(t=>resendToHis(t,f.admin,{versionId}));
+  expect(await outboundEvidence(f.db)).toMatchObject({sent:0,pending:1,stuck:0});
+  await f.db.query("UPDATE job_outbox SET created_at=created_at-interval '11 minutes' WHERE kind='result_release_completed'");
+  expect(await outboundEvidence(f.db)).toMatchObject({sent:0,pending:1,stuck:1});
  }finally{vi.unstubAllEnvs();await f.close();await fs.rm(out,{recursive:true,force:true});}
 },180000);
 

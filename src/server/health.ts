@@ -50,25 +50,36 @@ export async function tlsEvidence(origin=process.env.APP_ORIGIN):Promise<{protoc
   socket.on('error',e=>done({protocol:'https',validTo:null,daysLeft:null,subject:null,error:(e as NodeJS.ErrnoException).code??'TLS_ERROR'}));
  });
 }
+/** HIS outbound as it works since Owner 2026-11-11: "ส่ง HIS" queues a result_release_completed job whose result is {sent:true} or
+ *  {sent:false,error}. Counted per Active release by its latest job, the same rule as the badge on /results (packages/results/his-status.ts).
+ *  The retired his_outbound.enabled switch and the old p6_transfer journal are not read. */
+export async function outboundEvidence(db:Queryable){
+ const settings=await readActiveSettings(db);
+ const parsed=settings.his_outbound?SETTINGS.his_outbound.schema.safeParse(settings.his_outbound):null;
+ const configured=!!parsed?.success&&!!parsed.data.resProfile&&!!parsed.data.resDestinationPath&&!!parsed.data.pdfDestinationPath;
+ const o=(await db.query<{sent:number;failed:number;pending:number;stuck:number;last_sent:Date|null}>(`SELECT
+   count(*) FILTER(WHERE j.result->>'sent'='true')::int sent,
+   count(*) FILTER(WHERE j.result->>'sent'='false' AND j.result->>'error' IS DISTINCT FROM 'EQA_NO_HIS_OUTBOUND')::int failed,
+   count(*) FILTER(WHERE j.result IS NULL AND j.state<>'Cancelled')::int pending,
+   count(*) FILTER(WHERE j.result IS NULL AND j.state<>'Cancelled' AND j.created_at<now()-interval '10 minutes')::int stuck,
+   max(j.completed_at) FILTER(WHERE j.result->>'sent'='true') last_sent
+  FROM result_release r CROSS JOIN LATERAL (SELECT o.state,o.created_at,x.result,x.completed_at FROM job_outbox o LEFT JOIN integration_job_receipt x ON x.outbox_id=o.id
+   WHERE o.kind='result_release_completed' AND o.payload->>'releaseId'=r.id::text ORDER BY o.created_at DESC LIMIT 1) j
+  WHERE r.state='Active'`)).rows[0];
+ return {configured,sent:o.sent,failed:o.failed,pending:o.pending,stuck:o.stuck,lastSent:o.last_sent?new Date(o.last_sent).toISOString():null};
+}
 export async function operationsEvidence(db:Queryable=pool()){
  const {inboundHealth}=await import('../../packages/inbound/health');
  const settings=await readActiveSettings(db);
  const inboundSettings=SETTINGS.his_inbound.schema.parse(settings.his_inbound??SETTINGS.his_inbound.default);
- const outboundSettings=settings.his_outbound?SETTINGS.his_outbound.schema.safeParse(settings.his_outbound):null;
  const started=performance.now();await db.query('SELECT 1');const dbLatencyMs=Math.round((performance.now()-started)*10)/10;
  const [inbound,outbound,queues,tls]=await Promise.all([
   inboundHealth(db,inboundSettings),
-  db.query<{written:number;pending:number;retry:number;attention:number;last_written:Date|null}>(`SELECT
-    count(*) FILTER(WHERE model->>'state' IN ('OK_OBSERVED','AWAITING_CONFIRMATION','PICKED_UP_UNCONFIRMED','SYNTHETIC_CONFIRMED'))::int written,
-    count(*) FILTER(WHERE model->>'state' IN ('PREPARED','PDF_VERIFIED','RES_VERIFIED','BACKUP_VERIFIED'))::int pending,
-    count(*) FILTER(WHERE model->>'state'='RETRY_PENDING')::int retry,
-    count(*) FILTER(WHERE model->>'state' IN ('FAILED_NEEDS_ADMIN','RECONCILIATION_REQUIRED','UNKNOWN_TIMEOUT'))::int attention,
-    max(updated_at) FILTER(WHERE model->>'state' IN ('OK_OBSERVED','AWAITING_CONFIRMATION','PICKED_UP_UNCONFIRMED','SYNTHETIC_CONFIRMED')) last_written FROM p6_transfer`),
+  outboundEvidence(db),
   db.query<{kind:string;pending:number;oldest:Date|null}>(`SELECT o.kind,count(*)::int pending,min(o.created_at) oldest FROM job_outbox o LEFT JOIN integration_job_receipt r ON r.outbox_id=o.id
     WHERE o.state<>'Cancelled' AND r.outbox_id IS NULL GROUP BY o.kind ORDER BY count(*) DESC LIMIT 8`),
   tlsEvidence()]);
- const o=outbound.rows[0];
  return {checkedAt:new Date().toISOString(),dbLatencyMs,inbound:{enabled:inboundSettings.enabled,intervalSeconds:inboundSettings.intervalSeconds,lastSuccess:inbound.LastSuccess,lastError:inbound.LastError,share:inbound.shareStatus,alive:inbound.Alive,healthy:inbound.healthy,readyBacklog:inbound.readyBacklog,waitingOkOverdue:inbound.waitingOkOverdue},
-  outbound:{configured:!!outboundSettings?.success,enabled:outboundSettings?.success?outboundSettings.data.enabled:false,target:outboundSettings?.success?outboundSettings.data.target:null,written:o.written,pending:o.pending,retry:o.retry,attention:o.attention,lastWritten:o.last_written?.toISOString()??null,hisAck:'NOT_IMPLEMENTED' as const},
+  outbound,
   queues:queues.rows.map(q=>({kind:q.kind,pending:q.pending,oldest:q.oldest?.toISOString()??null})),tls};
 }

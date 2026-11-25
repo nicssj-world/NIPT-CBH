@@ -13,7 +13,7 @@ vi.mock('../../src/server/health',()=>({systemHealth:async()=>({
  storage:{availableBytes:null,status:'NOT VERIFIED'}
 }),operationsEvidence:async()=>({checkedAt:'2026-10-26T00:00:00.000Z',dbLatencyMs:1,
  inbound:{enabled:true,intervalSeconds:30,lastSuccess:null,lastError:'SHARE_PATH_NOT_FOUND',share:'DOWN',alive:true,healthy:false,readyBacklog:0,waitingOkOverdue:0},
- outbound:{configured:true,enabled:true,target:'AUTHORIZED_SHARE',written:0,pending:0,retry:0,attention:0,lastWritten:null,hisAck:'NOT_IMPLEMENTED'},
+ outbound:{configured:true,sent:0,failed:0,pending:0,stuck:0,lastSent:null},
  queues:[{kind:'synthetic_scan',pending:1,oldest:null}],tls:{protocol:'https',validTo:null,daysLeft:200,subject:'127.0.0.1',error:null}})}));
 import HealthPage from '../../src/app/(protected)/health/page';
 it('real Health alert markup retains list semantics for assistive technology when warnings exist',async()=>{
