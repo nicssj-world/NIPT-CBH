@@ -8,12 +8,16 @@ import {RETRY_SAFE_KINDS} from '../../packages/jobs/retry-kinds';
 
 type Row={id:string;kind:string;status:string};
 export function WorkerQueueActions({scope,rows,counts}:{scope:'OUTBOX'|'ARCHIVE'|'HIS_TRANSFER';rows:Row[];counts:Record<string,number>}){
- const router=useRouter(),dialog=useRef<HTMLDialogElement>(null);
+ const router=useRouter(),dialog=useRef<HTMLDialogElement>(null),resolveDialog=useRef<HTMLDialogElement>(null);
  const [selected,setSelected]=useState<string[]>([]);
  const [mode,setMode]=useState<'SELECTED'|'ALL'>('SELECTED');
  const [busy,setBusy]=useState(false),[message,setMessage]=useState<{ok:boolean;text:string}|null>(null);
  const canClear=scope!=='HIS_TRANSFER';   // a HIS transmission is never cleared from here
  const clearable=canClear?rows.filter(r=>CLEARABLE.includes(r.status)):[];
+ // Owner 2026-11-25 "ปิดงานที่ตรวจแล้ว": a HIS outbox job in "ต้องตรวจสอบปลายทาง" that an Administrator has checked by hand.
+ const resolvable=(r:Row)=>scope==='OUTBOX'&&r.status==='RECONCILIATION_REQUIRED';
+ const clearSel=selected.filter(id=>clearable.some(r=>r.id===id));
+ const resolveSel=selected.filter(id=>rows.some(r=>r.id===id&&resolvable(r)));
  // Offered only for a retry-safe kind; the Worker checks again and may still refuse.
  const retryOk=(r:Row)=>RETRYABLE[scope].includes(r.status)&&(scope!=='OUTBOX'||(RETRY_SAFE_KINDS as readonly string[]).includes(r.kind));
  const retryable=rows.filter(r=>retryOk(r)&&selected.includes(r.id));
@@ -28,18 +32,21 @@ export function WorkerQueueActions({scope,rows,counts}:{scope:'OUTBOX'|'ARCHIVE'
    if(!response.ok)throw Error(result.error??'ดำเนินการไม่สำเร็จ');
    setMessage({ok:true,text:success(result)});setSelected([]);router.refresh();
   }catch(e){setMessage({ok:false,text:e instanceof Error?e.message:'ดำเนินการไม่สำเร็จ'});}
-  finally{setBusy(false);dialog.current?.close();}
+  finally{setBusy(false);dialog.current?.close();resolveDialog.current?.close();}
  }
- const confirm=()=>post(mode==='ALL'?{action:'CLEAR_ALL',scope}:{action:'CLEAR_SELECTED',scope,ids:selected},
+ const confirm=()=>post(mode==='ALL'?{action:'CLEAR_ALL',scope}:{action:'CLEAR_SELECTED',scope,ids:clearSel},
   r=>`บันทึกคำขอเคลียร์ ${r.requested} รายการ${r.alreadyRequested?` (มีคำขออยู่แล้ว ${r.alreadyRequested})`:''} — Worker จะตรวจแต่ละรายการและบันทึกผล ยังไม่ถือว่ายกเลิกสำเร็จจนกว่าสถานะจะเปลี่ยน`);
  const retry=()=>post({action:'RETRY_SELECTED',scope,ids:retryable.map(r=>r.id)},
   r=>scope==='ARCHIVE'?`ขอให้ Worker ทดสอบ NAS ก่อน Retry ${r.requested} รายการ — ยังไม่ถือว่าจัดเก็บสำเร็จจนกว่า Worker ตรวจจริง`
    :`บันทึกคำขอ Retry ${r.requested} รายการ${r.alreadyRequested?` (มีคำขออยู่แล้ว ${r.alreadyRequested})`:''} — Worker จะตรวจก่อน และปฏิเสธหากอาจมีการส่งออกไปแล้ว`);
- const count=mode==='ALL'?allCount:selected.length;
+ const resolve=()=>post({action:'RESOLVE_SELECTED',scope:'OUTBOX',ids:resolveSel},
+  r=>`ปิดงานแล้ว ${r.resolved} รายการ${r.notApplicable?` · ไม่ได้ปิด ${r.notApplicable} รายการ เพราะสถานะไม่ใช่ “ต้องตรวจสอบปลายทาง”`:''}`);
+ const count=mode==='ALL'?allCount:clearSel.length;
  return <>
   <div className="row" role="toolbar" aria-label="จัดการคิว">
-   {canClear&&<button type="button" className="button secondary" disabled={busy||selected.length===0} onClick={()=>open('SELECTED')}>ขอเคลียร์ที่เลือก ({selected.length})</button>}
+   {canClear&&<button type="button" className="button secondary" disabled={busy||clearSel.length===0} onClick={()=>open('SELECTED')}>ขอเคลียร์ที่เลือก ({clearSel.length})</button>}
    {canClear&&<button type="button" className="button secondary" disabled={busy||allCount===0} onClick={()=>open('ALL')}>ขอเคลียร์ทั้งหมดในหมวดนี้ ({allCount})</button>}
+   {scope==='OUTBOX'&&<button type="button" className="button secondary" disabled={busy||resolveSel.length===0} onClick={()=>resolveDialog.current?.showModal()}>ปิดงานที่ตรวจแล้ว ({resolveSel.length})</button>}
    <button type="button" className="button secondary" disabled={busy||retryable.length===0||retryable.length!==selected.length} onClick={()=>void retry()}>{scope==='ARCHIVE'?'ตรวจ NAS แล้ว Retry':'Retry'} ({retryable.length})</button>
   </div>
   {message&&<p role="status" className={message.ok?'notice success':'notice'}>{message.text}</p>}
@@ -47,14 +54,14 @@ export function WorkerQueueActions({scope,rows,counts}:{scope:'OUTBOX'|'ARCHIVE'
    <caption className="sr-only">รายการงานในคิว</caption>
    <thead><tr><th scope="col"><span className="sr-only">เลือก</span></th><th scope="col">ประเภท</th><th scope="col">สถานะ</th><th scope="col">รหัสงาน</th></tr></thead>
    <tbody>{rows.length===0?<tr><td colSpan={4} className="muted">ไม่มีรายการตามตัวกรองนี้</td></tr>:rows.map(r=>{
-    const can=(canClear&&CLEARABLE.includes(r.status))||retryOk(r);
+    const can=(canClear&&CLEARABLE.includes(r.status))||retryOk(r)||resolvable(r);
     return <tr key={r.id}>
      <td><input type="checkbox" aria-label={`เลือกงาน ${r.id.slice(0,8)}`} disabled={busy||!can} checked={selected.includes(r.id)} onChange={()=>toggle(r.id)}/></td>
      <td>{r.kind}</td>
      <td><span className={'badge '+statusTone(r.status)}>{STATUS_LABEL[r.status]??r.status}</span></td>
      <td><code>{r.id.slice(0,8)}…</code></td></tr>;})}</tbody>
   </table></div>
-  <dialog ref={dialog} aria-labelledby="queue-clear-title" onClose={()=>setBusy(false)}>
+  <dialog ref={dialog} className="p2-dialog" aria-labelledby="queue-clear-title" onClose={()=>setBusy(false)}>
    <div className="dialog-header"><h2 id="queue-clear-title">ยืนยันขอเคลียร์ {count} รายการ</h2></div>
    <p>ระบบบันทึกคำขอเท่านั้น Worker จะตรวจแต่ละรายการ:</p>
    <ul>
@@ -65,6 +72,19 @@ export function WorkerQueueActions({scope,rows,counts}:{scope:'OUTBOX'|'ARCHIVE'
    <div className="dialog-actions">
     <button type="button" className="button" disabled={busy||count===0} onClick={()=>void confirm()}>ยืนยันขอเคลียร์</button>
     <button type="button" className="button secondary" onClick={()=>dialog.current?.close()}>ยกเลิก</button>
+   </div>
+  </dialog>
+  <dialog ref={resolveDialog} className="p2-dialog" aria-labelledby="queue-resolve-title" onClose={()=>setBusy(false)}>
+   <div className="dialog-header"><h2 id="queue-resolve-title">ปิดงานที่ตรวจแล้ว {resolveSel.length} รายการ</h2></div>
+   <p>ใช้กับงานที่ “ต้องตรวจสอบปลายทาง” หลังจากตรวจกับ HIS แล้วเท่านั้น</p>
+   <ul>
+    <li>งานจะเปลี่ยนเป็น “ปิดแล้ว (ตรวจแล้ว)” และ Worker จะไม่ทำงานนี้อีก</li>
+    <li>ไฟล์ที่ส่งไป HIS แล้ว ผลตรวจ และใบรับ ไม่ถูกแก้หรือลบ</li>
+    <li>บันทึกชื่อผู้ปิดและเวลาใน Audit Log</li>
+   </ul>
+   <div className="dialog-actions">
+    <button type="button" className="button" disabled={busy||resolveSel.length===0} onClick={()=>void resolve()}>ยืนยันปิดงาน</button>
+    <button type="button" className="button secondary" onClick={()=>resolveDialog.current?.close()}>ยกเลิก</button>
    </div>
   </dialog>
   {clearable.length===0&&rows.length>0&&<p className="help">ไม่มีรายการในหน้านี้ที่ขอเคลียร์ได้</p>}

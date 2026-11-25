@@ -4,6 +4,7 @@ import {settingsError} from '../../../../server/settings-errors';
 import {withTransaction} from '../../../../../packages/db/connection';
 import {requestWorkerQueueClear} from '../../../../../packages/jobs/queue-clear';
 import {requestWorkerQueueRetry} from '../../../../../packages/jobs/queue-retry';
+import {resolveCheckedOutboxJobs} from '../../../../../packages/jobs/queue-resolve';
 import {retryFailedArchive} from '../../../../../packages/results/archive-settings';
 import {requestHisRetry} from '../../../../../packages/settings/his-monitoring';
 import {z} from 'zod';
@@ -23,6 +24,8 @@ export async function POST(request:NextRequest){
     for(const id of selected.ids)await retryFailedArchive(db,user,id);
     return {requested:selected.ids.length,alreadyRequested:0,unknown:0};
    }
+   // Owner 2026-11-25 "ปิดงานที่ตรวจแล้ว": only a HIS outbox job in "ต้องตรวจสอบปลายทาง", after an Administrator checked it.
+   if(typeof input==='object'&&input!==null&&(input as {action?:unknown}).action==='RESOLVE_SELECTED')return resolveCheckedOutboxJobs(db,user,input);
    return requestWorkerQueueClear(db,user,input);
   });
   return NextResponse.json(result,{headers:{'Cache-Control':'no-store'}});

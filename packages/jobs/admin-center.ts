@@ -13,6 +13,7 @@ function admin(user:Principal){
  * records, so it is shown as RECONCILIATION_REQUIRED instead of being guessed.
  */
 export const OUTBOX_STATUS_SQL=`CASE
+  WHEN EXISTS(SELECT 1 FROM worker_queue_resolution z WHERE z.job_id=j.id) THEN 'RESOLVED'
   WHEN o.outcome='RECONCILIATION_REQUIRED' THEN 'RECONCILIATION_REQUIRED'
   WHEN EXISTS(SELECT 1 FROM integration_job_receipt r WHERE r.outbox_id=j.id) THEN 'COMPLETED'
   WHEN j.state='Cancelled' THEN 'CANCELLED'
@@ -55,7 +56,7 @@ export type QueueRow={id:string;kind:string;status:string;created_at:Date;attemp
 
 const OPEN_OUTBOX=`(SELECT COALESCE(array_agg(x.id),'{}') FROM (SELECT id FROM job_outbox WHERE state='Dispatched'
   AND NOT EXISTS(SELECT 1 FROM integration_job_receipt r WHERE r.outbox_id=job_outbox.id) ORDER BY created_at DESC LIMIT 5000) x)`;
-const FROM={
+export const FROM={
  OUTBOX:`FROM job_outbox j
   LEFT JOIN worker_queue_clear_request q ON q.scope='OUTBOX' AND q.job_id=j.id
   LEFT JOIN worker_queue_clear_outcome o ON o.request_id=q.id
@@ -69,7 +70,7 @@ const FROM={
 } as const;
 const STATUS={OUTBOX:OUTBOX_STATUS_SQL,ARCHIVE:ARCHIVE_STATUS_SQL,HIS_TRANSFER:TRANSFER_STATUS_SQL} as const;
 /** Owner 2026-11-10: finished work is only interesting for a day; anything that still needs attention is always listed. */
-const RECENT=(s:keyof typeof STATUS)=>`(${STATUS[s]}<>'COMPLETED' OR j.created_at>now()-interval '24 hours')`;
+const RECENT=(s:keyof typeof STATUS)=>`(${STATUS[s]} NOT IN ('COMPLETED','RESOLVED') OR j.created_at>now()-interval '24 hours')`;
 const KIND={OUTBOX:'j.kind',ARCHIVE:"'nas_pdf_archive'",HIS_TRANSFER:"'his_transfer'"} as const;
 const ATTEMPTS={OUTBOX:'NULL::int',ARCHIVE:'j.attempts',HIS_TRANSFER:'j.attempts'} as const;
 const ERROR={OUTBOX:'NULL::text',ARCHIVE:'j.last_error',HIS_TRANSFER:'j.last_code'} as const;

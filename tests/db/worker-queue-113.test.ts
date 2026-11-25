@@ -139,3 +139,30 @@ it('archive: a live claim is asked to stop, an expired claim or uncertain public
  expect(await archive(uncertain)).toMatchObject({state:'FAILED'});
  expect(await outcome(uncertain)).toMatchObject({outcome:'RECONCILIATION_REQUIRED',detail:'PUBLICATION_UNCERTAIN'});
 });
+
+// Owner 2026-11-25 "ปิดงานที่ตรวจแล้ว": an Administrator closes a HIS outbox job in "ต้องตรวจสอบปลายทาง" after checking it.
+it('an Administrator closes a checked "ต้องตรวจสอบปลายทาง" job; other statuses and non-admins are refused',async()=>{
+ const {resolveCheckedOutboxJobs}=await import('../../packages/jobs/queue-resolve');
+ const gone=await outbox('Dispatched'),pending=await outbox('Pending'),done=await outbox('Dispatched',true);
+ await db.query("INSERT INTO worker_queue_clear_request(scope,job_id,requested_by,state_before) VALUES('OUTBOX',$1,$2,'Dispatched')",[gone,admin.id]);
+ await applyQueueClearRequests(db,fakeBoss({}));
+ expect(await outcome(gone)).toMatchObject({outcome:'RECONCILIATION_REQUIRED',detail:'QUEUE_JOB_NOT_FOUND'});
+ const backlog=async()=>Number((await db.query<{n:string}>("SELECT count(*)::text n FROM job_outbox o LEFT JOIN integration_job_receipt r ON r.outbox_id=o.id WHERE o.state<>'Cancelled' AND r.outbox_id IS NULL AND o.id=ANY($1::uuid[])",[[gone,pending]])).rows[0].n);
+ expect(await backlog()).toBe(2);
+ await expect(resolveCheckedOutboxJobs(db,staff,{action:'RESOLVE_SELECTED',scope:'OUTBOX',ids:[gone]})).rejects.toThrow();
+ // Only the "ต้องตรวจสอบปลายทาง" job is closed; a pending and a completed job are left as they are.
+ expect(await resolveCheckedOutboxJobs(db,admin,{action:'RESOLVE_SELECTED',scope:'OUTBOX',ids:[gone,pending,done]})).toEqual({resolved:1,notApplicable:2});
+ expect(await stateOf(gone)).toMatchObject({state:'Cancelled',cancel_epoch:1});
+ expect(await stateOf(pending)).toMatchObject({state:'Pending',cancel_epoch:0});
+ const rows=(await readWorkerQueueOverview(db,admin,{scope:'OUTBOX',pageSize:100})).rows;
+ expect(rows.find(r=>r.id===gone)?.status).toBe('RESOLVED');
+ expect(rows.find(r=>r.id===pending)?.status).toBe('PENDING');
+ expect(rows.find(r=>r.id===done)?.status).toBe('COMPLETED');
+ expect(await backlog()).toBe(1);
+ expect((await db.query<{resolved_by:string;status_before:string}>('SELECT resolved_by,status_before FROM worker_queue_resolution WHERE job_id=$1',[gone])).rows[0]).toEqual({resolved_by:admin.id,status_before:'RECONCILIATION_REQUIRED'});
+ expect((await db.query("SELECT 1 FROM audit_chain WHERE action='WORKER_QUEUE_JOB_RESOLVED'")).rows.length).toBeGreaterThan(0);
+ // Closing again changes nothing; the record cannot be edited or removed.
+ expect(await resolveCheckedOutboxJobs(db,admin,{action:'RESOLVE_SELECTED',scope:'OUTBOX',ids:[gone]})).toEqual({resolved:0,notApplicable:1});
+ await expect(db.query('DELETE FROM worker_queue_resolution WHERE job_id=$1',[gone])).rejects.toThrow();
+ await expect(resolveCheckedOutboxJobs(db,admin,{action:'RESOLVE_SELECTED',scope:'ARCHIVE',ids:[gone]})).rejects.toThrow();
+});

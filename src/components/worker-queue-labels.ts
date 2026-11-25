@@ -1,7 +1,7 @@
 export const STATUS_LABEL:Record<string,string>={
  PENDING:'รอดำเนินการ',DISPATCHED:'ส่งเข้าคิวแล้ว',RUNNING:'กำลังทำงาน',RETRY:'รอลองใหม่',FAILED:'ล้มเหลว',COMPLETED:'เสร็จสิ้น',
  CANCEL_REQUESTED:'ขอเคลียร์แล้ว รอ Worker',RETRY_REQUESTED:'ขอ Retry แล้ว รอ Worker',CANCELLED:'ยกเลิกแล้ว',
- AWAITING_HIS:'ส่งแล้ว รอ HIS ยืนยัน',RECONCILIATION_REQUIRED:'ต้องตรวจสอบปลายทาง'
+ AWAITING_HIS:'ส่งแล้ว รอ HIS ยืนยัน',RECONCILIATION_REQUIRED:'ต้องตรวจสอบปลายทาง',RESOLVED:'ปิดแล้ว (ตรวจแล้ว)'
 };
 /** Statuses an Admin can ask to clear. A completed, cancelled, already requested or uncertain item is never offered. */
 export const CLEARABLE=['PENDING','DISPATCHED','RUNNING','RETRY','FAILED'];
