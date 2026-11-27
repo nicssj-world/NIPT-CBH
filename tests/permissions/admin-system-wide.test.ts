@@ -31,7 +31,8 @@ describe("APP_ADMIN system-wide workspace access",()=>{
   const lab:Principal={...admin,id:"lab",roles:["LAB_STAFF"]};
   expect(authorize(anc,"worksheet.read",{},"read")).toBe(false);
   expect(authorize(lab,"settings.read",{},"read")).toBe(false);
-  expect(authorize(lab,"observation.verify",{},"approve")).toBe(false);
+  expect(authorize(lab,"user.manage",{},"write")).toBe(false);   // Owner 2026-11-27: LAB_STAFF holds the LAB_CERTIFIER column (e.g. observation.verify), never Admin-only actions
+  expect(authorize(lab,"report.template.manage",{},"write")).toBe(false);
  });
 
  it("keeps a separately assigned certifier identity usable",()=>{

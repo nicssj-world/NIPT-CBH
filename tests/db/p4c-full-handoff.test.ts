@@ -22,7 +22,7 @@ it('full stored 47-member source → explicit UNVERIFIED fixture mapping → sec
   const paperCopy=await tx(db,t=>docs5.printF5(t,u.staff,{documentId:prework.id,kind:'WORKING_COPY',reason:'synthetic QC4 paper copy'},deps5));
   await call(s.transition,{transition:'DNB_START',reason:'จำลอง เริ่ม DNB 47 สมาชิก'});await call(s.transition,{transition:'DNB_END',reason:'จำลอง จบ DNB 47 สมาชิก'});
   for(const field of ['STD1','STD2','QC3'])await call(s.recordObservation,{field,value:'20',unit:'ng/uL',source:'DIRECT_ENTRY'});
-  const qc3=await s.observations(db,dnbId);await expect(call(s.reviewObservation,{observationId:qc3[0].id,result:'Confirmed',note:'จำลอง ปฏิเสธตรวจเอง'})).rejects.toThrow('FORBIDDEN');
+  const qc3=await s.observations(db,dnbId);await expect(call(s.reviewObservation,{observationId:qc3[0].id,result:'Confirmed',note:'จำลอง ปฏิเสธตรวจเอง'},u.auditor)).rejects.toThrow('FORBIDDEN'); // Owner 2026-11-27: LAB_STAFF reviews as a certifier; a role without the right is refused
   for(const o of qc3)await call(s.reviewObservation,{observationId:o.id,result:'Confirmed',note:'จำลอง ทวนสอบค่า DNB'},u.certifier);
   await call(s.decideQc3,{decision:'SyntheticReviewed',criteriaVersion:s.QC3_CRITERIA,reason:'จำลอง QC3 ไม่มี Clinical Pass'},u.certifier);
   const pool=await s.storedPool(db,f.batchId,f.poolSnapshotId),source=s.orderedSourceMembers(pool.snapshot);
