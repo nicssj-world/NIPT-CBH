@@ -14,7 +14,7 @@ it('same normal-structure external No Call PDF imports, identity-links, certifie
  const f=await noCallFixture();try{
   expect((await f.db.query('SELECT * FROM result_release')).rows).toHaveLength(0);expect((await f.db.query("SELECT * FROM job_outbox WHERE kind='result_release_completed'")).rows).toHaveLength(0);
   const bytes=syntheticReportPdf(f.spec),report=await importUnlinked(f.rf,bytes);await f.link(report.versionId);
-  await expect(f.accept(report.versionId,f.u.staff)).rejects.toThrow('FORBIDDEN');
+  await expect(f.accept(report.versionId,f.u.auditor)).rejects.toThrow('FORBIDDEN'); // Owner 2026-11-27: LAB_STAFF acts as a certifier; a role without the right is refused
   const released=await f.accept(report.versionId);expect(released.outcome).toBe('CertifiedReleased');
   const release=(await f.db.query<{id:string;epoch:number}>('SELECT id,epoch FROM result_release WHERE version_id=$1',[report.versionId])).rows[0];
   expect((await f.db.query<{eligible:boolean}>('SELECT p6_release_eligible($1,$2) eligible',[release.id,release.epoch])).rows[0].eligible).toBe(true);

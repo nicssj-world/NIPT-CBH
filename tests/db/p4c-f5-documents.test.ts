@@ -26,7 +26,7 @@ it('F5 actor-bound current preview, immutable originals/derivatives, source Stop
   expect((await db.query("SELECT actor_id FROM p4c_dnb_event WHERE dnb_id=$1 AND event_type='STOP_USE'",[dnbId])).rows[0]).toEqual({actor_id:null});
   const inactive=await tx(db,t=>d.readF5(t,u.staff,doc.id!,deps));expect(inactive.status).toBe('STOP_USE');expect(inactive.bytes).toEqual(original.bytes);
   await expect(tx(db,t=>d.printF5(t,u.staff,{documentId:doc.id,kind:'WORKING_COPY',reason:'จำลอง ห้ามสำเนาเก่า'},deps))).rejects.toThrow('WORKING_COPY_NOT_USABLE');
-  await expect(tx(db,t=>d.printF5(t,u.staff,{documentId:doc.id,kind:'ORIGINAL_REPRINT',reason:'จำลอง ไม่มีสิทธิ์ฉบับเก่า'},deps))).rejects.toThrow('FORBIDDEN');
+  await expect(tx(db,t=>d.printF5(t,u.anc,{documentId:doc.id,kind:'ORIGINAL_REPRINT',reason:'จำลอง ไม่มีสิทธิ์ฉบับเก่า'},deps))).rejects.toThrow('FORBIDDEN'); // Owner 2026-11-27: LAB_STAFF acts as a certifier; a role without the right is refused
   const status=await tx(db,t=>d.printF5(t,u.certifier,{documentId:doc.id,kind:'STATUS_MARKED',reason:'จำลอง อ่านหลักฐานระงับใช้'},deps));expect(status.sha256).not.toBe(original.sha256);expect(rendered.at(-1)?.copy?.status).toBe('STOP_USE');
   await tx(db,async t=>s.recallCopy(t,u.certifier,{batchId:f.batchId,dnbId,expectedVersion:await version(t,f.batchId),requestId:randomUUID(),copyId:copy.id,reason:'จำลอง เรียกคืนสำเนา F5'}));
   expect((await db.query("SELECT 1 FROM p4c_dnb_event WHERE dnb_id=$1 AND event_type='RECALL'",[dnbId])).rows).toHaveLength(1);

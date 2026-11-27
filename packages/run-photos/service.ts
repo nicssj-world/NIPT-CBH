@@ -1,7 +1,7 @@
 import {z} from 'zod';
 import type {Queryable} from '../db/connection';
 import {recordPhiAccess} from '../db/phi-access';
-import {authorize} from '../security/policy';
+import {authorize,labCertifierEquivalent} from '../security/policy';
 import {LabError,assertSession,audit,need,reasonText,uuid,caseVisible,type Staff} from '../lab/core';
 import {isoDate} from '../domain/thai-date';
 import {sniffImage,imageSize,safeOriginalName,type PhotoMediaType} from './image';
@@ -143,8 +143,8 @@ async function lockedPhoto(db:Queryable,id:string){
  const p=(await db.query<PhotoRow>(`SELECT ${PHOTO_COLS} FROM run_photo p WHERE p.id=$1 FOR UPDATE`,[uuid.parse(id)])).rows[0];
  if(!p)throw new LabError('NOT_FOUND',404);return p;
 }
-/** LAB_STAFF correct their own uploads; LAB_CERTIFIER and APP_ADMIN may correct any upload. */
-export const mayManage=(user:Staff,p:{uploaded_by:string})=>authorize(user,'photo.manage',{},'write')&&(p.uploaded_by===user.id||user.roles.some(r=>r==='LAB_CERTIFIER'||r==='APP_ADMIN'));
+/** LAB_STAFF / LAB_CERTIFIER and APP_ADMIN may correct any upload (Owner 2026-11-27: LAB_STAFF does what LAB_CERTIFIER does). */
+export const mayManage=(user:Staff,p:{uploaded_by:string})=>authorize(user,'photo.manage',{},'write')&&(p.uploaded_by===user.id||labCertifierEquivalent(user.roles)||user.roles.includes('APP_ADMIN'));
 function manageable(user:Staff,p:PhotoRow,expected:number){
  if(!mayManage(user,p))throw new LabError('FORBIDDEN',403);
  if(p.state!=='Active')throw new LabError('RUN_PHOTO_RETRACTED',409);

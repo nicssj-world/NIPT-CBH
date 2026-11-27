@@ -1,4 +1,4 @@
-import {it,expect,describe,beforeAll,afterAll} from 'vitest';
+import {it,expect,describe,beforeAll,afterAll,vi} from 'vitest';
 import {mkdtemp,rm} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,7 +9,7 @@ import {syntheticSignaturePng} from '../helpers/signature-png';
 import {bootstrapAdministrators} from '../../packages/admin/bootstrap';
 import {adminCommand,changePassword} from '../../packages/admin/service';
 import {submitSignerProfile,decideSignerProfile,grantDelegation,listSigners,signerAuthority} from '../../packages/readygen/signers';
-import {authorize,type Principal} from '../../packages/security/policy';
+import {authorize,ROLES,type Principal} from '../../packages/security/policy';
 import {FileStore} from '../../packages/storage';
 
 // Owner decision 2026-11-01: Production starts with ONE APP_ADMIN. The administrator selects Reported By and Approved By in one
@@ -52,7 +52,8 @@ describe('single APP_ADMIN with separate Reported By / Approved By personnel',()
    await run(()=>decideSignerProfile(db,admin,{profileId:prof.id,decision:'VERIFY',layoutReviewed:true,reason:'SYNTHETIC identity and licence checked'}));
   }
   // Owner 2026-11-10: verified is enough for the administrator; no delegation from the person is needed (basis ADMIN_OPERATOR, operator recorded)
-  expect((await run(()=>listSigners(db,admin,{role:'APPROVED',q:''}))).map(s=>[s.legalName,s.usable,s.basis])).toEqual([['Synthetic Approver',true,'ADMIN_OPERATOR']]);
+  // Owner 2026-11-27: LAB_STAFF may be named Approved by as a LAB_CERTIFIER may.
+  expect((await run(()=>listSigners(db,admin,{role:'APPROVED',q:''}))).map(s=>[s.legalName,s.usable,s.basis])).toEqual([['Synthetic Approver',true,'ADMIN_OPERATOR'],['Synthetic Reporter',true,'ADMIN_OPERATOR']]);
   expect(await run(()=>signerAuthority(db,admin,approver.id,'APPROVED'))).toMatchObject({basis:'ADMIN_OPERATOR',delegationId:null,operatorId:admin.id,role:'APPROVED'});
   // Owner 2026-11-10: the APP_ADMIN may be named too, but only with their own verified licence + signature profile (none yet here)
   await expect(run(()=>signerAuthority(db,admin,admin.id,'APPROVED'))).rejects.toMatchObject({code:'SIGNER_PROFILE_NOT_VERIFIED'});
@@ -67,8 +68,8 @@ describe('single APP_ADMIN with separate Reported By / Approved By personnel',()
   expect(approved).toMatchObject({basis:'STANDING_DELEGATION',operatorId:admin.id,role:'APPROVED',profile:{user_id:approver.id,legal_name:'Synthetic Approver',mt_license_no:'99002'}});
   expect(reported.delegationId).not.toBe(approved.delegationId);
   expect((await run(()=>listSigners(db,session,{role:'REPORTED',q:''}))).find(s=>s.userId===reporter.id)).toMatchObject({usable:true,basis:'STANDING_DELEGATION'});
-  // a reporter-only delegation does not let the administrator name that person as Approved By
-  await expect(run(()=>signerAuthority(db,session,reporter.id,'APPROVED'))).rejects.toMatchObject({code:'SIGNER_NOT_ELIGIBLE'});
+  // a reporter-only delegation is not an Approved By delegation; the administrator still names that LAB_STAFF as Approved By as operator (Owner 2026-11-27)
+  expect(await run(()=>signerAuthority(db,session,reporter.id,'APPROVED'))).toMatchObject({basis:'ADMIN_OPERATOR',delegationId:null});
  });
 
  it('Owner 2026-11-10: the administrator with their own verified licence and signature profile may be named as Reported by and Approved by (self basis)',async()=>{
@@ -80,6 +81,34 @@ describe('single APP_ADMIN with separate Reported By / Approved By personnel',()
    expect(a).toMatchObject({basis:'SELF',operatorId:admin.id,role,profile:{user_id:admin.id,legal_name:'Synthetic Administrator',mt_license_no:'99003'}});
    expect((await run(()=>listSigners(db,admin,{role,q:''}))).find(s=>s.userId===admin.id)).toMatchObject({usable:true});
   }
+ });
+
+ it('Owner 2026-11-27: LAB_STAFF holds every right of LAB_CERTIFIER',()=>{
+  const staff:Principal={id:'synthetic-staff',roles:['LAB_STAFF'],unitIds:[],permissions:[]},cert:Principal={...staff,roles:['LAB_CERTIFIER']};
+  vi.stubEnv('NIPT_MODE','operational');vi.stubEnv('APP_ORIGIN','https://nipt.test');
+  try{
+   for(const action of ['result.certify','result.release.check','result.revise','result.link.manual','qc.accept','batch.unlock','batch.amend','intake.link','his.conflict.resolve','consent.withdraw.decide','history.withdraw'])
+    for(const op of ['read','write','propose','approve'] as const)if(authorize(cert,action,{},op))expect(authorize(staff,action,{},op),action+' '+op).toBe(true);
+   expect(authorize(staff,'result.certify')).toBe(true);expect(authorize(staff,'result.release.check')).toBe(true);
+   expect(ROLES).toContain('LAB_CERTIFIER');
+  }finally{vi.unstubAllEnvs();}
+ });
+
+ it('Owner 2026-11-27: anyone who may issue results applies the verified signature of the administrator without a delegation, of nobody else',async()=>{
+  vi.stubEnv('NIPT_MODE','operational');vi.stubEnv('APP_ORIGIN','https://nipt.test');
+  try{
+   // the reporter (LAB_STAFF) has no delegation from the administrator or from the approver
+   const list=await run(()=>listSigners(db,reporter,{role:'APPROVED',q:''}));
+   expect(list.find(s=>s.userId===admin.id)).toMatchObject({usable:true,basis:'ADMIN_SIGNATURE'});
+   expect(list.find(s=>s.userId===approver.id)).toMatchObject({usable:false,basis:null});
+   expect(list.find(s=>s.userId===reporter.id)).toMatchObject({usable:true,basis:'SELF'});
+   for(const role of ['REPORTED','APPROVED'] as const)
+    expect(await run(()=>signerAuthority(db,reporter,admin.id,role))).toMatchObject({basis:'ADMIN_SIGNATURE',delegationId:null,authorityReference:'ADMIN_SIGNATURE_OWNER_DECISION_2026-11-27',operatorId:reporter.id,role,profile:{user_id:admin.id}});
+   await expect(run(()=>signerAuthority(db,reporter,approver.id,'APPROVED'))).rejects.toMatchObject({code:'SIGNATURE_DELEGATION_REQUIRED'});
+   // a role that may not issue results cannot apply it
+   const auditor={id:reporter.id,roles:['AUDITOR'],unitIds:[],permissions:[]} as Principal;
+   await expect(run(()=>signerAuthority(db,auditor,admin.id,'APPROVED'))).rejects.toMatchObject({code:'SIGNATURE_DELEGATION_REQUIRED'});
+  }finally{vi.unstubAllEnvs();}
  });
 
  it('the administrator may approve its own work: nobody needs a second name (owner 2026-11-03)',()=>{

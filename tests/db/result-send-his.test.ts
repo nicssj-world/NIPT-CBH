@@ -102,6 +102,21 @@ it('item with no review and no QC5: reviewConfirmed false → ERROR with nothing
  }finally{vi.unstubAllEnvs();await f.close();}
 },180000);
 
+// Owner 2026-11-27: LAB_STAFF does everything LAB_CERTIFIER does. A LAB_STAFF send writes the review, the QC5 and the release under
+// its own name, and the database guards (migration 234) accept it as they accept a certifier.
+it('LAB_STAFF sends HIS in full: review, QC5 and release are recorded under the staff member and the database accepts them',async()=>{
+ const f=await task3Fixture();try{
+  const p=await pending(f,0);await unreview(f,p.id);
+  // legacy paper evidence is reviewed by the person who certifies (same rule as for a certifier)
+  await f.run(t=>reviewBenchForResult(t,f.u.staff,p.c.attemptId,{revision:1,measurementsReviewed:true,reason:'SYNTHETIC staff reviews the legacy evidence'}));
+  const r=await f.run(async t=>sendToHis(t,f.u.staff,{idempotencyKey:randomUUID(),reviewConfirmed:true,abnormalAcknowledged:false,items:[{versionId:p.id,expectedRowVersion:await rowVersion(f,p.id)}]}));
+  expect(r.items[0]).toEqual({versionId:p.id,outcome:'CertifiedReleased'});
+  expect(await count(f,'SELECT 1 FROM result_review WHERE version_id=$1 AND reviewer_id=$2',[p.id,f.u.staff.id])).toBe(1);
+  expect(await count(f,'SELECT 1 FROM result_qc5_review WHERE version_id=$1 AND reviewer_id=$2',[p.id,f.u.staff.id])).toBe(1);
+  expect(await count(f,'SELECT 1 FROM result_release WHERE version_id=$1 AND certified_by=$2',[p.id,f.u.staff.id])).toBe(1);
+  expect(await count(f,OUTBOX)).toBe(1);
+ }finally{vi.unstubAllEnvs();await f.close();}
+},180000);
 it('an item that fails AFTER writing (review + QC5 inserted, then QC5 gate refuses) is rolled back to its savepoint while the sibling in the same batch is released',async()=>{
  const f=await task3Fixture();try{
   const a=await pending(f,0),b=await pending(f,1);await unreview(f,a.id);await unreview(f,b.id);
@@ -188,8 +203,8 @@ it('rejects invalid input, duplicate versionIds and users without certify permis
   await expect(f.run(t=>sendToHis(t,f.admin,{...base,items:Array.from({length:101},()=>item)}))).rejects.toThrow();
   await expect(f.run(t=>sendToHis(t,f.admin,{...base,items:[item,item]}))).rejects.toThrow('DUPLICATE_ITEMS');
   await expect(f.run(t=>sendToHis(t,f.u.anc,{...base,items:[item]}))).rejects.toThrow();
-  // LAB_STAFF holds result.review but not result.certify.
-  await expect(f.run(t=>sendToHis(t,f.u.staff,{...base,items:[item]}))).rejects.toThrow();
+  // Auditor holds neither result.certify nor result.release.check (Owner 2026-11-27: LAB_STAFF now holds both, as a certifier).
+  await expect(f.run(t=>sendToHis(t,f.u.auditor,{...base,items:[item]}))).rejects.toThrow();
   // Outside operational mode result.certify is denied by policy (the OPERATIONAL_MODE_REQUIRED guard behind it is defence in depth).
   vi.stubEnv('NIPT_MODE','synthetic');
   await expect(f.run(t=>sendToHis(t,f.admin,{...base,items:[item]}))).rejects.toThrow('FORBIDDEN');

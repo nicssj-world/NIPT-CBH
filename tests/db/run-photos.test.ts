@@ -105,10 +105,10 @@ describe('upload, thumbnails, provenance and duplicates',()=>{
 });
 
 describe('corrections with permissions and an append-only audit trail',()=>{
- it('only the uploader or a certifier edits, moves or retracts; reasons are required and history is kept',async()=>{
+ it('only the uploader or a certifier (Owner 2026-11-27: any LAB_STAFF) edits, moves or retracts; reasons are required and history is kept',async()=>{
   const a=await runWith(1);const p=await uploadPhoto(q(),u.staff,a.batchId,{caption:'ผิด'});
   const edit={expectedRowVersion:1,caption:'Task 1 คนที่ 1–10',sampleFrom:1,sampleTo:10,takenOn:'2026-10-12'};
-  expect(await code(run(t=>svc.editPhoto(t,u.staff2,p.photoId,edit)))).toBe('FORBIDDEN');
+  expect(await code(run(t=>svc.editPhoto(t,u.anc,p.photoId,edit)))).toBe('FORBIDDEN');
   expect(await code(run(t=>svc.editPhoto(t,u.auditor,p.photoId,edit)))).toBe('FORBIDDEN');
   expect(await run(t=>svc.editPhoto(t,u.staff,p.photoId,edit))).toMatchObject({rowVersion:2,changed:true});
   expect(await code(run(t=>svc.editPhoto(t,u.staff,p.photoId,edit)))).toBe('VERSION_CONFLICT');

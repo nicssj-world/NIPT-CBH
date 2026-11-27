@@ -30,9 +30,11 @@ describe('P5 gates, certification attempt and release HOLD (§5.9.2, §11.5, AT-
   expect((await f.db.query("SELECT count(*)::int n FROM result_gate_evaluation WHERE purpose='CERTIFY_ATTEMPT'")).rows[0]).toEqual({n:1});
   expect((await f.db.query('SELECT count(*)::int n FROM result_release')).rows[0]).toEqual({n:0});
  });
- it('only an active LAB_CERTIFIER may attempt certification; staff and ANC are refused (AT-RES-06)',async()=>{
+ // Owner 2026-11-27: LAB_STAFF does what LAB_CERTIFIER does, so staff reach the same gates as a certifier; ANC and Auditor are still refused.
+ it('a LAB_CERTIFIER or LAB_STAFF may attempt certification; ANC and Auditor are refused (AT-RES-06)',async()=>{
   const c=await receivedCase(f);const {versionId}=await linked(c);
-  await expect(certify(versionId,undefined,f.u.staff)).rejects.toThrow('FORBIDDEN');await expect(certify(versionId,undefined,f.u.anc)).rejects.toThrow('FORBIDDEN');
+  await expect(certify(versionId,undefined,f.u.anc)).rejects.toThrow('FORBIDDEN');await expect(certify(versionId,undefined,f.u.auditor)).rejects.toThrow('FORBIDDEN');
+  expect((await certify(versionId,undefined,f.u.staff)).outcome).toBe('BLOCKED');
  });
  it('the database refuses any release or CertifiedReleased state while AL-5 is open',async()=>{
   const c=await receivedCase(f);const {versionId}=await linked(c);
@@ -73,8 +75,9 @@ describe('P5 revision, unlink and void (§11.6)',()=>{
  it('unlink returns to Unlinked with history; void withdraws only an unlinked import and needs result.revise',async()=>{
   const c=await receivedCase(f);const {versionId}=await importReport(f,spec(c));
   let v=await rv(versionId);await f.run(t=>svc.unlinkVersion(t,f.u.certifier,{versionId,reason:'จำลอง เชื่อมผิดรอบ',expectedRowVersion:v}));expect((await rowVersion(f,versionId)).state).toBe('Unlinked');
-  v=await rv(versionId);await expect(f.run(t=>svc.voidVersion(t,f.u.staff,{versionId,reason:'จำลอง ยกเลิกรายการนำเข้า',expectedRowVersion:v}))).rejects.toThrow('FORBIDDEN');
-  await f.run(t=>svc.voidVersion(t,f.u.certifier,{versionId,reason:'จำลอง ยกเลิกรายการนำเข้า',expectedRowVersion:v}));expect((await rowVersion(f,versionId)).state).toBe('Voided');
+  v=await rv(versionId);await expect(f.run(t=>svc.voidVersion(t,f.u.auditor,{versionId,reason:'จำลอง ยกเลิกรายการนำเข้า',expectedRowVersion:v}))).rejects.toThrow('FORBIDDEN');
+  // Owner 2026-11-27: LAB_STAFF voids as a certifier does.
+  await f.run(t=>svc.voidVersion(t,f.u.staff,{versionId,reason:'จำลอง ยกเลิกรายการนำเข้า',expectedRowVersion:v}));expect((await rowVersion(f,versionId)).state).toBe('Voided');
   expect((await f.db.query<{event:string}>('SELECT event FROM result_link_event WHERE version_id=$1 ORDER BY sequence',[versionId])).rows.map(r=>r.event)).toEqual(['AUTO_LINKED','UNLINKED']);
  });
  it('a stale page (old row version) cannot change the version',async()=>{

@@ -227,7 +227,7 @@ describe('Pre-work → execution → reconciliation → Completed → QC1 (§12.
   expect((await db.query<{event_time:Date|null}>("SELECT event_time FROM lab_observation WHERE field_id='F2-05'")).rows[0].event_time).toBeNull();
   await run(async t=>batch.endExecution(t,u.staff,{batchId:b.batchId,expectedVersion:await V(),sheetNumber:1}));
   await expect(run(async t=>rec.verifyExecution(t,u.certifier,{batchId:b.batchId,expectedVersion:await V(),sheetNumber:1}))).rejects.toMatchObject({code:'EXECUTION_EVIDENCE_INCOMPLETE'});
-  await expect(run(t=>rec.reviewObservations(t,u.staff2,{observationIds:ids,result:'Confirmed'}))).rejects.toMatchObject({code:'FORBIDDEN'});
+  await expect(run(t=>rec.reviewObservations(t,u.auditor,{observationIds:ids,result:'Confirmed'}))).rejects.toMatchObject({code:'FORBIDDEN'}); // Owner 2026-11-27: LAB_STAFF acts as a certifier; a role without the right is refused
   await run(t=>rec.reviewObservations(t,u.certifier,{observationIds:ids,result:'Confirmed'}));
   await run(async t=>rec.verifyExecution(t,u.certifier,{batchId:b.batchId,expectedVersion:await V(),sheetNumber:1}));
   await run(async t=>rec.issueCompleted(t,u.staff,{batchId:b.batchId,expectedVersion:await V(),sheetNumber:1},docs.deps));
@@ -242,7 +242,7 @@ describe('Pre-work → execution → reconciliation → Completed → QC1 (§12.
   await addQc({slot:3,fieldId:'F3-03',value:{value:'12.0',unit:'ng/uL'}});await addQc({slot:1,fieldId:'F3-03',value:{value:'8.1',unit:'ng/uL'}});
   await addQc({fieldId:'F3-05',item:'STD1',value:{value:'0.1',unit:'ng/uL'}});await addQc({fieldId:'F3-05',item:'STD2',value:{value:'9.8',unit:'ng/uL'}});await addQc({fieldId:'F3-01',item:'OPERATOR',value:{text:'จำลอง ผู้วัด'}});
   expect((await db.query('SELECT count(*)::int n FROM attempt_stage_qc')).rows[0]).toEqual({n:0});
-  await expect(run(t=>rec.decideStageQc1(t,u.staff,{attemptId:attempts[0].id,decision:'Failed',reason:'จำลอง ต่ำกว่าเกณฑ์ที่เสนอ'}))).rejects.toMatchObject({code:'FORBIDDEN'});
+  await expect(run(t=>rec.decideStageQc1(t,u.auditor,{attemptId:attempts[0].id,decision:'Failed',reason:'จำลอง ต่ำกว่าเกณฑ์ที่เสนอ'}))).rejects.toMatchObject({code:'FORBIDDEN'}); // Owner 2026-11-27: LAB_STAFF decides as a certifier
   await expect(run(t=>rec.decideStageQc1(t,u.certifier,{attemptId:attempts[0].id,decision:'Failed',reason:'จำลอง ต่ำกว่าเกณฑ์ที่เสนอ'}))).rejects.toMatchObject({code:'STAGE_QC_REQUIRES_VERIFIED_VALUE'});
   await run(t=>rec.reviewObservations(t,u.certifier,{observationIds:qc,result:'Confirmed'}));
   await expect(run(async t=>rec.issueQcCompleted(t,u.staff,{batchId:b.batchId,expectedVersion:await V()},docs.deps))).rejects.toMatchObject({code:'QC1_RECORD_INCOMPLETE'});
@@ -266,7 +266,7 @@ describe('Pre-work → execution → reconciliation → Completed → QC1 (§12.
   const {b}=await readyBatch(1);await finalize(b.batchId);const V=()=>version(q(db),b.batchId);
   const pre=await run(async t=>rec.issuePreWork(t,u.staff,{batchId:b.batchId,expectedVersion:await V(),sheetNumber:1},docs.deps));
   const copy=await run(t=>rec.printDocument(t,u.staff,{documentId:pre.id,kind:'WORKING_COPY'},docs.deps));
-  await expect(run(async t=>batch.amendSheet(t,u.staff,{batchId:b.batchId,expectedVersion:await V(),sheetNumber:1,reason:'จำลอง แก้แผนก่อนเริ่ม'}))).rejects.toMatchObject({code:'FORBIDDEN'});
+  await expect(run(async t=>batch.amendSheet(t,u.auditor,{batchId:b.batchId,expectedVersion:await V(),sheetNumber:1,reason:'จำลอง แก้แผนก่อนเริ่ม'}))).rejects.toMatchObject({code:'FORBIDDEN'}); // Owner 2026-11-27: LAB_STAFF acts as a certifier; a role without the right is refused
   await expect(run(async t=>batch.amendSheet(t,u.certifier,{batchId:b.batchId,expectedVersion:await V(),sheetNumber:1,reason:'จำลอง ห้ามเปิดตำแหน่งที่ล็อก'}))).rejects.toMatchObject({code:'PLACEMENT_LOCKED'});
   const original=await run(t=>rec.readOriginal(t,u.staff,pre.id,docs.deps));
   const frozen=(await db.query('SELECT * FROM lab_placement_snapshot WHERE batch_id=$1',[b.batchId])).rows;
@@ -285,7 +285,7 @@ describe('Pre-work → execution → reconciliation → Completed → QC1 (§12.
   const b2=await run(t=>batch.createBatch(t,u.staff));expect(b2.runLabel).toMatch(/^Run001\//);
   await run(async t=>batch.assignToBatch(t,u.staff,{batchId:b2.batchId,expectedVersion:0,attemptIds:[(await attemptOf(t,cases[0].roundId)).id]}));
   await finalize(b2.batchId);
-  await expect(run(async t=>batch.cancelBatch(t,u.staff,{batchId:b2.batchId,expectedVersion:await version(t,b2.batchId),reason:'จำลอง ยกเลิกหลังล็อก'}))).rejects.toMatchObject({code:'FORBIDDEN'});
+  await expect(run(async t=>batch.cancelBatch(t,u.auditor,{batchId:b2.batchId,expectedVersion:await version(t,b2.batchId),reason:'จำลอง ยกเลิกหลังล็อก'}))).rejects.toMatchObject({code:'FORBIDDEN'}); // Owner 2026-11-27: LAB_STAFF acts as a certifier; a role without the right is refused
   await run(async t=>batch.cancelBatch(t,u.certifier,{batchId:b2.batchId,expectedVersion:await version(t,b2.batchId),reason:'จำลอง ยกเลิกหลังล็อก'}));
   expect(await attemptOf(q(db),cases[0].roundId)).toMatchObject({state:'Ready'});
   // The analysis milestone and printed identity remain; the same unexecuted attempt can be placed again.

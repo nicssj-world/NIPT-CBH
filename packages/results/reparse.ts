@@ -6,6 +6,7 @@ import {LabError,assertSession,need,audit,uuid,reasonText,type Staff} from '../l
 import {extract,screen,QuarantineError} from './extract';
 import {parseReport,PARSER_VERSION,type Parsed} from './parser';
 import {resultSettings,limitsOf} from './service';
+import {labCertifierEquivalent} from '../security/policy';
 
 const requestSchema=z.strictObject({versionId:uuid,reason:reasonText,idempotencyKey:uuid});
 type Evidence={id:string;version_id:string;source_sha256:string;actor_id:string;reason:string;parser_version:string;outcome:string;parsed:Parsed|null;reject_code:string|null;request_sha256:string;created_at:Date};
@@ -14,9 +15,9 @@ const response=(e:Evidence)=>({id:e.id,versionId:e.version_id,sourceSha256:e.sou
 async function activeMaintenance(db:Queryable,user:Staff){
  if(!user.sessionId)throw new LabError('UNAUTHENTICATED',401);
  await assertSession(db,user);need(user,'result.review','read');const admin=user.roles.includes('APP_ADMIN');
- if(!admin){need(user,'result.revise','approve');if(!user.roles.includes('LAB_CERTIFIER'))throw new LabError('FORBIDDEN',403);}
+ if(!admin){need(user,'result.revise','approve');if(!labCertifierEquivalent(user.roles))throw new LabError('FORBIDDEN',403);}
  const s=(await db.query<{active:boolean;enabled:boolean;maintainer:boolean}>(`SELECT s.revoked_at IS NULL AND NOT s.signing_suspended AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp() active,
- u.enabled,EXISTS(SELECT 1 FROM role_assignment r WHERE r.user_id=u.id AND r.role IN ('LAB_CERTIFIER','APP_ADMIN') AND r.effective_from<=clock_timestamp() AND (r.expires_at IS NULL OR r.expires_at>clock_timestamp())) maintainer
+ u.enabled,EXISTS(SELECT 1 FROM role_assignment r WHERE r.user_id=u.id AND r.role IN ('LAB_CERTIFIER','LAB_STAFF','APP_ADMIN') AND r.effective_from<=clock_timestamp() AND (r.expires_at IS NULL OR r.expires_at>clock_timestamp())) maintainer
  FROM app_session s JOIN app_user u ON u.id=s.user_id WHERE s.id=$1 AND s.user_id=$2`,[user.sessionId,user.id])).rows[0];
  if(!s?.active||!s.enabled)throw new LabError('UNAUTHENTICATED',401);if(!s.maintainer)throw new LabError('FORBIDDEN',403);
 }

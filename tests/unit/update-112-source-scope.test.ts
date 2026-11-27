@@ -94,6 +94,7 @@ it('installed baseline migration 157 has identical bytes and the post-baseline i
   '231_confirmatory_result.sql',
   '232_run_photo_ln_halos_range.sql',
   '233_worker_queue_resolution.sql',
+  '234_lab_staff_certifier_equivalent.sql',
  ]);
  expect(readFileSync('db/migrations/159_pdf_archive_retry.sql','utf8')).not.toMatch(/CREATE FUNCTION|SECURITY DEFINER|GRANT EXECUTE/i);
 });

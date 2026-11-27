@@ -7,9 +7,10 @@ describe("every role × action × scope × operation cell",()=>{
       expect(rule).toHaveLength(ROLES.length);
       const user:Principal={id:"maker",roles:[role],unitIds:["own"],permissions:[]};
       for(const operation of ["read","write","propose","approve"] as const) for(const unitId of ["own","other",undefined]) {
-        const cell=rule[index];
+        // Owner 2026-11-27: LAB_STAFF also holds the LAB_CERTIFIER column.
+        const cells=role==="LAB_STAFF"?[rule[index],rule[ROLES.indexOf("LAB_CERTIFIER")]]:[rule[index]];
         const adminGrant=role==="APP_ADMIN"&&APP_ADMIN_SYSTEMWIDE_ACTIONS.has(action as Action);
-        const expected=!blocked.has(action)&&(adminGrant||cell==="Y"||(cell==="U"&&unitId==="own")||(cell==="R"&&operation==="read")||(cell==="P"&&operation==="propose")||(cell==="A"&&operation==="approve"));
+        const expected=!blocked.has(action)&&(adminGrant||cells.some(cell=>cell==="Y"||(cell==="U"&&unitId==="own")||(cell==="R"&&operation==="read")||(cell==="P"&&operation==="propose")||(cell==="A"&&operation==="approve")));
         expect(authorize(user,action,{unitId,origin:"ANC",actorId:"someone-else"},operation)).toBe(expected);
       }
     });
@@ -54,11 +55,11 @@ describe("every role × action × scope × operation cell",()=>{
     expect(authorize(checker,"settings.approve",{actorId:"same"},"approve")).toBe(true);   // owner 2026-11-03: no second name needed
     expect(authorize({...checker,roles:["LAB_CERTIFIER"]},"batch.assign",{origin:"HISTORICAL"})).toBe(false);
   });
-  it("result.link.manual (spec 5.4): a certifier may propose and approve alone, staff may only propose, nobody else gains it",()=>{
+  it("result.link.manual (spec 5.4): a certifier may propose and approve alone, so may staff (Owner 2026-11-27), nobody else gains it",()=>{
     const as=(role:Principal["roles"][number]):Principal=>({id:"u",roles:[role],unitIds:[],permissions:[]});
     for(const op of ["propose","approve"] as const) expect(authorize(as("LAB_CERTIFIER"),"result.link.manual",{actorId:"u"},op)).toBe(true);
     expect(authorize(as("LAB_STAFF"),"result.link.manual",{},"propose")).toBe(true);
-    expect(authorize(as("LAB_STAFF"),"result.link.manual",{},"approve")).toBe(false);
+    expect(authorize(as("LAB_STAFF"),"result.link.manual",{},"approve")).toBe(true);
     for(const role of ["ANC_NURSE","ANC_SUPERVISOR","CLINICAL_APPROVER","AUDITOR","IT_OPERATOR","HISTORICAL_VERIFIER"] as const)
       for(const op of ["propose","approve"] as const) expect(authorize(as(role),"result.link.manual",{},op)).toBe(false);
   });

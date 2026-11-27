@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import {useCallback,useEffect,useMemo,useState,useSyncExternalStore,useEffectEvent} from 'react';
+import {useCallback,useEffect,useMemo,useRef,useState,useSyncExternalStore,useEffectEvent} from 'react';
 import {LabIcon} from '../shared/lab-icons';
 import {labApi,failureText,bkk} from '../p4/lab-api';
 
@@ -64,7 +64,10 @@ export function ReportBatchItems({batch}:{batch:ReportBatch}){
 export function ReportRunCard({batchId,onComplete,onClose,onViewResults}:{batchId:string;onComplete?:()=>void;onClose:()=>void;onViewResults:()=>void}){
  const {batch,error,retry}=useReportBatch(batchId,onComplete);
  const done=batch?.state==='COMPLETED',t=batch?tally(batch):{final:0,hold:0,error:0};
- return <section className={`report-run-card${done?' done':''}`} aria-label="การออกรายงาน" aria-live="polite">
+ // Owner 2026-11-27: after the report dialog confirms, the page takes the user up to this progress card instead of leaving them where the dialog was.
+ const card=useRef<HTMLElement>(null);
+ useEffect(()=>{card.current?.scrollIntoView({block:'start',behavior:'smooth'});},[batchId]);
+ return <section ref={card} className={`report-run-card${done?' done':''}`} aria-label="การออกรายงาน" aria-live="polite">
   <div className="report-run-head"><strong>{done?'ออกรายงานเสร็จแล้ว':'กำลังออกรายงาน'}{batch?` · ${batch.total} ราย`:''}</strong>
    {done&&<button type="button" className="button small secondary" onClick={onClose}>ปิด</button>}</div>
   {batch?<BatchProgressBar batch={batch}/>:<p className="help" role="status">กำลังโหลดงานออกรายงาน…</p>}

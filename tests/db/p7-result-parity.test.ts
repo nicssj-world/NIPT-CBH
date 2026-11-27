@@ -78,9 +78,9 @@ describe('P7 approved result parity',()=>{
   expect((await f.db.query<{actor_id:string}>("SELECT actor_id FROM audit_chain WHERE action='RESULT_DIAGNOSTIC_REPARSED'")).rows).toEqual([{actor_id:admin.id}]);
   expect((await f.db.query<{n:number}>('SELECT count(*)::int n FROM result_release')).rows[0].n).toBe(0);
  });
- it('reparse refuses staff, missing/revoked sessions and invalid reasons',async()=>{
+ it('reparse refuses ANC, missing/revoked sessions and invalid reasons',async()=>{
   const {versionId}=await importReport(f,spec('00004')),req={versionId,reason:'จำลอง ตรวจซ้ำ parser',idempotencyKey:randomUUID()};
-  await expect(f.run(async t=>reparseResult(t,await session(f.u.staff),f.store,req))).rejects.toThrow('FORBIDDEN');
+  await expect(f.run(async t=>reparseResult(t,await session(f.u.anc),f.store,req))).rejects.toThrow('FORBIDDEN');   // Owner 2026-11-27: LAB_STAFF maintains as a certifier
   await expect(f.run(t=>reparseResult(t,f.u.certifier,f.store,req))).rejects.toThrow('UNAUTHENTICATED');
   const u=await session(f.u.certifier);
   await f.db.query('UPDATE app_session SET signing_suspended=true WHERE id=$1',[u.sessionId]);await expect(f.run(t=>reparseResult(t,u,f.store,req))).rejects.toThrow('STAFF_SESSION_SUSPENDED');

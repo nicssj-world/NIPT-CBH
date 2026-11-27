@@ -127,6 +127,12 @@ export const APP_ADMIN_RESTRICTED_ACTIONS:ReadonlySet<Action>=new Set<Action>([
 ]);
 export const APP_ADMIN_SYSTEMWIDE_ACTIONS:ReadonlySet<Action>=new Set<Action>((Object.keys(rows) as Action[]).filter(a=>!APP_ADMIN_RESTRICTED_ACTIONS.has(a)));
 
+// Owner 2026-11-27: there is no LAB_CERTIFIER in the system; LAB_STAFF may do everything a LAB_CERTIFIER may (accept QC, review,
+// certify and issue reports, send HIS). A LAB_STAFF assignment therefore also carries the LAB_CERTIFIER column of the matrix.
+// The database guards accept LAB_STAFF the same way (migration 234).
+export const labEffectiveRoles=(roles:readonly Role[]):readonly Role[]=>roles.includes("LAB_STAFF")&&!roles.includes("LAB_CERTIFIER")?[...roles,"LAB_CERTIFIER"]:roles;
+export const labCertifierEquivalent=(roles:readonly Role[])=>labEffectiveRoles(roles).includes("LAB_CERTIFIER");
+
 export function authorize(user: Principal, action: string, resource: ResourceScope = {}, operation: Operation = "write"): boolean {
   if (!(action in rows) || !user.roles.length) return false;
   // LAB-UAT-002: settings entry, direct URLs and APIs share this boundary.
@@ -141,7 +147,7 @@ export function authorize(user: Principal, action: string, resource: ResourceSco
   if (user.roles.includes("APP_ADMIN") && APP_ADMIN_SYSTEMWIDE_ACTIONS.has(action as Action)) return true;
   if(action==='history.draft'&&operationalDataEnabled()&&user.roles.some(role=>role==='LAB_STAFF'||role==='LAB_CERTIFIER'))return true;
   const rule = rows[action as Action];
-  return user.roles.some(role => {
+  return labEffectiveRoles(user.roles).some(role => {
     const cell = rule[ROLES.indexOf(role)] as Cell;
     if (cell === "Y") return true;
     if (cell === "U") {
